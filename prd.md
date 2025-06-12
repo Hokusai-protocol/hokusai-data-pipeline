@@ -1,113 +1,115 @@
-# Product Requirements Document: Integrate Contributed Data Step
+# PRD: Implement evaluate_on_benchmark Step
 
 ## Objective
+Implement the evaluate_on_benchmark step in the Hokusai evaluation pipeline that runs standardized benchmark evaluations comparing baseline versus new model performance, logging metrics and outputting raw scores for downstream processing.
 
-Implement a robust `integrate_contributed_data` step in the Hokusai evaluation pipeline that merges submitted datasets with the training set. This step enables contributors to submit their own data for model improvement while maintaining data quality, validation, and pipeline integrity.
+## Project Summary
+**[feature] Implement evaluate_on_benchmark step** - Run evaluation using standardized benchmarks.
+
+Key requirements:
+* Compare baseline vs new model
+* Log performance (e.g., AUROC, accuracy)
+* Output raw scores
 
 ## Personas
-
-**Primary Users:**
-- Pipeline Engineers: Need to integrate contributed data into the training workflow
-- Data Scientists: Require data validation and quality assurance for contributed datasets
-- ML Engineers: Need clean, properly formatted data for model training
-
-**Secondary Users:**
-- Contributors: Submit datasets that need to be integrated into the pipeline
-- DevOps Engineers: Monitor data integration performance and errors
-- Quality Assurance: Validate data integration functionality across environments
+- **Pipeline Engineers**: Need reliable, reproducible benchmark evaluation step
+- **ML Engineers**: Require standardized evaluation metrics and model comparison
+- **Data Contributors**: Want to see how their contributions impact model performance
+- **Verifiers**: Need deterministic, auditable evaluation process for DeltaOne calculations
 
 ## Success Criteria
+1. Evaluation step successfully integrates with existing Metaflow pipeline
+2. Standardized benchmarks are applied consistently to both baseline and new models
+3. Performance metrics (AUROC, accuracy, precision, recall, F1) are calculated and logged
+4. Raw prediction scores are output in structured format for downstream steps
+5. Evaluation process is deterministic with proper random seed handling
+6. MLFlow integration captures all evaluation metadata and metrics
+7. Error handling covers model loading and evaluation failures
 
-### Functional Requirements
-- Successfully load datasets from various sources (file paths, blob storage)
-- Validate dataset schema and format compatibility
-- Merge contributed data with existing training datasets
-- Support multiple data formats (JSON, CSV, Parquet)
-- Implement data cleaning and deduplication capabilities
-- Provide optional data shuffling for training optimization
-- Handle large datasets efficiently without memory overflow
-- Pass integrated dataset downstream to training steps
+## Technical Requirements
 
-### Performance Requirements
-- Process datasets up to 10GB within 15 minutes
-- Memory usage remains below 8GB during integration
-- Support concurrent data loading from multiple sources
-- Maintain data integrity throughout the integration process
-
-### Reliability Requirements
-- 99.9% success rate for valid data integration requests
-- Graceful handling of malformed or corrupted data
-- Comprehensive logging for monitoring and debugging
-- Rollback capability for failed integrations
-
-## Technical Specifications
-
-### Core Functionality
-1. **Data Loading**: Load datasets from local file system or blob storage
-2. **Schema Validation**: Verify data schema matches expected format
-3. **Data Cleaning**: Remove duplicates, handle missing values, validate data types
-4. **Data Merging**: Combine contributed data with existing training dataset
-5. **Data Shuffling**: Optional randomization for training optimization
-6. **Error Handling**: Robust error handling with detailed error messages
-7. **Logging**: Comprehensive logging for monitoring and debugging
-
-### Input Parameters
-- `data_source`: Source type (local_path, blob_storage, url)
-- `data_path`: Path or URL to the contributed dataset
-- `schema_config`: Expected data schema configuration
-- `merge_strategy`: How to combine with existing data (append, interleave, weighted)
-- `validation_config`: Data validation parameters
-- `cleaning_config`: Data cleaning options (dedupe, shuffle, etc.)
+### Input
+- Baseline model from load_baseline_model step
+- New/fine-tuned model from train_new_model step
+- Standardized benchmark dataset(s)
+- Evaluation configuration parameters
+- Random seed for reproducibility
 
 ### Output
-- Integrated dataset ready for model training
-- Data integration metadata (row counts, validation results)
-- Integration statistics and quality metrics
+- Performance metrics for both models (AUROC, accuracy, precision, recall, F1)
+- Raw prediction scores and probabilities
+- Model comparison summary with delta calculations
+- MLFlow experiment logs with all metrics and artifacts
+- Structured JSON output for compare_and_output_delta step
 
-## Implementation Tasks
+### Implementation Tasks
 
-### Core Development
-1. Create `data_integration.py` module with `integrate_contributed_data` function
-2. Implement data loading from multiple sources (local, blob storage)
-3. Add schema validation framework
-4. Build data cleaning and deduplication capabilities
-5. Implement data merging strategies
-6. Add optional data shuffling functionality
-7. Implement comprehensive error handling
-8. Add structured logging throughout the module
+1. **Create Metaflow step structure**
+   - Define @step decorator for evaluate_on_benchmark
+   - Set up input/output data flow from previous pipeline steps
+   - Initialize MLFlow tracking for evaluation runs
 
-### Testing
-1. Create unit tests for data loading from different sources
-2. Add unit tests for schema validation
-3. Implement tests for data cleaning and deduplication
-4. Create tests for data merging strategies
-5. Add tests for error scenarios (malformed data, schema mismatches)
-6. Implement performance tests for large datasets
+2. **Implement benchmark dataset handling**
+   - Load standardized benchmark datasets
+   - Support multiple benchmark types (classification, regression, etc.)
+   - Implement data preprocessing and validation
+   - Handle different data formats (JSON, CSV, parquet)
 
-### Documentation
-1. Update module docstrings with usage examples
-2. Add inline comments for complex logic
-3. Document configuration parameters and schemas
+3. **Model evaluation logic**
+   - Load both baseline and new models
+   - Run inference on benchmark datasets
+   - Calculate standard ML metrics (AUROC, accuracy, precision, recall, F1)
+   - Generate prediction scores and probabilities
+   - Handle different model architectures and output formats
 
-### Integration
-1. Integrate with existing Metaflow pipeline structure
-2. Ensure compatibility with MLFlow tracking setup
-3. Add proper logging integration with pipeline monitoring
-4. Connect output to train_new_model step
+4. **Performance comparison**
+   - Compare metrics between baseline and new models
+   - Calculate performance deltas
+   - Generate summary statistics
+   - Identify significant performance changes
+
+5. **MLFlow integration**
+   - Log evaluation metrics for both models
+   - Store prediction artifacts and raw scores
+   - Track benchmark dataset metadata
+   - Log comparison results and deltas
+
+6. **Output formatting**
+   - Structure evaluation results for downstream processing
+   - Generate JSON output compatible with compare_and_output_delta step
+   - Include model metadata and evaluation parameters
+   - Format raw scores for further analysis
+
+7. **Error handling and validation**
+   - Validate model compatibility with benchmark datasets
+   - Handle model loading failures gracefully
+   - Verify evaluation metric calculations
+   - Add comprehensive logging and error reporting
+
+8. **Testing**
+   - Unit tests for evaluation metric calculations
+   - Integration tests with mock models and datasets
+   - End-to-end pipeline testing with real benchmark data
+   - Performance regression tests
 
 ## Dependencies
+- Metaflow framework for pipeline orchestration
+- MLFlow for experiment tracking and model management
+- Baseline model from load_baseline_model step
+- New model from train_new_model step
+- Standardized benchmark datasets
+- Python ML libraries (scikit-learn, numpy, pandas)
+- Model-specific libraries based on architecture
 
-- Pandas for data manipulation
-- PyArrow for Parquet file support
-- Metaflow framework
-- MLFlow for experiment tracking
-- Python logging module
-- Cloud storage libraries (boto3 for S3, azure-storage-blob for Azure)
-
-## Risk Mitigation
-
-- **Large Dataset Handling**: Implement chunked processing for large files
-- **Memory Management**: Use streaming/iterative processing to avoid memory overflow
-- **Data Quality**: Comprehensive validation and cleaning pipelines
-- **Schema Evolution**: Flexible schema validation with versioning support
-- **Data Privacy**: Ensure no sensitive data logging or exposure
+## Acceptance Criteria
+- [ ] evaluate_on_benchmark step runs successfully in Metaflow pipeline
+- [ ] Both baseline and new models are evaluated on standardized benchmarks
+- [ ] All specified metrics (AUROC, accuracy, precision, recall, F1) are calculated correctly
+- [ ] Raw prediction scores are output in structured format
+- [ ] Evaluation process is deterministic with fixed random seeds
+- [ ] MLFlow captures all evaluation metadata and results
+- [ ] Performance comparison between models is accurate
+- [ ] Step handles errors gracefully with informative messages
+- [ ] Integration tests pass with mock models and real benchmark data
+- [ ] Output format is compatible with downstream pipeline steps
+- [ ] Documentation covers usage, configuration, and benchmark dataset requirements

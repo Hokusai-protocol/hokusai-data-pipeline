@@ -410,46 +410,233 @@ class HokusaiPipeline(FlowSpec):
     
     @step
     def evaluate_on_benchmark(self):
-        """Evaluate both models on standardized benchmark."""
+        """Evaluate both models on standardized benchmark datasets."""
+        from src.modules.evaluation import ModelEvaluator
+        from src.utils.mlflow_config import mlflow_run_context, log_step_parameters, log_step_metrics
+        import time
+        
         print("Evaluating models on benchmark dataset")
         
-        if self.dry_run:
-            # Use mock evaluation results
-            self.evaluation_results = {
-                "baseline": self.baseline_model["metrics"],
-                "new": self.new_model["metrics"],
-                "benchmark_size": 1000,
-                "evaluation_timestamp": datetime.utcnow().isoformat()
+        # Initialize MLflow tracking for evaluation step
+        with mlflow_run_context(
+            experiment_name=self.config.mlflow_experiment_name,
+            run_name=f"evaluate_on_benchmark_{current.run_id}",
+            tags={
+                "pipeline.step": "evaluate_on_benchmark",
+                "pipeline.run_id": current.run_id,
+                "pipeline.timestamp": datetime.utcnow().isoformat()
             }
-            print("Completed mock evaluation for dry run")
-        else:
-            # TODO: Implement actual evaluation
-            raise NotImplementedError("Model evaluation not yet implemented")
+        ):
+            # Initialize evaluator
+            evaluator = ModelEvaluator(metrics=self.config.evaluation_metrics)
+            evaluation_start_time = time.time()
+            
+            if self.dry_run:
+                # Create mock benchmark dataset for testing
+                import pandas as pd
+                benchmark_size = 1000
+                benchmark_data = pd.DataFrame({
+                    "feature_1": [0.1 * i for i in range(benchmark_size)],
+                    "feature_2": [0.2 * i for i in range(benchmark_size)],
+                    "feature_3": [0.3 * i for i in range(benchmark_size)],
+                    "label": [i % 2 for i in range(benchmark_size)]
+                })
+                
+                # Split into features and labels
+                feature_columns = ["feature_1", "feature_2", "feature_3"]
+                X_benchmark = benchmark_data[feature_columns]
+                y_benchmark = benchmark_data["label"]
+                
+                # Evaluate baseline model
+                baseline_results = evaluator.evaluate_model(
+                    self.baseline_model, X_benchmark, y_benchmark
+                )
+                
+                # Evaluate new model
+                new_results = evaluator.evaluate_model(
+                    self.new_model, X_benchmark, y_benchmark
+                )
+                
+                # Compare models
+                comparison = evaluator.compare_models(
+                    baseline_results["metrics"],
+                    new_results["metrics"]
+                )
+                
+                # Calculate delta score
+                delta_score = evaluator.calculate_delta_score(comparison)
+                
+                # Create evaluation report
+                evaluation_report = evaluator.create_evaluation_report(
+                    baseline_results, new_results, comparison, delta_score
+                )
+                
+                evaluation_time = time.time() - evaluation_start_time
+                
+                # Store evaluation results
+                self.evaluation_results = {
+                    "baseline_metrics": baseline_results["metrics"],
+                    "new_metrics": new_results["metrics"],
+                    "comparison": comparison,
+                    "delta_score": delta_score,
+                    "evaluation_report": evaluation_report,
+                    "benchmark_dataset": {
+                        "size": benchmark_size,
+                        "features": feature_columns,
+                        "type": "mock_classification_benchmark"
+                    },
+                    "evaluation_timestamp": datetime.utcnow().isoformat(),
+                    "evaluation_time_seconds": evaluation_time
+                }
+                
+                # Log parameters and metrics to MLflow
+                log_step_parameters({
+                    "benchmark_size": benchmark_size,
+                    "benchmark_type": "mock_classification_benchmark",
+                    "feature_count": len(feature_columns),
+                    "baseline_model_type": baseline_results["model_type"],
+                    "new_model_type": new_results["model_type"],
+                    "evaluation_metrics": self.config.evaluation_metrics
+                })
+                
+                log_step_metrics({
+                    "evaluation_time_seconds": evaluation_time,
+                    "benchmark_size": benchmark_size,
+                    "delta_score": delta_score,
+                    **{f"baseline_{k}": v for k, v in baseline_results["metrics"].items()},
+                    **{f"new_{k}": v for k, v in new_results["metrics"].items()},
+                    **{f"delta_{k}": v["absolute_delta"] for k, v in comparison.items()}
+                })
+                
+                print(f"Completed mock evaluation in {evaluation_time:.2f} seconds")
+                print(f"Baseline model performance: {baseline_results['metrics']}")
+                print(f"New model performance: {new_results['metrics']}")
+                print(f"Delta score: {delta_score:.4f}")
+                
+            else:
+                # TODO: Load actual benchmark datasets
+                # For now, create a simple benchmark from the test data
+                if hasattr(self, 'integrated_data') and 'label' in self.integrated_data.columns:
+                    # Use a subset of integrated data as benchmark (in real scenario, this would be separate)
+                    benchmark_data = self.integrated_data.sample(
+                        n=min(1000, len(self.integrated_data)), 
+                        random_state=self.config.random_seed
+                    )
+                    
+                    feature_columns = [col for col in benchmark_data.columns 
+                                     if col not in ['label', 'query_id']]
+                    X_benchmark = benchmark_data[feature_columns]
+                    y_benchmark = benchmark_data["label"]
+                    
+                    # Evaluate baseline model
+                    baseline_results = evaluator.evaluate_model(
+                        self.baseline_model, X_benchmark, y_benchmark
+                    )
+                    
+                    # Evaluate new model (load from MLflow if needed)
+                    new_results = evaluator.evaluate_model(
+                        self.new_model, X_benchmark, y_benchmark
+                    )
+                    
+                    # Compare models
+                    comparison = evaluator.compare_models(
+                        baseline_results["metrics"],
+                        new_results["metrics"]
+                    )
+                    
+                    # Calculate delta score
+                    delta_score = evaluator.calculate_delta_score(comparison)
+                    
+                    # Create evaluation report
+                    evaluation_report = evaluator.create_evaluation_report(
+                        baseline_results, new_results, comparison, delta_score
+                    )
+                    
+                    evaluation_time = time.time() - evaluation_start_time
+                    
+                    # Store evaluation results
+                    self.evaluation_results = {
+                        "baseline_metrics": baseline_results["metrics"],
+                        "new_metrics": new_results["metrics"],
+                        "comparison": comparison,
+                        "delta_score": delta_score,
+                        "evaluation_report": evaluation_report,
+                        "benchmark_dataset": {
+                            "size": len(benchmark_data),
+                            "features": feature_columns,
+                            "type": "integrated_data_benchmark"
+                        },
+                        "evaluation_timestamp": datetime.utcnow().isoformat(),
+                        "evaluation_time_seconds": evaluation_time
+                    }
+                    
+                    # Log parameters and metrics to MLflow
+                    log_step_parameters({
+                        "benchmark_size": len(benchmark_data),
+                        "benchmark_type": "integrated_data_benchmark",
+                        "feature_count": len(feature_columns),
+                        "baseline_model_type": baseline_results["model_type"],
+                        "new_model_type": new_results["model_type"],
+                        "evaluation_metrics": self.config.evaluation_metrics
+                    })
+                    
+                    log_step_metrics({
+                        "evaluation_time_seconds": evaluation_time,
+                        "benchmark_size": len(benchmark_data),
+                        "delta_score": delta_score,
+                        **{f"baseline_{k}": v for k, v in baseline_results["metrics"].items()},
+                        **{f"new_{k}": v for k, v in new_results["metrics"].items()},
+                        **{f"delta_{k}": v["absolute_delta"] for k, v in comparison.items()}
+                    })
+                    
+                    print(f"Completed evaluation in {evaluation_time:.2f} seconds")
+                    print(f"Baseline model performance: {baseline_results['metrics']}")
+                    print(f"New model performance: {new_results['metrics']}")
+                    print(f"Delta score: {delta_score:.4f}")
+                    
+                else:
+                    raise ValueError("No suitable benchmark data available for evaluation")
         
         self.next(self.compare_and_output_delta)
     
     @step
     def compare_and_output_delta(self):
-        """Calculate performance delta between models."""
-        print("Calculating performance delta")
+        """Calculate performance delta between models and package results."""
+        print("Calculating performance delta and packaging results")
         
-        # Calculate deltas
-        self.delta_results = {}
-        for metric in self.config.evaluation_metrics:
-            baseline_val = self.evaluation_results["baseline"].get(metric, 0)
-            new_val = self.evaluation_results["new"].get(metric, 0)
-            self.delta_results[metric] = {
-                "baseline": baseline_val,
-                "new": new_val,
-                "delta": new_val - baseline_val,
-                "delta_percentage": ((new_val - baseline_val) / baseline_val * 100) if baseline_val > 0 else 0
-            }
+        # Extract comparison results from evaluation step
+        self.delta_results = self.evaluation_results["comparison"]
+        self.delta_one = self.evaluation_results["delta_score"]
         
-        # Calculate overall DeltaOne score (simplified for now)
-        delta_scores = [v["delta"] for v in self.delta_results.values()]
-        self.delta_one = sum(delta_scores) / len(delta_scores) if delta_scores else 0
+        # Create structured output for verification and downstream processing
+        self.delta_output = {
+            "delta_one_score": self.delta_one,
+            "model_comparison": self.delta_results,
+            "baseline_model": {
+                "metrics": self.evaluation_results["baseline_metrics"],
+                "model_id": self.baseline_model.get("version", "unknown"),
+                "model_type": self.baseline_model.get("type", "unknown")
+            },
+            "new_model": {
+                "metrics": self.evaluation_results["new_metrics"],
+                "model_id": self.new_model.get("version", "unknown"),
+                "model_type": self.new_model.get("type", "unknown"),
+                "training_metadata": self.new_model.get("integration_metadata", {})
+            },
+            "evaluation_metadata": {
+                "benchmark_dataset": self.evaluation_results["benchmark_dataset"],
+                "evaluation_timestamp": self.evaluation_results["evaluation_timestamp"],
+                "evaluation_time_seconds": self.evaluation_results["evaluation_time_seconds"],
+                "metrics_calculated": list(self.delta_results.keys())
+            },
+            "summary": self.evaluation_results["evaluation_report"]["summary"]
+        }
         
         print(f"DeltaOne score: {self.delta_one:.4f}")
+        print(f"Performance summary:")
+        print(f"  - Improved metrics: {self.delta_output['summary']['improved_metrics']}")
+        print(f"  - Degraded metrics: {self.delta_output['summary']['degraded_metrics']}")
+        print(f"  - Overall improvement: {self.delta_output['summary']['overall_improvement']}")
         
         self.next(self.generate_attestation_output)
     
@@ -458,7 +645,7 @@ class HokusaiPipeline(FlowSpec):
         """Generate attestation-ready output with all results."""
         print("Generating attestation output")
         
-        # Create attestation-ready output
+        # Create attestation-ready output with enhanced evaluation data
         self.attestation_output = {
             "schema_version": ATTESTATION_SCHEMA_VERSION,
             "attestation_version": ATTESTATION_VERSION,
@@ -468,12 +655,28 @@ class HokusaiPipeline(FlowSpec):
             "contributor_data_manifest": self.data_manifest,
             "baseline_model_id": self.baseline_model.get("version", "unknown"),
             "new_model_id": self.new_model.get("version", "unknown"),
-            "evaluation_results": self.evaluation_results,
-            "delta_results": self.delta_results,
+            "evaluation_results": {
+                "baseline_metrics": self.evaluation_results["baseline_metrics"],
+                "new_metrics": self.evaluation_results["new_metrics"],
+                "benchmark_metadata": self.evaluation_results["benchmark_dataset"],
+                "evaluation_timestamp": self.evaluation_results["evaluation_timestamp"],
+                "evaluation_time_seconds": self.evaluation_results["evaluation_time_seconds"]
+            },
+            "model_comparison": self.delta_results,
             "delta_one_score": self.delta_one,
+            "delta_output": self.delta_output,
+            "performance_summary": {
+                "improved_metrics": self.delta_output["summary"]["improved_metrics"],
+                "degraded_metrics": self.delta_output["summary"]["degraded_metrics"],
+                "overall_improvement": self.delta_output["summary"]["overall_improvement"],
+                "total_metrics_evaluated": len(self.delta_results)
+            },
             "metadata": self.run_metadata,
             "status": STATUS_SUCCESS
         }
+        
+        print(f"Generated attestation output with {len(self.delta_results)} metrics evaluated")
+        print(f"Evaluation completed in {self.evaluation_results['evaluation_time_seconds']:.2f} seconds")
         
         self.next(self.monitor_and_log)
     
