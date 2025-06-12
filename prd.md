@@ -1,59 +1,52 @@
-# Product Requirements Document: Set up Metaflow Base Project
+# Product Requirements Document: MLFlow Tracking Integration
 
 ## Objectives
 
-Establish the foundational infrastructure for the Hokusai data evaluation pipeline using Metaflow, enabling distributed processing and experiment tracking for ML model evaluation workflows.
+Integrate MLFlow experiment tracking throughout the Hokusai evaluation pipeline to enable comprehensive monitoring, reproducibility, and analysis of all pipeline stages. This will provide visibility into model training, evaluation metrics, and pipeline execution for both internal teams and external contributors.
 
 ## Personas
 
-**Data Engineer**: Responsible for implementing and maintaining the pipeline infrastructure, ensuring reliable data processing and model evaluation.
+**Primary User: Data Scientists and ML Engineers**
+- Need to track experiments and compare model performance
+- Require reproducible results and audit trails
+- Want to analyze training metrics and model artifacts
 
-**ML Engineer**: Uses the pipeline to evaluate model improvements, track experiments, and generate attestation-ready outputs.
+**Secondary User: Pipeline Operators**
+- Need to monitor pipeline execution and debug failures
+- Require visibility into resource usage and performance
+- Want to track pipeline runs and their outcomes
 
 ## Success Criteria
 
-1. Metaflow project initialized with proper Python environment configuration
-2. Storage backend configured for artifact and data persistence
-3. Basic pipeline structure with placeholder steps matching the 7-module architecture defined in hokusai_evaluation_pipeline.md
-4. Local execution capability with dry-run mode
-5. Integration points ready for MLFlow tracking
-6. Documentation for running and extending the pipeline
+- All pipeline steps automatically log to MLFlow
+- Model artifacts, metrics, and parameters are tracked consistently
+- Pipeline runs can be reproduced from MLFlow metadata
+- Experiment comparison and analysis is enabled through MLFlow UI
+- Zero manual intervention required for basic tracking
 
 ## Tasks
 
-### Environment Setup
-- Create Python virtual environment with required dependencies
-- Install Metaflow and core pipeline dependencies
-- Configure Metaflow settings for local development
-- Set up .gitignore for Python/Metaflow artifacts
+### Core MLFlow Setup
+- Configure MLFlow tracking server connection
+- Establish experiment naming conventions
+- Create base MLFlow utility functions
+- Set up artifact storage backend
 
-### Project Structure
-- Create base directory structure for pipeline modules
-- Initialize Metaflow project with proper configuration
-- Define pipeline constants and configuration management
-- Set up logging infrastructure
+### Pipeline Integration
+- Integrate tracking into load_baseline_model step
+- Add tracking to integrate_contributed_data step
+- Implement tracking in train_new_model step
+- Add tracking to evaluate_on_benchmark step
+- Integrate tracking into compare_and_output_delta step
 
-### Pipeline Implementation
-- Create main pipeline flow class inheriting from Metaflow FlowSpec
-- Implement placeholder steps for each of the 7 modules:
-  - load_baseline_model
-  - integrate_contributed_data
-  - train_new_model
-  - evaluate_on_benchmark
-  - compare_and_output_delta
-  - generate_attestation_output
-  - monitor_and_log
-- Add proper step decorators and parameter passing
-- Implement basic error handling structure
+### Metadata and Artifacts
+- Define standard parameter logging format
+- Implement model artifact storage
+- Set up dataset versioning and tracking
+- Create pipeline run metadata schema
 
-### Testing Infrastructure
-- Create test data fixtures for dry-run mode
-- Implement mock baseline model for testing
-- Add validation for step inputs/outputs
-- Create simple integration test
-
-### Documentation
-- Write README for pipeline usage
-- Document configuration options
-- Create example command for running pipeline
-- Add troubleshooting guide
+### Testing and Validation
+- Create unit tests for MLFlow utilities
+- Add integration tests for pipeline tracking
+- Implement mock MLFlow server for testing
+- Validate tracking data consistency

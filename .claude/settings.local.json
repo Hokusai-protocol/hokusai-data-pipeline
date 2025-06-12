@@ -6,7 +6,10 @@
       "Bash(npm install)",
       "Bash(npx tsx:*)",
       "Bash(git checkout:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(python -m pytest tests/unit/test_mlflow_config.py -v)",
+      "Bash(source:*)",
+      "Bash(python -m pytest tests/unit/test_mlflow_config.py tests/integration/test_mlflow_integration.py -v)"
     ],
     "deny": []
   }
