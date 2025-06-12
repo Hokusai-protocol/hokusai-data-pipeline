@@ -601,44 +601,186 @@ class HokusaiPipeline(FlowSpec):
     
     @step
     def compare_and_output_delta(self):
-        """Calculate performance delta between models and package results."""
-        print("Calculating performance delta and packaging results")
+        """Calculate performance delta between models and package results for verifier consumption."""
+        from src.utils.mlflow_config import mlflow_run_context, log_step_parameters, log_step_metrics
+        import json
+        from pathlib import Path
         
-        # Extract comparison results from evaluation step
-        self.delta_results = self.evaluation_results["comparison"]
-        self.delta_one = self.evaluation_results["delta_score"]
+        print("Computing DeltaOne and packaging result for verifier")
         
-        # Create structured output for verification and downstream processing
-        self.delta_output = {
-            "delta_one_score": self.delta_one,
-            "model_comparison": self.delta_results,
-            "baseline_model": {
-                "metrics": self.evaluation_results["baseline_metrics"],
-                "model_id": self.baseline_model.get("version", "unknown"),
-                "model_type": self.baseline_model.get("type", "unknown")
-            },
-            "new_model": {
-                "metrics": self.evaluation_results["new_metrics"],
-                "model_id": self.new_model.get("version", "unknown"),
-                "model_type": self.new_model.get("type", "unknown"),
-                "training_metadata": self.new_model.get("integration_metadata", {})
-            },
-            "evaluation_metadata": {
-                "benchmark_dataset": self.evaluation_results["benchmark_dataset"],
-                "evaluation_timestamp": self.evaluation_results["evaluation_timestamp"],
-                "evaluation_time_seconds": self.evaluation_results["evaluation_time_seconds"],
-                "metrics_calculated": list(self.delta_results.keys())
-            },
-            "summary": self.evaluation_results["evaluation_report"]["summary"]
-        }
-        
-        print(f"DeltaOne score: {self.delta_one:.4f}")
-        print(f"Performance summary:")
-        print(f"  - Improved metrics: {self.delta_output['summary']['improved_metrics']}")
-        print(f"  - Degraded metrics: {self.delta_output['summary']['degraded_metrics']}")
-        print(f"  - Overall improvement: {self.delta_output['summary']['overall_improvement']}")
+        # Initialize MLflow tracking for delta computation step
+        with mlflow_run_context(
+            experiment_name=self.config.mlflow_experiment_name,
+            run_name=f"compare_and_output_delta_{current.run_id}",
+            tags={
+                "pipeline.step": "compare_and_output_delta",
+                "pipeline.run_id": current.run_id,
+                "pipeline.timestamp": datetime.utcnow().isoformat()
+            }
+        ):
+            # Validate input data completeness
+            if not hasattr(self, 'evaluation_results'):
+                raise ValueError("Missing evaluation_results from previous pipeline step")
+            
+            if not hasattr(self, 'data_manifest'):
+                raise ValueError("Missing data_manifest from integrate_contributed_data step")
+            
+            # Extract metrics from evaluation results
+            baseline_metrics = self.evaluation_results.get("baseline_metrics", {})
+            new_metrics = self.evaluation_results.get("new_metrics", {})
+            
+            if not baseline_metrics or not new_metrics:
+                raise ValueError("Missing baseline or new model metrics from evaluation step")
+            
+            # Compute delta = new_model_metrics - baseline_model_metrics
+            delta_computation = self._compute_model_delta(baseline_metrics, new_metrics)
+            
+            # Extract contributor data from previous steps
+            contributor_data = {
+                "data_hash": self.data_manifest.get("data_hash", ""),
+                "contributor_weights": self.new_model.get("integration_metadata", {}).get("contribution_ratio", 0.0),
+                "contributed_samples": self.new_model.get("contributed_samples", 0),
+                "total_samples": self.new_model.get("training_samples", 0),
+                "data_manifest": self.data_manifest
+            }
+            
+            # Create comprehensive DeltaOne output structure
+            delta_output = {
+                "schema_version": "1.0",
+                "delta_computation": {
+                    "delta_one_score": delta_computation["delta_one"],
+                    "metric_deltas": delta_computation["metric_deltas"],
+                    "computation_method": "weighted_average_delta",
+                    "metrics_included": list(delta_computation["metric_deltas"].keys())
+                },
+                "baseline_model": {
+                    "model_id": self.baseline_model.get("version", "unknown"),
+                    "model_type": self.baseline_model.get("type", "unknown"),
+                    "metrics": baseline_metrics,
+                    "mlflow_run_id": self.baseline_model.get("mlflow_run_id", None)
+                },
+                "new_model": {
+                    "model_id": self.new_model.get("version", "unknown"),
+                    "model_type": self.new_model.get("type", "unknown"),
+                    "metrics": new_metrics,
+                    "mlflow_run_id": self.new_model.get("mlflow_run_id", None),
+                    "training_metadata": self.new_model.get("integration_metadata", {})
+                },
+                "contributor_attribution": contributor_data,
+                "evaluation_metadata": {
+                    "benchmark_dataset": self.evaluation_results.get("benchmark_dataset", {}),
+                    "evaluation_timestamp": self.evaluation_results.get("evaluation_timestamp", ""),
+                    "evaluation_time_seconds": self.evaluation_results.get("evaluation_time_seconds", 0),
+                    "pipeline_run_id": current.run_id
+                },
+                "pipeline_metadata": {
+                    "run_id": current.run_id,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "config": self.config.to_dict(),
+                    "dry_run": self.dry_run
+                }
+            }
+            
+            # Log delta computation results to MLflow
+            log_step_parameters({
+                "delta_one_score": delta_computation["delta_one"],
+                "baseline_model_id": delta_output["baseline_model"]["model_id"],
+                "new_model_id": delta_output["new_model"]["model_id"],
+                "contributor_data_hash": contributor_data["data_hash"],
+                "contributed_samples": contributor_data["contributed_samples"],
+                "contribution_ratio": contributor_data["contributor_weights"]
+            })
+            
+            log_step_metrics({
+                "delta_one_score": delta_computation["delta_one"],
+                "contributor_weight": contributor_data["contributor_weights"],
+                "contributed_samples": contributor_data["contributed_samples"],
+                "total_training_samples": contributor_data["total_samples"],
+                **{f"delta_{metric}": delta for metric, delta in delta_computation["metric_deltas"].items()}
+            })
+            
+            # Store output JSON as MLflow artifact
+            output_path = Path(self.output_dir)
+            output_path.mkdir(parents=True, exist_ok=True)
+            delta_output_file = output_path / f"delta_output_{current.run_id}.json"
+            
+            with open(delta_output_file, "w") as f:
+                json.dump(delta_output, f, indent=2)
+            
+            # Log the JSON output as an MLflow artifact
+            try:
+                import mlflow
+                mlflow.log_artifact(str(delta_output_file), "delta_outputs")
+            except Exception as e:
+                print(f"Warning: Could not log artifact to MLflow: {e}")
+            
+            # Store results for downstream processing
+            self.delta_results = delta_computation["metric_deltas"]
+            self.delta_one = delta_computation["delta_one"]
+            self.delta_output = delta_output
+            
+            print(f"DeltaOne computation completed successfully")
+            print(f"DeltaOne score: {self.delta_one:.4f}")
+            print(f"Metrics evaluated: {list(delta_computation['metric_deltas'].keys())}")
+            print(f"Contributor samples: {contributor_data['contributed_samples']}")
+            print(f"Contribution ratio: {contributor_data['contributor_weights']:.2%}")
+            print(f"Delta output saved to: {delta_output_file}")
         
         self.next(self.generate_attestation_output)
+    
+    def _compute_model_delta(self, baseline_metrics, new_metrics):
+        """
+        Compute delta between baseline and new model metrics.
+        
+        Args:
+            baseline_metrics (dict): Baseline model performance metrics
+            new_metrics (dict): New model performance metrics
+            
+        Returns:
+            dict: Delta computation results including individual metric deltas and DeltaOne score
+        """
+        # Validate metric compatibility
+        baseline_keys = set(baseline_metrics.keys())
+        new_keys = set(new_metrics.keys())
+        
+        if not baseline_keys.intersection(new_keys):
+            raise ValueError("No compatible metrics found between baseline and new models")
+        
+        # Calculate deltas for compatible metrics
+        common_metrics = baseline_keys.intersection(new_keys)
+        metric_deltas = {}
+        
+        for metric in common_metrics:
+            try:
+                baseline_value = float(baseline_metrics[metric])
+                new_value = float(new_metrics[metric])
+                delta = new_value - baseline_value
+                metric_deltas[metric] = {
+                    "baseline_value": baseline_value,
+                    "new_value": new_value,
+                    "absolute_delta": delta,
+                    "relative_delta": (delta / baseline_value) if baseline_value != 0 else 0.0,
+                    "improvement": delta > 0
+                }
+            except (ValueError, TypeError) as e:
+                print(f"Warning: Could not compute delta for metric {metric}: {e}")
+                continue
+        
+        if not metric_deltas:
+            raise ValueError("No valid metric deltas could be computed")
+        
+        # Calculate DeltaOne score as weighted average of metric improvements
+        # For now, use simple average; in production, this would use metric-specific weights
+        delta_values = [delta_info["absolute_delta"] for delta_info in metric_deltas.values()]
+        delta_one_score = sum(delta_values) / len(delta_values)
+        
+        return {
+            "delta_one": delta_one_score,
+            "metric_deltas": metric_deltas,
+            "metrics_count": len(metric_deltas),
+            "improved_metrics": [metric for metric, info in metric_deltas.items() if info["improvement"]],
+            "degraded_metrics": [metric for metric, info in metric_deltas.items() if not info["improvement"]]
+        }
     
     @step 
     def generate_attestation_output(self):
