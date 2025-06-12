@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 from typing import Optional, Dict, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -36,7 +36,7 @@ class PipelineConfig:
     batch_size: int = int(os.getenv("BATCH_SIZE", "1000"))
     
     # Model evaluation settings
-    evaluation_metrics: list = ["accuracy", "precision", "recall", "f1", "auroc"]
+    evaluation_metrics: list = field(default_factory=lambda: ["accuracy", "precision", "recall", "f1", "auroc"])
     confidence_threshold: float = float(os.getenv("CONFIDENCE_THRESHOLD", "0.5"))
     
     # Data sampling
