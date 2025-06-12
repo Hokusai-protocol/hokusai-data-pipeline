@@ -1,0 +1,27 @@
+{
+  "type": "mock_baseline_model",
+  "version": "1.0.0",
+  "algorithm": "gradient_boosting",
+  "creation_date": "2024-01-01T00:00:00Z",
+  "metrics": {
+    "accuracy": 0.85,
+    "precision": 0.83,
+    "recall": 0.87,
+    "f1_score": 0.85,
+    "auroc": 0.91
+  },
+  "parameters": {
+    "n_estimators": 100,
+    "max_depth": 5,
+    "learning_rate": 0.1,
+    "random_state": 42
+  },
+  "training_metadata": {
+    "training_samples": 50000,
+    "validation_samples": 10000,
+    "features": 100,
+    "training_duration_seconds": 300,
+    "framework": "scikit-learn",
+    "framework_version": "1.3.0"
+  }
+}

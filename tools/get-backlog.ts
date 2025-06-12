@@ -1,6 +1,6 @@
 // @ts-nocheck
-const { getBacklog } = require('./linear-tasks.ts');
-const dotenv = require('dotenv');
+import { getBacklog } from './linear-tasks.js';
+import dotenv from 'dotenv';
 
 // Load environment variables
 dotenv.config();
