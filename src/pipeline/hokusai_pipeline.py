@@ -101,34 +101,115 @@ class HokusaiPipeline(FlowSpec):
     @step
     def integrate_contributed_data(self):
         """Load and validate contributed dataset."""
+        from src.modules.data_integration import DataIntegrator
+        from pathlib import Path
+        import pandas as pd
+        
         print(f"Loading contributed data from: {self.contributed_data_path}")
+        
+        # Initialize data integrator
+        integrator = DataIntegrator(random_seed=self.config.random_seed)
         
         if self.dry_run:
             # Create mock contributed data
-            import pandas as pd
             self.contributed_data = pd.DataFrame({
-                "query": [f"query_{i}" for i in range(100)],
-                "label": [i % 2 for i in range(100)],
-                "features": [[0.1 * i, 0.2 * i, 0.3 * i] for i in range(100)]
+                "query_id": [f"contrib_q_{i}" for i in range(100)],
+                "query_text": [f"contributed query {i}" for i in range(100)],
+                "feature_1": [0.1 * i for i in range(100)],
+                "feature_2": [0.2 * i for i in range(100)],
+                "feature_3": [0.3 * i for i in range(100)],
+                "label": [i % 2 for i in range(100)]
             })
-            print(f"Loaded mock contributed data: {len(self.contributed_data)} samples")
+            print(f"Created mock contributed data: {len(self.contributed_data)} samples")
+            
+            # Create mock base dataset for merging
+            base_data = pd.DataFrame({
+                "query_id": [f"base_q_{i}" for i in range(500)],
+                "query_text": [f"base query {i}" for i in range(500)],
+                "feature_1": [0.1 * i for i in range(500)],
+                "feature_2": [0.2 * i for i in range(500)],
+                "feature_3": [0.3 * i for i in range(500)],
+                "label": [i % 2 for i in range(500)]
+            })
+            
+            # Validate schema
+            required_columns = ["query_id", "query_text", "feature_1", "feature_2", "feature_3", "label"]
+            integrator.validate_schema(self.contributed_data, required_columns)
+            
+            # Remove PII (if any)
+            self.contributed_data = integrator.remove_pii(self.contributed_data)
+            
+            # Deduplicate
+            self.contributed_data = integrator.deduplicate(self.contributed_data)
+            
+            # Merge with base dataset
+            self.integrated_data = integrator.merge_datasets(
+                base_data, 
+                self.contributed_data, 
+                merge_strategy="append",
+                run_id=current.run_id,
+                metaflow_run_id=current.run_id
+            )
+            
+            # Create data manifest
+            self.data_manifest = integrator.create_data_manifest(
+                self.contributed_data, 
+                Path(self.contributed_data_path)
+            )
+            
+            print(f"Integrated dataset: {len(self.integrated_data)} total samples")
+            print(f"Data hash: {self.data_manifest['data_hash'][:16]}...")
+            
         else:
-            # TODO: Implement actual data loading and validation
-            raise NotImplementedError("Data loading not yet implemented")
+            # Load actual contributed data
+            data_path = Path(self.contributed_data_path)
+            
+            # Load contributed data
+            self.contributed_data = integrator.load_data(
+                data_path, 
+                run_id=current.run_id,
+                metaflow_run_id=current.run_id
+            )
+            
+            # Validate schema (define required columns based on your needs)
+            required_columns = ["query_id", "label"]  # Adjust as needed
+            integrator.validate_schema(self.contributed_data, required_columns)
+            
+            # Clean data
+            self.contributed_data = integrator.remove_pii(self.contributed_data)
+            self.contributed_data = integrator.deduplicate(self.contributed_data)
+            
+            # TODO: Load base training dataset and merge
+            # For now, just use contributed data as the training set
+            self.integrated_data = self.contributed_data
+            
+            # Create data manifest
+            self.data_manifest = integrator.create_data_manifest(
+                self.contributed_data, 
+                data_path
+            )
+            
+            print(f"Loaded and validated contributed data: {len(self.contributed_data)} samples")
+            print(f"Data hash: {self.data_manifest['data_hash'][:16]}...")
         
         self.next(self.train_new_model)
     
     @step
     def train_new_model(self):
         """Train new model with integrated dataset."""
-        print("Training new model with contributed data")
+        print("Training new model with integrated dataset")
         
         if self.dry_run:
-            # Simulate model training
+            # Simulate model training with integrated data
+            training_samples = len(self.integrated_data)
+            contributed_samples = len(self.contributed_data)
+            
             self.new_model = {
                 "type": "mock_model",
                 "version": "2.0.0",
-                "training_samples": len(self.contributed_data),
+                "training_samples": training_samples,
+                "contributed_samples": contributed_samples,
+                "data_hash": self.data_manifest["data_hash"],
                 "metrics": {
                     "accuracy": 0.88,  # Simulated improvement
                     "precision": 0.86,
@@ -137,10 +218,17 @@ class HokusaiPipeline(FlowSpec):
                     "auroc": 0.93
                 }
             }
-            print("Trained mock new model for dry run")
+            print(f"Trained mock new model with {training_samples} samples ({contributed_samples} contributed)")
         else:
-            # TODO: Implement actual model training
-            raise NotImplementedError("Model training not yet implemented")
+            # TODO: Implement actual model training with self.integrated_data
+            training_samples = len(self.integrated_data)
+            self.new_model = {
+                "type": "trained_model",
+                "version": "2.0.0", 
+                "training_samples": training_samples,
+                "data_hash": self.data_manifest["data_hash"]
+            }
+            raise NotImplementedError("Model training implementation needed")
         
         self.next(self.evaluate_on_benchmark)
     
@@ -200,7 +288,8 @@ class HokusaiPipeline(FlowSpec):
             "attestation_version": ATTESTATION_VERSION,
             "run_id": self.run_metadata["run_id"],
             "timestamp": datetime.utcnow().isoformat(),
-            "contributor_data_hash": "mock_hash_" + self.contributed_data_path.replace("/", "_"),
+            "contributor_data_hash": self.data_manifest["data_hash"],
+            "contributor_data_manifest": self.data_manifest,
             "baseline_model_id": self.baseline_model.get("version", "unknown"),
             "new_model_id": self.new_model.get("version", "unknown"),
             "evaluation_results": self.evaluation_results,

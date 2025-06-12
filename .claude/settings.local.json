@@ -16,7 +16,12 @@
       "Bash(grep:*)",
       "Bash(python -m pytest tests/integration/test_baseline_loader_integration.py::TestBaselineModelLoaderIntegration::test_performance_benchmarking -v --no-cov)",
       "Bash(python -m pytest tests/integration/test_baseline_loader_integration.py -v --no-cov)",
-      "Bash(python -m pytest tests/unit/test_baseline_loader.py tests/integration/test_baseline_loader_integration.py -v --no-cov)"
+      "Bash(python -m pytest tests/unit/test_baseline_loader.py tests/integration/test_baseline_loader_integration.py -v --no-cov)",
+      "Bash(node:*)",
+      "Bash(git checkout:*)",
+      "Bash(python -m pytest tests/unit/test_data_integration.py -v)",
+      "Bash(python -m pytest tests/integration/test_mlflow_integration.py -v --no-cov)",
+      "Bash(pip install:*)"
     ],
     "deny": []
   }
