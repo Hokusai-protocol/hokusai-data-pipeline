@@ -11,48 +11,50 @@ import mlflow.sklearn
 
 class ModelTrainer:
     """Handles model training with contributed data."""
-    
+
     def __init__(
-        self, 
+        self,
         random_seed: int = 42,
         mlflow_tracking_uri: Optional[str] = None,
         experiment_name: Optional[str] = None
     ):
         self.random_seed = random_seed
         np.random.seed(random_seed)
-        
+
         if mlflow_tracking_uri:
             mlflow.set_tracking_uri(mlflow_tracking_uri)
         if experiment_name:
             mlflow.set_experiment(experiment_name)
-    
+
     def prepare_training_data(
-        self, 
+        self,
         df: pd.DataFrame,
         target_column: str,
         feature_columns: Optional[list] = None,
         test_size: float = 0.2
     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
         """Prepare data for training.
-        
+
         Args:
             df: Input dataframe
             target_column: Name of target column
-            feature_columns: List of feature columns (if None, use all except target)
+            feature_columns: List of feature columns (if None, use all except
+                target)
             test_size: Fraction of data to use for testing
-            
+
         Returns:
             X_train, X_test, y_train, y_test
         """
         if feature_columns is None:
-            feature_columns = [col for col in df.columns if col != target_column]
-        
+            feature_columns = [col for col in df.columns
+                               if col != target_column]
+
         X = df[feature_columns]
         y = df[target_column]
-        
+
         return train_test_split(
-            X, y, 
-            test_size=test_size, 
+            X, y,
+            test_size=test_size,
             random_state=self.random_seed,
             stratify=y if len(np.unique(y)) < 100 else None
         )
@@ -64,19 +66,19 @@ class ModelTrainer:
         model_type: str = "mock_classifier"
     ) -> Dict[str, Any]:
         """Train a mock model for testing.
-        
+
         Args:
             X_train: Training features
             y_train: Training labels
             model_type: Type of mock model
-            
+
         Returns:
             Mock trained model
         """
         # Simulate training metrics with some randomness
         base_accuracy = 0.85
         improvement = np.random.uniform(0.02, 0.05)
-        
+
         return {
             "type": f"mock_{model_type}",
             "version": "2.0.0",
@@ -108,26 +110,26 @@ class ModelTrainer:
         model_params: Optional[Dict[str, Any]] = None
     ) -> Any:
         """Train a scikit-learn model.
-        
+
         Args:
-            X_train: Training features  
+            X_train: Training features
             y_train: Training labels
             model_class: Scikit-learn model class
             model_params: Model hyperparameters
-            
+
         Returns:
             Trained model
         """
         if model_params is None:
             model_params = {}
-        
+
         # Add random seed if supported
         if "random_state" in model_class.__init__.__code__.co_varnames:
             model_params["random_state"] = self.random_seed
-        
+
         model = model_class(**model_params)
         model.fit(X_train, y_train)
-        
+
         return model
     
     def log_model_to_mlflow(
@@ -139,14 +141,14 @@ class ModelTrainer:
         artifacts: Optional[Dict[str, str]] = None
     ) -> str:
         """Log model to MLflow.
-        
+
         Args:
             model: Trained model
             model_name: Name for the model
             metrics: Model metrics
             params: Model parameters
             artifacts: Additional artifacts to log
-            
+
         Returns:
             MLflow run ID
         """
@@ -154,28 +156,30 @@ class ModelTrainer:
             # Log parameters
             for key, value in params.items():
                 mlflow.log_param(key, value)
-            
+
             # Log metrics
             for key, value in metrics.items():
                 mlflow.log_metric(key, value)
-            
+
             # Log model
-            if isinstance(model, dict) and model.get("type", "").startswith("mock"):
+            if (isinstance(model, dict) and
+                    model.get("type", "").startswith("mock")):
                 # For mock models, log as artifact
                 import json
                 import tempfile
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                with tempfile.NamedTemporaryFile(
+                        mode='w', suffix='.json', delete=False) as f:
                     json.dump(model, f, indent=2)
                     mlflow.log_artifact(f.name, artifact_path="model")
             else:
                 # For real models
                 mlflow.sklearn.log_model(model, model_name)
-            
+
             # Log additional artifacts
             if artifacts:
                 for artifact_name, artifact_path in artifacts.items():
                     mlflow.log_artifact(artifact_path, artifact_name)
-            
+
             return run.info.run_id
     
     def create_training_report(
@@ -186,21 +190,26 @@ class ModelTrainer:
         training_time: float
     ) -> Dict[str, Any]:
         """Create a training report.
-        
+
         Args:
             model: Trained model
             X_train: Training features
             y_train: Training labels
             training_time: Time taken to train
-            
+
         Returns:
             Training report dictionary
         """
+        model_type = (type(model).__name__ if not isinstance(model, dict)
+                      else model.get("type"))
+        target_dist = (y_train.value_counts().to_dict()
+                       if hasattr(y_train, 'value_counts') else {})
+        
         return {
-            "model_type": type(model).__name__ if not isinstance(model, dict) else model.get("type"),
+            "model_type": model_type,
             "training_samples": len(X_train),
             "feature_count": X_train.shape[1],
-            "target_distribution": y_train.value_counts().to_dict() if hasattr(y_train, 'value_counts') else {},
+            "target_distribution": target_dist,
             "training_time_seconds": training_time,
             "timestamp": datetime.utcnow().isoformat(),
             "feature_names": X_train.columns.tolist()
