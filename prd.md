@@ -1,115 +1,102 @@
-# PRD: Implement evaluate_on_benchmark Step
+# PRD: Implement compare_and_output_delta Step
 
-## Objective
-Implement the evaluate_on_benchmark step in the Hokusai evaluation pipeline that runs standardized benchmark evaluations comparing baseline versus new model performance, logging metrics and outputting raw scores for downstream processing.
+## Objectives
+
+Implement the final step of the Hokusai evaluation pipeline that computes the DeltaOne metric and packages the result for verifier consumption. This step compares the performance of a newly trained model against the baseline model and outputs a structured JSON result containing the delta, contributor information, and model metadata.
 
 ## Project Summary
-**[feature] Implement evaluate_on_benchmark step** - Run evaluation using standardized benchmarks.
+**[feature] Implement compare_and_output_delta step** - Compute DeltaOne and package result for verifier.
 
 Key requirements:
-* Compare baseline vs new model
-* Log performance (e.g., AUROC, accuracy)
-* Output raw scores
+* Compute delta = new - baseline
+* Structure JSON output as per spec
+* Include contributor hashes, weights, model ID
 
 ## Personas
-- **Pipeline Engineers**: Need reliable, reproducible benchmark evaluation step
-- **ML Engineers**: Require standardized evaluation metrics and model comparison
-- **Data Contributors**: Want to see how their contributions impact model performance
-- **Verifiers**: Need deterministic, auditable evaluation process for DeltaOne calculations
+
+**Primary User: Pipeline Operator**
+- Runs the complete Hokusai evaluation pipeline
+- Needs reliable delta computation between baseline and new models
+- Requires structured output for downstream verification processes
+
+**Secondary User: Verifier**
+- Consumes the JSON output to validate model improvements
+- Needs contributor hashes, weights, and model identifiers for attestation
+- Requires standardized format for automated processing
 
 ## Success Criteria
-1. Evaluation step successfully integrates with existing Metaflow pipeline
-2. Standardized benchmarks are applied consistently to both baseline and new models
-3. Performance metrics (AUROC, accuracy, precision, recall, F1) are calculated and logged
-4. Raw prediction scores are output in structured format for downstream steps
-5. Evaluation process is deterministic with proper random seed handling
-6. MLFlow integration captures all evaluation metadata and metrics
-7. Error handling covers model loading and evaluation failures
+
+1. **Accurate Delta Computation**: Successfully calculates delta = new_model_metrics - baseline_model_metrics
+2. **Structured JSON Output**: Produces JSON output conforming to the established schema with all required fields
+3. **Complete Metadata**: Includes contributor hashes, weights, model IDs, and evaluation metrics
+4. **Pipeline Integration**: Seamlessly integrates as the final step in the Metaflow pipeline
+5. **MLFlow Tracking**: Logs delta computation results and metadata to MLFlow for experiment tracking
 
 ## Technical Requirements
 
-### Input
-- Baseline model from load_baseline_model step
-- New/fine-tuned model from train_new_model step
-- Standardized benchmark dataset(s)
-- Evaluation configuration parameters
-- Random seed for reproducibility
+### Input Requirements
+- Baseline model evaluation metrics (from previous pipeline steps)
+- New model evaluation metrics (from evaluate_on_benchmark step)
+- Contributor data hashes and weights (from integrate_contributed_data step)
+- Model artifacts and metadata (from train_new_model step)
 
-### Output
-- Performance metrics for both models (AUROC, accuracy, precision, recall, F1)
-- Raw prediction scores and probabilities
-- Model comparison summary with delta calculations
-- MLFlow experiment logs with all metrics and artifacts
-- Structured JSON output for compare_and_output_delta step
+### Output Requirements
+- JSON file containing DeltaOne metric
+- Contributor attribution data (hashes, weights)
+- Model identifiers and metadata
+- Evaluation metrics for both baseline and new models
+- Timestamp and pipeline run information
 
 ### Implementation Tasks
 
-1. **Create Metaflow step structure**
-   - Define @step decorator for evaluate_on_benchmark
-   - Set up input/output data flow from previous pipeline steps
-   - Initialize MLFlow tracking for evaluation runs
+1. **Create compare_and_output_delta Metaflow step**
+   - Add @step decorator for Metaflow integration
+   - Define input parameters from previous pipeline steps
+   - Implement delta computation logic
 
-2. **Implement benchmark dataset handling**
-   - Load standardized benchmark datasets
-   - Support multiple benchmark types (classification, regression, etc.)
-   - Implement data preprocessing and validation
-   - Handle different data formats (JSON, CSV, parquet)
+2. **Implement delta computation**
+   - Calculate delta = new_model_metrics - baseline_model_metrics
+   - Handle different metric types (accuracy, AUROC, F1, etc.)
+   - Validate metric compatibility between models
 
-3. **Model evaluation logic**
-   - Load both baseline and new models
-   - Run inference on benchmark datasets
-   - Calculate standard ML metrics (AUROC, accuracy, precision, recall, F1)
-   - Generate prediction scores and probabilities
-   - Handle different model architectures and output formats
+3. **Structure JSON output**
+   - Define output schema with required fields
+   - Include DeltaOne value, contributor data, model metadata
+   - Add timestamp and pipeline run information
 
-4. **Performance comparison**
-   - Compare metrics between baseline and new models
-   - Calculate performance deltas
-   - Generate summary statistics
-   - Identify significant performance changes
+4. **Add MLFlow integration**
+   - Log delta computation results to MLFlow
+   - Track contributor weights and model performance
+   - Store output JSON as MLFlow artifact
 
-5. **MLFlow integration**
-   - Log evaluation metrics for both models
-   - Store prediction artifacts and raw scores
-   - Track benchmark dataset metadata
-   - Log comparison results and deltas
+5. **Implement error handling**
+   - Validate input data completeness
+   - Handle metric computation failures
+   - Provide meaningful error messages
 
-6. **Output formatting**
-   - Structure evaluation results for downstream processing
-   - Generate JSON output compatible with compare_and_output_delta step
-   - Include model metadata and evaluation parameters
-   - Format raw scores for further analysis
+6. **Add unit tests**
+   - Test delta computation with mock data
+   - Verify JSON output format and completeness
+   - Test error handling scenarios
 
-7. **Error handling and validation**
-   - Validate model compatibility with benchmark datasets
-   - Handle model loading failures gracefully
-   - Verify evaluation metric calculations
-   - Add comprehensive logging and error reporting
-
-8. **Testing**
-   - Unit tests for evaluation metric calculations
-   - Integration tests with mock models and datasets
-   - End-to-end pipeline testing with real benchmark data
-   - Performance regression tests
+7. **Integration testing**
+   - Test step integration within full pipeline
+   - Verify data flow from previous steps
+   - Validate output consumption by downstream processes
 
 ## Dependencies
-- Metaflow framework for pipeline orchestration
-- MLFlow for experiment tracking and model management
-- Baseline model from load_baseline_model step
-- New model from train_new_model step
-- Standardized benchmark datasets
-- Python ML libraries (scikit-learn, numpy, pandas)
-- Model-specific libraries based on architecture
+
+- Previous pipeline steps: load_baseline_model, train_new_model, evaluate_on_benchmark
+- MLFlow for experiment tracking and artifact storage
+- JSON schema validation utilities
+- Metaflow framework for step definition and execution
 
 ## Acceptance Criteria
-- [ ] evaluate_on_benchmark step runs successfully in Metaflow pipeline
-- [ ] Both baseline and new models are evaluated on standardized benchmarks
-- [ ] All specified metrics (AUROC, accuracy, precision, recall, F1) are calculated correctly
-- [ ] Raw prediction scores are output in structured format
-- [ ] Evaluation process is deterministic with fixed random seeds
-- [ ] MLFlow captures all evaluation metadata and results
-- [ ] Performance comparison between models is accurate
-- [ ] Step handles errors gracefully with informative messages
-- [ ] Integration tests pass with mock models and real benchmark data
-- [ ] Output format is compatible with downstream pipeline steps
-- [ ] Documentation covers usage, configuration, and benchmark dataset requirements
+
+- [ ] Metaflow step successfully computes delta between baseline and new model metrics
+- [ ] JSON output includes all required fields per schema specification
+- [ ] Contributor hashes, weights, and model IDs are correctly included
+- [ ] MLFlow tracking captures delta computation and metadata
+- [ ] Unit tests achieve >90% code coverage
+- [ ] Integration tests pass with full pipeline execution
+- [ ] Error handling provides clear failure diagnostics

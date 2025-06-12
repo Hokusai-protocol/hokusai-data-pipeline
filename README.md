@@ -138,6 +138,94 @@ Each integration produces a comprehensive data manifest including:
 - **Hash Consistency**: Deterministic data hashing for reproducibility
 - **Error Recovery**: Graceful handling of malformed data
 
+## Compare and Output Delta Step
+
+The compare_and_output_delta step (`compare_and_output_delta`) computes the DeltaOne metric and packages results for verifier consumption:
+
+### Delta Computation
+- **Metric Comparison**: Calculates delta = new_model_metrics - baseline_model_metrics
+- **Multi-Metric Support**: Handles accuracy, AUROC, F1, precision, recall metrics
+- **Compatibility Validation**: Ensures metric compatibility between baseline and new models
+- **Error Handling**: Graceful handling of missing or incompatible metrics
+
+### JSON Output Schema
+The step produces a comprehensive JSON output containing:
+
+```json
+{
+  "schema_version": "1.0",
+  "delta_computation": {
+    "delta_one_score": 0.025,
+    "metric_deltas": {
+      "accuracy": {
+        "baseline_value": 0.85,
+        "new_value": 0.88,
+        "absolute_delta": 0.03,
+        "relative_delta": 0.035,
+        "improvement": true
+      }
+    },
+    "computation_method": "weighted_average_delta",
+    "metrics_included": ["accuracy", "precision", "recall", "f1_score", "auroc"]
+  },
+  "baseline_model": {
+    "model_id": "1.0.0",
+    "model_type": "mock_baseline",
+    "metrics": {...},
+    "mlflow_run_id": "baseline_run_123"
+  },
+  "new_model": {
+    "model_id": "2.0.0", 
+    "model_type": "hokusai_integrated_classifier",
+    "metrics": {...},
+    "mlflow_run_id": "new_run_456",
+    "training_metadata": {...}
+  },
+  "contributor_attribution": {
+    "data_hash": "abc123def456",
+    "contributor_weights": 0.1,
+    "contributed_samples": 100,
+    "total_samples": 1000,
+    "data_manifest": {...}
+  },
+  "evaluation_metadata": {
+    "benchmark_dataset": {...},
+    "evaluation_timestamp": "2024-01-01T00:00:00",
+    "pipeline_run_id": "test_run_123"
+  },
+  "pipeline_metadata": {
+    "run_id": "test_run_123",
+    "timestamp": "2024-01-01T00:00:00",
+    "config": {...}
+  }
+}
+```
+
+### MLFlow Integration
+- **Parameter Logging**: Logs delta scores, model IDs, and contributor information
+- **Metric Tracking**: Records individual metric deltas and overall DeltaOne score
+- **Artifact Storage**: Saves JSON output as MLFlow artifact for downstream consumption
+- **Experiment Tracking**: Full integration with pipeline experiment tracking
+
+### Configuration Examples
+
+```python
+# The step automatically receives data from previous pipeline steps
+# No manual configuration required - it processes:
+# - evaluation_results from evaluate_on_benchmark step
+# - data_manifest from integrate_contributed_data step
+# - baseline_model and new_model from previous steps
+
+# Output files are saved to:
+# {output_dir}/delta_output_{run_id}.json
+```
+
+### Error Handling
+- **Input Validation**: Validates presence of required data from previous steps
+- **Metric Compatibility**: Handles cases where models have different metric sets
+- **Graceful Degradation**: Continues processing with partial metric data when possible
+- **Detailed Logging**: Provides clear error messages for debugging
+
 ## Project Structure
 
 ```

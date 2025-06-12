@@ -1,100 +1,77 @@
-# Implementation Tasks: evaluate_on_benchmark Step
+# Implementation Tasks: Compare and Output Delta Step
 
-## Core Development
+## Core Implementation
 
-1. [ ] Create Metaflow step structure
-   a. [ ] Define @step decorator for evaluate_on_benchmark
-   b. [ ] Set up input/output data flow from train_new_model and load_baseline_model steps
-   c. [ ] Initialize MLFlow tracking in step
-   d. [ ] Add step to main pipeline flow
+1. [x] Create compare_and_output_delta Metaflow step
+   a. [x] Add @step decorator to new function in hokusai_pipeline.py
+   b. [x] Define input parameters from previous pipeline steps (baseline metrics, new model metrics, contributor data)
+   c. [x] Set up data flow connections from evaluate_on_benchmark and integrate_contributed_data steps
+   d. [x] Initialize MLFlow tracking context for the step
 
-2. [ ] Implement benchmark dataset handling
-   a. [ ] Create benchmark dataset loading utilities
-   b. [ ] Add support for multiple benchmark types (classification, regression)
-   c. [ ] Implement data validation and preprocessing
-   d. [ ] Add support for different data formats (JSON, CSV, parquet)
-   e. [ ] Create benchmark dataset configuration schema
+2. [x] Implement delta computation logic
+   a. [x] Create delta calculation function (new_metrics - baseline_metrics)
+   b. [x] Handle different metric types (accuracy, AUROC, F1, precision, recall)
+   c. [x] Add metric compatibility validation between baseline and new models
+   d. [x] Implement error handling for missing or incompatible metrics
 
-3. [ ] Model evaluation logic
-   a. [ ] Load both baseline and new models from previous steps
-   b. [ ] Implement inference pipeline for benchmark datasets
-   c. [ ] Generate prediction scores and probabilities
-   d. [ ] Handle different model architectures and output formats
-   e. [ ] Add deterministic evaluation with fixed random seeds
+3. [x] Structure JSON output schema
+   a. [x] Define DeltaOne output schema with required fields
+   b. [x] Include contributor hashes and weights from previous steps
+   c. [x] Add model identifiers and metadata
+   d. [x] Include timestamp and pipeline run information
+   e. [x] Add evaluation metrics for both baseline and new models
 
-4. [ ] Performance metrics calculation
-   a. [ ] Implement AUROC calculation function
-   b. [ ] Implement accuracy calculation function
-   c. [ ] Implement precision calculation function
-   d. [ ] Implement recall calculation function
-   e. [ ] Implement F1 score calculation function
-   f. [ ] Add support for multi-class and binary classification metrics
+4. [x] Add MLFlow integration
+   a. [x] Log delta computation results to MLFlow
+   b. [x] Track contributor weights and attribution data
+   c. [x] Store output JSON as MLFlow artifact
+   d. [x] Log model performance comparison metrics
 
-5. [ ] Model performance comparison
-   a. [ ] Calculate performance deltas between baseline and new models
-   b. [ ] Generate summary statistics and comparison reports
-   c. [ ] Identify statistically significant performance changes
-   d. [ ] Create structured output for downstream processing
+## Error Handling and Validation
 
-6. [ ] MLFlow integration
-   a. [ ] Log evaluation metrics for both baseline and new models
-   b. [ ] Store prediction artifacts and raw scores
-   c. [ ] Track benchmark dataset metadata and parameters
-   d. [ ] Log model comparison results and performance deltas
-   e. [ ] Create evaluation run metadata
+5. [x] Implement comprehensive error handling
+   a. [x] Validate input data completeness from previous steps
+   b. [x] Handle metric computation failures gracefully
+   c. [x] Add meaningful error messages for debugging
+   d. [x] Implement fallback behavior for partial data
 
-## Output Formatting and Integration
+## Testing (Dependent on Core Implementation)
 
-7. [ ] Implement output formatting
-   a. [ ] Create JSON output format compatible with compare_and_output_delta step
-   b. [ ] Include all required metadata (model IDs, evaluation parameters, etc.)
-   c. [ ] Format raw scores and predictions for further analysis
-   d. [ ] Add output validation and schema compliance
+6. [x] Write and implement unit tests
+   a. [x] Test delta computation with mock baseline and new model metrics
+   b. [x] Verify JSON output format and schema compliance
+   c. [x] Test error handling scenarios (missing data, incompatible metrics)
+   d. [x] Test MLFlow logging and artifact storage
+   e. [x] Test contributor data integration
 
-## Error Handling and Validation (Dependent on Core Development)
+7. [x] Integration testing (Dependent on Unit Tests)
+   a. [x] Test step integration within full Metaflow pipeline
+   b. [x] Verify data flow from evaluate_on_benchmark step
+   c. [x] Verify data flow from integrate_contributed_data step
+   d. [x] Test with real model evaluation data
+   e. [x] Validate end-to-end pipeline execution
 
-8. [ ] Input validation and error handling
-   a. [ ] Validate model compatibility with benchmark datasets
-   b. [ ] Handle model loading failures gracefully
-   c. [ ] Add input validation for evaluation parameters
-   d. [ ] Implement comprehensive logging and error reporting
-   e. [ ] Add graceful degradation for recoverable errors
+## Documentation (Dependent on Implementation)
 
-## Testing (Dependent on Core Development)
+8. [x] Update documentation
+   a. [x] Add compare_and_output_delta step documentation to README.md
+   b. [x] Document JSON output schema and format
+   c. [x] Add usage examples and configuration options
+   d. [x] Document error handling and troubleshooting guide
 
-9. [x] Write and implement comprehensive tests
-   a. [x] Unit tests for metric calculation functions
-   b. [x] Unit tests for benchmark dataset handling
-   c. [x] Unit tests for model evaluation logic
-   d. [x] Unit tests for performance comparison functions
-   e. [x] Integration tests with mock models and datasets
-   f. [x] End-to-end pipeline tests with real benchmark data
-   g. [x] Test deterministic behavior with fixed random seeds
-   h. [x] Performance regression tests
+## Dependencies
 
-## Documentation (Dependent on Core Development)
+9. [x] Verify and update dependencies
+   a. [x] Ensure MLFlow is properly configured in pipeline
+   b. [x] Verify JSON schema validation utilities are available
+   c. [x] Check Metaflow framework integration
+   d. [x] Update requirements.txt if new dependencies are needed
 
-10. [ ] Create configuration and documentation
-    a. [ ] Add evaluation step configuration schema
-    b. [ ] Document benchmark dataset requirements and formats
-    c. [ ] Add usage examples and API documentation
-    d. [ ] Update main pipeline documentation with evaluate_on_benchmark step
-    e. [ ] Create troubleshooting guide for common evaluation issues
+## Final Validation
 
-## Integration and Configuration (Dependent on Core Development)
-
-11. [ ] Pipeline integration
-    a. [ ] Test integration with existing load_baseline_model step
-    b. [ ] Test integration with existing train_new_model step
-    c. [ ] Validate output compatibility with compare_and_output_delta step
-    d. [ ] Ensure compatibility with existing Metaflow pipeline structure
-    e. [ ] Update pipeline configuration files
-
-## Quality Assurance (Dependent on Testing)
-
-12. [ ] Final validation and cleanup
-    a. [ ] Run full pipeline end-to-end test
-    b. [ ] Verify deterministic behavior across multiple runs
-    c. [ ] Performance testing with realistic dataset sizes
-    d. [ ] Code review and cleanup
-    e. [ ] Final integration testing with complete pipeline
+10. [x] End-to-end testing and validation
+    a. [x] Run complete pipeline with compare_and_output_delta step
+    b. [x] Validate JSON output format meets specification
+    c. [x] Verify MLFlow tracking captures all required data
+    d. [x] Test with different model types and evaluation metrics
+    e. [x] Confirm contributor attribution data is correctly included
