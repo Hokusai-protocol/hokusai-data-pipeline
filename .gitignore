@@ -33,6 +33,11 @@ venv.bak/
 mlruns/
 mlflow.db
 mlflow.db-journal
+artifacts/
+
+# Metaflow
+.metaflow/
+metaflow_card_cache/
 
 # Jupyter Notebook
 .ipynb_checkpoints
