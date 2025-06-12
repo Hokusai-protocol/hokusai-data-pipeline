@@ -197,38 +197,214 @@ class HokusaiPipeline(FlowSpec):
     @step
     def train_new_model(self):
         """Train new model with integrated dataset."""
+        from src.modules.model_training import ModelTrainer
+        from src.utils.mlflow_config import mlflow_run_context, log_step_parameters, log_step_metrics
+        import time
+        
         print("Training new model with integrated dataset")
         
-        if self.dry_run:
-            # Simulate model training with integrated data
-            training_samples = len(self.integrated_data)
-            contributed_samples = len(self.contributed_data)
+        # Initialize MLflow tracking
+        with mlflow_run_context(
+            experiment_name=self.config.mlflow_experiment_name,
+            run_name=f"train_new_model_{current.run_id}",
+            tags={
+                "pipeline.step": "train_new_model",
+                "pipeline.run_id": current.run_id,
+                "pipeline.timestamp": datetime.utcnow().isoformat()
+            }
+        ):
+            # Initialize model trainer
+            trainer = ModelTrainer(
+                random_seed=self.config.random_seed,
+                mlflow_tracking_uri=self.config.mlflow_tracking_uri,
+                experiment_name=self.config.mlflow_experiment_name
+            )
             
-            self.new_model = {
-                "type": "mock_model",
-                "version": "2.0.0",
-                "training_samples": training_samples,
-                "contributed_samples": contributed_samples,
-                "data_hash": self.data_manifest["data_hash"],
-                "metrics": {
-                    "accuracy": 0.88,  # Simulated improvement
-                    "precision": 0.86,
-                    "recall": 0.89,
-                    "f1_score": 0.87,
-                    "auroc": 0.93
+            training_start_time = time.time()
+            
+            if self.dry_run:
+                # Simulate model training with integrated data
+                training_samples = len(self.integrated_data)
+                contributed_samples = len(self.contributed_data)
+                
+                # Prepare training data using the integrated dataset
+                if 'label' in self.integrated_data.columns:
+                    feature_columns = [col for col in self.integrated_data.columns if col not in ['label', 'query_id']]
+                    X_train, X_test, y_train, y_test = trainer.prepare_training_data(
+                        self.integrated_data,
+                        target_column='label',
+                        feature_columns=feature_columns,
+                        test_size=0.2
+                    )
+                    
+                    # Train mock model
+                    self.new_model = trainer.train_mock_model(
+                        X_train, y_train, 
+                        model_type="hokusai_integrated_classifier"
+                    )
+                    
+                    # Add integration-specific metadata
+                    self.new_model.update({
+                        "training_samples": training_samples,
+                        "contributed_samples": contributed_samples,
+                        "data_hash": self.data_manifest["data_hash"],
+                        "integration_metadata": {
+                            "base_samples": training_samples - contributed_samples,
+                            "contributed_samples": contributed_samples,
+                            "contribution_ratio": contributed_samples / training_samples,
+                            "data_manifest": self.data_manifest
+                        }
+                    })
+                    
+                    training_time = time.time() - training_start_time
+                    
+                    # Log training parameters and metrics to MLflow
+                    log_step_parameters({
+                        "training_samples": training_samples,
+                        "contributed_samples": contributed_samples,
+                        "feature_count": len(feature_columns),
+                        "model_type": "mock_hokusai_integrated_classifier",
+                        "random_seed": self.config.random_seed,
+                        "data_hash": self.data_manifest["data_hash"]
+                    })
+                    
+                    log_step_metrics({
+                        "training_time_seconds": training_time,
+                        "training_samples": training_samples,
+                        "contributed_samples": contributed_samples,
+                        "feature_count": len(feature_columns),
+                        **self.new_model["metrics"]
+                    })
+                    
+                    # Log model to MLflow
+                    model_run_id = trainer.log_model_to_mlflow(
+                        model=self.new_model,
+                        model_name="hokusai_integrated_model",
+                        metrics=self.new_model["metrics"],
+                        params={
+                            "random_seed": self.config.random_seed,
+                            "training_samples": training_samples,
+                            "contributed_samples": contributed_samples,
+                            "model_type": "mock_hokusai_integrated_classifier"
+                        }
+                    )
+                    
+                    self.new_model["mlflow_run_id"] = model_run_id
+                    
+                    print(f"Trained mock new model with {training_samples} samples ({contributed_samples} contributed)")
+                    print(f"Model metrics: accuracy={self.new_model['metrics']['accuracy']:.4f}")
+                    print(f"MLflow run ID: {model_run_id}")
+                    
+                else:
+                    raise ValueError("Integrated dataset missing 'label' column for training")
+                    
+            else:
+                # Implement actual model training with self.integrated_data
+                training_samples = len(self.integrated_data)
+                contributed_samples = len(self.contributed_data)
+                
+                if 'label' not in self.integrated_data.columns:
+                    raise ValueError("Integrated dataset missing 'label' column for training")
+                
+                # Prepare training data
+                feature_columns = [col for col in self.integrated_data.columns if col not in ['label', 'query_id']]
+                X_train, X_test, y_train, y_test = trainer.prepare_training_data(
+                    self.integrated_data,
+                    target_column='label',
+                    feature_columns=feature_columns,
+                    test_size=0.2
+                )
+                
+                # Train actual sklearn model (for now using RandomForest as example)
+                from sklearn.ensemble import RandomForestClassifier
+                from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+                
+                model = trainer.train_sklearn_model(
+                    X_train, y_train,
+                    RandomForestClassifier,
+                    {
+                        "n_estimators": 100,
+                        "max_depth": 10,
+                        "min_samples_split": 5,
+                        "random_state": self.config.random_seed
+                    }
+                )
+                
+                # Calculate metrics on test set
+                y_pred = model.predict(X_test)
+                y_pred_proba = model.predict_proba(X_test)[:, 1] if len(model.classes_) == 2 else None
+                
+                metrics = {
+                    "accuracy": accuracy_score(y_test, y_pred),
+                    "precision": precision_score(y_test, y_pred, average='weighted'),
+                    "recall": recall_score(y_test, y_pred, average='weighted'),
+                    "f1_score": f1_score(y_test, y_pred, average='weighted')
                 }
-            }
-            print(f"Trained mock new model with {training_samples} samples ({contributed_samples} contributed)")
-        else:
-            # TODO: Implement actual model training with self.integrated_data
-            training_samples = len(self.integrated_data)
-            self.new_model = {
-                "type": "trained_model",
-                "version": "2.0.0", 
-                "training_samples": training_samples,
-                "data_hash": self.data_manifest["data_hash"]
-            }
-            raise NotImplementedError("Model training implementation needed")
+                
+                if y_pred_proba is not None:
+                    metrics["auroc"] = roc_auc_score(y_test, y_pred_proba)
+                
+                training_time = time.time() - training_start_time
+                
+                # Create training report
+                training_report = trainer.create_training_report(
+                    model, X_train, y_train, training_time
+                )
+                
+                # Log model to MLflow
+                model_run_id = trainer.log_model_to_mlflow(
+                    model=model,
+                    model_name="hokusai_integrated_model",
+                    metrics=metrics,
+                    params={
+                        "random_seed": self.config.random_seed,
+                        "training_samples": training_samples,
+                        "contributed_samples": contributed_samples,
+                        "n_estimators": 100,
+                        "max_depth": 10,
+                        "min_samples_split": 5
+                    }
+                )
+                
+                # Store model information
+                self.new_model = {
+                    "type": "RandomForestClassifier",
+                    "version": "2.0.0",
+                    "training_samples": training_samples,
+                    "contributed_samples": contributed_samples,
+                    "data_hash": self.data_manifest["data_hash"],
+                    "metrics": metrics,
+                    "training_report": training_report,
+                    "mlflow_run_id": model_run_id,
+                    "integration_metadata": {
+                        "base_samples": training_samples - contributed_samples,
+                        "contributed_samples": contributed_samples,
+                        "contribution_ratio": contributed_samples / training_samples,
+                        "data_manifest": self.data_manifest
+                    }
+                }
+                
+                # Log training parameters and metrics to current MLflow run
+                log_step_parameters({
+                    "training_samples": training_samples,
+                    "contributed_samples": contributed_samples,
+                    "feature_count": len(feature_columns),
+                    "model_type": "RandomForestClassifier",
+                    "random_seed": self.config.random_seed,
+                    "data_hash": self.data_manifest["data_hash"]
+                })
+                
+                log_step_metrics({
+                    "training_time_seconds": training_time,
+                    "training_samples": training_samples,
+                    "contributed_samples": contributed_samples,
+                    "feature_count": len(feature_columns),
+                    **metrics
+                })
+                
+                print(f"Trained RandomForest model with {training_samples} samples ({contributed_samples} contributed)")
+                print(f"Model metrics: accuracy={metrics['accuracy']:.4f}, f1={metrics['f1_score']:.4f}")
+                print(f"MLflow run ID: {model_run_id}")
         
         self.next(self.evaluate_on_benchmark)
     

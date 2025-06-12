@@ -1,153 +1,84 @@
-# Implementation Tasks: Integrate Contributed Data Step
+# Implementation Tasks: train_new_model Step
 
 ## Core Development
-1. [x] Create data_integration.py module structure
-   a. [x] Create src/modules/data_integration.py file
-   b. [x] Add module docstring and imports
-   c. [x] Define function signatures and basic structure
-   d. [x] Set up logging configuration
 
-2. [x] Implement data loading capabilities
-   a. [x] Add support for local file system loading
-   b. [ ] Implement blob storage integration (S3, Azure)
-   c. [ ] Add URL-based data loading
-   d. [x] Support multiple formats (JSON, CSV, Parquet)
-   e. [ ] Handle file encoding and compression
+1. [x] Create Metaflow step structure
+   a. [x] Define @step decorator for train_new_model
+   b. [x] Set up input/output data flow from integrate_contributed_data step
+   c. [x] Initialize MLFlow tracking in step
+   d. [x] Add step to main pipeline flow
 
-3. [x] Build schema validation framework
-   a. [x] Create schema definition utilities
-   b. [x] Implement data type validation
-   c. [x] Add column/field presence validation
-   d. [x] Create schema compatibility checking
-   e. [ ] Handle schema versioning
+2. [x] Implement training configuration management
+   a. [x] Load training hyperparameters from config
+   b. [x] Set random seeds for reproducibility (Python, NumPy, framework-specific)
+   c. [x] Configure model architecture parameters
+   d. [x] Validate configuration parameters
 
-4. [x] Implement data cleaning capabilities
-   a. [x] Add duplicate detection and removal
-   b. [x] Handle missing value strategies (PII removal)
-   c. [ ] Implement data type coercion
-   d. [ ] Add outlier detection and handling
-   e. [ ] Create data quality scoring
+3. [x] Model fine-tuning logic
+   a. [x] Load combined dataset from previous step
+   b. [x] Initialize model from baseline model
+   c. [x] Implement training loop with proper logging
+   d. [x] Handle training interruptions gracefully
+   e. [x] Add progress tracking and metrics collection
 
-5. [x] Build data merging strategies
-   a. [x] Implement append strategy (simple concatenation)
-   b. [ ] Add interleave strategy (alternating rows)
-   c. [ ] Create weighted merge strategy
-   d. [x] Handle index/ID conflicts during merge
-   e. [ ] Optimize memory usage during merging
+4. [x] MLFlow integration
+   a. [x] Log training parameters to MLFlow
+   b. [x] Log training metrics (loss, accuracy, etc.) during training
+   c. [x] Save model artifacts to MLFlow model registry
+   d. [x] Tag model with metadata (version, timestamp, etc.)
+   e. [x] Create model signature for downstream usage
 
-6. [x] Add data shuffling functionality
-   a. [x] Implement random shuffling with seed control
-   b. [x] Add stratified shuffling options
-   c. [ ] Create block-wise shuffling for large datasets
-   d. [x] Ensure reproducible shuffling
+## Error Handling and Validation (Dependent on Core Development)
 
-7. [x] Implement comprehensive error handling
-   a. [x] Define custom exception classes for data integration errors
-   b. [x] Add detailed error messages with troubleshooting hints
-   c. [x] Implement graceful degradation for non-critical failures
-   d. [x] Add error logging with appropriate severity levels
+5. [ ] Input validation and error handling
+   a. [ ] Validate input dataset format and schema
+   b. [ ] Handle training failures with proper error messages
+   c. [ ] Verify model output quality and compatibility
+   d. [ ] Add comprehensive logging throughout the module
+   e. [ ] Implement graceful degradation for recoverable errors
 
-8. [x] Add structured logging throughout the module
-   a. [x] Log data loading start/completion events
-   b. [x] Track performance metrics (processing time, memory usage)
-   c. [x] Log validation results and warnings
-   d. [x] Add debug logging for troubleshooting
+## Testing
 
-## Testing (Dependent on Core Development)
-9. [x] Create unit tests for data loading
-   a. [x] Test local file system loading for each format
-   b. [ ] Test blob storage integration with mocked services
-   c. [ ] Test URL-based loading with mock responses
-   d. [x] Test error handling for missing/corrupted files
-   e. [ ] Test encoding and compression handling
+6. [x] Write and implement tests
+   a. [x] Unit tests for training configuration loading
+   b. [x] Unit tests for model initialization and setup
+   c. [x] Unit tests for training loop components
+   d. [x] Unit tests for MLFlow integration
+   e. [x] Integration tests with mock data and baseline model
+   f. [x] End-to-end pipeline testing with train_new_model step
+   g. [x] Performance tests for training with large datasets
 
-10. [x] Add unit tests for schema validation
-    a. [x] Test schema definition and validation logic
-    b. [x] Test data type validation across formats
-    c. [x] Test column presence and structure validation
-    d. [x] Test schema compatibility checking
-    e. [ ] Test schema versioning scenarios
+## Documentation (Dependent on Core Development)
 
-11. [x] Implement tests for data cleaning
-    a. [x] Test duplicate detection and removal algorithms
-    b. [x] Test missing value handling strategies
-    c. [ ] Test data type coercion edge cases
-    d. [ ] Test outlier detection accuracy
-    e. [ ] Test data quality scoring consistency
+7. [ ] Create comprehensive documentation
+   a. [ ] Update module docstrings with usage examples
+   b. [ ] Add inline comments for complex training logic
+   c. [ ] Document configuration parameters and schemas
+   d. [ ] Update README.md with train_new_model step details
+   e. [ ] Create usage examples and troubleshooting guide
 
-12. [x] Create tests for data merging strategies
-    a. [x] Test append strategy with various datasets
-    b. [ ] Test interleave strategy correctness
-    c. [ ] Test weighted merge strategy calculations
-    d. [x] Test index/ID conflict resolution
-    e. [ ] Test memory efficiency during merging
+## Integration and Configuration
 
-13. [x] Add tests for error scenarios and edge cases
-    a. [x] Test malformed data handling
-    b. [x] Test schema mismatch scenarios
-    c. [ ] Test large dataset memory constraints
-    d. [ ] Test network failures for remote data sources
-    e. [ ] Test timeout and retry mechanism effectiveness
+8. [ ] Pipeline integration
+   a. [ ] Ensure compatibility with existing Metaflow pipeline structure
+   b. [ ] Verify MLFlow tracking setup works with step
+   c. [ ] Connect output to evaluate_on_benchmark step
+   d. [ ] Test full pipeline flow with new step included
+   e. [ ] Update pipeline configuration files
 
-14. [ ] Implement performance tests for large datasets
-    a. [ ] Create benchmark tests for 1GB+ datasets
-    b. [ ] Test memory usage during data integration
-    c. [ ] Validate processing time requirements (< 15 minutes for 10GB)
-    d. [ ] Test concurrent data loading performance
+## Dependencies and Environment
 
-## Integration (Dependent on Testing)
-15. [x] Integrate with existing Metaflow pipeline structure
-    a. [x] Add data_integration as a Metaflow step
-    b. [x] Define input/output parameters for the step
-    c. [x] Integrate with pipeline configuration system
-    d. [x] Add step to main pipeline workflow
+9. [ ] Dependency management
+   a. [ ] Identify and add required ML libraries to requirements.txt
+   b. [ ] Ensure compatibility with existing Python environment
+   c. [ ] Update setup scripts if needed
+   d. [ ] Verify all dependencies work in pipeline environment
 
-16. [x] Ensure compatibility with MLFlow tracking setup
-    a. [x] Use existing MLFlow configuration utilities
-    b. [x] Log data integration events to MLFlow
-    c. [x] Track dataset metadata and integration metrics
-    d. [x] Integrate with experiment tracking workflow
+## Quality Assurance (Dependent on Testing)
 
-17. [x] Add proper logging integration with pipeline monitoring
-    a. [x] Use consistent logging format across pipeline
-    b. [x] Integrate with existing error monitoring system
-    c. [x] Add metrics for pipeline observability
-    d. [x] Configure log levels for different environments
-
-18. [x] Connect output to downstream pipeline steps
-    a. [x] Ensure dataset format compatibility with train_new_model step
-    b. [x] Pass dataset metadata to downstream steps
-    c. [x] Implement data handoff validation
-    d. [x] Add integration testing with train_new_model step
-
-## Documentation (Dependent on Integration)
-19. [x] Update module docstrings with usage examples
-    a. [x] Add comprehensive function documentation
-    b. [x] Include code examples for common use cases
-    c. [x] Document all parameters and return values
-    d. [x] Add troubleshooting guide for common issues
-
-20. [x] Add inline comments for complex logic
-    a. [x] Comment schema validation logic
-    b. [x] Document data cleaning strategies
-    c. [x] Explain merge strategy implementations
-    d. [x] Add performance optimization notes
-
-21. [x] Document configuration parameters and schemas
-    a. [x] Create configuration reference documentation
-    b. [x] Document all custom exception types
-    c. [x] Add schema definition examples
-    d. [x] Include debugging and monitoring guide
-
-22. [x] Update README.md with data integration details
-    a. [x] Document data integration step purpose and functionality
-    b. [x] Add configuration examples and best practices
-    c. [x] Include troubleshooting section for data integration
-    d. [x] Add performance tuning recommendations
-
-## Final Validation
-23. [x] End-to-end pipeline test with data integration
-    a. [x] Run complete pipeline with contributed data integration
-    b. [x] Verify data integrates successfully in pipeline context
-    c. [x] Validate integrated data is passed correctly to train_new_model step
-    d. [x] Test pipeline with various data sources and formats
+10. [ ] Final validation and cleanup
+    a. [ ] Run full test suite and ensure all tests pass
+    b. [ ] Validate step works with real data (if available)
+    c. [ ] Performance optimization and memory usage validation
+    d. [ ] Code review and cleanup
+    e. [ ] Final integration testing with complete pipeline
