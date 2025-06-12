@@ -1,84 +1,100 @@
-# Implementation Tasks: train_new_model Step
+# Implementation Tasks: evaluate_on_benchmark Step
 
 ## Core Development
 
-1. [x] Create Metaflow step structure
-   a. [x] Define @step decorator for train_new_model
-   b. [x] Set up input/output data flow from integrate_contributed_data step
-   c. [x] Initialize MLFlow tracking in step
-   d. [x] Add step to main pipeline flow
+1. [ ] Create Metaflow step structure
+   a. [ ] Define @step decorator for evaluate_on_benchmark
+   b. [ ] Set up input/output data flow from train_new_model and load_baseline_model steps
+   c. [ ] Initialize MLFlow tracking in step
+   d. [ ] Add step to main pipeline flow
 
-2. [x] Implement training configuration management
-   a. [x] Load training hyperparameters from config
-   b. [x] Set random seeds for reproducibility (Python, NumPy, framework-specific)
-   c. [x] Configure model architecture parameters
-   d. [x] Validate configuration parameters
+2. [ ] Implement benchmark dataset handling
+   a. [ ] Create benchmark dataset loading utilities
+   b. [ ] Add support for multiple benchmark types (classification, regression)
+   c. [ ] Implement data validation and preprocessing
+   d. [ ] Add support for different data formats (JSON, CSV, parquet)
+   e. [ ] Create benchmark dataset configuration schema
 
-3. [x] Model fine-tuning logic
-   a. [x] Load combined dataset from previous step
-   b. [x] Initialize model from baseline model
-   c. [x] Implement training loop with proper logging
-   d. [x] Handle training interruptions gracefully
-   e. [x] Add progress tracking and metrics collection
+3. [ ] Model evaluation logic
+   a. [ ] Load both baseline and new models from previous steps
+   b. [ ] Implement inference pipeline for benchmark datasets
+   c. [ ] Generate prediction scores and probabilities
+   d. [ ] Handle different model architectures and output formats
+   e. [ ] Add deterministic evaluation with fixed random seeds
 
-4. [x] MLFlow integration
-   a. [x] Log training parameters to MLFlow
-   b. [x] Log training metrics (loss, accuracy, etc.) during training
-   c. [x] Save model artifacts to MLFlow model registry
-   d. [x] Tag model with metadata (version, timestamp, etc.)
-   e. [x] Create model signature for downstream usage
+4. [ ] Performance metrics calculation
+   a. [ ] Implement AUROC calculation function
+   b. [ ] Implement accuracy calculation function
+   c. [ ] Implement precision calculation function
+   d. [ ] Implement recall calculation function
+   e. [ ] Implement F1 score calculation function
+   f. [ ] Add support for multi-class and binary classification metrics
+
+5. [ ] Model performance comparison
+   a. [ ] Calculate performance deltas between baseline and new models
+   b. [ ] Generate summary statistics and comparison reports
+   c. [ ] Identify statistically significant performance changes
+   d. [ ] Create structured output for downstream processing
+
+6. [ ] MLFlow integration
+   a. [ ] Log evaluation metrics for both baseline and new models
+   b. [ ] Store prediction artifacts and raw scores
+   c. [ ] Track benchmark dataset metadata and parameters
+   d. [ ] Log model comparison results and performance deltas
+   e. [ ] Create evaluation run metadata
+
+## Output Formatting and Integration
+
+7. [ ] Implement output formatting
+   a. [ ] Create JSON output format compatible with compare_and_output_delta step
+   b. [ ] Include all required metadata (model IDs, evaluation parameters, etc.)
+   c. [ ] Format raw scores and predictions for further analysis
+   d. [ ] Add output validation and schema compliance
 
 ## Error Handling and Validation (Dependent on Core Development)
 
-5. [ ] Input validation and error handling
-   a. [ ] Validate input dataset format and schema
-   b. [ ] Handle training failures with proper error messages
-   c. [ ] Verify model output quality and compatibility
-   d. [ ] Add comprehensive logging throughout the module
-   e. [ ] Implement graceful degradation for recoverable errors
+8. [ ] Input validation and error handling
+   a. [ ] Validate model compatibility with benchmark datasets
+   b. [ ] Handle model loading failures gracefully
+   c. [ ] Add input validation for evaluation parameters
+   d. [ ] Implement comprehensive logging and error reporting
+   e. [ ] Add graceful degradation for recoverable errors
 
-## Testing
+## Testing (Dependent on Core Development)
 
-6. [x] Write and implement tests
-   a. [x] Unit tests for training configuration loading
-   b. [x] Unit tests for model initialization and setup
-   c. [x] Unit tests for training loop components
-   d. [x] Unit tests for MLFlow integration
-   e. [x] Integration tests with mock data and baseline model
-   f. [x] End-to-end pipeline testing with train_new_model step
-   g. [x] Performance tests for training with large datasets
+9. [x] Write and implement comprehensive tests
+   a. [x] Unit tests for metric calculation functions
+   b. [x] Unit tests for benchmark dataset handling
+   c. [x] Unit tests for model evaluation logic
+   d. [x] Unit tests for performance comparison functions
+   e. [x] Integration tests with mock models and datasets
+   f. [x] End-to-end pipeline tests with real benchmark data
+   g. [x] Test deterministic behavior with fixed random seeds
+   h. [x] Performance regression tests
 
 ## Documentation (Dependent on Core Development)
 
-7. [ ] Create comprehensive documentation
-   a. [ ] Update module docstrings with usage examples
-   b. [ ] Add inline comments for complex training logic
-   c. [ ] Document configuration parameters and schemas
-   d. [ ] Update README.md with train_new_model step details
-   e. [ ] Create usage examples and troubleshooting guide
+10. [ ] Create configuration and documentation
+    a. [ ] Add evaluation step configuration schema
+    b. [ ] Document benchmark dataset requirements and formats
+    c. [ ] Add usage examples and API documentation
+    d. [ ] Update main pipeline documentation with evaluate_on_benchmark step
+    e. [ ] Create troubleshooting guide for common evaluation issues
 
-## Integration and Configuration
+## Integration and Configuration (Dependent on Core Development)
 
-8. [ ] Pipeline integration
-   a. [ ] Ensure compatibility with existing Metaflow pipeline structure
-   b. [ ] Verify MLFlow tracking setup works with step
-   c. [ ] Connect output to evaluate_on_benchmark step
-   d. [ ] Test full pipeline flow with new step included
-   e. [ ] Update pipeline configuration files
-
-## Dependencies and Environment
-
-9. [ ] Dependency management
-   a. [ ] Identify and add required ML libraries to requirements.txt
-   b. [ ] Ensure compatibility with existing Python environment
-   c. [ ] Update setup scripts if needed
-   d. [ ] Verify all dependencies work in pipeline environment
+11. [ ] Pipeline integration
+    a. [ ] Test integration with existing load_baseline_model step
+    b. [ ] Test integration with existing train_new_model step
+    c. [ ] Validate output compatibility with compare_and_output_delta step
+    d. [ ] Ensure compatibility with existing Metaflow pipeline structure
+    e. [ ] Update pipeline configuration files
 
 ## Quality Assurance (Dependent on Testing)
 
-10. [ ] Final validation and cleanup
-    a. [ ] Run full test suite and ensure all tests pass
-    b. [ ] Validate step works with real data (if available)
-    c. [ ] Performance optimization and memory usage validation
+12. [ ] Final validation and cleanup
+    a. [ ] Run full pipeline end-to-end test
+    b. [ ] Verify deterministic behavior across multiple runs
+    c. [ ] Performance testing with realistic dataset sizes
     d. [ ] Code review and cleanup
     e. [ ] Final integration testing with complete pipeline
