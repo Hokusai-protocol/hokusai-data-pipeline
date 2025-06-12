@@ -9,7 +9,14 @@
       "Bash(git add:*)",
       "Bash(python -m pytest tests/unit/test_mlflow_config.py -v)",
       "Bash(source:*)",
-      "Bash(python -m pytest tests/unit/test_mlflow_config.py tests/integration/test_mlflow_integration.py -v)"
+      "Bash(python -m pytest tests/unit/test_mlflow_config.py tests/integration/test_mlflow_integration.py -v)",
+      "Bash(python -m pytest tests/unit/test_baseline_loader.py::TestBaselineModelLoader::test_init_default -v)",
+      "Bash(python -m pytest tests/integration/test_baseline_loader_integration.py::TestBaselineModelLoaderIntegration::test_complete_pickle_model_loading_workflow -v --no-cov)",
+      "Bash(python -m pytest tests/integration/test_baseline_loader_integration.py::TestBaselineModelLoaderIntegration::test_error_scenarios_integration -v --no-cov)",
+      "Bash(grep:*)",
+      "Bash(python -m pytest tests/integration/test_baseline_loader_integration.py::TestBaselineModelLoaderIntegration::test_performance_benchmarking -v --no-cov)",
+      "Bash(python -m pytest tests/integration/test_baseline_loader_integration.py -v --no-cov)",
+      "Bash(python -m pytest tests/unit/test_baseline_loader.py tests/integration/test_baseline_loader_integration.py -v --no-cov)"
     ],
     "deny": []
   }
