@@ -651,7 +651,9 @@ class HokusaiPipeline(FlowSpec):
                     "delta_one_score": delta_computation["delta_one"],
                     "metric_deltas": delta_computation["metric_deltas"],
                     "computation_method": "weighted_average_delta",
-                    "metrics_included": list(delta_computation["metric_deltas"].keys())
+                    "metrics_included": list(delta_computation["metric_deltas"].keys()),
+                    "improved_metrics": delta_computation["improved_metrics"],
+                    "degraded_metrics": delta_computation["degraded_metrics"]
                 },
                 "baseline_model": {
                     "model_id": self.baseline_model.get("version", "unknown"),
@@ -808,9 +810,9 @@ class HokusaiPipeline(FlowSpec):
             "delta_one_score": self.delta_one,
             "delta_output": self.delta_output,
             "performance_summary": {
-                "improved_metrics": self.delta_output["summary"]["improved_metrics"],
-                "degraded_metrics": self.delta_output["summary"]["degraded_metrics"],
-                "overall_improvement": self.delta_output["summary"]["overall_improvement"],
+                "improved_metrics": self.delta_output["delta_computation"]["improved_metrics"],
+                "degraded_metrics": self.delta_output["delta_computation"]["degraded_metrics"],
+                "overall_improvement": self.delta_one > 0,
                 "total_metrics_evaluated": len(self.delta_results)
             },
             "metadata": self.run_metadata,

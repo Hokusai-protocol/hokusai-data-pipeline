@@ -57,6 +57,106 @@ pytest
 mlflow ui
 ```
 
+## Dry-Run and Test Mode
+
+The pipeline supports dry-run mode for testing and development without requiring real data or models. This mode generates mock data and models to validate pipeline logic and performance.
+
+### Running in Dry-Run Mode
+
+#### Command Line
+```bash
+# Run with --dry-run flag
+PYTHONPATH=. python -m src.pipeline.hokusai_pipeline run \
+    --dry-run \
+    --contributed-data=data/test_fixtures/test_queries.csv \
+    --output-dir=./outputs
+```
+
+#### Environment Variable
+```bash
+# Set environment variable
+export HOKUSAI_TEST_MODE=true
+
+# Run pipeline (will automatically use test mode)
+PYTHONPATH=. python -m src.pipeline.hokusai_pipeline run \
+    --contributed-data=data/test_fixtures/test_queries.csv
+```
+
+### What Happens in Dry-Run Mode
+
+1. **Mock Baseline Model**: Creates a synthetic baseline model with realistic performance metrics
+2. **Mock Data Generation**: Generates deterministic mock datasets that match the expected schema
+3. **Simulated Training**: Performs mock model training with plausible performance improvements
+4. **Real Evaluation Logic**: Runs actual evaluation and delta computation logic with mock data
+5. **Complete Output**: Generates real DeltaOne JSON and attestation outputs
+
+### Mock Data Characteristics
+
+- **Deterministic**: Uses fixed random seeds for reproducible results
+- **Realistic Schema**: Matches expected data format with proper columns and types
+- **Configurable Size**: Generates appropriate dataset sizes for testing
+- **Edge Cases**: Includes various scenarios to test pipeline robustness
+
+### Performance Requirements
+
+- **Fast Execution**: Complete pipeline runs in under 2 minutes (typically ~7 seconds)
+- **Full Coverage**: All pipeline steps execute successfully
+- **Valid Outputs**: Generates properly formatted JSON outputs that match production schema
+
+### Mock Output Example
+
+The dry-run mode generates realistic outputs:
+
+```json
+{
+  "schema_version": "1.0",
+  "delta_computation": {
+    "delta_one_score": 0.0332,
+    "metric_deltas": {
+      "accuracy": {
+        "baseline_value": 0.8545,
+        "new_value": 0.8840,
+        "absolute_delta": 0.0296,
+        "relative_delta": 0.0346,
+        "improvement": true
+      }
+    },
+    "improved_metrics": ["accuracy", "precision", "recall", "f1", "auroc"],
+    "degraded_metrics": []
+  },
+  "pipeline_metadata": {
+    "dry_run": true,
+    "run_id": "1749778320931703",
+    "timestamp": "2025-06-13T01:32:07.220133"
+  }
+}
+```
+
+### Troubleshooting Test Mode
+
+#### Common Issues
+
+1. **MLflow Connection**: If MLflow fails, check that the tracking URI is accessible
+2. **File Permissions**: Ensure output directory is writable
+3. **Module Import**: Use `PYTHONPATH=.` when running from project root
+4. **Memory Issues**: Mock data is lightweight and shouldn't cause memory problems
+
+#### Debug Mode
+```bash
+# Enable verbose logging
+export PIPELINE_LOG_LEVEL=DEBUG
+
+# Run with debug output
+PYTHONPATH=. python -m src.pipeline.hokusai_pipeline run --dry-run --contributed-data=data/test_fixtures/test_queries.csv
+```
+
+#### Environment Variables for Test Mode
+
+- `HOKUSAI_TEST_MODE=true`: Enable test mode
+- `PIPELINE_LOG_LEVEL=DEBUG`: Enable debug logging
+- `RANDOM_SEED=42`: Set deterministic random seed (default)
+- `MLFLOW_EXPERIMENT_NAME=test-experiment`: Use separate experiment for testing
+
 ## MLFlow Integration
 
 The pipeline includes comprehensive MLFlow experiment tracking:

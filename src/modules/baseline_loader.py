@@ -37,7 +37,14 @@ class BaselineModelLoader:
         start_time = time.time()
         run_name = f"baseline_load_mlflow_{run_id}"
         
-        with mlflow_run_context(run_name, "load_baseline_model", run_id, metaflow_run_id):
+        with mlflow_run_context(
+            run_name=run_name, 
+            tags={
+                "pipeline.step": "load_baseline_model",
+                "pipeline.run_id": run_id,
+                "metaflow.run_id": metaflow_run_id
+            }
+        ):
             try:
                 # Log parameters
                 log_step_parameters({
@@ -91,7 +98,14 @@ class BaselineModelLoader:
         start_time = time.time()
         run_name = f"baseline_load_path_{run_id}"
         
-        with mlflow_run_context(run_name, "load_baseline_model", run_id, metaflow_run_id):
+        with mlflow_run_context(
+            run_name=run_name, 
+            tags={
+                "pipeline.step": "load_baseline_model",
+                "pipeline.run_id": run_id,
+                "metaflow.run_id": metaflow_run_id
+            }
+        ):
             try:
                 if not model_path.exists():
                     raise FileNotFoundError(f"Model not found at: {model_path}")
