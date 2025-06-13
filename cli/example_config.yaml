@@ -1,0 +1,5 @@
+model_path: /tmp/test_model.pkl
+dataset_path: /tmp/test_dataset.csv
+output_dir: /tmp/hokusai_output
+batch_size: 32
+random_seed: 42
