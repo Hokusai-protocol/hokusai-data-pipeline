@@ -1,102 +1,118 @@
-# PRD: Implement compare_and_output_delta Step
+# PRD: Implement Dry-Run and Test Mode for Hokusai Pipeline
 
 ## Objectives
 
-Implement the final step of the Hokusai evaluation pipeline that computes the DeltaOne metric and packages the result for verifier consumption. This step compares the performance of a newly trained model against the baseline model and outputs a structured JSON result containing the delta, contributor information, and model metadata.
-
-## Project Summary
-**[feature] Implement compare_and_output_delta step** - Compute DeltaOne and package result for verifier.
-
-Key requirements:
-* Compute delta = new - baseline
-* Structure JSON output as per spec
-* Include contributor hashes, weights, model ID
-
-## Personas
-
-**Primary User: Pipeline Operator**
-- Runs the complete Hokusai evaluation pipeline
-- Needs reliable delta computation between baseline and new models
-- Requires structured output for downstream verification processes
-
-**Secondary User: Verifier**
-- Consumes the JSON output to validate model improvements
-- Needs contributor hashes, weights, and model identifiers for attestation
-- Requires standardized format for automated processing
+Enable developers and contributors to test the Hokusai evaluation pipeline locally without requiring real data or models. This reduces development friction and allows for rapid iteration during development.
 
 ## Success Criteria
 
-1. **Accurate Delta Computation**: Successfully calculates delta = new_model_metrics - baseline_model_metrics
-2. **Structured JSON Output**: Produces JSON output conforming to the established schema with all required fields
-3. **Complete Metadata**: Includes contributor hashes, weights, model IDs, and evaluation metrics
-4. **Pipeline Integration**: Seamlessly integrates as the final step in the Metaflow pipeline
-5. **MLFlow Tracking**: Logs delta computation results and metadata to MLFlow for experiment tracking
+- Developers can run the complete pipeline with mock data
+- All pipeline steps execute successfully in test mode
+- Mock DeltaOne JSON output is generated
+- Test mode is clearly distinguishable from production runs
+- Documentation exists for running in test mode
 
-## Technical Requirements
+## Personas
 
-### Input Requirements
-- Baseline model evaluation metrics (from previous pipeline steps)
-- New model evaluation metrics (from evaluate_on_benchmark step)
-- Contributor data hashes and weights (from integrate_contributed_data step)
-- Model artifacts and metadata (from train_new_model step)
+### Primary: Pipeline Developers
+- Need to test pipeline changes locally
+- Want to validate pipeline logic without real data/models
+- Require fast feedback loops during development
 
-### Output Requirements
-- JSON file containing DeltaOne metric
-- Contributor attribution data (hashes, weights)
-- Model identifiers and metadata
-- Evaluation metrics for both baseline and new models
-- Timestamp and pipeline run information
+### Secondary: Contributors
+- Want to understand pipeline behavior before submitting real data
+- Need to verify their integration works correctly
 
-### Implementation Tasks
+## Core Requirements
 
-1. **Create compare_and_output_delta Metaflow step**
-   - Add @step decorator for Metaflow integration
-   - Define input parameters from previous pipeline steps
-   - Implement delta computation logic
+### Flag-Based Execution
+- Add `--dry-run` or `--test-mode` flag to pipeline execution
+- Environment variable support (e.g., `HOKUSAI_TEST_MODE=true`)
+- Clear indication when running in test mode
 
-2. **Implement delta computation**
-   - Calculate delta = new_model_metrics - baseline_model_metrics
-   - Handle different metric types (accuracy, AUROC, F1, etc.)
-   - Validate metric compatibility between models
+### Mock Data and Models
+- Provide dummy baseline model that mimics real model interface
+- Generate sample dataset that matches expected schema
+- Ensure mock data covers edge cases and various scenarios
 
-3. **Structure JSON output**
-   - Define output schema with required fields
-   - Include DeltaOne value, contributor data, model metadata
-   - Add timestamp and pipeline run information
+### Mock Output Generation
+- Generate realistic DeltaOne JSON output
+- Include all required fields per the schema
+- Populate with plausible mock values
 
-4. **Add MLFlow integration**
-   - Log delta computation results to MLFlow
-   - Track contributor weights and model performance
-   - Store output JSON as MLFlow artifact
+### Pipeline Integration
+- Test mode should work with existing Metaflow pipeline structure
+- All pipeline steps should execute in test mode
+- MLFlow tracking should still work with test runs
 
-5. **Implement error handling**
-   - Validate input data completeness
-   - Handle metric computation failures
-   - Provide meaningful error messages
+## Implementation Tasks
 
-6. **Add unit tests**
-   - Test delta computation with mock data
-   - Verify JSON output format and completeness
-   - Test error handling scenarios
+### Task 1: Add Test Mode Configuration
+- Create configuration class for test mode settings
+- Add command-line flag parsing for dry-run mode
+- Add environment variable support
+- Update pipeline initialization to detect test mode
 
-7. **Integration testing**
-   - Test step integration within full pipeline
-   - Verify data flow from previous steps
-   - Validate output consumption by downstream processes
+### Task 2: Create Mock Data Generator
+- Implement mock dataset generator with realistic schema
+- Create sample queries, responses, and metadata
+- Ensure generated data covers various test scenarios
+- Make mock data deterministic for consistent testing
 
-## Dependencies
+### Task 3: Implement Mock Baseline Model
+- Create dummy model class that mimics real model interface
+- Implement prediction methods that return plausible outputs
+- Ensure model can be loaded and used by existing pipeline code
+- Add model metadata that matches expected format
 
-- Previous pipeline steps: load_baseline_model, train_new_model, evaluate_on_benchmark
-- MLFlow for experiment tracking and artifact storage
-- JSON schema validation utilities
-- Metaflow framework for step definition and execution
+### Task 4: Update Pipeline Steps for Test Mode
+- Modify `load_baseline_model` step to use mock model in test mode
+- Update `integrate_contributed_data` step to use mock data
+- Ensure `train_new_model` step works with mock data
+- Update `evaluate_on_benchmark` step for test scenarios
+- Modify `compare_and_output_delta` step to generate mock output
+
+### Task 5: Create Mock Output Generator
+- Implement DeltaOne JSON output generator
+- Include all required schema fields
+- Generate realistic metric values
+- Add test-specific metadata to distinguish from real runs
+
+### Task 6: Add Test Mode Documentation
+- Update README with test mode usage instructions
+- Document command-line flags and environment variables
+- Provide examples of running in test mode
+- Explain mock data and expected outputs
+
+### Task 7: Add Integration Tests
+- Create tests that verify test mode functionality
+- Test each pipeline step in isolation with test mode
+- Verify end-to-end pipeline execution in test mode
+- Ensure mock outputs match expected schema
+
+## Technical Considerations
+
+### Performance
+- Test mode should execute quickly (< 2 minutes for full pipeline)
+- Mock data generation should be efficient
+- Avoid expensive operations in test mode
+
+### Consistency
+- Mock data should be deterministic for reproducible testing
+- Use fixed random seeds for consistent outputs
+- Ensure test mode behavior is predictable
+
+### Maintenance
+- Mock data should be easy to update as schema evolves
+- Test mode configuration should be centralized
+- Clear separation between test and production code paths
 
 ## Acceptance Criteria
 
-- [ ] Metaflow step successfully computes delta between baseline and new model metrics
-- [ ] JSON output includes all required fields per schema specification
-- [ ] Contributor hashes, weights, and model IDs are correctly included
-- [ ] MLFlow tracking captures delta computation and metadata
-- [ ] Unit tests achieve >90% code coverage
-- [ ] Integration tests pass with full pipeline execution
-- [ ] Error handling provides clear failure diagnostics
+- [ ] Pipeline can be executed with `--dry-run` flag
+- [ ] All pipeline steps complete successfully in test mode
+- [ ] Mock DeltaOne JSON output is generated and valid
+- [ ] Test mode is clearly indicated in logs and output
+- [ ] Documentation exists and is accurate
+- [ ] Integration tests pass for test mode functionality
+- [ ] Test mode execution completes in under 2 minutes

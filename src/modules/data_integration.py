@@ -36,7 +36,14 @@ class DataIntegrator:
         start_time = time.time()
         run_name = f"data_load_{run_id}"
         
-        with mlflow_run_context(run_name, "integrate_contributed_data", run_id, metaflow_run_id):
+        with mlflow_run_context(
+            run_name=run_name, 
+            tags={
+                "pipeline.step": "integrate_contributed_data",
+                "pipeline.run_id": run_id,
+                "metaflow.run_id": metaflow_run_id
+            }
+        ):
             try:
                 if not data_path.exists():
                     raise FileNotFoundError(f"Data file not found: {data_path}")
@@ -191,7 +198,14 @@ class DataIntegrator:
         start_time = time.time()
         run_name = f"data_merge_{run_id}"
         
-        with mlflow_run_context(run_name, "integrate_contributed_data", run_id, metaflow_run_id):
+        with mlflow_run_context(
+            run_name=run_name, 
+            tags={
+                "pipeline.step": "integrate_contributed_data",
+                "pipeline.run_id": run_id,
+                "metaflow.run_id": metaflow_run_id
+            }
+        ):
             try:
                 # Log parameters
                 log_step_parameters({

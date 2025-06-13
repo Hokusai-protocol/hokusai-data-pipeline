@@ -74,19 +74,35 @@ def log_pipeline_metadata(run_id: str, step_name: str, metaflow_run_id: str) -> 
 
 
 @contextmanager
-def mlflow_run_context(run_name: str, step_name: str, run_id: str, metaflow_run_id: str):
+def mlflow_run_context(run_name: str = None, experiment_name: str = None, tags: Dict[str, str] = None, **kwargs):
     """Context manager for MLFlow runs with automatic cleanup."""
-    with mlflow.start_run(run_name=run_name) as run:
-        try:
-            log_pipeline_metadata(run_id, step_name, metaflow_run_id)
-            logger.info(f"Started MLFlow run: {run_name} (ID: {run.info.run_id})")
-            yield run
-        except Exception as e:
-            mlflow.set_tag("error", str(e))
-            logger.error(f"Error in MLFlow run {run_name}: {e}")
-            raise
-        finally:
-            logger.info(f"Completed MLFlow run: {run_name}")
+    try:
+        # Set up experiment if provided
+        if experiment_name:
+            try:
+                mlflow.set_experiment(experiment_name)
+            except Exception as e:
+                logger.warning(f"Could not set experiment {experiment_name}: {e}")
+        
+        with mlflow.start_run(run_name=run_name) as run:
+            try:
+                # Log tags if provided
+                if tags:
+                    for key, value in tags.items():
+                        mlflow.set_tag(key, value)
+                
+                logger.info(f"Started MLFlow run: {run_name or 'unnamed'} (ID: {run.info.run_id})")
+                yield run
+            except Exception as e:
+                mlflow.set_tag("error", str(e))
+                logger.error(f"Error in MLFlow run {run_name or 'unnamed'}: {e}")
+                raise
+            finally:
+                logger.info(f"Completed MLFlow run: {run_name or 'unnamed'}")
+    except Exception as e:
+        logger.error(f"Failed to start MLFlow run: {e}")
+        # Yield a dummy context to allow pipeline to continue
+        yield None
 
 
 def log_step_parameters(params: Dict[str, Any]) -> None:
