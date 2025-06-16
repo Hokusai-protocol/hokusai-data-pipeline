@@ -1,0 +1,422 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hokusai.ai/schemas/zk-output-v1.json",
+  "title": "Hokusai ZK-Compatible Output Schema",
+  "description": "Schema for Hokusai pipeline outputs compatible with zero-knowledge proof generation and on-chain verification",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "metadata",
+    "evaluation_results", 
+    "delta_computation",
+    "models",
+    "contributor_info",
+    "attestation"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "Schema version following semantic versioning (major.minor)"
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["pipeline_run_id", "timestamp", "pipeline_version"],
+      "properties": {
+        "pipeline_run_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Unique identifier for this pipeline execution"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of pipeline completion"
+        },
+        "pipeline_version": {
+          "type": "string",
+          "description": "Git commit hash or version of the pipeline code"
+        },
+        "environment": {
+          "type": "string",
+          "enum": ["production", "staging", "test", "development"],
+          "description": "Environment where pipeline was executed"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Whether this was a dry run execution"
+        }
+      },
+      "additionalProperties": false
+    },
+    "evaluation_results": {
+      "type": "object",
+      "required": ["baseline_metrics", "new_metrics", "benchmark_metadata"],
+      "properties": {
+        "baseline_metrics": {
+          "$ref": "#/$defs/metrics"
+        },
+        "new_metrics": {
+          "$ref": "#/$defs/metrics"
+        },
+        "benchmark_metadata": {
+          "type": "object",
+          "required": ["size", "type"],
+          "properties": {
+            "size": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Number of samples in benchmark dataset"
+            },
+            "type": {
+              "type": "string",
+              "description": "Type/name of benchmark dataset used"
+            },
+            "features": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of feature names used in evaluation"
+            },
+            "dataset_hash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "description": "SHA-256 hash of the benchmark dataset"
+            }
+          },
+          "additionalProperties": false
+        },
+        "evaluation_timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when evaluation was performed"
+        },
+        "evaluation_time_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Time taken to complete evaluation in seconds"
+        }
+      },
+      "additionalProperties": false
+    },
+    "delta_computation": {
+      "type": "object",
+      "required": ["delta_one_score", "metric_deltas", "computation_method"],
+      "properties": {
+        "delta_one_score": {
+          "type": "number",
+          "description": "Overall delta score representing model improvement"
+        },
+        "metric_deltas": {
+          "type": "object",
+          "patternProperties": {
+            "^[a-z0-9_]+$": {
+              "$ref": "#/$defs/metric_delta"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Per-metric delta calculations"
+        },
+        "computation_method": {
+          "type": "string",
+          "enum": ["weighted_average_delta", "simple_average", "custom"],
+          "description": "Method used to compute the overall delta score"
+        },
+        "metrics_included": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "description": "List of metrics included in delta computation"
+        },
+        "improved_metrics": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "description": "List of metrics that showed improvement"
+        },
+        "degraded_metrics": {
+          "type": "array",
+          "items": {
+            "type": "string", 
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "description": "List of metrics that showed degradation"
+        }
+      },
+      "additionalProperties": false
+    },
+    "models": {
+      "type": "object",
+      "required": ["baseline", "new"],
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/model_info"
+        },
+        "new": {
+          "$ref": "#/$defs/model_info"
+        }
+      },
+      "additionalProperties": false
+    },
+    "contributor_info": {
+      "type": "object",
+      "required": ["data_hash", "data_manifest"],
+      "properties": {
+        "contributor_id": {
+          "type": "string",
+          "description": "Identifier for the data contributor (optional, may be anonymous)"
+        },
+        "data_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 hash of contributed data"
+        },
+        "data_manifest": {
+          "$ref": "#/$defs/data_manifest"
+        },
+        "contributor_weights": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Weight/proportion of contributed data in final model"
+        },
+        "contributed_samples": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of samples contributed"
+        },
+        "total_samples": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of samples used in training"
+        },
+        "validation_status": {
+          "type": "string",
+          "enum": ["valid", "invalid", "pending", "unknown"],
+          "description": "Status of data validation"
+        }
+      },
+      "additionalProperties": false
+    },
+    "attestation": {
+      "type": "object",
+      "required": ["hash_tree_root", "proof_ready"],
+      "properties": {
+        "hash_tree_root": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Merkle tree root hash of all evaluation data for ZK proof generation"
+        },
+        "proof_ready": {
+          "type": "boolean",
+          "description": "Whether this output is ready for ZK proof generation"
+        },
+        "signature_blob": {
+          "type": ["string", "null"],
+          "description": "Digital signature or proof blob (base64 encoded)"
+        },
+        "verification_key": {
+          "type": ["string", "null"],
+          "description": "Public key or verification parameters for signature/proof"
+        },
+        "proof_system": {
+          "type": "string",
+          "enum": ["groth16", "plonk", "stark", "ecdsa", "none"],
+          "description": "Type of proof system used"
+        },
+        "circuit_hash": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Hash of the ZK circuit used (if applicable)"
+        },
+        "public_inputs_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Hash of all public inputs for verification"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "metrics": {
+      "type": "object",
+      "required": ["accuracy"],
+      "properties": {
+        "accuracy": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "precision": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "recall": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "f1": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "auroc": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "metric_delta": {
+      "type": "object",
+      "required": ["baseline_value", "new_value", "absolute_delta", "relative_delta", "improvement"],
+      "properties": {
+        "baseline_value": {
+          "type": "number"
+        },
+        "new_value": {
+          "type": "number"
+        },
+        "absolute_delta": {
+          "type": "number"
+        },
+        "relative_delta": {
+          "type": "number"
+        },
+        "improvement": {
+          "type": "boolean",
+          "description": "Whether this metric showed improvement"
+        }
+      },
+      "additionalProperties": false
+    },
+    "model_info": {
+      "type": "object",
+      "required": ["model_id", "model_type"],
+      "properties": {
+        "model_id": {
+          "type": "string",
+          "description": "Unique identifier for the model"
+        },
+        "model_type": {
+          "type": "string",
+          "description": "Type or architecture of the model"
+        },
+        "model_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 hash of the model weights/parameters"
+        },
+        "mlflow_run_id": {
+          "type": ["string", "null"],
+          "description": "MLflow run ID associated with this model"
+        },
+        "training_config_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Hash of training configuration used"
+        },
+        "metrics": {
+          "$ref": "#/$defs/metrics"
+        },
+        "training_metadata": {
+          "type": "object",
+          "properties": {
+            "base_samples": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "contributed_samples": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "contribution_ratio": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "data_manifest": {
+              "$ref": "#/$defs/data_manifest"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "data_manifest": {
+      "type": "object",
+      "required": ["data_hash", "row_count", "column_count"],
+      "properties": {
+        "source_path": {
+          "type": "string",
+          "description": "Path to the original data file"
+        },
+        "row_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of rows in the dataset"
+        },
+        "column_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of columns in the dataset"
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of column names"
+        },
+        "data_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 hash of the dataset"
+        },
+        "dtypes": {
+          "type": "object",
+          "patternProperties": {
+            ".*": {
+              "type": "string"
+            }
+          },
+          "description": "Data types for each column"
+        },
+        "null_counts": {
+          "type": "object",
+          "patternProperties": {
+            ".*": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "description": "Number of null values per column"
+        },
+        "unique_counts": {
+          "type": "object",
+          "patternProperties": {
+            ".*": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "description": "Number of unique values per column"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

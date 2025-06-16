@@ -1,0 +1,372 @@
+{
+  "schema_version": "1.0",
+  "attestation_version": "1.0",
+  "run_id": "1749778320931703",
+  "timestamp": "2025-06-13T01:32:07.220133",
+  "contributor_data_hash": "3b26f05d3923476fb7eeedd1bee22e4e6b8c19566fe0f61f45c7ea48d7242e7e",
+  "contributor_data_manifest": {
+    "source_path": "data/test_fixtures/test_queries.csv",
+    "row_count": 100,
+    "column_count": 6,
+    "columns": [
+      "query_id",
+      "query_text",
+      "feature_1",
+      "feature_2",
+      "feature_3",
+      "label"
+    ],
+    "data_hash": "3b26f05d3923476fb7eeedd1bee22e4e6b8c19566fe0f61f45c7ea48d7242e7e",
+    "dtypes": {
+      "query_id": "object",
+      "query_text": "object",
+      "feature_1": "float64",
+      "feature_2": "float64",
+      "feature_3": "float64",
+      "label": "int64"
+    },
+    "null_counts": {
+      "query_id": 0,
+      "query_text": 0,
+      "feature_1": 0,
+      "feature_2": 0,
+      "feature_3": 0,
+      "label": 0
+    },
+    "unique_counts": {
+      "query_id": 100,
+      "query_text": 100,
+      "feature_1": 100,
+      "feature_2": 100,
+      "feature_3": 100,
+      "label": 2
+    }
+  },
+  "baseline_model_id": "1.0.0",
+  "new_model_id": "2.0.0",
+  "evaluation_results": {
+    "baseline_metrics": {
+      "accuracy": 0.854492577162388,
+      "precision": 0.8269597141976298,
+      "recall": 0.8867579571571691,
+      "f1": 0.8389452328858691,
+      "auroc": 0.9043036674794087
+    },
+    "new_metrics": {
+      "accuracy": 0.8840483940124245,
+      "precision": 0.8540146403183947,
+      "recall": 0.913400333131719,
+      "f1": 0.8911018964512049,
+      "auroc": 0.9346795551019627
+    },
+    "benchmark_metadata": {
+      "size": 1000,
+      "features": [
+        "feature_1",
+        "feature_2",
+        "feature_3"
+      ],
+      "type": "mock_classification_benchmark"
+    },
+    "evaluation_timestamp": "2025-06-13T01:32:05.672891",
+    "evaluation_time_seconds": 0.002335071563720703
+  },
+  "model_comparison": {
+    "auroc": {
+      "baseline_value": 0.9043036674794087,
+      "new_value": 0.9346795551019627,
+      "absolute_delta": 0.030375887622553943,
+      "relative_delta": 0.03359036208182315,
+      "improvement": true
+    },
+    "precision": {
+      "baseline_value": 0.8269597141976298,
+      "new_value": 0.8540146403183947,
+      "absolute_delta": 0.027054926120764877,
+      "relative_delta": 0.032716135570177475,
+      "improvement": true
+    },
+    "accuracy": {
+      "baseline_value": 0.854492577162388,
+      "new_value": 0.8840483940124245,
+      "absolute_delta": 0.029555816850036498,
+      "relative_delta": 0.0345887344606151,
+      "improvement": true
+    },
+    "f1": {
+      "baseline_value": 0.8389452328858691,
+      "new_value": 0.8911018964512049,
+      "absolute_delta": 0.05215666356533577,
+      "relative_delta": 0.06216933063189741,
+      "improvement": true
+    },
+    "recall": {
+      "baseline_value": 0.8867579571571691,
+      "new_value": 0.913400333131719,
+      "absolute_delta": 0.02664237597454988,
+      "relative_delta": 0.0300446990743245,
+      "improvement": true
+    }
+  },
+  "delta_one_score": 0.033157134026648195,
+  "delta_output": {
+    "schema_version": "1.0",
+    "delta_computation": {
+      "delta_one_score": 0.033157134026648195,
+      "metric_deltas": {
+        "auroc": {
+          "baseline_value": 0.9043036674794087,
+          "new_value": 0.9346795551019627,
+          "absolute_delta": 0.030375887622553943,
+          "relative_delta": 0.03359036208182315,
+          "improvement": true
+        },
+        "precision": {
+          "baseline_value": 0.8269597141976298,
+          "new_value": 0.8540146403183947,
+          "absolute_delta": 0.027054926120764877,
+          "relative_delta": 0.032716135570177475,
+          "improvement": true
+        },
+        "accuracy": {
+          "baseline_value": 0.854492577162388,
+          "new_value": 0.8840483940124245,
+          "absolute_delta": 0.029555816850036498,
+          "relative_delta": 0.0345887344606151,
+          "improvement": true
+        },
+        "f1": {
+          "baseline_value": 0.8389452328858691,
+          "new_value": 0.8911018964512049,
+          "absolute_delta": 0.05215666356533577,
+          "relative_delta": 0.06216933063189741,
+          "improvement": true
+        },
+        "recall": {
+          "baseline_value": 0.8867579571571691,
+          "new_value": 0.913400333131719,
+          "absolute_delta": 0.02664237597454988,
+          "relative_delta": 0.0300446990743245,
+          "improvement": true
+        }
+      },
+      "computation_method": "weighted_average_delta",
+      "metrics_included": [
+        "auroc",
+        "precision",
+        "accuracy",
+        "f1",
+        "recall"
+      ],
+      "improved_metrics": [
+        "auroc",
+        "precision",
+        "accuracy",
+        "f1",
+        "recall"
+      ],
+      "degraded_metrics": []
+    },
+    "baseline_model": {
+      "model_id": "1.0.0",
+      "model_type": "mock_model",
+      "metrics": {
+        "accuracy": 0.854492577162388,
+        "precision": 0.8269597141976298,
+        "recall": 0.8867579571571691,
+        "f1": 0.8389452328858691,
+        "auroc": 0.9043036674794087
+      },
+      "mlflow_run_id": null
+    },
+    "new_model": {
+      "model_id": "2.0.0",
+      "model_type": "mock_hokusai_integrated_classifier",
+      "metrics": {
+        "accuracy": 0.8840483940124245,
+        "precision": 0.8540146403183947,
+        "recall": 0.913400333131719,
+        "f1": 0.8911018964512049,
+        "auroc": 0.9346795551019627
+      },
+      "mlflow_run_id": "0a8f397b79c04447a432d98ec2bb1c01",
+      "training_metadata": {
+        "base_samples": 500,
+        "contributed_samples": 100,
+        "contribution_ratio": 0.16666666666666666,
+        "data_manifest": {
+          "source_path": "data/test_fixtures/test_queries.csv",
+          "row_count": 100,
+          "column_count": 6,
+          "columns": [
+            "query_id",
+            "query_text",
+            "feature_1",
+            "feature_2",
+            "feature_3",
+            "label"
+          ],
+          "data_hash": "3b26f05d3923476fb7eeedd1bee22e4e6b8c19566fe0f61f45c7ea48d7242e7e",
+          "dtypes": {
+            "query_id": "object",
+            "query_text": "object",
+            "feature_1": "float64",
+            "feature_2": "float64",
+            "feature_3": "float64",
+            "label": "int64"
+          },
+          "null_counts": {
+            "query_id": 0,
+            "query_text": 0,
+            "feature_1": 0,
+            "feature_2": 0,
+            "feature_3": 0,
+            "label": 0
+          },
+          "unique_counts": {
+            "query_id": 100,
+            "query_text": 100,
+            "feature_1": 100,
+            "feature_2": 100,
+            "feature_3": 100,
+            "label": 2
+          }
+        }
+      }
+    },
+    "contributor_attribution": {
+      "data_hash": "3b26f05d3923476fb7eeedd1bee22e4e6b8c19566fe0f61f45c7ea48d7242e7e",
+      "contributor_weights": 0.16666666666666666,
+      "contributed_samples": 100,
+      "total_samples": 600,
+      "data_manifest": {
+        "source_path": "data/test_fixtures/test_queries.csv",
+        "row_count": 100,
+        "column_count": 6,
+        "columns": [
+          "query_id",
+          "query_text",
+          "feature_1",
+          "feature_2",
+          "feature_3",
+          "label"
+        ],
+        "data_hash": "3b26f05d3923476fb7eeedd1bee22e4e6b8c19566fe0f61f45c7ea48d7242e7e",
+        "dtypes": {
+          "query_id": "object",
+          "query_text": "object",
+          "feature_1": "float64",
+          "feature_2": "float64",
+          "feature_3": "float64",
+          "label": "int64"
+        },
+        "null_counts": {
+          "query_id": 0,
+          "query_text": 0,
+          "feature_1": 0,
+          "feature_2": 0,
+          "feature_3": 0,
+          "label": 0
+        },
+        "unique_counts": {
+          "query_id": 100,
+          "query_text": 100,
+          "feature_1": 100,
+          "feature_2": 100,
+          "feature_3": 100,
+          "label": 2
+        }
+      }
+    },
+    "evaluation_metadata": {
+      "benchmark_dataset": {
+        "size": 1000,
+        "features": [
+          "feature_1",
+          "feature_2",
+          "feature_3"
+        ],
+        "type": "mock_classification_benchmark"
+      },
+      "evaluation_timestamp": "2025-06-13T01:32:05.672891",
+      "evaluation_time_seconds": 0.002335071563720703,
+      "pipeline_run_id": "1749778320931703"
+    },
+    "pipeline_metadata": {
+      "run_id": "1749778320931703",
+      "timestamp": "2025-06-13T01:32:06.868547",
+      "config": {
+        "environment": "test",
+        "log_level": "INFO",
+        "dry_run": true,
+        "data_dir": "data/test_fixtures",
+        "model_dir": "models",
+        "mlflow_tracking_uri": "./mlruns",
+        "mlflow_experiment_name": "hokusai-evaluation",
+        "metaflow_datastore_root": "./metaflow_data",
+        "random_seed": 42,
+        "max_workers": 4,
+        "batch_size": 1000,
+        "evaluation_metrics": [
+          "accuracy",
+          "precision",
+          "recall",
+          "f1",
+          "auroc"
+        ],
+        "confidence_threshold": 0.5,
+        "sample_size": null,
+        "stratify_column": null,
+        "test_size": 0.2
+      },
+      "dry_run": true
+    }
+  },
+  "performance_summary": {
+    "improved_metrics": [
+      "auroc",
+      "precision",
+      "accuracy",
+      "f1",
+      "recall"
+    ],
+    "degraded_metrics": [],
+    "overall_improvement": true,
+    "total_metrics_evaluated": 5
+  },
+  "metadata": {
+    "run_id": "1749778320931703",
+    "started_at": "2025-06-13T01:32:01.281231",
+    "config": {
+      "environment": "test",
+      "log_level": "INFO",
+      "dry_run": true,
+      "data_dir": "data/test_fixtures",
+      "model_dir": "models",
+      "mlflow_tracking_uri": "./mlruns",
+      "mlflow_experiment_name": "hokusai-evaluation",
+      "metaflow_datastore_root": "./metaflow_data",
+      "random_seed": 42,
+      "max_workers": 4,
+      "batch_size": 1000,
+      "evaluation_metrics": [
+        "accuracy",
+        "precision",
+        "recall",
+        "f1",
+        "auroc"
+      ],
+      "confidence_threshold": 0.5,
+      "sample_size": null,
+      "stratify_column": null,
+      "test_size": 0.2
+    },
+    "parameters": {
+      "baseline_model_path": null,
+      "contributed_data_path": "data/test_fixtures/test_queries.csv",
+      "output_dir": "./outputs",
+      "dry_run": true
+    }
+  },
+  "status": "success"
+}

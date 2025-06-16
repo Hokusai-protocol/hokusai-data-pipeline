@@ -1,99 +1,122 @@
-# Product Requirements Document: Local Performance Preview
+# PRD: Define JSON Schema for ZK-Compatible Output
 
 ## Objectives
 
-Build a local performance preview tool that enables contributors to estimate the performance impact of their data contributions before submitting to the Hokusai pipeline. This tool will allow contributors to:
-
-1. Fine-tune a model locally using their contributed data
-2. Generate a non-binding estimate of the DeltaOne score
-3. Save and print structured evaluation results in a format compatible with the main pipeline
-
-## User Personas
-
-### Primary Persona: Data Contributor
-- **Background**: Machine learning engineer or data scientist contributing datasets to improve model performance
-- **Goals**: Understand the potential impact of their data contribution before submission
-- **Pain Points**: Uncertainty about data quality and contribution value
-- **Technical Level**: Comfortable with command-line tools and Python environments
-
-### Secondary Persona: Model Evaluator
-- **Background**: Technical reviewer validating contributed data quality
-- **Goals**: Quickly assess if contributed data meets quality thresholds
-- **Pain Points**: Need to run full pipeline to evaluate small contributions
-- **Technical Level**: Advanced understanding of ML pipelines and evaluation metrics
+Define and implement a standardized JSON schema for Hokusai pipeline outputs that enables zero-knowledge proof generation and on-chain verification. This schema will serve as the foundation for attestation-ready results from the evaluation pipeline.
 
 ## Success Criteria
 
-1. **Performance**: Preview runs complete in under 5 minutes for datasets up to 10,000 samples
-2. **Accuracy**: Estimated DeltaOne scores within ±20% of full pipeline results
-3. **Usability**: Single command execution with clear output formatting
-4. **Compatibility**: Output format matches main pipeline JSON schema for easy comparison
-5. **Resource Efficiency**: Runs on a single machine with 8GB RAM without GPU requirements
+- Frozen JSON schema specification with all required fields
+- Schema supports zk-proof generation workflows
+- Compatible with on-chain hash verification mechanisms
+- Includes dedicated field for signature/proof blob storage
+- Schema validation can be performed programmatically
+- Documentation explains usage for contributors and verifiers
+
+## Personas
+
+**Primary Users:**
+- **Pipeline Operators**: Need consistent output format from evaluation runs
+- **ZK Proof Generators**: Require structured data for proof creation
+- **On-chain Verifiers**: Need hash-compatible format for verification
+
+**Secondary Users:**
+- **Contributors**: Will receive results in this format
+- **Auditors**: Need to verify pipeline output integrity
+
+## Technical Requirements
+
+### Core Schema Elements
+
+The JSON schema must include:
+
+1. **Metadata Section**
+   - Pipeline execution ID
+   - Timestamp (ISO 8601 format)
+   - Schema version
+   - Pipeline version/commit hash
+
+2. **Model Information**
+   - Baseline model ID and hash
+   - New model ID and hash
+   - Training configuration hash
+
+3. **Evaluation Results**
+   - DeltaOne computation result
+   - Raw performance metrics (AUROC, accuracy, etc.)
+   - Contributor data hashes
+   - Model weights/parameters hash
+
+4. **Attestation Fields**
+   - Signature/proof blob placeholder
+   - Hash of all evaluation data
+   - Verification metadata
+
+5. **Contributor Information**
+   - Data submission hash
+   - Contributor identifier
+   - Data validation status
+
+### Schema Validation
+
+- JSON Schema Draft 2020-12 compliance
+- Required vs optional field definitions
+- Data type constraints and formats
+- Range validation for numeric fields
+
+### ZK Compatibility Requirements
+
+- All fields must be deterministically serializable
+- Hash computation must be reproducible
+- Support for Merkle tree construction
+- Compatible with common zk-SNARK libraries
 
 ## Implementation Tasks
 
-### Task 1: Create Local Model Fine-tuning Module
-- Implement a lightweight fine-tuning process that works with contributed data
-- Use the same model architecture as the main pipeline but with reduced training epochs
-- Support CSV, JSON, and Parquet input formats
-- Implement stratified sampling for datasets larger than 10,000 samples
-- Include progress indicators during training
+1. **Research existing zk-proof JSON standards**
+   - Review common attestation formats
+   - Analyze blockchain verification patterns
+   - Document compatibility requirements
 
-### Task 2: Implement Delta Estimation Logic
-- Create a simplified version of the DeltaOne calculation
-- Load a pre-trained baseline model (or mock baseline in test mode)
-- Calculate performance metrics on a held-out validation set
-- Compute estimated delta between baseline and fine-tuned model
-- Mark results clearly as "PREVIEW - NON-BINDING ESTIMATE"
+2. **Design core schema structure**
+   - Define required vs optional fields
+   - Establish field naming conventions
+   - Create nested object hierarchy
 
-### Task 3: Design Structured Output Format
-- Match the JSON schema from the main pipeline's delta output
-- Include preview-specific metadata fields:
-  - `preview_mode: true`
-  - `estimation_confidence` score
-  - `sample_size_used`
-  - `time_elapsed`
-- Support both console pretty-printing and file export options
+3. **Implement JSON Schema file**
+   - Create formal JSON Schema specification
+   - Add validation rules and constraints
+   - Include examples and documentation
 
-### Task 4: Build CLI Interface
-- Create a command-line tool `hokusai-preview` with clear arguments:
-  - `--data-path`: Path to contributed data file
-  - `--output-format`: json|pretty (default: pretty)
-  - `--output-file`: Optional file path for saving results
-  - `--sample-size`: Maximum samples to use (default: 10000)
-  - `--baseline-model`: Path to baseline model (optional, uses default)
-- Include helpful error messages and validation
+4. **Create schema validation utilities**
+   - Python validation function
+   - CLI tool for schema checking
+   - Integration with pipeline output
 
-### Task 5: Add Performance Optimizations
-- Implement data caching to avoid reprocessing
-- Use lightweight model checkpointing
-- Optimize memory usage for large datasets
-- Add early stopping if convergence is detected
+5. **Add tests and documentation**
+   - Unit tests for schema validation
+   - Example JSON files demonstrating usage
+   - Integration guide for pipeline steps
 
-### Task 6: Create Documentation and Examples
-- Write comprehensive README for the preview tool
-- Include example commands and expected outputs
-- Document limitations and accuracy expectations
-- Provide troubleshooting guide for common issues
+6. **Integrate with existing pipeline**
+   - Update output generation in compare_and_output_delta step
+   - Ensure backward compatibility
+   - Add schema validation to CI/CD
 
-### Task 7: Implement Test Suite
-- Unit tests for each module component
-- Integration tests with sample datasets
-- Performance benchmarks to ensure <5 minute execution
-- Accuracy tests comparing preview vs full pipeline results
-- Edge case handling (empty data, malformed files, etc.)
+## Acceptance Criteria
 
-## Technical Constraints
+- [ ] JSON Schema file validates correctly
+- [ ] Schema supports all required attestation fields
+- [ ] Python validation utility works correctly
+- [ ] Example outputs pass schema validation
+- [ ] Documentation explains all fields clearly
+- [ ] Integration tests pass with new schema
+- [ ] ZK-proof compatibility verified
+- [ ] On-chain hash verification possible
 
-1. Must work offline without external API dependencies
-2. Should not require GPU acceleration
-3. Compatible with Python 3.8+
-4. Minimal additional dependencies beyond main pipeline requirements
-5. Results must include clear disclaimers about non-binding nature
+## Risk Mitigation
 
-## Future Enhancements (Out of Scope)
-
-- Web-based UI for preview results
-- Real-time preview during data upload
-- Multi-model comparison in single preview
-- Integration with cloud-based model registry
+- **Schema Evolution**: Use semantic versioning for schema changes
+- **Performance Impact**: Validate schema overhead is minimal
+- **Compatibility**: Ensure existing tools continue working
+- **Security**: Review schema for information leakage risks

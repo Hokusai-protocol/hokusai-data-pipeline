@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "delta_computation": {
+    "metric_deltas": {
+      "recall": {
+        "baseline_value": 0.87,
+        "new_value": 0.0,
+        "absolute_delta": -0.87,
+        "relative_delta": -1.0,
+        "improvement": "False"
+      },
+      "f1": {
+        "baseline_value": 0.85,
+        "new_value": 0.0,
+        "absolute_delta": -0.85,
+        "relative_delta": -1.0,
+        "improvement": "False"
+      },
+      "precision": {
+        "baseline_value": 0.83,
+        "new_value": 0.0,
+        "absolute_delta": -0.83,
+        "relative_delta": -1.0,
+        "improvement": "False"
+      },
+      "accuracy": {
+        "baseline_value": 0.85,
+        "new_value": 0.5,
+        "absolute_delta": -0.35,
+        "relative_delta": -0.4117647058823529,
+        "improvement": "False"
+      },
+      "auroc": {
+        "baseline_value": 0.91,
+        "new_value": 1.0,
+        "absolute_delta": 0.08999999999999997,
+        "relative_delta": 0.09890109890109887,
+        "improvement": "True"
+      }
+    },
+    "improved_metrics": [
+      "auroc"
+    ],
+    "degraded_metrics": [
+      "recall",
+      "f1",
+      "precision",
+      "accuracy"
+    ],
+    "delta_one_score": -0.6625727213962508
+  },
+  "baseline_model": {
+    "model_id": "1.0.0",
+    "model_type": "mock_baseline",
+    "metrics": {
+      "accuracy": 0.85,
+      "precision": 0.83,
+      "recall": 0.87,
+      "f1": 0.85,
+      "auroc": 0.91
+    }
+  },
+  "new_model": {
+    "model_id": "preview_2.0.0",
+    "model_type": "fine_tuned_classifier",
+    "metrics": {
+      "accuracy": 0.5,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "auroc": 1.0
+    }
+  },
+  "preview_metadata": {
+    "preview_mode": true,
+    "estimation_confidence": 0.01,
+    "sample_size_used": 10,
+    "original_data_size": 10,
+    "time_elapsed": 0.008415937423706055,
+    "data_path": "data/test_samples/sample_contributed_data.csv",
+    "timestamp": "2025-06-16T11:48:59.610463"
+  },
+  "disclaimer": "PREVIEW - NON-BINDING ESTIMATE: This is a preview of potential performance improvements. Actual results may vary. This estimate is provided for informational purposes only and should not be used for production decisions."
+}
