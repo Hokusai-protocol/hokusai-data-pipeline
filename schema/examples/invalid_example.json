@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "metadata": {
+    "pipeline_run_id": "invalid_run_123",
+    "timestamp": "not-a-valid-timestamp",
+    "pipeline_version": "invalid_commit",
+    "environment": "invalid_environment"
+  },
+  "evaluation_results": {
+    "baseline_metrics": {
+      "accuracy": 1.5,
+      "precision": -0.1
+    },
+    "new_metrics": {
+      "accuracy": 0.884
+    },
+    "benchmark_metadata": {
+      "size": -100,
+      "type": "test_benchmark"
+    }
+  },
+  "delta_computation": {
+    "delta_one_score": "not-a-number",
+    "metric_deltas": {
+      "accuracy": {
+        "baseline_value": 0.854,
+        "new_value": 0.884,
+        "absolute_delta": 0.030,
+        "relative_delta": 0.0351
+      }
+    },
+    "computation_method": "invalid_method"
+  },
+  "models": {
+    "baseline": {
+      "model_id": "baseline_v1",
+      "model_type": "classifier"
+    }
+  },
+  "contributor_info": {
+    "data_hash": "invalid_hash_too_short",
+    "data_manifest": {
+      "data_hash": "another_invalid_hash",
+      "row_count": -5,
+      "column_count": 0
+    }
+  },
+  "attestation": {
+    "hash_tree_root": "not_a_valid_hash",
+    "proof_ready": "not-a-boolean"
+  }
+}

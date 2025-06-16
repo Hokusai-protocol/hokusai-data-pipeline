@@ -1,0 +1,171 @@
+{
+  "schema_version": "1.0",
+  "metadata": {
+    "pipeline_run_id": "zk_run_1234567890",
+    "timestamp": "2025-06-16T10:30:00.000Z",
+    "pipeline_version": "e36d904abc123def456789",
+    "environment": "production",
+    "dry_run": false
+  },
+  "evaluation_results": {
+    "baseline_metrics": {
+      "accuracy": 0.854,
+      "precision": 0.827,
+      "recall": 0.887,
+      "f1": 0.839,
+      "auroc": 0.904
+    },
+    "new_metrics": {
+      "accuracy": 0.884,
+      "precision": 0.854,
+      "recall": 0.913,
+      "f1": 0.891,
+      "auroc": 0.935
+    },
+    "benchmark_metadata": {
+      "size": 10000,
+      "type": "hokusai_standard_benchmark_v1",
+      "features": ["feature_1", "feature_2", "feature_3", "feature_4"],
+      "dataset_hash": "bcde567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+    },
+    "evaluation_timestamp": "2025-06-16T10:25:00.000Z",
+    "evaluation_time_seconds": 45.67
+  },
+  "delta_computation": {
+    "delta_one_score": 0.0332,
+    "metric_deltas": {
+      "accuracy": {
+        "baseline_value": 0.854,
+        "new_value": 0.884,
+        "absolute_delta": 0.030,
+        "relative_delta": 0.0351,
+        "improvement": true
+      },
+      "auroc": {
+        "baseline_value": 0.904,
+        "new_value": 0.935,
+        "absolute_delta": 0.031,
+        "relative_delta": 0.0343,
+        "improvement": true
+      },
+      "f1": {
+        "baseline_value": 0.839,
+        "new_value": 0.891,
+        "absolute_delta": 0.052,
+        "relative_delta": 0.0620,
+        "improvement": true
+      }
+    },
+    "computation_method": "weighted_average_delta",
+    "metrics_included": ["accuracy", "auroc", "f1", "precision", "recall"],
+    "improved_metrics": ["accuracy", "auroc", "f1", "precision", "recall"],
+    "degraded_metrics": []
+  },
+  "models": {
+    "baseline": {
+      "model_id": "baseline_v1.0.0",
+      "model_type": "transformer_classifier",
+      "model_hash": "abcd567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "training_config_hash": "cdef567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "mlflow_run_id": "baseline_run_001",
+      "metrics": {
+        "accuracy": 0.854,
+        "precision": 0.827,
+        "recall": 0.887,
+        "f1": 0.839,
+        "auroc": 0.904
+      }
+    },
+    "new": {
+      "model_id": "enhanced_v1.1.0",
+      "model_type": "transformer_classifier_enhanced",
+      "model_hash": "5678567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "training_config_hash": "cdef567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "mlflow_run_id": "enhanced_run_001",
+      "metrics": {
+        "accuracy": 0.884,
+        "precision": 0.854,
+        "recall": 0.913,
+        "f1": 0.891,
+        "auroc": 0.935
+      },
+      "training_metadata": {
+        "base_samples": 50000,
+        "contributed_samples": 5000,
+        "contribution_ratio": 0.091,
+        "data_manifest": {
+          "data_hash": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+          "row_count": 5000,
+          "column_count": 5,
+          "columns": ["feature_1", "feature_2", "feature_3", "feature_4", "label"],
+          "dtypes": {
+            "feature_1": "float64",
+            "feature_2": "float64",
+            "feature_3": "float64",
+            "feature_4": "float64",
+            "label": "int64"
+          },
+          "null_counts": {
+            "feature_1": 0,
+            "feature_2": 0,
+            "feature_3": 0,
+            "feature_4": 0,
+            "label": 0
+          },
+          "unique_counts": {
+            "feature_1": 4892,
+            "feature_2": 4901,
+            "feature_3": 4895,
+            "feature_4": 4888,
+            "label": 2
+          }
+        }
+      }
+    }
+  },
+  "contributor_info": {
+    "contributor_id": "contributor_xyz789",
+    "data_hash": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    "data_manifest": {
+      "source_path": "/verified/data/contributor_xyz789_dataset.csv",
+      "data_hash": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "row_count": 5000,
+      "column_count": 5,
+      "columns": ["feature_1", "feature_2", "feature_3", "feature_4", "label"],
+      "dtypes": {
+        "feature_1": "float64",
+        "feature_2": "float64", 
+        "feature_3": "float64",
+        "feature_4": "float64",
+        "label": "int64"
+      },
+      "null_counts": {
+        "feature_1": 0,
+        "feature_2": 0,
+        "feature_3": 0,
+        "feature_4": 0,
+        "label": 0
+      },
+      "unique_counts": {
+        "feature_1": 4892,
+        "feature_2": 4901,
+        "feature_3": 4895,
+        "feature_4": 4888,
+        "label": 2
+      }
+    },
+    "contributor_weights": 0.091,
+    "contributed_samples": 5000,
+    "total_samples": 55000,
+    "validation_status": "valid"
+  },
+  "attestation": {
+    "hash_tree_root": "9abc567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    "proof_ready": true,
+    "signature_blob": "proof_blob_base64_encoded_here",
+    "verification_key": "verification_key_here",
+    "proof_system": "groth16",
+    "circuit_hash": "def0567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    "public_inputs_hash": "fed0567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+  }
+}

@@ -1,0 +1,205 @@
+{
+  "schema_version": "1.0",
+  "delta_computation": {
+    "delta_one_score": -0.008246137438216183,
+    "metric_deltas": {
+      "f1": {
+        "baseline_value": 0.7960977836246523,
+        "new_value": 0.708717005660424,
+        "absolute_delta": -0.08738077796422838,
+        "relative_delta": -0.10976136319131753,
+        "improvement": false
+      },
+      "auroc": {
+        "baseline_value": 0.9232003296618494,
+        "new_value": 0.9303866986861766,
+        "absolute_delta": 0.007186369024327233,
+        "relative_delta": 0.007784192437365639,
+        "improvement": true
+      },
+      "precision": {
+        "baseline_value": 0.8468771863475314,
+        "new_value": 0.8654930513805962,
+        "absolute_delta": 0.018615865033064782,
+        "relative_delta": 0.021981776499792764,
+        "improvement": true
+      },
+      "accuracy": {
+        "baseline_value": 0.848766811461263,
+        "new_value": 0.8681680401651664,
+        "absolute_delta": 0.019401228703903373,
+        "relative_delta": 0.022858137761656374,
+        "improvement": true
+      },
+      "recall": {
+        "baseline_value": 0.8834279908899003,
+        "new_value": 0.8843746189017524,
+        "absolute_delta": 0.0009466280118520798,
+        "relative_delta": 0.0010715395274022463,
+        "improvement": true
+      }
+    },
+    "computation_method": "weighted_average_delta",
+    "metrics_included": [
+      "f1",
+      "auroc",
+      "precision",
+      "accuracy",
+      "recall"
+    ]
+  },
+  "baseline_model": {
+    "model_id": "1.0.0",
+    "model_type": "mock_model",
+    "metrics": {
+      "accuracy": 0.848766811461263,
+      "precision": 0.8468771863475314,
+      "recall": 0.8834279908899003,
+      "f1": 0.7960977836246523,
+      "auroc": 0.9232003296618494
+    },
+    "mlflow_run_id": null
+  },
+  "new_model": {
+    "model_id": "2.0.0",
+    "model_type": "mock_hokusai_integrated_classifier",
+    "metrics": {
+      "accuracy": 0.8681680401651664,
+      "precision": 0.8654930513805962,
+      "recall": 0.8843746189017524,
+      "f1": 0.708717005660424,
+      "auroc": 0.9303866986861766
+    },
+    "mlflow_run_id": "8b9faa1e88fd4993b7fa2ce02445f6c5",
+    "training_metadata": {
+      "base_samples": 500,
+      "contributed_samples": 100,
+      "contribution_ratio": 0.16666666666666666,
+      "data_manifest": {
+        "source_path": "data/test_fixtures/test_queries.csv",
+        "row_count": 100,
+        "column_count": 6,
+        "columns": [
+          "query_id",
+          "query_text",
+          "feature_1",
+          "feature_2",
+          "feature_3",
+          "label"
+        ],
+        "data_hash": "3b26f05d3923476fb7eeedd1bee22e4e6b8c19566fe0f61f45c7ea48d7242e7e",
+        "dtypes": {
+          "query_id": "object",
+          "query_text": "object",
+          "feature_1": "float64",
+          "feature_2": "float64",
+          "feature_3": "float64",
+          "label": "int64"
+        },
+        "null_counts": {
+          "query_id": 0,
+          "query_text": 0,
+          "feature_1": 0,
+          "feature_2": 0,
+          "feature_3": 0,
+          "label": 0
+        },
+        "unique_counts": {
+          "query_id": 100,
+          "query_text": 100,
+          "feature_1": 100,
+          "feature_2": 100,
+          "feature_3": 100,
+          "label": 2
+        }
+      }
+    }
+  },
+  "contributor_attribution": {
+    "data_hash": "3b26f05d3923476fb7eeedd1bee22e4e6b8c19566fe0f61f45c7ea48d7242e7e",
+    "contributor_weights": 0.16666666666666666,
+    "contributed_samples": 100,
+    "total_samples": 600,
+    "data_manifest": {
+      "source_path": "data/test_fixtures/test_queries.csv",
+      "row_count": 100,
+      "column_count": 6,
+      "columns": [
+        "query_id",
+        "query_text",
+        "feature_1",
+        "feature_2",
+        "feature_3",
+        "label"
+      ],
+      "data_hash": "3b26f05d3923476fb7eeedd1bee22e4e6b8c19566fe0f61f45c7ea48d7242e7e",
+      "dtypes": {
+        "query_id": "object",
+        "query_text": "object",
+        "feature_1": "float64",
+        "feature_2": "float64",
+        "feature_3": "float64",
+        "label": "int64"
+      },
+      "null_counts": {
+        "query_id": 0,
+        "query_text": 0,
+        "feature_1": 0,
+        "feature_2": 0,
+        "feature_3": 0,
+        "label": 0
+      },
+      "unique_counts": {
+        "query_id": 100,
+        "query_text": 100,
+        "feature_1": 100,
+        "feature_2": 100,
+        "feature_3": 100,
+        "label": 2
+      }
+    }
+  },
+  "evaluation_metadata": {
+    "benchmark_dataset": {
+      "size": 1000,
+      "features": [
+        "feature_1",
+        "feature_2",
+        "feature_3"
+      ],
+      "type": "mock_classification_benchmark"
+    },
+    "evaluation_timestamp": "2025-06-13T01:30:59.491181",
+    "evaluation_time_seconds": 0.002274036407470703,
+    "pipeline_run_id": "1749778254976095"
+  },
+  "pipeline_metadata": {
+    "run_id": "1749778254976095",
+    "timestamp": "2025-06-13T01:31:00.624740",
+    "config": {
+      "environment": "test",
+      "log_level": "INFO",
+      "dry_run": true,
+      "data_dir": "data/test_fixtures",
+      "model_dir": "models",
+      "mlflow_tracking_uri": "./mlruns",
+      "mlflow_experiment_name": "hokusai-evaluation",
+      "metaflow_datastore_root": "./metaflow_data",
+      "random_seed": 42,
+      "max_workers": 4,
+      "batch_size": 1000,
+      "evaluation_metrics": [
+        "accuracy",
+        "precision",
+        "recall",
+        "f1",
+        "auroc"
+      ],
+      "confidence_threshold": 0.5,
+      "sample_size": null,
+      "stratify_column": null,
+      "test_size": 0.2
+    },
+    "dry_run": true
+  }
+}
