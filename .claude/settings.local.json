@@ -25,7 +25,8 @@
       "Bash(touch:*)",
       "Bash(python -m pytest tests/unit/test_model_training.py -v)",
       "Bash(python -m pytest tests/unit/test_evaluation_enhanced.py -v)",
-      "Bash(python -m pytest tests/integration/test_evaluate_on_benchmark_integration.py -v)"
+      "Bash(python -m pytest tests/integration/test_evaluate_on_benchmark_integration.py -v)",
+      "Bash(python:*)"
     ],
     "deny": []
   }
