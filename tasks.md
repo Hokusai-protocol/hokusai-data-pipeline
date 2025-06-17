@@ -1,92 +1,73 @@
-# Implementation Tasks: Define JSON Schema for ZK-Compatible Output
+# Implementation Tasks: Integrate ZKSchema with Existing Pipeline Output Generation
 
-## Research and Analysis
+## Current State Analysis
 
-1. [ ] Research existing zk-proof JSON standards
-   a. [ ] Review common attestation formats (JSON-LD, Verifiable Credentials)
-   b. [ ] Analyze blockchain verification patterns (Ethereum, Polygon)
-   c. [ ] Study zk-SNARK library requirements (circom, arkworks)
-   d. [ ] Document compatibility requirements for on-chain verification
-   e. [ ] Identify best practices for deterministic serialization
+1. [x] Review Current Pipeline Output Structure
+   a. [x] Examine existing pipeline output generation in src/modules/evaluation.py
+   b. [x] Identify current output format and sections
+   c. [x] Map existing fields to new ZK schema requirements
+   d. [x] Document any missing fields required by the ZK schema
+   e. [x] Analyze existing outputs in outputs/ directory
 
-## Schema Design
+## ZK Output Formatter Implementation
 
-2. [ ] Design core schema structure
-   a. [ ] Define required vs optional field categories
-   b. [ ] Establish field naming conventions (snake_case vs camelCase)
-   c. [ ] Create nested object hierarchy for logical grouping
-   d. [ ] Design version compatibility strategy
-   e. [ ] Plan for schema evolution and migration
+2. [x] Implement ZK-Compatible Output Formatter
+   a. [x] Create ZKCompatibleOutputFormatter class in src/utils/
+   b. [x] Implement format_output method to convert pipeline results to ZK format
+   c. [x] Add helper methods for each schema section (metadata, evaluation_results, etc.)
+   d. [x] Implement deterministic hashing functions for models, configs, and benchmarks
+   e. [x] Add Merkle tree computation for hash_tree_root in attestation section
 
-## Schema Implementation
+## Pipeline Output Integration
 
-3. [ ] Implement JSON Schema file
-   a. [ ] Create formal JSON Schema specification (schema/zk_output_schema.json)
-   b. [ ] Add validation rules and constraints for each field
-   c. [ ] Define data types and format specifications
-   d. [ ] Include numeric range validations where appropriate
-   e. [ ] Add pattern matching for hash fields and IDs
+3. [x] Update Pipeline Output Generation
+   a. [x] Modify compare_and_output_delta step to use new formatter
+   b. [x] Integrate schema validation before saving outputs
+   c. [x] Ensure pipeline fails gracefully if output doesn't validate
+   d. [x] Add ZK readiness checking to pipeline execution
+   e. [x] Update output file naming to indicate ZK compatibility
 
-## Validation Utilities
+## Schema Validation Integration
 
-4. [ ] Create schema validation utilities
-   a. [ ] Implement Python validation function (utils/schema_validator.py)
-   b. [ ] Create CLI tool for schema checking
-   c. [ ] Add integration hooks for pipeline output validation
-   d. [ ] Implement detailed error reporting for validation failures
-   e. [ ] Add performance optimization for large JSON files
+4. [x] Integrate Schema Validation
+   a. [x] Import and use existing SchemaValidator from src/utils/schema_validator.py
+   b. [x] Add validation calls after output formatting
+   c. [x] Implement error handling for validation failures
+   d. [x] Add logging for validation results and errors
+   e. [x] Ensure validation works with both JSON schema and ZK compatibility checks
 
-## Example Implementation
+## CLI Tool Updates
 
-5. [ ] Create example JSON files and documentation
-   a. [ ] Generate valid example output files
-   b. [ ] Create invalid examples for testing edge cases
-   c. [ ] Document field-by-field explanation
-   d. [ ] Write integration guide for pipeline steps
-   e. [ ] Add troubleshooting guide for common validation errors
+5. [x] Update CLI Validation Tool
+   a. [x] Modify scripts/validate_schema.py to work with pipeline integration
+   b. [x] Add pipeline output validation commands
+   c. [x] Ensure CLI tool can validate newly generated outputs
+   d. [x] Test CLI tool with sample pipeline outputs
+   e. [x] Add progress reporting for validation operations
 
-## Pipeline Integration (Dependent on Schema Implementation)
+## Migration Implementation
 
-6. [ ] Integrate with existing pipeline
-   a. [ ] Update compare_and_output_delta step to use new schema
-   b. [ ] Ensure backward compatibility with existing outputs
-   c. [ ] Add schema validation to output generation
-   d. [ ] Update attestation module to use standardized format
-   e. [ ] Modify CI/CD to validate schema compliance
+6. [x] Create Migration Script
+   a. [x] Build script to convert existing output files to new format
+   b. [x] Add validation of migrated outputs in outputs/ directory
+   c. [x] Provide progress reporting for bulk migrations
+   d. [x] Handle errors gracefully during migration
+   e. [x] Test migration with existing output samples
 
-## Testing (Dependent on Schema Implementation and Validation Utilities)
+## Integration Testing (Dependent on Implementation)
 
-7. [ ] Write and implement tests
-   a. [ ] Unit tests for schema validation functions
-   b. [ ] Integration tests with existing pipeline outputs
-   c. [ ] Performance tests for large JSON validation
-   d. [ ] Edge case tests (malformed JSON, missing fields)
-   e. [ ] ZK-proof compatibility verification tests
-   f. [ ] On-chain hash verification simulation tests
+7. [x] Create Integration Tests
+   a. [x] Write tests for ZK-compatible output generation in tests/integration/
+   b. [x] Test that pipeline outputs validate against the schema
+   c. [x] Verify deterministic output generation with fixed seeds
+   d. [x] Test error handling for invalid outputs
+   e. [x] Add tests for all schema sections and required fields
 
-## Documentation (Dependent on Implementation)
+## Documentation Updates (Dependent on Implementation)
 
-8. [ ] Create comprehensive documentation
-   a. [ ] Update README.md with schema usage instructions
-   b. [ ] Document schema field definitions and requirements
-   c. [ ] Add examples of valid and invalid outputs
-   d. [ ] Write migration guide from existing format
-   e. [ ] Document ZK-proof generation workflow
-
-## Quality Assurance
-
-9. [ ] Validate ZK-proof compatibility
-   a. [ ] Test deterministic serialization across platforms
-   b. [ ] Verify hash reproducibility
-   c. [ ] Test Merkle tree construction compatibility
-   d. [ ] Validate with common zk-SNARK libraries
-   e. [ ] Ensure on-chain verification compatibility
-
-## Deployment Preparation
-
-10. [ ] Prepare for production deployment
-    a. [ ] Create schema version management system
-    b. [ ] Plan rollout strategy for existing pipelines
-    c. [ ] Set up monitoring for schema validation errors
-    d. [ ] Create rollback procedures if needed
-    e. [ ] Document security considerations and reviews
+8. [x] Update Documentation
+   a. [x] Add integration instructions to docs/ZK_SCHEMA_INTEGRATION.md
+   b. [x] Document new output format structure
+   c. [x] Provide examples of before/after output formats
+   d. [x] Add troubleshooting guide for common validation errors
+   e. [x] Update README with new validation requirements

@@ -603,10 +603,14 @@ class HokusaiPipeline(FlowSpec):
     def compare_and_output_delta(self):
         """Calculate performance delta between models and package results for verifier consumption."""
         from src.utils.mlflow_config import mlflow_run_context, log_step_parameters, log_step_metrics
+        from src.utils.zk_output_formatter import ZKCompatibleOutputFormatter
         import json
         from pathlib import Path
         
         print("Computing DeltaOne and packaging result for verifier")
+        
+        # Initialize ZK formatter
+        zk_formatter = ZKCompatibleOutputFormatter()
         
         # Initialize MLflow tracking for delta computation step
         with mlflow_run_context(
@@ -709,10 +713,30 @@ class HokusaiPipeline(FlowSpec):
             with open(delta_output_file, "w") as f:
                 json.dump(delta_output, f, indent=2)
             
+            # Generate ZK-compatible output
+            print("Generating ZK-compatible output...")
+            zk_output, zk_is_valid, zk_errors = zk_formatter.format_and_validate(delta_output)
+            
+            if zk_is_valid:
+                # Save ZK-compatible output
+                zk_output_file = output_path / f"delta_output_zk_{current.run_id}.json"
+                with open(zk_output_file, "w") as f:
+                    json.dump(zk_output, f, indent=2)
+                print(f"ZK-compatible output saved to: {zk_output_file}")
+                
+                # Store ZK output for downstream processing
+                self.zk_delta_output = zk_output
+            else:
+                print(f"Warning: ZK output validation failed: {zk_errors}")
+                # Continue with legacy format
+                self.zk_delta_output = None
+            
             # Log the JSON output as an MLflow artifact
             try:
                 import mlflow
                 mlflow.log_artifact(str(delta_output_file), "delta_outputs")
+                if zk_is_valid:
+                    mlflow.log_artifact(str(zk_output_file), "delta_outputs_zk")
             except Exception as e:
                 print(f"Warning: Could not log artifact to MLflow: {e}")
             
