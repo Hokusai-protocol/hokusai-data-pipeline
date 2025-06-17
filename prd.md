@@ -1,28 +1,29 @@
-# PRD: Define JSON Schema for ZK-Compatible Output
+# PRD: Integrate ZKSchema with Existing Pipeline Output Generation
 
 ## Objectives
 
-Define and implement a standardized JSON schema for Hokusai pipeline outputs that enables zero-knowledge proof generation and on-chain verification. This schema will serve as the foundation for attestation-ready results from the evaluation pipeline.
+Integrate the existing ZK-compatible JSON schema with the Hokusai data evaluation pipeline to ensure all pipeline outputs conform to the standardized format required for zero-knowledge proof generation and on-chain verification. This task focuses on connecting the already-defined schema with the current pipeline implementation.
 
 ## Success Criteria
 
-- Frozen JSON schema specification with all required fields
-- Schema supports zk-proof generation workflows
-- Compatible with on-chain hash verification mechanisms
-- Includes dedicated field for signature/proof blob storage
-- Schema validation can be performed programmatically
-- Documentation explains usage for contributors and verifiers
+- Pipeline generates outputs that validate against the existing ZK schema specification
+- All existing functionality remains intact while outputs use the new ZK-compatible format
+- Schema validation is integrated into the pipeline execution process
+- Deterministic output hashing is implemented for ZK proof compatibility
+- Migration path exists for existing output files
+- CLI validation tool works with pipeline-generated outputs
 
 ## Personas
 
-**Primary Users:**
-- **Pipeline Operators**: Need consistent output format from evaluation runs
-- **ZK Proof Generators**: Require structured data for proof creation
-- **On-chain Verifiers**: Need hash-compatible format for verification
+**Primary User: Pipeline Developer**
+- Needs pipeline to automatically generate ZK-compatible outputs
+- Requires clear validation feedback when outputs don't conform
+- Wants minimal changes to existing pipeline logic
 
-**Secondary Users:**
-- **Contributors**: Will receive results in this format
-- **Auditors**: Need to verify pipeline output integrity
+**Secondary User: ZK Developer** 
+- Needs standardized output format for proof generation
+- Requires deterministic hashing for circuit compatibility
+- Wants validated attestation fields for proof inputs
 
 ## Technical Requirements
 
@@ -73,50 +74,72 @@ The JSON schema must include:
 
 ## Implementation Tasks
 
-1. **Research existing zk-proof JSON standards**
-   - Review common attestation formats
-   - Analyze blockchain verification patterns
-   - Document compatibility requirements
+### Task 1: Review Current Pipeline Output Structure
+- Examine existing pipeline output generation in the compare_and_output_delta step
+- Identify current output format and sections in src/modules/evaluation.py
+- Map existing fields to new ZK schema requirements
+- Document any missing fields required by the ZK schema
 
-2. **Design core schema structure**
-   - Define required vs optional fields
-   - Establish field naming conventions
-   - Create nested object hierarchy
+### Task 2: Implement ZK-Compatible Output Formatter
+- Create ZKCompatibleOutputFormatter class in src/utils/
+- Implement format_output method to convert pipeline results to ZK format
+- Add helper methods for each schema section (metadata, evaluation_results, etc.)
+- Implement deterministic hashing functions for models, configs, and benchmarks
+- Add Merkle tree computation for hash_tree_root in attestation section
 
-3. **Implement JSON Schema file**
-   - Create formal JSON Schema specification
-   - Add validation rules and constraints
-   - Include examples and documentation
+### Task 3: Update Pipeline Output Generation
+- Modify compare_and_output_delta step to use new formatter
+- Integrate schema validation before saving outputs
+- Ensure pipeline fails gracefully if output doesn't validate
+- Add ZK readiness checking to pipeline execution
+- Update output file naming to indicate ZK compatibility
 
-4. **Create schema validation utilities**
-   - Python validation function
-   - CLI tool for schema checking
-   - Integration with pipeline output
+### Task 4: Integrate Schema Validation
+- Import and use existing SchemaValidator from src/utils/schema_validator.py
+- Add validation calls after output formatting
+- Implement error handling for validation failures
+- Add logging for validation results and errors
+- Ensure validation works with both JSON schema and ZK compatibility checks
 
-5. **Add tests and documentation**
-   - Unit tests for schema validation
-   - Example JSON files demonstrating usage
-   - Integration guide for pipeline steps
+### Task 5: Create Integration Tests
+- Write tests for ZK-compatible output generation in tests/integration/
+- Test that pipeline outputs validate against the schema
+- Verify deterministic output generation with fixed seeds
+- Test error handling for invalid outputs
+- Add tests for all schema sections and required fields
 
-6. **Integrate with existing pipeline**
-   - Update output generation in compare_and_output_delta step
-   - Ensure backward compatibility
-   - Add schema validation to CI/CD
+### Task 6: Update CLI Validation Tool
+- Modify scripts/validate_schema.py to work with pipeline integration
+- Add pipeline output validation commands
+- Ensure CLI tool can validate newly generated outputs
+- Test CLI tool with sample pipeline outputs
 
-## Acceptance Criteria
+### Task 7: Create Migration Script
+- Build script to convert existing output files to new format
+- Add validation of migrated outputs in outputs/ directory
+- Provide progress reporting for bulk migrations
+- Handle errors gracefully during migration
+- Test migration with existing output samples
 
-- [ ] JSON Schema file validates correctly
-- [ ] Schema supports all required attestation fields
-- [ ] Python validation utility works correctly
-- [ ] Example outputs pass schema validation
-- [ ] Documentation explains all fields clearly
-- [ ] Integration tests pass with new schema
-- [ ] ZK-proof compatibility verified
-- [ ] On-chain hash verification possible
+### Task 8: Update Documentation
+- Add integration instructions to docs/ZK_SCHEMA_INTEGRATION.md
+- Document new output format structure
+- Provide examples of before/after output formats
+- Add troubleshooting guide for common validation errors
+- Update README with new validation requirements
 
-## Risk Mitigation
+## Technical Requirements
 
-- **Schema Evolution**: Use semantic versioning for schema changes
-- **Performance Impact**: Validate schema overhead is minimal
-- **Compatibility**: Ensure existing tools continue working
-- **Security**: Review schema for information leakage risks
+- Must use existing schema/zk_output_schema.json specification
+- Must integrate with existing src/utils/schema_validator.py
+- Must maintain backward compatibility during transition
+- All outputs must pass ZK readiness validation
+- Must implement deterministic hashing for proof compatibility
+- Schema validation must be performant for production use
+
+## Dependencies
+
+- Existing ZK schema file: schema/zk_output_schema.json
+- Existing validation library: src/utils/schema_validator.py
+- Existing CLI tool: scripts/validate_schema.py
+- Current pipeline implementation with compare_and_output_delta step
