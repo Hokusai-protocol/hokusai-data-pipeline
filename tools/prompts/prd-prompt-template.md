@@ -5,7 +5,7 @@ PROJECT SUMMARY:
 {{PROJECT_SUMMARY}}
 
 OUTPUT FORMAT: 
-Place the output in prd.md. Include objectives, personas, success criteria, and clearly delineated tasks. Use straightforward language. Don't include superfluous details designed for like the date, the version, icons or emojis, 
+Place the output in prd.md. Include objectives, personas, success criteria, and clearly delineated tasks. Use straightforward language. Don't include superfluous details designed for human readers like the date, the version, icons or emojis, 
 
 PROJECT INFORMATION: 
 Review the project documentation in README.md. If you have questions ask for clarification or use https://docs.hokus.ai/ for additional documentation. 

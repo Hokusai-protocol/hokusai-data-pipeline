@@ -1,72 +1,51 @@
-# Product Requirements Document: Add ETH Contributor Address
+# Product Requirements Document
 
-## Objectives
+## ETH Address Support in Schema Output Example
 
-Extend the Hokusai data pipeline output to include Ethereum contributor addresses alongside their data contributions. This enhancement will enable future on-chain verification, proof-of-authorship validation, and anti-sybil protection mechanisms.
+### Objectives
 
-## Success Criteria
+Update the valid output example in the schema directory to include ETH wallet addresses. The pipeline already has ETH address support implemented, but the example file needs to be updated to demonstrate this capability. Documentation should also be reviewed to ensure it accurately reflects the ETH address feature.
 
-- Pipeline output JSON includes ETH wallet addresses for all contributors
-- Validation ensures ETH addresses are properly formatted (0x + 40 hex characters)
-- Support for both single and multiple contributor scenarios
-- ETH addresses are captured during data submission process
-- Schema validation includes ETH address format checking
+### Success Criteria
 
-## User Personas
+1. Valid output example in schema directory includes ETH wallet address fields
+2. Example demonstrates both single and multiple contributor scenarios  
+3. Documentation accurately describes ETH address format requirements
+4. Schema validation passes with the updated example
 
-**Primary Users:**
-- Data Contributors: Need to provide their ETH address when submitting data
-- Pipeline Operators: Must validate and process ETH addresses in output generation
-- Verifiers: Will use ETH addresses for on-chain verification and proof validation
+### User Personas
 
-## Technical Requirements
+**Pipeline Developers**: Need clear examples showing how ETH addresses appear in pipeline outputs to understand the expected format.
 
-### Data Structure Changes
+**Integration Engineers**: Require accurate schema examples to build downstream systems that consume pipeline outputs.
 
-For single contributors, add wallet_address field:
-```json
-"contributor_info": {
-  "contributor_id": "contributor_xyz789",
-  "wallet_address": "0xAbC123...789",
-  ...
-}
-```
+**Documentation Users**: Need up-to-date examples and documentation that reflect current pipeline capabilities.
 
-For multiple contributors, include wallet_address in contributors array:
-```json
-"contributors": [
-  {
-    "id": "xyz789", 
-    "wallet_address": "0xAbC123...",
-    "weight": 0.7
-  },
-  {
-    "id": "abc456",
-    "wallet_address": "0xDEf456...", 
-    "weight": 0.3
-  }
-]
-```
+### Technical Requirements
 
-### Validation Requirements
+#### Schema Example Updates
 
-- ETH address format validation (0x prefix + 40 hexadecimal characters)
-- Integration with existing CLI/UI data submission flow
-- Schema validation updates to include ETH address fields
-- Error handling for invalid ETH addresses
+The valid output example should include:
 
-### Future Considerations
+For single contributor scenarios:
+- contributor_info object with wallet_address field
+- Valid example ETH address (0x + 40 hex characters)
 
-- Prepare infrastructure for proof-of-authorship by capturing data hash signatures
-- Log signatures alongside ETH addresses for future on-chain validation
-- Consider cryptographic binding between contributor identity and ETH address
+For multiple contributor scenarios:
+- contributors array with each contributor having wallet_address
+- Proper weight distribution examples
 
-## Implementation Tasks
+#### Documentation Review
 
-1. Update data submission process to capture ETH addresses
-2. Add ETH address validation utilities
-3. Modify pipeline output schema to include wallet_address fields
-4. Update existing schema validation to handle new ETH address fields
-5. Add comprehensive tests for ETH address validation and output generation
-6. Update CLI tools to handle ETH address input and validation
-7. Document new ETH address requirements and usage
+Review and update as needed:
+- Schema documentation explaining ETH address fields
+- Any integration guides referencing output format
+- Validation requirements for ETH addresses
+
+### Implementation Tasks
+
+1. **Locate Schema Files**: Find the valid output example file in the schema directory
+2. **Update Single Contributor Example**: Add wallet_address to contributor_info section
+3. **Update Multiple Contributor Example**: Add wallet_address to each contributor in array
+4. **Validate Updated Schema**: Run validation to ensure examples are correct
+5. **Review Documentation**: Check and update docs referencing the output schema

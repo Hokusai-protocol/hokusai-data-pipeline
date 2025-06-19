@@ -282,6 +282,8 @@ The step produces a comprehensive JSON output containing:
     "training_metadata": {...}
   },
   "contributor_attribution": {
+    "contributor_id": "contributor_xyz789",
+    "wallet_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f62341",
     "data_hash": "abc123def456",
     "contributor_weights": 0.1,
     "contributed_samples": 100,

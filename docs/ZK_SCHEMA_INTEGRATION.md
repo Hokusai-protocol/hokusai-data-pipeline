@@ -125,6 +125,8 @@ class ZKCompatibleOutputFormatter:
         """Format contributor information section."""
         contrib = results.get("contributor_attribution", {})
         return {
+            "contributor_id": contrib.get("contributor_id"),
+            "wallet_address": contrib.get("wallet_address"),  # ETH address for on-chain verification
             "data_hash": contrib.get("data_hash"),
             "data_manifest": contrib.get("data_manifest", {}),
             "contributor_weights": contrib.get("contributor_weights"),

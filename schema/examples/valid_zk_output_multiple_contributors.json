@@ -1,0 +1,209 @@
+{
+  "schema_version": "1.0",
+  "metadata": {
+    "pipeline_run_id": "zk_run_multi_1234567890",
+    "timestamp": "2025-06-16T10:30:00.000Z",
+    "pipeline_version": "e36d904abc123def456789",
+    "environment": "production",
+    "dry_run": false
+  },
+  "evaluation_results": {
+    "baseline_metrics": {
+      "accuracy": 0.854,
+      "precision": 0.827,
+      "recall": 0.887,
+      "f1": 0.839,
+      "auroc": 0.904
+    },
+    "new_metrics": {
+      "accuracy": 0.892,
+      "precision": 0.865,
+      "recall": 0.918,
+      "f1": 0.901,
+      "auroc": 0.941
+    },
+    "benchmark_metadata": {
+      "size": 10000,
+      "type": "hokusai_standard_benchmark_v1",
+      "features": ["feature_1", "feature_2", "feature_3", "feature_4"],
+      "dataset_hash": "bcde567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+    },
+    "evaluation_timestamp": "2025-06-16T10:25:00.000Z",
+    "evaluation_time_seconds": 48.23
+  },
+  "delta_computation": {
+    "delta_one_score": 0.0382,
+    "metric_deltas": {
+      "accuracy": {
+        "baseline_value": 0.854,
+        "new_value": 0.892,
+        "absolute_delta": 0.038,
+        "relative_delta": 0.0445,
+        "improvement": true
+      },
+      "auroc": {
+        "baseline_value": 0.904,
+        "new_value": 0.941,
+        "absolute_delta": 0.037,
+        "relative_delta": 0.0409,
+        "improvement": true
+      },
+      "f1": {
+        "baseline_value": 0.839,
+        "new_value": 0.901,
+        "absolute_delta": 0.062,
+        "relative_delta": 0.0739,
+        "improvement": true
+      }
+    },
+    "computation_method": "weighted_average_delta",
+    "metrics_included": ["accuracy", "auroc", "f1", "precision", "recall"],
+    "improved_metrics": ["accuracy", "auroc", "f1", "precision", "recall"],
+    "degraded_metrics": []
+  },
+  "models": {
+    "baseline": {
+      "model_id": "baseline_v1.0.0",
+      "model_type": "transformer_classifier",
+      "model_hash": "abcd567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "training_config_hash": "cdef567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "mlflow_run_id": "baseline_run_001",
+      "metrics": {
+        "accuracy": 0.854,
+        "precision": 0.827,
+        "recall": 0.887,
+        "f1": 0.839,
+        "auroc": 0.904
+      }
+    },
+    "new": {
+      "model_id": "enhanced_multi_v1.2.0",
+      "model_type": "transformer_classifier_enhanced",
+      "model_hash": "7890567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "training_config_hash": "cdef567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "mlflow_run_id": "enhanced_multi_run_001",
+      "metrics": {
+        "accuracy": 0.892,
+        "precision": 0.865,
+        "recall": 0.918,
+        "f1": 0.901,
+        "auroc": 0.941
+      },
+      "training_metadata": {
+        "base_samples": 50000,
+        "contributed_samples": 8000,
+        "contribution_ratio": 0.138,
+        "data_manifest": {
+          "data_hash": "2345567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+          "row_count": 8000,
+          "column_count": 5,
+          "columns": ["feature_1", "feature_2", "feature_3", "feature_4", "label"],
+          "dtypes": {
+            "feature_1": "float64",
+            "feature_2": "float64",
+            "feature_3": "float64",
+            "feature_4": "float64",
+            "label": "int64"
+          },
+          "null_counts": {
+            "feature_1": 0,
+            "feature_2": 0,
+            "feature_3": 0,
+            "feature_4": 0,
+            "label": 0
+          },
+          "unique_counts": {
+            "feature_1": 7842,
+            "feature_2": 7856,
+            "feature_3": 7831,
+            "feature_4": 7823,
+            "label": 2
+          }
+        }
+      }
+    }
+  },
+  "contributors": [
+    {
+      "id": "contributor_xyz789",
+      "wallet_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f62341",
+      "data_hash": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      "weight": 0.7,
+      "contributed_samples": 5600,
+      "validation_status": "valid",
+      "data_manifest": {
+        "source_path": "/verified/data/contributor_xyz789_dataset.csv",
+        "data_hash": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        "row_count": 5600,
+        "column_count": 5,
+        "columns": ["feature_1", "feature_2", "feature_3", "feature_4", "label"],
+        "dtypes": {
+          "feature_1": "float64",
+          "feature_2": "float64",
+          "feature_3": "float64",
+          "feature_4": "float64",
+          "label": "int64"
+        },
+        "null_counts": {
+          "feature_1": 0,
+          "feature_2": 0,
+          "feature_3": 0,
+          "feature_4": 0,
+          "label": 0
+        },
+        "unique_counts": {
+          "feature_1": 5489,
+          "feature_2": 5502,
+          "feature_3": 5481,
+          "feature_4": 5476,
+          "label": 2
+        }
+      }
+    },
+    {
+      "id": "contributor_abc456",
+      "wallet_address": "0x6C3e007f281f6948b37c511a11E43c8026d2F069",
+      "data_hash": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "weight": 0.3,
+      "contributed_samples": 2400,
+      "validation_status": "valid",
+      "data_manifest": {
+        "source_path": "/verified/data/contributor_abc456_dataset.json",
+        "data_hash": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+        "row_count": 2400,
+        "column_count": 5,
+        "columns": ["feature_1", "feature_2", "feature_3", "feature_4", "label"],
+        "dtypes": {
+          "feature_1": "float64",
+          "feature_2": "float64",
+          "feature_3": "float64",
+          "feature_4": "float64",
+          "label": "int64"
+        },
+        "null_counts": {
+          "feature_1": 0,
+          "feature_2": 0,
+          "feature_3": 0,
+          "feature_4": 0,
+          "label": 0
+        },
+        "unique_counts": {
+          "feature_1": 2353,
+          "feature_2": 2354,
+          "feature_3": 2350,
+          "feature_4": 2347,
+          "label": 2
+        }
+      }
+    }
+  ],
+  "attestation": {
+    "hash_tree_root": "9abc567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    "proof_ready": true,
+    "signature_blob": "proof_blob_base64_encoded_here",
+    "verification_key": "verification_key_here",
+    "proof_system": "groth16",
+    "circuit_hash": "def0567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+    "public_inputs_hash": "fed0567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+  }
+}

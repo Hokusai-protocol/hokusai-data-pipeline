@@ -111,10 +111,15 @@ The schema defines a standardized format for Hokusai evaluation pipeline outputs
 ```
 
 ### 6. Contributor Information
+
+The schema supports two formats for contributor information:
+
+#### Single Contributor Format
 ```json
 {
   "contributor_info": {
     "contributor_id": "optional_contributor_identifier",
+    "wallet_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f62341",
     "data_hash": "sha256_hash_of_contributed_data",
     "data_manifest": {
       "source_path": "/path/to/data/file",
@@ -130,6 +135,38 @@ The schema defines a standardized format for Hokusai evaluation pipeline outputs
   }
 }
 ```
+
+#### Multiple Contributors Format
+```json
+{
+  "contributors": [
+    {
+      "id": "contributor_xyz789",
+      "wallet_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f62341",
+      "data_hash": "sha256_hash_of_contributed_data",
+      "weight": 0.7,
+      "contributed_samples": 5600,
+      "validation_status": "valid",
+      "data_manifest": { /* same structure as above */ }
+    },
+    {
+      "id": "contributor_abc456",
+      "wallet_address": "0x6C3e007f281f6948b37c511a11E43c8026d2F069",
+      "data_hash": "sha256_hash_of_contributed_data",
+      "weight": 0.3,
+      "contributed_samples": 2400,
+      "validation_status": "valid",
+      "data_manifest": { /* same structure as above */ }
+    }
+  ]
+}
+```
+
+**ETH Address Requirements:**
+- Must follow Ethereum address format: `0x` followed by 40 hexadecimal characters
+- Pattern: `^0[xX][a-fA-F0-9]{40}$`
+- Used for on-chain verification and contributor reward distribution
+- Each contributor must have a unique ETH address
 
 ### 7. Attestation Fields
 ```json
@@ -228,7 +265,8 @@ When updating the schema:
 ## Examples
 
 See the `examples/` directory for:
-- `valid_zk_output.json` - Complete valid example
+- `valid_zk_output.json` - Complete valid example with single contributor including ETH address
+- `valid_zk_output_multiple_contributors.json` - Valid example with multiple contributors and ETH addresses
 - `invalid_example.json` - Example with validation errors
 
-These examples demonstrate proper usage and common validation errors.
+These examples demonstrate proper usage, ETH address formatting, and common validation errors.
