@@ -1,145 +1,72 @@
-# PRD: Integrate ZKSchema with Existing Pipeline Output Generation
+# Product Requirements Document: Add ETH Contributor Address
 
 ## Objectives
 
-Integrate the existing ZK-compatible JSON schema with the Hokusai data evaluation pipeline to ensure all pipeline outputs conform to the standardized format required for zero-knowledge proof generation and on-chain verification. This task focuses on connecting the already-defined schema with the current pipeline implementation.
+Extend the Hokusai data pipeline output to include Ethereum contributor addresses alongside their data contributions. This enhancement will enable future on-chain verification, proof-of-authorship validation, and anti-sybil protection mechanisms.
 
 ## Success Criteria
 
-- Pipeline generates outputs that validate against the existing ZK schema specification
-- All existing functionality remains intact while outputs use the new ZK-compatible format
-- Schema validation is integrated into the pipeline execution process
-- Deterministic output hashing is implemented for ZK proof compatibility
-- Migration path exists for existing output files
-- CLI validation tool works with pipeline-generated outputs
+- Pipeline output JSON includes ETH wallet addresses for all contributors
+- Validation ensures ETH addresses are properly formatted (0x + 40 hex characters)
+- Support for both single and multiple contributor scenarios
+- ETH addresses are captured during data submission process
+- Schema validation includes ETH address format checking
 
-## Personas
+## User Personas
 
-**Primary User: Pipeline Developer**
-- Needs pipeline to automatically generate ZK-compatible outputs
-- Requires clear validation feedback when outputs don't conform
-- Wants minimal changes to existing pipeline logic
-
-**Secondary User: ZK Developer** 
-- Needs standardized output format for proof generation
-- Requires deterministic hashing for circuit compatibility
-- Wants validated attestation fields for proof inputs
+**Primary Users:**
+- Data Contributors: Need to provide their ETH address when submitting data
+- Pipeline Operators: Must validate and process ETH addresses in output generation
+- Verifiers: Will use ETH addresses for on-chain verification and proof validation
 
 ## Technical Requirements
 
-### Core Schema Elements
+### Data Structure Changes
 
-The JSON schema must include:
+For single contributors, add wallet_address field:
+```json
+"contributor_info": {
+  "contributor_id": "contributor_xyz789",
+  "wallet_address": "0xAbC123...789",
+  ...
+}
+```
 
-1. **Metadata Section**
-   - Pipeline execution ID
-   - Timestamp (ISO 8601 format)
-   - Schema version
-   - Pipeline version/commit hash
+For multiple contributors, include wallet_address in contributors array:
+```json
+"contributors": [
+  {
+    "id": "xyz789", 
+    "wallet_address": "0xAbC123...",
+    "weight": 0.7
+  },
+  {
+    "id": "abc456",
+    "wallet_address": "0xDEf456...", 
+    "weight": 0.3
+  }
+]
+```
 
-2. **Model Information**
-   - Baseline model ID and hash
-   - New model ID and hash
-   - Training configuration hash
+### Validation Requirements
 
-3. **Evaluation Results**
-   - DeltaOne computation result
-   - Raw performance metrics (AUROC, accuracy, etc.)
-   - Contributor data hashes
-   - Model weights/parameters hash
+- ETH address format validation (0x prefix + 40 hexadecimal characters)
+- Integration with existing CLI/UI data submission flow
+- Schema validation updates to include ETH address fields
+- Error handling for invalid ETH addresses
 
-4. **Attestation Fields**
-   - Signature/proof blob placeholder
-   - Hash of all evaluation data
-   - Verification metadata
+### Future Considerations
 
-5. **Contributor Information**
-   - Data submission hash
-   - Contributor identifier
-   - Data validation status
-
-### Schema Validation
-
-- JSON Schema Draft 2020-12 compliance
-- Required vs optional field definitions
-- Data type constraints and formats
-- Range validation for numeric fields
-
-### ZK Compatibility Requirements
-
-- All fields must be deterministically serializable
-- Hash computation must be reproducible
-- Support for Merkle tree construction
-- Compatible with common zk-SNARK libraries
+- Prepare infrastructure for proof-of-authorship by capturing data hash signatures
+- Log signatures alongside ETH addresses for future on-chain validation
+- Consider cryptographic binding between contributor identity and ETH address
 
 ## Implementation Tasks
 
-### Task 1: Review Current Pipeline Output Structure
-- Examine existing pipeline output generation in the compare_and_output_delta step
-- Identify current output format and sections in src/modules/evaluation.py
-- Map existing fields to new ZK schema requirements
-- Document any missing fields required by the ZK schema
-
-### Task 2: Implement ZK-Compatible Output Formatter
-- Create ZKCompatibleOutputFormatter class in src/utils/
-- Implement format_output method to convert pipeline results to ZK format
-- Add helper methods for each schema section (metadata, evaluation_results, etc.)
-- Implement deterministic hashing functions for models, configs, and benchmarks
-- Add Merkle tree computation for hash_tree_root in attestation section
-
-### Task 3: Update Pipeline Output Generation
-- Modify compare_and_output_delta step to use new formatter
-- Integrate schema validation before saving outputs
-- Ensure pipeline fails gracefully if output doesn't validate
-- Add ZK readiness checking to pipeline execution
-- Update output file naming to indicate ZK compatibility
-
-### Task 4: Integrate Schema Validation
-- Import and use existing SchemaValidator from src/utils/schema_validator.py
-- Add validation calls after output formatting
-- Implement error handling for validation failures
-- Add logging for validation results and errors
-- Ensure validation works with both JSON schema and ZK compatibility checks
-
-### Task 5: Create Integration Tests
-- Write tests for ZK-compatible output generation in tests/integration/
-- Test that pipeline outputs validate against the schema
-- Verify deterministic output generation with fixed seeds
-- Test error handling for invalid outputs
-- Add tests for all schema sections and required fields
-
-### Task 6: Update CLI Validation Tool
-- Modify scripts/validate_schema.py to work with pipeline integration
-- Add pipeline output validation commands
-- Ensure CLI tool can validate newly generated outputs
-- Test CLI tool with sample pipeline outputs
-
-### Task 7: Create Migration Script
-- Build script to convert existing output files to new format
-- Add validation of migrated outputs in outputs/ directory
-- Provide progress reporting for bulk migrations
-- Handle errors gracefully during migration
-- Test migration with existing output samples
-
-### Task 8: Update Documentation
-- Add integration instructions to docs/ZK_SCHEMA_INTEGRATION.md
-- Document new output format structure
-- Provide examples of before/after output formats
-- Add troubleshooting guide for common validation errors
-- Update README with new validation requirements
-
-## Technical Requirements
-
-- Must use existing schema/zk_output_schema.json specification
-- Must integrate with existing src/utils/schema_validator.py
-- Must maintain backward compatibility during transition
-- All outputs must pass ZK readiness validation
-- Must implement deterministic hashing for proof compatibility
-- Schema validation must be performant for production use
-
-## Dependencies
-
-- Existing ZK schema file: schema/zk_output_schema.json
-- Existing validation library: src/utils/schema_validator.py
-- Existing CLI tool: scripts/validate_schema.py
-- Current pipeline implementation with compare_and_output_delta step
+1. Update data submission process to capture ETH addresses
+2. Add ETH address validation utilities
+3. Modify pipeline output schema to include wallet_address fields
+4. Update existing schema validation to handle new ETH address fields
+5. Add comprehensive tests for ETH address validation and output generation
+6. Update CLI tools to handle ETH address input and validation
+7. Document new ETH address requirements and usage

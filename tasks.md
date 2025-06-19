@@ -1,73 +1,66 @@
-# Implementation Tasks: Integrate ZKSchema with Existing Pipeline Output Generation
+# Implementation Tasks: Add ETH Contributor Address
 
 ## Current State Analysis
 
-1. [x] Review Current Pipeline Output Structure
-   a. [x] Examine existing pipeline output generation in src/modules/evaluation.py
-   b. [x] Identify current output format and sections
-   c. [x] Map existing fields to new ZK schema requirements
-   d. [x] Document any missing fields required by the ZK schema
-   e. [x] Analyze existing outputs in outputs/ directory
+1. [x] Analyze existing pipeline output structure
+   a. [x] Review current contributor data handling in pipeline
+   b. [x] Examine existing JSON output format
+   c. [x] Identify where contributor information is currently stored
+   d. [x] Map ETH address requirements to existing structure
 
-## ZK Output Formatter Implementation
+## ETH Address Validation Implementation
 
-2. [x] Implement ZK-Compatible Output Formatter
-   a. [x] Create ZKCompatibleOutputFormatter class in src/utils/
-   b. [x] Implement format_output method to convert pipeline results to ZK format
-   c. [x] Add helper methods for each schema section (metadata, evaluation_results, etc.)
-   d. [x] Implement deterministic hashing functions for models, configs, and benchmarks
-   e. [x] Add Merkle tree computation for hash_tree_root in attestation section
+2. [x] Create ETH address validation utilities
+   a. [x] Implement ETH address format validation (0x + 40 hex chars)
+   b. [x] Create validation error handling and messaging
+   c. [x] Add checksum validation for ETH addresses
+   d. [x] Create utility functions for address normalization
 
-## Pipeline Output Integration
+## Data Submission Process Updates
 
-3. [x] Update Pipeline Output Generation
-   a. [x] Modify compare_and_output_delta step to use new formatter
-   b. [x] Integrate schema validation before saving outputs
-   c. [x] Ensure pipeline fails gracefully if output doesn't validate
-   d. [x] Add ZK readiness checking to pipeline execution
-   e. [x] Update output file naming to indicate ZK compatibility
+3. [x] Update data submission to capture ETH addresses
+   a. [x] Modify CLI data submission to require ETH address input
+   b. [x] Add ETH address validation to submission process
+   c. [x] Update contributor registration flow
+   d. [x] Implement ETH address storage in contributor records
 
-## Schema Validation Integration
+## Pipeline Output Schema Updates
 
-4. [x] Integrate Schema Validation
-   a. [x] Import and use existing SchemaValidator from src/utils/schema_validator.py
-   b. [x] Add validation calls after output formatting
-   c. [x] Implement error handling for validation failures
-   d. [x] Add logging for validation results and errors
-   e. [x] Ensure validation works with both JSON schema and ZK compatibility checks
+4. [x] Modify pipeline output schema for ETH addresses
+   a. [x] Update single contributor output format to include wallet_address
+   b. [x] Update multiple contributors array to include wallet_address
+   c. [x] Ensure backward compatibility with existing outputs
+   d. [x] Update schema validation to handle new ETH address fields
+
+## Pipeline Integration
+
+5. [x] Integrate ETH addresses into pipeline output generation
+   a. [x] Modify output generation to include contributor ETH addresses
+   b. [x] Update compare_and_output_delta step for ETH address inclusion
+   c. [x] Ensure ETH addresses are properly formatted in final output
+   d. [x] Add error handling for missing ETH addresses
+
+## Testing Implementation (Dependent on Implementation)
+
+6. [x] Write comprehensive tests for ETH address functionality
+   a. [x] Unit tests for ETH address validation utilities
+   b. [x] Integration tests for data submission with ETH addresses
+   c. [x] Pipeline output tests with ETH address inclusion
+   d. [x] Error handling tests for invalid ETH addresses
+   e. [x] End-to-end tests for complete ETH address workflow
 
 ## CLI Tool Updates
 
-5. [x] Update CLI Validation Tool
-   a. [x] Modify scripts/validate_schema.py to work with pipeline integration
-   b. [x] Add pipeline output validation commands
-   c. [x] Ensure CLI tool can validate newly generated outputs
-   d. [x] Test CLI tool with sample pipeline outputs
-   e. [x] Add progress reporting for validation operations
+7. [x] Update CLI tools for ETH address handling
+   a. [x] Modify contributor CLI to accept ETH address input
+   b. [x] Add ETH address validation to CLI validation tools
+   c. [x] Update help documentation for ETH address requirements
+   d. [x] Add ETH address formatting and display utilities
 
-## Migration Implementation
+## Documentation (Dependent on Implementation)
 
-6. [x] Create Migration Script
-   a. [x] Build script to convert existing output files to new format
-   b. [x] Add validation of migrated outputs in outputs/ directory
-   c. [x] Provide progress reporting for bulk migrations
-   d. [x] Handle errors gracefully during migration
-   e. [x] Test migration with existing output samples
-
-## Integration Testing (Dependent on Implementation)
-
-7. [x] Create Integration Tests
-   a. [x] Write tests for ZK-compatible output generation in tests/integration/
-   b. [x] Test that pipeline outputs validate against the schema
-   c. [x] Verify deterministic output generation with fixed seeds
-   d. [x] Test error handling for invalid outputs
-   e. [x] Add tests for all schema sections and required fields
-
-## Documentation Updates (Dependent on Implementation)
-
-8. [x] Update Documentation
-   a. [x] Add integration instructions to docs/ZK_SCHEMA_INTEGRATION.md
-   b. [x] Document new output format structure
-   c. [x] Provide examples of before/after output formats
-   d. [x] Add troubleshooting guide for common validation errors
-   e. [x] Update README with new validation requirements
+8. [ ] Document ETH address requirements and usage
+   a. [ ] Update README with ETH address requirements
+   b. [ ] Add contributor guide for ETH address submission
+   c. [ ] Document ETH address validation and error handling
+   d. [ ] Provide examples of updated JSON output format

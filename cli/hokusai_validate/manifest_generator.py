@@ -25,7 +25,8 @@ class ManifestGenerator:
                  data: pd.DataFrame,
                  validation_results: Dict[str, Any],
                  data_hash: str,
-                 contributor_metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                 contributor_metadata: Optional[Dict[str, Any]] = None,
+                 eth_address: Optional[str] = None) -> Dict[str, Any]:
         """
         Generate a comprehensive manifest for the validated data.
         
@@ -35,6 +36,7 @@ class ManifestGenerator:
             validation_results: Results from validation pipeline
             data_hash: SHA256 hash of the data
             contributor_metadata: Optional metadata about the contributor
+            eth_address: Optional Ethereum wallet address for the contributor
             
         Returns:
             Manifest dictionary
@@ -46,7 +48,7 @@ class ManifestGenerator:
                 'file_metadata': self._generate_file_metadata(file_path, data),
                 'validation_results': self._prepare_validation_results(validation_results),
                 'data_hash': data_hash,
-                'contributor_metadata': self._generate_contributor_metadata(contributor_metadata),
+                'contributor_metadata': self._generate_contributor_metadata(contributor_metadata, eth_address),
                 'tool_metadata': self._generate_tool_metadata()
             }
             
@@ -130,7 +132,8 @@ class ManifestGenerator:
         return cleaned_results
     
     def _generate_contributor_metadata(self, 
-                                     contributor_metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+                                     contributor_metadata: Optional[Dict[str, Any]],
+                                     eth_address: Optional[str] = None) -> Dict[str, Any]:
         """Generate contributor metadata section."""
         metadata = {
             'tool_version': __version__,
@@ -140,6 +143,10 @@ class ManifestGenerator:
                 'pandas_version': self._get_pandas_version()
             }
         }
+        
+        # Add ETH address if provided
+        if eth_address:
+            metadata['wallet_address'] = eth_address
         
         if contributor_metadata:
             metadata.update(contributor_metadata)
