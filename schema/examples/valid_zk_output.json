@@ -125,6 +125,7 @@
   },
   "contributor_info": {
     "contributor_id": "contributor_xyz789",
+    "wallet_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f62341",
     "data_hash": "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
     "data_manifest": {
       "source_path": "/verified/data/contributor_xyz789_dataset.csv",

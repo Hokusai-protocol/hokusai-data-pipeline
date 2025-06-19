@@ -1,66 +1,39 @@
-# Implementation Tasks: Add ETH Contributor Address
+# Development Tasks
 
-## Current State Analysis
+## 1. [x] Locate and analyze schema files
+   a. [x] Find the schema directory and identify valid output example files
+   b. [x] Review current schema structure to understand ETH address placement
+   c. [x] Check if schema validation scripts exist
 
-1. [x] Analyze existing pipeline output structure
-   a. [x] Review current contributor data handling in pipeline
-   b. [x] Examine existing JSON output format
-   c. [x] Identify where contributor information is currently stored
-   d. [x] Map ETH address requirements to existing structure
+## 2. [x] Write tests for ETH address in schema examples
+   a. [x] Create test to verify schema example includes wallet_address field
+   b. [x] Create test for single contributor scenario with ETH address
+   c. [x] Create test for multiple contributors scenario with ETH addresses
+   d. [x] Create test to validate ETH address format in examples
 
-## ETH Address Validation Implementation
+## 3. [x] Update schema example for single contributor (Dependent on task 1)
+   a. [x] Add wallet_address field to contributor_info section
+   b. [x] Use valid example ETH address (e.g., 0x742d35Cc6634C0532925a3b844Bc9e7595f62341)
+   c. [x] Ensure JSON structure remains valid
 
-2. [x] Create ETH address validation utilities
-   a. [x] Implement ETH address format validation (0x + 40 hex chars)
-   b. [x] Create validation error handling and messaging
-   c. [x] Add checksum validation for ETH addresses
-   d. [x] Create utility functions for address normalization
+## 4. [x] Update schema example for multiple contributors (Dependent on task 1)
+   a. [x] Add contributors array example if not present
+   b. [x] Include wallet_address for each contributor
+   c. [x] Ensure weights sum to 1.0 in example
+   d. [x] Use different valid ETH addresses for each contributor
 
-## Data Submission Process Updates
+## 5. [x] Validate updated schema (Dependent on tasks 3 and 4)
+   a. [x] Run schema validation tool against updated examples
+   b. [x] Verify backward compatibility
+   c. [x] Confirm ETH address format validation works
 
-3. [x] Update data submission to capture ETH addresses
-   a. [x] Modify CLI data submission to require ETH address input
-   b. [x] Add ETH address validation to submission process
-   c. [x] Update contributor registration flow
-   d. [x] Implement ETH address storage in contributor records
+## 6. [x] Review and update documentation (Dependent on tasks 3 and 4)
+   a. [x] Search for documentation referencing output schema
+   b. [x] Update examples in docs to include ETH addresses
+   c. [x] Document ETH address validation requirements
+   d. [x] Update README.md if it contains schema examples
 
-## Pipeline Output Schema Updates
-
-4. [x] Modify pipeline output schema for ETH addresses
-   a. [x] Update single contributor output format to include wallet_address
-   b. [x] Update multiple contributors array to include wallet_address
-   c. [x] Ensure backward compatibility with existing outputs
-   d. [x] Update schema validation to handle new ETH address fields
-
-## Pipeline Integration
-
-5. [x] Integrate ETH addresses into pipeline output generation
-   a. [x] Modify output generation to include contributor ETH addresses
-   b. [x] Update compare_and_output_delta step for ETH address inclusion
-   c. [x] Ensure ETH addresses are properly formatted in final output
-   d. [x] Add error handling for missing ETH addresses
-
-## Testing Implementation (Dependent on Implementation)
-
-6. [x] Write comprehensive tests for ETH address functionality
-   a. [x] Unit tests for ETH address validation utilities
-   b. [x] Integration tests for data submission with ETH addresses
-   c. [x] Pipeline output tests with ETH address inclusion
-   d. [x] Error handling tests for invalid ETH addresses
-   e. [x] End-to-end tests for complete ETH address workflow
-
-## CLI Tool Updates
-
-7. [x] Update CLI tools for ETH address handling
-   a. [x] Modify contributor CLI to accept ETH address input
-   b. [x] Add ETH address validation to CLI validation tools
-   c. [x] Update help documentation for ETH address requirements
-   d. [x] Add ETH address formatting and display utilities
-
-## Documentation (Dependent on Implementation)
-
-8. [ ] Document ETH address requirements and usage
-   a. [ ] Update README with ETH address requirements
-   b. [ ] Add contributor guide for ETH address submission
-   c. [ ] Document ETH address validation and error handling
-   d. [ ] Provide examples of updated JSON output format
+## 7. [x] Integration testing (Dependent on all above tasks)
+   a. [x] Run pipeline with updated schema examples
+   b. [x] Verify schema validation passes in pipeline flow
+   c. [x] Test schema validation with invalid ETH addresses

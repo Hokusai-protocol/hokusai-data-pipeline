@@ -98,6 +98,8 @@ The pipeline produces an attestation JSON file with:
   "run_id": "unique_run_identifier",
   "timestamp": "2024-01-01T00:00:00Z",
   "contributor": {
+    "contributor_id": "contributor_xyz789",
+    "wallet_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f62341",
     "data_hash": "sha256_hash_of_contributed_data",
     "contribution_timestamp": "2024-01-01T00:00:00Z"
   },

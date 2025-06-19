@@ -76,6 +76,7 @@ To create a reproducible, structured pipeline that:
   "deltaOneValue": 1.4,
   "metric": "accuracy",
   "contributorHashes": ["0xabc123...", "0xdef456..."],
+  "contributorAddresses": ["0x742d35Cc6634C0532925a3b844Bc9e7595f62341", "0x6C3e007f281f6948b37c511a11E43c8026d2F069"],
   "weights": [0.7, 0.3],
   "datasetHash": "0xdeadbeef...",
   "signature": "<optional_placeholder>"
