@@ -10,8 +10,11 @@
     "evaluation_results", 
     "delta_computation",
     "models",
-    "contributor_info",
     "attestation"
+  ],
+  "anyOf": [
+    {"required": ["contributor_info"]},
+    {"required": ["contributors"]}
   ],
   "properties": {
     "schema_version": {
@@ -199,9 +202,59 @@
           "type": "string",
           "enum": ["valid", "invalid", "pending", "unknown"],
           "description": "Status of data validation"
+        },
+        "wallet_address": {
+          "type": "string",
+          "pattern": "^0[xX][a-fA-F0-9]{40}$",
+          "description": "Ethereum wallet address of the contributor for on-chain verification"
         }
       },
       "additionalProperties": false
+    },
+    "contributors": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Array of contributor information for multiple contributors",
+      "items": {
+        "type": "object",
+        "required": ["id", "data_hash", "data_manifest"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique identifier for the data contributor"
+          },
+          "data_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "SHA-256 hash of contributed data"
+          },
+          "data_manifest": {
+            "$ref": "#/$defs/data_manifest"
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Weight/proportion of contributed data in final model"
+          },
+          "contributed_samples": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of samples contributed"
+          },
+          "validation_status": {
+            "type": "string",
+            "enum": ["valid", "invalid", "pending", "unknown"],
+            "description": "Status of data validation"
+          },
+          "wallet_address": {
+            "type": "string",
+            "pattern": "^0[xX][a-fA-F0-9]{40}$",
+            "description": "Ethereum wallet address of the contributor for on-chain verification"
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "attestation": {
       "type": "object",

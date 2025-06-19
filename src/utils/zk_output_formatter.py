@@ -31,9 +31,17 @@ class ZKCompatibleOutputFormatter:
             "evaluation_results": self._format_evaluation_results(pipeline_results),
             "delta_computation": self._format_delta_computation(pipeline_results),
             "models": self._format_models(pipeline_results),
-            "contributor_info": self._format_contributor_info(pipeline_results),
             "attestation": self._format_attestation(pipeline_results)
         }
+        
+        # Choose between single contributor or multiple contributors format
+        contributors_data = pipeline_results.get("contributors", [])
+        if contributors_data and len(contributors_data) > 1:
+            # Multiple contributors
+            zk_output["contributors"] = self._format_contributors(pipeline_results)
+        else:
+            # Single contributor (existing format)
+            zk_output["contributor_info"] = self._format_contributor_info(pipeline_results)
         
         return zk_output
     
@@ -162,7 +170,7 @@ class ZKCompatibleOutputFormatter:
         contrib = results.get("contributor_attribution", {})
         data_manifest = contrib.get("data_manifest", {})
         
-        return {
+        contributor_info = {
             "data_hash": contrib.get("data_hash", self._compute_placeholder_hash("contributor_data")),
             "data_manifest": self._format_data_manifest(data_manifest),
             "contributor_weights": contrib.get("contributor_weights", 0.0),
@@ -170,6 +178,51 @@ class ZKCompatibleOutputFormatter:
             "total_samples": contrib.get("total_samples", 0),
             "validation_status": "valid"  # Default status
         }
+        
+        # Add ETH wallet address if provided
+        wallet_address = contrib.get("wallet_address")
+        if wallet_address:
+            from .eth_address_validator import validate_eth_address, normalize_eth_address
+            try:
+                validate_eth_address(wallet_address)
+                contributor_info["wallet_address"] = normalize_eth_address(wallet_address)
+            except Exception as e:
+                # Log warning but don't fail the pipeline
+                print(f"Warning: Invalid ETH address provided: {e}")
+        
+        return contributor_info
+    
+    def _format_contributors(self, results: dict) -> list:
+        """Format multiple contributors information section."""
+        contributors_data = results.get("contributors", [])
+        formatted_contributors = []
+        
+        for contributor in contributors_data:
+            data_manifest = contributor.get("data_manifest", {})
+            
+            contributor_info = {
+                "id": contributor.get("id", contributor.get("contributor_id", "unknown")),
+                "data_hash": contributor.get("data_hash", self._compute_placeholder_hash("contributor_data")),
+                "data_manifest": self._format_data_manifest(data_manifest),
+                "weight": contributor.get("weight", contributor.get("contributor_weights", 0.0)),
+                "contributed_samples": contributor.get("contributed_samples", 0),
+                "validation_status": contributor.get("validation_status", "valid")
+            }
+            
+            # Add ETH wallet address if provided
+            wallet_address = contributor.get("wallet_address")
+            if wallet_address:
+                from .eth_address_validator import validate_eth_address, normalize_eth_address
+                try:
+                    validate_eth_address(wallet_address)
+                    contributor_info["wallet_address"] = normalize_eth_address(wallet_address)
+                except Exception as e:
+                    # Log warning but don't fail the pipeline
+                    print(f"Warning: Invalid ETH address for contributor {contributor_info['id']}: {e}")
+            
+            formatted_contributors.append(contributor_info)
+        
+        return formatted_contributors
     
     def _format_data_manifest(self, manifest: dict) -> dict:
         """Format data manifest section."""

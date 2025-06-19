@@ -202,7 +202,8 @@ class ValidationPipeline:
                 file_path=file_path,
                 data=data,
                 validation_results=validation_results,
-                data_hash=validation_results.get('hash')
+                data_hash=validation_results.get('hash'),
+                eth_address=self.config.get('eth_address')
             )
             
             # Save manifest

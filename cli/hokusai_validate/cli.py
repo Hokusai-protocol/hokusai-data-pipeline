@@ -33,6 +33,9 @@ from .exceptions import ValidationError, UnsupportedFormatError
               'force_format',
               type=click.Choice(['csv', 'json', 'parquet']),
               help='Force specific file format (auto-detected by default)')
+@click.option('--eth-address',
+              type=str,
+              help='Ethereum wallet address for contributor attribution')
 @click.version_option(version=__version__)
 def main(input_file: Path, 
          schema: Optional[Path], 
@@ -40,7 +43,8 @@ def main(input_file: Path,
          no_pii_scan: bool,
          redact_pii: bool,
          verbose: bool,
-         force_format: Optional[str]):
+         force_format: Optional[str],
+         eth_address: Optional[str]):
     """
     Validate data files for Hokusai contribution.
     
@@ -71,13 +75,28 @@ def main(input_file: Path,
         if verbose:
             click.echo(f"Detected format: {file_format}")
         
+        # Validate ETH address if provided
+        validated_eth_address = None
+        if eth_address:
+            try:
+                # Import validation utilities
+                from src.utils.eth_address_validator import validate_eth_address, normalize_eth_address
+                validate_eth_address(eth_address)
+                validated_eth_address = normalize_eth_address(eth_address)
+                if verbose:
+                    click.echo(f"Validated ETH address: {validated_eth_address}")
+            except Exception as e:
+                click.echo(f"Error: Invalid ETH address '{eth_address}': {e}", err=True)
+                sys.exit(1)
+        
         # Configure validation pipeline
         config = {
             'schema_path': str(schema) if schema else None,
             'pii_detection': not no_pii_scan,
             'pii_redaction': redact_pii,
             'verbose': verbose,
-            'format': file_format
+            'format': file_format,
+            'eth_address': validated_eth_address
         }
         
         # Run validation pipeline
