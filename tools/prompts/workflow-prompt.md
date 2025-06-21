@@ -10,7 +10,7 @@ Perform these steps one at a time and confirm before proceeding:
 ### Step 1: Select Task
 - Run the Linear backlog tool:
   ```bash
-  node packages/tools/get-backlog.ts
+  npx tsx tools/get-backlog.ts
   ```
 - Review the output and select a task by providing its title. Number them and prompt the user to select one by choosing a number. s
 - The tool will display:
