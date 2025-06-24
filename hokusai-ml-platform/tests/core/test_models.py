@@ -14,7 +14,16 @@ class TestHokusaiModel:
     
     def test_model_initialization(self):
         """Test that HokusaiModel can be initialized with required attributes"""
-        model = HokusaiModel(
+        # Create a concrete implementation for testing
+        class TestModel(HokusaiModel):
+            def predict(self, data):
+                return {}
+            def load(self, path):
+                pass
+            def save(self, path):
+                pass
+        
+        model = TestModel(
             model_id="test-model-001",
             model_type=ModelType.CLASSIFICATION,
             version="1.0.0",
@@ -28,40 +37,51 @@ class TestHokusaiModel:
     
     def test_model_predict_abstract(self):
         """Test that predict method must be implemented by subclasses"""
-        model = HokusaiModel(
-            model_id="test-model-001",
-            model_type=ModelType.CLASSIFICATION,
-            version="1.0.0"
-        )
+        # Create a partial implementation that doesn't implement predict
+        class PartialModel(HokusaiModel):
+            def load(self, path):
+                pass
+            def save(self, path):
+                pass
         
-        with pytest.raises(NotImplementedError):
-            model.predict({"data": "test"})
+        with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+            model = PartialModel(
+                model_id="test-model-001",
+                model_type=ModelType.CLASSIFICATION,
+                version="1.0.0"
+            )
     
-    def test_model_load_abstract(self):
-        """Test that load method must be implemented by subclasses"""
-        model = HokusaiModel(
+    def test_model_concrete_implementation(self):
+        """Test concrete model implementation"""
+        class ConcreteModel(HokusaiModel):
+            def predict(self, data):
+                return {"result": "predicted"}
+            def load(self, path):
+                return f"loaded from {path}"
+            def save(self, path):
+                return f"saved to {path}"
+        
+        model = ConcreteModel(
             model_id="test-model-001",
             model_type=ModelType.CLASSIFICATION,
             version="1.0.0"
         )
         
-        with pytest.raises(NotImplementedError):
-            model.load("path/to/model")
-    
-    def test_model_save_abstract(self):
-        """Test that save method must be implemented by subclasses"""
-        model = HokusaiModel(
-            model_id="test-model-001",
-            model_type=ModelType.CLASSIFICATION,
-            version="1.0.0"
-        )
-        
-        with pytest.raises(NotImplementedError):
-            model.save("path/to/save")
+        assert model.predict({}) == {"result": "predicted"}
+        assert model.load("/path") == "loaded from /path"
+        assert model.save("/path") == "saved to /path"
     
     def test_model_get_metrics(self):
         """Test that models can return their performance metrics"""
-        model = HokusaiModel(
+        class TestModel(HokusaiModel):
+            def predict(self, data):
+                return {}
+            def load(self, path):
+                pass
+            def save(self, path):
+                pass
+        
+        model = TestModel(
             model_id="test-model-001",
             model_type=ModelType.CLASSIFICATION,
             version="1.0.0",
@@ -115,7 +135,10 @@ class TestModelFactory:
     
     def test_register_custom_model_class(self):
         """Test registering a custom model class with the factory"""
-        class CustomModel(HokusaiModel):
+        class CustomTestModel(HokusaiModel):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                
             def predict(self, data):
                 return {"prediction": "custom"}
             
@@ -125,15 +148,15 @@ class TestModelFactory:
             def save(self, path):
                 pass
         
-        ModelFactory.register_model_class("custom_type", CustomModel)
+        ModelFactory.register_model_class("custom_test_type", CustomTestModel)
         
         model = ModelFactory.create_model(
-            model_type="custom_type",
+            model_type="custom_test_type",
             model_id="custom-002",
             version="1.0.0"
         )
         
-        assert isinstance(model, CustomModel)
+        assert isinstance(model, CustomTestModel)
         assert model.predict({}) == {"prediction": "custom"}
     
     def test_create_unknown_model_type_raises_error(self):
