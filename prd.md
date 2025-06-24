@@ -1,110 +1,150 @@
-# Product Requirements Document: Update Hokusai Documentation
+# Product Requirements Document: Unified MLOps Service Architecture
 
 ## Objectives
 
-The primary objective is to create comprehensive documentation for the Hokusai data pipeline that enables users to understand and use the system from end-to-end. The documentation should be formatted as markdown files compatible with Docusaurus for integration into the docs.hokus.ai website.
+Transform the hokusai-data-pipeline from a verification tool into a comprehensive MLOps platform that provides shared services across the entire Hokusai ecosystem. This will enable centralized model management, verifiable improvement tracking, and automated attestation generation for all model improvements.
+
+Key objectives:
+- Create a unified model registry for all Hokusai projects
+- Implement performance tracking with automated attestation
+- Build experiment orchestration capabilities
+- Provide API endpoints for external integrations
+- Enable cross-project model sharing and improvement tracking
 
 ## Personas
 
 ### Primary Users
-- **ML Engineers**: Need to understand how to integrate the pipeline into their model training workflow
-- **Data Contributors**: Need to know how to prepare and submit data for model improvement
-- **DevOps Engineers**: Need to deploy and maintain the pipeline infrastructure
-- **Developers**: Need to integrate with the pipeline API and understand output formats
+- **ML Engineers**: Need to register, track, and compare models across projects
+- **Data Contributors**: Want to see the impact of their contributions on model performance
+- **GTM-Agent Developers**: Require API access to model registry and performance metrics
+- **DevOps Engineers**: Need to deploy and maintain the MLOps infrastructure
 
 ### Secondary Users
-- **Product Managers**: Need to understand pipeline capabilities and limitations
-- **Security Auditors**: Need to verify data handling and attestation mechanisms
+- **Project Managers**: Track model improvement progress across teams
+- **Compliance Officers**: Verify contributor attribution and model lineage
 
 ## Success Criteria
 
-1. Complete documentation covering all pipeline modules and features
-2. Clear step-by-step guides for common use cases
-3. API reference documentation for all public interfaces
-4. Architecture diagrams explaining data flow and system components
-5. Troubleshooting guides for common issues
-6. All documentation formatted for Docusaurus compatibility
-7. Documentation validated against current codebase functionality
+1. **Technical Success**
+   - All models registered in a single MLFlow-based registry
+   - Automated performance delta calculation and attestation generation
+   - API response time < 500ms for model queries
+   - Support for concurrent experiment tracking across multiple projects
+   - Complete model lineage tracking from baseline to current version
+
+2. **Adoption Success**
+   - GTM-agent successfully integrated with the unified registry
+   - At least 3 Hokusai projects using the shared services
+   - 90% of model improvements tracked with contributor attribution
+   - Zero data loss or model registry downtime
+
+3. **Operational Success**
+   - Automated deployment via Docker Compose
+   - Comprehensive API documentation
+   - Monitoring and alerting for all services
+   - Backup and recovery procedures in place
 
 ## Implementation Tasks
 
-### Task 1: Audit Existing Documentation
-- Review current README.md and all docs/*.md files in the repository
-- Review existing documentation at https://docs.hokus.ai/, particularly:
-  - The "Supplying Data" section at https://docs.hokus.ai/supplying-data
-  - Other relevant sections for pipeline usage and integration
-- Identify gaps between documented and actual functionality
-- Create inventory of undocumented features and modules
-- Note areas requiring clarification or expansion
+### Task 1: Create Model Registry Service
+- Create `hokusai_data_pipeline/services/model_registry.py`
+- Implement `HokusaiModelRegistry` class with MLFlow integration
+- Add methods for registering baseline models
+- Add methods for registering improved models with delta metrics
+- Implement model lineage tracking functionality
+- Write unit tests for all registry methods
 
-### Task 2: Create Documentation Structure
-- Design information architecture for docs.hokus.ai
-- Create documentation categories (Getting Started, Architecture, API Reference, etc.)
-- Define navigation structure and page hierarchy
-- Create template for consistent documentation format
+### Task 2: Implement Performance Tracking Service
+- Create `hokusai_data_pipeline/services/performance_tracker.py`
+- Implement `PerformanceTracker` class
+- Add delta calculation logic between baseline and improved metrics
+- Implement attestation generation for performance improvements
+- Add contributor impact logging with ETH addresses
+- Write unit tests for performance tracking
 
-### Task 3: Write Core Documentation
-- **Getting Started Guide**: Installation, setup, and first pipeline run
-- **Architecture Overview**: System components, data flow, and design decisions
-- **Pipeline Configuration**: All configuration options and environment variables
-- **Data Contribution Guide**: Data formats, validation requirements, and submission process
-- **Model Integration Guide**: How to integrate baseline and new models
-- **Output Format Reference**: Detailed schema for attestation-ready outputs
+### Task 3: Build Experiment Orchestration Service
+- Create `hokusai_data_pipeline/services/experiment_manager.py`
+- Implement `ExperimentManager` class
+- Add experiment creation for improvement testing
+- Implement standardized model comparison functionality
+- Integrate with existing Metaflow pipeline
+- Write unit tests for experiment management
 
-### Task 4: Create API Reference Documentation
-- Document all public Python modules and classes
-- Include function signatures, parameters, and return values
-- Add code examples for common usage patterns
-- Document error codes and exception handling
+### Task 4: Set Up Infrastructure Services
+- Update `docker-compose.yml` with MLFlow server configuration
+- Add PostgreSQL database for MLFlow backend
+- Configure S3-compatible storage for artifacts
+- Add model registry API service configuration
+- Create environment configuration templates
+- Write infrastructure setup documentation
 
-### Task 5: Write Operations Documentation
-- **Deployment Guide**: Production deployment requirements and steps
-- **Monitoring Guide**: MLFlow integration and pipeline monitoring
-- **Performance Tuning**: Optimization for high-throughput scenarios
-- **Security Guide**: Data handling, PII protection, and access control
+### Task 5: Enhance Metaflow Pipeline Integration
+- Update existing Metaflow steps to use new services
+- Add `register_baseline` step to pipeline
+- Implement `track_improvement` step with attestation
+- Ensure backward compatibility with existing pipeline
+- Update pipeline configuration for service endpoints
+- Write integration tests for enhanced pipeline
 
-### Task 6: Create Tutorials and Examples
-- **Tutorial 1**: Running pipeline in dry-run mode
-- **Tutorial 2**: Contributing data to improve a model
-- **Tutorial 3**: Integrating with HuggingFace datasets
-- **Tutorial 4**: Generating attestation proofs
-- **Example Code**: Complete working examples for common scenarios
+### Task 6: Create API Endpoints
+- Create `hokusai_data_pipeline/api/` directory structure
+- Implement `/models/{model_id}/lineage` endpoint
+- Implement `/models/register` endpoint
+- Implement `/contributors/{address}/impact` endpoint
+- Add API authentication and rate limiting
+- Generate OpenAPI documentation
+- Write API integration tests
 
-### Task 7: Add Troubleshooting Documentation
-- Common error messages and solutions
-- Debugging techniques for pipeline issues
-- FAQ section based on known issues
-- Performance troubleshooting guide
+### Task 7: Implement Data Models and Schemas
+- Create Pydantic models for API requests/responses
+- Define database schemas for model registry
+- Create migration scripts for database setup
+- Implement data validation for all inputs
+- Add schema versioning support
 
-### Task 8: Create Developer Documentation
-- Contributing guidelines
-- Testing documentation (unit and integration tests)
-- Code style and best practices
-- Extension points and customization options
+### Task 8: Add Monitoring and Logging
+- Implement structured logging across all services
+- Add metrics collection for service performance
+- Create health check endpoints
+- Set up error tracking and alerting
+- Add audit logging for model changes
 
-### Task 9: Format for Docusaurus
-- Convert all markdown to Docusaurus-compatible format
-- Add necessary frontmatter metadata
-- Create sidebars configuration
-- Ensure proper internal linking between documents
+### Task 9: Create Integration Tests
+- Write end-to-end tests for complete workflow
+- Test model registration and retrieval
+- Test performance tracking and attestation
+- Test API endpoints with mock data
+- Create load testing scenarios
 
-### Task 10: Validation and Review
-- Test all code examples for accuracy
-- Verify configuration options against codebase
-- Check all internal and external links
-- Ensure consistency in terminology and style
+### Task 10: Documentation and Deployment
+- Write API documentation with examples
+- Create deployment guide for production
+- Document backup and recovery procedures
+- Create troubleshooting guide
+- Write migration guide for existing models
 
-## Technical Requirements
+## Technical Constraints
 
-- All documentation must be in Markdown format
-- Code blocks must include proper syntax highlighting
-- Diagrams should use Mermaid or similar text-based format
-- All file paths and commands must be tested and accurate
-- Documentation must match current main branch functionality
+- Must integrate with existing Metaflow pipeline without breaking changes
+- MLFlow server must support PostgreSQL backend
+- API must be RESTful and follow OpenAPI specification
+- All services must be containerized
+- Must support horizontal scaling for API services
 
-## Deliverables
+## Dependencies
 
-1. Complete set of markdown documentation files
-2. Docusaurus configuration files (sidebars.js, etc.)
-3. Documentation validation checklist
-4. Migration guide from current docs to new structure
+- Existing hokusai-data-pipeline codebase
+- MLFlow 2.x
+- PostgreSQL 14+
+- Docker and Docker Compose
+- Python 3.8+
+- FastAPI for API services
+- Metaflow integration points
+
+## Risk Mitigation
+
+- **Data Loss**: Implement automated backups and point-in-time recovery
+- **Service Downtime**: Use health checks and automatic container restarts
+- **Integration Failures**: Extensive testing and gradual rollout
+- **Performance Issues**: Load testing and horizontal scaling capabilities
+- **Security Concerns**: API authentication and audit logging
