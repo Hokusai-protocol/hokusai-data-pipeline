@@ -1,16 +1,24 @@
 # Hokusai Data Pipeline
 
-A Metaflow-based evaluation pipeline for machine learning models that produces attestation-ready outputs for zero-knowledge proof generation.
+A comprehensive MLOps platform with Metaflow-based evaluation pipeline for machine learning models that produces attestation-ready outputs for zero-knowledge proof generation.
 
 ## Overview
 
-The Hokusai data pipeline evaluates the performance improvement of machine learning models when trained with contributed data. It provides:
+The Hokusai platform provides a complete MLOps solution for evaluating the performance improvement of machine learning models when trained with contributed data. It includes:
 
+**Core Pipeline Features:**
 - Reproducible model evaluation with fixed random seeds
 - Stratified sampling for large datasets
 - Comprehensive metrics calculation (accuracy, precision, recall, F1, AUROC)
 - Attestation-ready outputs for blockchain integration
 - Comprehensive MLFlow experiment tracking and artifact management
+
+**MLOps Platform Services:**
+- Centralized model registry with versioning and lineage tracking
+- Performance tracking with attestation generation
+- Experiment orchestration for model comparisons
+- RESTful API for programmatic access
+- Docker-based infrastructure with monitoring
 
 ## Architecture
 
@@ -41,8 +49,48 @@ The Hokusai data pipeline evaluates the performance improvement of machine learn
 
 ## Quick Start
 
+### Running the MLOps Platform
+
 ```bash
-# Setup environment
+# Start all services using Docker Compose
+docker compose up -d
+
+# Or use the minimal configuration (without monitoring)
+docker compose -f docker-compose.minimal.yml up -d
+
+# Check service status
+docker compose ps
+
+# View logs
+docker compose logs -f
+```
+
+### Accessing Services
+
+Once the platform is running, you can access:
+
+- **Model Registry API**: http://localhost:8001
+  - API Documentation: http://localhost:8001/docs
+  - OpenAPI Schema: http://localhost:8001/openapi.json
+  
+- **MLFlow UI**: http://localhost:5001
+  - Track experiments, models, and metrics
+  - View model lineage and versioning
+  
+- **MinIO Console**: http://localhost:9001
+  - Username: `minioadmin`
+  - Password: `minioadmin123`
+  - S3-compatible artifact storage
+  
+- **PostgreSQL Database**: localhost:5432
+  - Database: `mlflow_db`
+  - Username: `mlflow`
+  - Password: `mlflow_password`
+
+### Running the Pipeline
+
+```bash
+# Setup Python environment
 ./setup.sh
 
 # Run in dry-run mode
@@ -52,9 +100,6 @@ python -m metaflow run src.pipeline.hokusai_pipeline:HokusaiPipeline \
 
 # Run tests
 pytest
-
-# Start MLFlow UI (optional)
-mlflow ui
 ```
 
 ## Dry-Run and Test Mode
@@ -335,6 +380,8 @@ hokusai-data-pipeline/
 ├── src/                    # Source code
 │   ├── pipeline/          # Main pipeline flow
 │   ├── modules/           # Pipeline step implementations
+│   ├── services/          # MLOps services
+│   ├── api/               # REST API implementation
 │   └── utils/             # Utilities and helpers
 ├── tests/                 # Test suite
 │   ├── unit/             # Unit tests
@@ -343,27 +390,147 @@ hokusai-data-pipeline/
 │   └── test_fixtures/    # Test data
 ├── tools/                 # Workflow automation tools
 │   └── prompts/          # AI assistance prompts
-├── requirements.txt       # Python dependencies
+├── configs/               # Configuration files
+│   ├── prometheus.yml    # Prometheus monitoring config
+│   └── grafana/          # Grafana dashboards
+├── docker-compose.yml     # Full infrastructure setup
+├── docker-compose.minimal.yml  # Minimal setup without monitoring
+├── Dockerfile.api         # API service container
+├── Dockerfile.mlflow      # MLFlow server container
+├── requirements.txt       # Core Python dependencies
+├── requirements-api.txt   # API-specific dependencies
 └── setup.sh              # Setup script
 ```
 
-## Workflow Integration
+## MLOps Platform Services
 
-This project includes workflow automation tools for:
-- Linear task management integration
-- Automated PRD generation
-- Git branch creation
-- Pull request automation
+### Model Registry Service
 
-Run `node tools/workflow.js` to start the workflow.
+The `HokusaiModelRegistry` service provides centralized model management:
 
-## Contributing
+```python
+from src.services.model_registry import HokusaiModelRegistry
 
-1. Use the workflow automation to select tasks from Linear
-2. Follow the 7-step implementation process
-3. Ensure all tests pass before creating PRs
-4. Update documentation as needed
+# Initialize registry
+registry = HokusaiModelRegistry()
 
-## License
+# Register a baseline model
+baseline_result = registry.register_baseline(
+    model=my_model,
+    model_type="logistic_regression",
+    metadata={"dataset": "benchmark_v1"}
+)
 
-[License information to be added]
+# Register an improved model
+improved_result = registry.register_improved_model(
+    baseline_model_id="baseline_001",
+    improved_model=new_model,
+    contributor_address="0x742d35Cc6634C0532925a3b844Bc9e7595f62341",
+    data_contribution={"samples": 1000, "quality_score": 0.95}
+)
+
+# Get model lineage
+lineage = registry.get_model_lineage("baseline_001")
+```
+
+### Performance Tracking Service
+
+The `PerformanceTracker` service tracks model improvements and generates attestations:
+
+```python
+from src.services.performance_tracker import PerformanceTracker
+
+tracker = PerformanceTracker()
+
+# Track performance improvement
+delta, attestation = tracker.track_improvement(
+    baseline_metrics={"accuracy": 0.85, "f1": 0.83},
+    improved_metrics={"accuracy": 0.88, "f1": 0.86},
+    data_contribution={
+        "contributor_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f62341",
+        "data_hash": "abc123",
+        "samples": 1000
+    }
+)
+```
+
+### Experiment Manager Service
+
+The `ExperimentManager` service orchestrates model comparison experiments:
+
+```python
+from src.services.experiment_manager import ExperimentManager
+
+manager = ExperimentManager()
+
+# Create an improvement experiment
+experiment_id = manager.create_improvement_experiment(
+    baseline_model_id="baseline_001",
+    contributor_address="0x742d35Cc6634C0532925a3b844Bc9e7595f62341",
+    data_path="/path/to/contributed_data.csv"
+)
+
+# Compare models
+results = manager.compare_models(
+    experiment_id=experiment_id,
+    baseline_model_id="baseline_001",
+    improved_model_id="improved_001"
+)
+```
+
+### REST API
+
+The platform provides a comprehensive REST API for all services:
+
+#### Authentication
+All endpoints require Bearer token authentication:
+```bash
+curl -H "Authorization: Bearer your-token-here" http://localhost:8001/api/v1/models
+```
+
+#### Model Management Endpoints
+- `GET /api/v1/models/{model_id}/lineage` - Get model lineage and improvement history
+- `POST /api/v1/models/register` - Register a new model
+
+#### Contributor Impact Endpoints
+- `GET /api/v1/contributors/{address}/impact` - Get contributor's total impact across models
+
+#### Health Check
+- `GET /health` - Service health status and dependencies
+
+### Docker Infrastructure
+
+The platform uses Docker Compose to orchestrate multiple services:
+
+- **PostgreSQL**: Backend database for MLFlow
+- **MinIO**: S3-compatible object storage for artifacts
+- **MLFlow Server**: Experiment tracking and model registry
+- **Redis**: Caching and rate limiting for API
+- **Prometheus**: Metrics collection (optional)
+- **Grafana**: Metrics visualization (optional)
+- **Model Registry API**: REST API service
+
+### Configuration
+
+Environment variables can be set in `.env` file:
+
+```bash
+# API Configuration
+API_HOST=0.0.0.0
+API_PORT=8001
+SECRET_KEY=your-secret-key-here
+
+# MLFlow Configuration
+MLFLOW_TRACKING_URI=http://mlflow-server:5000
+
+# Database Configuration
+POSTGRES_URI=postgresql://mlflow:mlflow_password@postgres/mlflow_db
+
+# Redis Configuration
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# Rate Limiting
+RATE_LIMIT_REQUESTS=100
+RATE_LIMIT_PERIOD=60
+```
