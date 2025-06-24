@@ -17,23 +17,34 @@ settings = get_settings()
 class AuthMiddleware:
     """Middleware for handling authentication."""
     
-    async def __call__(self, request: Request, call_next):
+    def __init__(self, app):
+        self.app = app
+    
+    async def __call__(self, scope, receive, send):
         """Process authentication for requests."""
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        
+        path = scope["path"]
         # Skip auth for health check and docs
-        if request.url.path in ["/health", "/docs", "/redoc", "/openapi.json"]:
-            return await call_next(request)
+        if path in ["/health", "/docs", "/redoc", "/openapi.json"]:
+            return await self.app(scope, receive, send)
         
         # For now, just check for Authorization header
         # In production, implement proper JWT validation
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            return HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Missing or invalid authentication"
-            )
+        headers = dict(scope["headers"])
+        auth_header = headers.get(b"authorization", b"").decode()
         
-        response = await call_next(request)
-        return response
+        if not auth_header or not auth_header.startswith("Bearer "):
+            from starlette.responses import JSONResponse
+            response = JSONResponse(
+                {"detail": "Missing or invalid authentication"},
+                status_code=401
+            )
+            await response(scope, receive, send)
+            return
+        
+        return await self.app(scope, receive, send)
 
 
 async def require_auth(credentials: HTTPAuthorizationCredentials = security):

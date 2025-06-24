@@ -1,6 +1,6 @@
 """Model-related API endpoints."""
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Request
 from typing import Dict, Any
 import logging
 import re
@@ -33,7 +33,7 @@ tracker = PerformanceTracker()
     responses={404: {"model": ErrorResponse}}
 )
 @limiter.limit("100/minute")
-async def get_model_lineage(model_id: str, _=Depends(require_auth)):
+async def get_model_lineage(request: Request, model_id: str, _=Depends(require_auth)):
     """Get complete improvement history of a model."""
     try:
         lineage = registry.get_model_lineage(model_id)
@@ -65,6 +65,7 @@ async def get_model_lineage(model_id: str, _=Depends(require_auth)):
 )
 @limiter.limit("20/minute")
 async def register_model(
+    request: Request,
     registration: ModelRegistration,
     _=Depends(require_auth)
 ):
@@ -103,7 +104,7 @@ async def register_model(
     responses={400: {"model": ErrorResponse}}
 )
 @limiter.limit("100/minute")
-async def get_contributor_impact(address: str, _=Depends(require_auth)):
+async def get_contributor_impact(request: Request, address: str, _=Depends(require_auth)):
     """Get total impact of a contributor across all models."""
     # Validate Ethereum address
     pattern = r"^0x[a-fA-F0-9]{40}$"
