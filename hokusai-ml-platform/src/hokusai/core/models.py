@@ -224,6 +224,7 @@ class ModelFactory:
             # For custom registered types
             return model_class(
                 model_id=model_id,
+                model_type=model_type,
                 version=version,
                 metadata=metadata,
                 **config,
