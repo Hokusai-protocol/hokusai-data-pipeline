@@ -1,117 +1,150 @@
-# Implementation Tasks for Hokusai Documentation Update
+# Implementation Tasks for Unified MLOps Service Architecture
 
-## 1. Documentation Audit and Analysis
-1. [x] Audit existing documentation
-   a. [x] Review README.md and catalog current content
-   b. [x] Review all files in docs/ directory
-   c. [x] Access and review https://docs.hokus.ai/supplying-data
-   d. [x] Create gap analysis document listing missing topics
-   e. [x] Identify outdated or incorrect information
+## 1. Service Implementation
+1. [x] Create Model Registry Service
+   a. [x] Create services directory structure
+   b. [x] Implement HokusaiModelRegistry class
+   c. [x] Add MLFlow integration methods
+   d. [x] Implement model lineage tracking
+   e. [x] Write unit tests for registry
 
-## 2. Documentation Structure Design
-2. [x] Design documentation architecture
-   a. [x] Create proposed navigation structure for Docusaurus
-   b. [x] Define documentation categories and subcategories
-   c. [x] Create documentation template with consistent formatting
-   d. [x] Design sidebar configuration structure
-   e. [x] Map existing content to new structure
+2. [x] Implement Performance Tracking Service
+   a. [x] Create PerformanceTracker class
+   b. [x] Implement delta calculation logic
+   c. [x] Add attestation generation method
+   d. [x] Implement contributor impact logging
+   e. [x] Write unit tests for tracker
 
-## 3. Core Documentation Writing
-3. [x] Write getting started documentation
-   a. [x] Installation and setup guide
-   b. [x] Environment configuration guide
-   c. [x] First pipeline run tutorial
-   d. [x] Common configuration examples
+3. [x] Build Experiment Orchestration Service
+   a. [x] Create ExperimentManager class
+   b. [x] Implement experiment creation methods
+   c. [x] Add model comparison functionality
+   d. [x] Integrate with Metaflow pipeline
+   e. [x] Write unit tests for manager
 
-4. [ ] Create architecture documentation
-   a. [x] System overview with architecture diagram
-   b. [ ] Component descriptions and interactions
-   c. [x] Data flow diagrams using Mermaid
-   d. [ ] Design decisions and rationale
+## 2. Infrastructure Setup
+4. [x] Configure Docker Infrastructure
+   a. [x] Create docker-compose.yml for MLFlow server
+   b. [x] Configure PostgreSQL database service
+   c. [x] Set up S3-compatible storage (MinIO)
+   d. [x] Add model registry API service
+   e. [x] Create environment templates
 
-5. [ ] Document pipeline configuration
-   a. [ ] Complete list of environment variables
-   b. [ ] Configuration file format and options
-   c. [ ] MLFlow integration settings
-   d. [ ] Performance tuning parameters
+5. [ ] Set Up Database Schema
+   a. [ ] Design model registry database schema
+   b. [ ] Create migration scripts with Alembic
+   c. [ ] Add indexes for performance
+   d. [ ] Set up database backup configuration
+   e. [ ] Write schema documentation
 
-## 4. Data Contribution Documentation (Dependent on Documentation Audit)
-6. [ ] Create comprehensive data contribution guide
-   a. [ ] Supported data formats (CSV, JSON, Parquet)
-   b. [ ] Schema requirements and validation rules
-   c. [ ] PII handling and data privacy guidelines
-   d. [ ] Step-by-step submission process
-   e. [ ] ETH wallet address requirements
+## 3. API Development (Dependent on Service Implementation)
+6. [x] Create API Structure
+   a. [x] Set up FastAPI project structure
+   b. [x] Configure API routing
+   c. [x] Add middleware for authentication
+   d. [x] Implement rate limiting
+   e. [x] Set up CORS configuration
 
-## 5. API Reference Documentation
-7. [ ] Document Python modules
-   a. [ ] Pipeline module documentation
-   b. [ ] Data integration module documentation
-   c. [ ] Model training module documentation
-   d. [ ] Evaluation module documentation
-   e. [ ] Output generation module documentation
+7. [x] Implement API Endpoints
+   a. [x] Create /models/{model_id}/lineage endpoint
+   b. [x] Implement /models/register endpoint
+   c. [x] Add /contributors/{address}/impact endpoint
+   d. [x] Create health check endpoints
+   e. [x] Generate OpenAPI documentation
 
-8. [ ] Create code examples
-   a. [ ] Basic pipeline usage examples
-   b. [ ] Custom configuration examples
-   c. [ ] Data processing examples
-   d. [ ] Error handling examples
+8. [x] Create Data Models
+   a. [x] Define Pydantic models for requests
+   b. [x] Create response schema models
+   c. [x] Add validation rules
+   d. [x] Implement error response models
+   e. [x] Write model documentation
 
-## 6. Operations Documentation
-9. [ ] Write deployment guide
-   a. [ ] System requirements
-   b. [ ] Production deployment steps
-   c. [ ] Scaling considerations
-   d. [ ] Security best practices
+## 4. Pipeline Integration (Dependent on Service Implementation)
+9. [x] Enhance Metaflow Pipeline
+   a. [x] Update existing pipeline steps
+   b. [x] Add register_baseline step
+   c. [x] Implement track_improvement step
+   d. [x] Ensure backward compatibility
+   e. [x] Update pipeline configuration
 
-10. [ ] Create monitoring documentation
-    a. [ ] MLFlow UI usage guide
-    b. [ ] Metric interpretation guide
-    c. [ ] Performance monitoring setup
-    d. [ ] Alert configuration
+10. [ ] Create Integration Points
+    a. [ ] Add service client libraries
+    b. [ ] Implement retry logic
+    c. [ ] Add circuit breaker patterns
+    d. [ ] Create configuration management
+    e. [ ] Write integration documentation
 
-## 7. Tutorial Creation (Dependent on Core Documentation)
-11. [ ] Write hands-on tutorials
-    a. [ ] Tutorial 1: Running in dry-run mode
-    b. [ ] Tutorial 2: Contributing data to a model
-    c. [ ] Tutorial 3: HuggingFace dataset integration
-    d. [ ] Tutorial 4: Generating attestation proofs
-    e. [ ] Create accompanying example code repository
+## 5. Testing (Dependent on API Development)
+11. [x] Write Unit Tests
+    a. [x] Test model registry service
+    b. [x] Test performance tracker
+    c. [x] Test experiment manager
+    d. [x] Test API endpoints
+    e. [x] Test data validation
 
-## 8. Troubleshooting Documentation
-12. [ ] Create troubleshooting guide
-    a. [ ] Common error messages and solutions
-    b. [ ] Debugging techniques and tools
-    c. [ ] FAQ based on known issues
-    d. [ ] Performance optimization guide
+12. [x] Create Integration Tests
+    a. [x] Test end-to-end workflow
+    b. [x] Test service interactions
+    c. [x] Test API authentication
+    d. [x] Test database operations
+    e. [x] Create load testing scenarios
 
-## 9. Developer Documentation
-13. [ ] Write developer guides
-    a. [ ] Contributing guidelines
-    b. [ ] Code style and conventions
-    c. [ ] Testing strategy and requirements
-    d. [ ] Extension points and customization
+13. [ ] Implement E2E Tests
+    a. [ ] Test model registration flow
+    b. [ ] Test performance tracking flow
+    c. [ ] Test contributor attribution
+    d. [ ] Test API error handling
+    e. [ ] Test recovery scenarios
 
-## 10. Testing (Dependent on All Documentation)
-14. [ ] Write and implement documentation tests
-    a. [ ] Test all code examples for accuracy
-    b. [ ] Validate configuration examples
-    c. [ ] Test installation instructions on clean system
-    d. [ ] Verify all command-line examples
-    e. [ ] Check all internal and external links
+## 6. Monitoring and Logging
+14. [ ] Implement Logging Infrastructure
+    a. [ ] Set up structured logging
+    b. [ ] Configure log aggregation
+    c. [ ] Add correlation IDs
+    d. [ ] Create log rotation policies
+    e. [ ] Set up log analysis tools
 
-## 11. Docusaurus Integration
-15. [ ] Format for Docusaurus
-    a. [ ] Add frontmatter to all markdown files
-    b. [ ] Create sidebars.js configuration
-    c. [ ] Configure documentation versioning
-    d. [ ] Set up search functionality
-    e. [ ] Test documentation site locally
+15. [ ] Add Monitoring
+    a. [ ] Implement Prometheus metrics
+    b. [ ] Create Grafana dashboards
+    c. [ ] Set up alerting rules
+    d. [ ] Add application performance monitoring
+    e. [ ] Create SLA monitoring
 
-## 12. Documentation Review and Finalization
-16. [ ] Final review and validation
-    a. [ ] Technical accuracy review
-    b. [ ] Consistency and style review
-    c. [ ] Create validation checklist
-    d. [ ] Update README.md with documentation links
-    e. [ ] Create migration guide from old to new docs
+## 7. Documentation
+16. [ ] Write Technical Documentation
+    a. [ ] API documentation with examples
+    b. [ ] Deployment guide
+    c. [ ] Architecture diagrams
+    d. [ ] Database schema documentation
+    e. [ ] Troubleshooting guide
+
+17. [ ] Create User Documentation
+    a. [ ] Getting started guide
+    b. [ ] Integration tutorials
+    c. [ ] Migration guide from current system
+    d. [ ] Best practices guide
+    e. [ ] FAQ section
+
+## 8. Security and Compliance
+18. [ ] Implement Security Measures
+    a. [ ] Add API authentication (JWT/OAuth2)
+    b. [ ] Implement role-based access control
+    c. [ ] Add audit logging
+    d. [ ] Set up SSL/TLS certificates
+    e. [ ] Implement data encryption
+
+## 9. Deployment and Operations
+19. [ ] Prepare for Production
+    a. [ ] Create CI/CD pipelines
+    b. [ ] Set up staging environment
+    c. [ ] Create deployment scripts
+    d. [ ] Configure auto-scaling
+    e. [ ] Set up disaster recovery
+
+20. [ ] Post-Deployment Tasks
+    a. [ ] Migrate existing models to registry
+    b. [ ] Train team on new system
+    c. [ ] Monitor system performance
+    d. [ ] Gather user feedback
+    e. [ ] Plan iterative improvements
