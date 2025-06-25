@@ -15,24 +15,37 @@ The Hokusai ML Platform provides a unified infrastructure for managing machine l
 
 ## Installation
 
-### Basic Installation
+### Install from GitHub
+
+```bash
+# Install latest version
+pip install git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform
+
+# Install with optional dependencies
+pip install "git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform[gtm]"
+pip install "git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform[pipeline]"
+```
+
+### Install from PyPI (Coming Soon)
+
+Once published to PyPI, you will be able to install with:
 
 ```bash
 pip install hokusai-ml-platform
 ```
 
-### With Optional Dependencies
+### Development Installation
 
 ```bash
-# For GTM integration
-pip install hokusai-ml-platform[gtm]
+# Clone the repository
+git clone https://github.com/Hokusai-protocol/hokusai-data-pipeline.git
+cd hokusai-data-pipeline/hokusai-ml-platform
 
-# For pipeline features
-pip install hokusai-ml-platform[pipeline]
-
-# For development
-pip install hokusai-ml-platform[dev]
+# Install in editable mode with dev dependencies
+pip install -e ".[dev]"
 ```
+
+For more installation options, see the [Installation Guide](docs/installation.md).
 
 ## Quick Start
 

@@ -1,179 +1,82 @@
-# Product Requirements Document: Update Hokusai Documentation
-
-## Executive Summary
-
-Update the Hokusai data pipeline documentation to reflect the current architecture, including the new hokusai-ml-platform package. The documentation should enable junior developers to understand and use the Hokusai ecosystem effectively, formatted for Docusaurus integration at docs.hokus.ai.
-
-## Current State Analysis
-
-### Existing Documentation
-- **docs.hokus.ai**: High-level protocol documentation focusing on tokenomics and governance
-- **Repository README**: Technical overview of the data pipeline
-- **In-repo docs**: Architecture diagrams, integration guides, and API documentation
-
-### Recent Architectural Changes
-1. **MLOps Platform Evolution**: The project evolved from a simple evaluation pipeline to include MLOps services, then refocused on core pipeline functionality
-2. **hokusai-ml-platform Package**: A new package structure was created (though implementation is pending)
-3. **Enhanced Features**: ETH wallet integration, ZK-schema support, and improved data validation
+# Product Requirements Document: Package Installation
 
 ## Objectives
 
-1. **Primary Goal**: Create comprehensive documentation that bridges the gap between high-level protocol docs and technical implementation details
-2. **Enable Developers**: Provide clear guides for using the hokusai-ml-platform package in their projects
-3. **Maintain Consistency**: Align with existing Docusaurus structure while adding necessary sections
-4. **Production Ready**: Document the complete journey from data contribution to model improvement attestation
+Enable external projects to easily install and use the hokusai-ml-platform package by establishing a robust distribution strategy and clear installation process. This will allow private repositories to integrate Hokusai's ML capabilities while providing a path to public PyPI availability.
 
-## Target Personas
+## Personas
 
-### Primary Users
-1. **Junior ML Engineers**
-   - Need: Step-by-step guides to integrate Hokusai into their ML workflows
-   - Pain Point: Understanding how to use the platform without deep blockchain knowledge
+**External Developer**: A junior to mid-level developer working on a project that needs to integrate Hokusai's ML capabilities. They need clear documentation and simple installation commands.
 
-2. **Data Scientists**
-   - Need: Clear documentation on data formats and model evaluation metrics
-   - Pain Point: Understanding attestation outputs and their significance
-
-3. **Application Developers**
-   - Need: API documentation and SDK usage examples
-   - Pain Point: Integrating Hokusai rewards into their applications
-
-### Secondary Users
-1. **Senior Engineers**: Architecture documentation for system integration
-2. **DevOps Teams**: Deployment and monitoring guides
-3. **Product Managers**: Feature capabilities and limitations
+**DevOps Engineer**: Responsible for setting up CI/CD pipelines and managing package dependencies in production environments. They need reliable, versioned packages.
 
 ## Success Criteria
 
-1. **Completeness**: All current features documented with examples
-2. **Clarity**: Junior developer can set up and run a model improvement workflow within 2 hours
-3. **Accuracy**: All code examples tested and working with current codebase
-4. **Integration**: Seamless fit with existing docs.hokus.ai structure
-5. **Maintainability**: Clear update process for future changes
+1. External developers can install hokusai-ml-platform with a single pip command
+2. Package is available through at least one distribution channel (PyPI, GitHub, or private registry)
+3. Documentation clearly explains installation for different use cases
+4. Version management allows for stable releases and updates
+5. Package can be successfully installed and imported in external projects
 
-## Documentation Scope
+## Tasks
 
-### 1. Getting Started Enhancement
-- Quick start guide with hokusai-ml-platform
-- Installation via pip/npm
-- First model improvement example
-- Understanding attestation outputs
+### 1. Package Distribution Setup
 
-### 2. hokusai-ml-platform Package Documentation
-- Package architecture and components
-- Core modules (models, registry, versioning, ab_testing, inference)
-- API reference with examples
-- Integration patterns
+Configure the hokusai-ml-platform package for distribution through multiple channels:
+- Set up GitHub releases with automated package building
+- Prepare for PyPI publication with proper metadata
+- Document private repository installation methods
 
-### 3. Data Pipeline Deep Dive
-- Complete pipeline architecture
-- Metaflow workflow explanation
-- Data validation and PII handling
-- Model evaluation process
-- Attestation generation
+### 2. Build and Release Pipeline
 
-### 4. Practical Tutorials
-- Tutorial 1: Basic model improvement workflow
-- Tutorial 2: Using HuggingFace datasets
-- Tutorial 3: Multi-contributor scenarios
-- Tutorial 4: A/B testing models
-- Tutorial 5: Production deployment
+Create automated CI/CD for package releases:
+- Configure GitHub Actions for package building and testing
+- Set up automated version tagging and changelog generation
+- Implement pre-release testing workflow
 
-### 5. Developer Resources
-- API reference (Python SDK)
-- Output schemas and formats
-- Error handling and debugging
-- Performance optimization
-- Security best practices
+### 3. Installation Documentation
 
-### 6. Integration Guides
-- Integrating with existing ML pipelines
-- Using with popular frameworks (TensorFlow, PyTorch, scikit-learn)
-- Blockchain integration for rewards
-- Monitoring and observability
+Create comprehensive installation guides:
+- Quick start guide for basic pip installation
+- Advanced installation for different environments
+- Troubleshooting common installation issues
+- Migration guide from local development to package usage
 
-## Technical Requirements
+### 4. Private Repository Support
 
-1. **Format**: Markdown files compatible with Docusaurus v2
-2. **Structure**: Maintain existing sidebar categories, add new sections as needed
-3. **Code Examples**: Working examples for each major feature
-4. **Diagrams**: Mermaid diagrams for architecture visualization
-5. **Testing**: All code snippets must be executable
-6. **Links**: Proper cross-referencing between sections
+Document and test private repository installation:
+- GitHub installation with authentication
+- Git submodule approach for tight integration
+- Private PyPI server setup instructions
 
-## Deliverables
+### 5. PyPI Publication Preparation
 
-1. **Documentation Files** (`/documentation/` directory)
-   - Updated overview and getting started guides
-   - Complete hokusai-ml-platform package docs
-   - Enhanced pipeline documentation
-   - New tutorials and examples
-   - API reference
+Prepare package for public PyPI release:
+- Ensure all package metadata is complete
+- Add proper classifiers and keywords
+- Create PyPI account and API tokens
+- Document security considerations
 
-2. **Docusaurus Configuration**
-   - Updated `sidebars.js` with new sections
-   - Proper metadata for all pages
-   - Search optimization
+### 6. Version Management
 
-3. **Example Repository**
-   - Working examples for all tutorials
-   - Template projects for common use cases
+Establish clear versioning strategy:
+- Semantic versioning implementation
+- Backward compatibility policies
+- Deprecation procedures
+- Release notes automation
 
-4. **Migration Guide**
-   - What's new since last documentation update
-   - Breaking changes and how to handle them
+### 7. Integration Examples
 
-## Documentation Structure
+Create example projects showing package usage:
+- Basic ML model improvement example
+- Complete end-to-end workflow
+- Common integration patterns
+- Dependency management best practices
 
-```
-documentation/
-├── overview/
-│   ├── introduction.md          # Updated with ml-platform info
-│   └── architecture.md          # Current system architecture
-├── getting-started/
-│   ├── installation.md          # pip install hokusai-ml-platform
-│   ├── quick-start.md           # 5-minute example
-│   └── first-contribution.md    # Complete first workflow
-├── ml-platform/
-│   ├── overview.md              # Package architecture
-│   ├── core-concepts.md         # Models, registry, versioning
-│   ├── api-reference.md         # Detailed API docs
-│   └── examples.md              # Code examples
-├── data-pipeline/
-│   ├── architecture.md          # Metaflow pipeline details
-│   ├── configuration.md         # All config options
-│   ├── data-formats.md          # Input/output specifications
-│   └── attestation.md           # ZK-proof outputs
-├── tutorials/
-│   ├── basic-workflow.md        # End-to-end example
-│   ├── huggingface-integration.md
-│   ├── multi-contributor.md
-│   ├── ab-testing.md
-│   └── production-deployment.md
-├── developer-guide/
-│   ├── api-reference.md         # Complete API docs
-│   ├── troubleshooting.md       # Common issues
-│   ├── best-practices.md        # Recommendations
-│   └── security.md              # Security considerations
-└── reference/
-    ├── cli-commands.md          # All CLI options
-    ├── environment-vars.md      # Configuration reference
-    ├── output-schemas.md        # JSON schemas
-    └── glossary.md              # Terms and concepts
-```
+### 8. Testing Package Installation
 
-## Implementation Timeline
-
-1. **Phase 1**: Documentation audit and structure (Completed)
-2. **Phase 2**: Core documentation writing (Current)
-3. **Phase 3**: Tutorial creation and testing
-4. **Phase 4**: API documentation generation
-5. **Phase 5**: Review and integration
-
-## Success Metrics
-
-1. **Developer Onboarding**: Time to first successful model improvement < 2 hours
-2. **Documentation Coverage**: 100% of public APIs documented
-3. **Example Success Rate**: All examples run without errors
-4. **User Feedback**: Positive feedback from test users
-5. **Search Performance**: Key terms easily discoverable
+Verify package works correctly when installed:
+- Test installation from GitHub
+- Test editable installation for development
+- Verify all dependencies are correctly specified
+- Ensure package imports work as expected
