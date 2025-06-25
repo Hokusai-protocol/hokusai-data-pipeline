@@ -6,6 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Hokusai data evaluation pipeline - a system for evaluating machine learning models with reproducible, attestation-ready outputs. The project is in early development stages with focus on workflow automation tooling.
 
+## Common Commands
+Common prompts: 
+@~/.claude/my-common-prompts.md
+
+For this repo, use the "Hokusai data platform" project in Linear to pull the backlog list. 
+
 ## Development Commands
 
 ### Python Environment Setup
