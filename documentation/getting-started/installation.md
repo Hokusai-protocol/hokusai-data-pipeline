@@ -111,52 +111,6 @@ pip install hokusai-ml-platform
 pip install hokusai-ml-platform[ml]
 ```
 
-## Configuration
-
-### Pipeline Configuration
-Create `config/pipeline_config.yaml`:
-```yaml
-pipeline:
-  name: hokusai-evaluation
-  version: 1.0.0
-  
-training:
-  batch_size: 32
-  epochs: 10
-  learning_rate: 0.001
-  
-evaluation:
-  metrics:
-    - accuracy
-    - precision
-    - recall
-    - f1_score
-    - auroc
-  
-output:
-  format: json
-  include_attestation: true
-  compression: gzip
-```
-
-### Data Validation Rules
-Configure in `config/validation_rules.yaml`:
-```yaml
-data_validation:
-  required_columns:
-    - query
-    - document
-    - relevance
-  
-  max_file_size_mb: 1000
-  
-  pii_detection:
-    enabled: true
-    fields_to_check:
-      - query
-      - document
-```
-
 ## Verify Installation
 
 ### 1. Run Tests
@@ -213,6 +167,52 @@ export MLFLOW_TRACKING_URI=postgresql://user:password@localhost/mlflow
 
 # S3 artifact store
 export MLFLOW_ARTIFACT_ROOT=s3://bucket/mlflow-artifacts
+```
+
+## Configuration
+
+### Pipeline Configuration
+Create `config/pipeline_config.yaml`:
+```yaml
+pipeline:
+  name: hokusai-evaluation
+  version: 1.0.0
+  
+training:
+  batch_size: 32
+  epochs: 10
+  learning_rate: 0.001
+  
+evaluation:
+  metrics:
+    - accuracy
+    - precision
+    - recall
+    - f1_score
+    - auroc
+  
+output:
+  format: json
+  include_attestation: true
+  compression: gzip
+```
+
+### Data Validation Rules
+Configure in `config/validation_rules.yaml`:
+```yaml
+data_validation:
+  required_columns:
+    - query
+    - document
+    - relevance
+  
+  max_file_size_mb: 1000
+  
+  pii_detection:
+    enabled: true
+    fields_to_check:
+      - query
+      - document
 ```
 
 ## Troubleshooting
