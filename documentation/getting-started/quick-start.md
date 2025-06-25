@@ -7,211 +7,245 @@ sidebar_position: 2
 
 # Quick Start Guide
 
-## Overview
+Get up and running with the Hokusai data pipeline in 5 minutes. This guide assumes you've already [installed](./installation.md) the pipeline.
 
-Get the Hokusai pipeline running in under 5 minutes. This guide assumes you've completed the [installation](./installation.md).
-
-## Running Your First Pipeline
+## 5-Minute Example
 
 ### Step 1: Activate Environment
 
 ```bash
+# Navigate to project directory
 cd hokusai-data-pipeline
-source venv/bin/activate
+
+# Activate virtual environment
+source venv/bin/activate  # On macOS/Linux
+# or
+venv\Scripts\activate  # On Windows
 ```
 
-### Step 2: Run in Dry-Run Mode
-
-The fastest way to see the pipeline in action is using dry-run mode with mock data:
+### Step 2: Run Pipeline in Dry-Run Mode
 
 ```bash
+# Run with mock data to test setup
 python -m src.pipeline.hokusai_pipeline run \
     --dry-run \
     --contributed-data=data/test_fixtures/test_queries.csv \
-    --output-dir=./outputs
+    --output-dir=./quick-start-output
 ```
 
 This command:
-- Uses mock models and data
-- Completes in ~7 seconds
-- Generates real output files
-- Requires no external dependencies
+- Uses `--dry-run` to generate mock baseline models
+- Processes the test dataset
+- Outputs attestation-ready results
 
 ### Step 3: View Results
 
-Check the generated output:
-
 ```bash
-# View the attestation-ready output
-cat outputs/delta_output_*.json | jq '.'
+# Check output
+ls -la quick-start-output/
 
-# Check MLFlow tracking
-mlflow ui
-# Open http://localhost:5000 in your browser
+# View the attestation output
+cat quick-start-output/deltaone_output_*.json | jq '.'
 ```
 
-## Understanding the Output
-
-The pipeline generates a comprehensive JSON output:
-
+Expected output structure:
 ```json
 {
-  "schema_version": "1.0",
-  "delta_computation": {
-    "delta_one_score": 0.0332,
-    "metric_deltas": {
-      "accuracy": {
-        "baseline_value": 0.8545,
-        "new_value": 0.8840,
-        "absolute_delta": 0.0296,
-        "relative_delta": 0.0346,
-        "improvement": true
-      }
+  "pipeline_version": "1.0.0",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "baseline_model": {
+    "id": "baseline_model_v1",
+    "metrics": {
+      "accuracy": 0.85,
+      "f1_score": 0.82
     }
   },
-  "contributor_attribution": {
-    "contributor_id": "contributor_xyz789",
-    "wallet_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f62341",
-    "contributed_samples": 100
-  }
+  "improved_model": {
+    "id": "improved_model_v1",
+    "metrics": {
+      "accuracy": 0.88,
+      "f1_score": 0.86
+    }
+  },
+  "delta": {
+    "accuracy": 0.03,
+    "f1_score": 0.04
+  },
+  "contributors": [{
+    "id": "contributor_001",
+    "wallet_address": "0x1234...5678",
+    "contribution_weight": 1.0
+  }]
 }
 ```
 
-## Running with Real Data
+### Step 4: View MLFlow UI (Optional)
+
+```bash
+# Start MLFlow UI
+mlflow ui
+
+# Open browser to http://localhost:5000
+```
+
+You'll see:
+- Experiment runs
+- Model parameters
+- Performance metrics
+- Artifacts
+
+## Understanding the Pipeline
+
+### What Just Happened?
+
+1. **Data Loading**: The pipeline loaded your contributed data
+2. **Model Training**: A new model was trained with the data
+3. **Evaluation**: Both models were evaluated on a benchmark
+4. **Delta Calculation**: Performance improvement was calculated
+5. **Attestation**: Results were formatted for ZK-proof generation
+
+### Pipeline Flow Diagram
+
+```mermaid
+graph LR
+    A[Contributed Data] --> B[Data Validation]
+    B --> C[Model Training]
+    C --> D[Evaluation]
+    D --> E[Delta Calculation]
+    E --> F[Attestation Output]
+    
+    style A fill:#e1f5fe
+    style F fill:#c8e6c9
+```
+
+## Real Data Example
 
 ### Prepare Your Data
 
-Create a CSV file with your contributed data:
+Create a CSV file with your training data:
 
 ```csv
-query_id,query,relevant_doc_id,label
-q001,"What is machine learning?",doc123,1
-q002,"How to train a model?",doc456,1
-q003,"Python programming basics",doc789,0
+query,document,relevance
+"What is machine learning?","Machine learning is a subset of AI...",1
+"How does Python work?","Python is an interpreted language...",1
+"What is the weather?","Machine learning algorithms can...",0
 ```
 
-### Run the Pipeline
+Save as `my_data.csv`.
+
+### Run Pipeline with Real Data
 
 ```bash
+# Set environment for real run
+export HOKUSAI_TEST_MODE=false
+
+# Run pipeline
 python -m src.pipeline.hokusai_pipeline run \
-    --contributed-data=path/to/your/data.csv \
-    --baseline-model-path=path/to/baseline/model \
-    --output-dir=./outputs
+    --baseline-model-path=models/baseline.pkl \
+    --contributed-data=my_data.csv \
+    --output-dir=./outputs \
+    --contributor-address=0xYourWalletAddress \
+    --experiment-name=my-first-contribution
 ```
 
-## Pipeline Parameters
-
-### Required Parameters
-- `--contributed-data`: Path to your contribution data (CSV, JSON, or Parquet)
-
-### Optional Parameters
-- `--dry-run`: Use mock data and models
-- `--output-dir`: Where to save results (default: ./outputs)
-- `--baseline-model-path`: Path to baseline model
-- `--random-seed`: For reproducibility (default: 42)
-- `--sample-size`: Limit data samples for testing
-
-## Monitoring Pipeline Execution
-
-### Real-time Logs
+### Monitor Progress
 
 ```bash
-# Set debug logging
-export PIPELINE_LOG_LEVEL=DEBUG
+# Watch logs
+tail -f outputs/pipeline.log
 
-# Run with detailed output
+# Check pipeline status
+python -m metaflow tag list
+```
+
+## Common Commands
+
+### Data Validation
+
+```bash
+# Validate your data before submission
+python -m src.cli.validate_data \
+    --input-file=my_data.csv \
+    --schema=config/data_schema.json
+```
+
+### Preview Mode
+
+```bash
+# Preview expected improvement
+python -m src.preview.preview_improvement \
+    --baseline-model=models/baseline.pkl \
+    --contributed-data=my_data.csv
+```
+
+### Configuration Options
+
+```bash
+# Custom configuration
 python -m src.pipeline.hokusai_pipeline run \
-    --dry-run \
-    --contributed-data=data/test_fixtures/test_queries.csv
+    --config=my_config.yaml \
+    --batch-size=64 \
+    --epochs=20 \
+    --learning-rate=0.001
 ```
 
-### MLFlow Dashboard
+## Output Files
 
-1. Start MLFlow UI:
-```bash
-mlflow ui
+After a successful run, you'll find:
+
 ```
-
-2. Navigate to http://localhost:5000
-
-3. View:
-   - Pipeline runs
-   - Metrics comparison
-   - Model artifacts
-   - Parameter tracking
-
-## Common Use Cases
-
-### 1. Testing Data Quality
-
-```bash
-# Run with small sample to test data format
-python -m src.pipeline.hokusai_pipeline run \
-    --contributed-data=your_data.csv \
-    --sample-size=100 \
-    --dry-run
-```
-
-### 2. Comparing Model Performance
-
-```bash
-# Run with different baseline models
-python -m src.pipeline.hokusai_pipeline run \
-    --contributed-data=data.csv \
-    --baseline-model-path=models/v1/model.pkl
-
-python -m src.pipeline.hokusai_pipeline run \
-    --contributed-data=data.csv \
-    --baseline-model-path=models/v2/model.pkl
-```
-
-### 3. Generating Attestation Proofs
-
-```bash
-# Full pipeline with ZK output
-python -m src.pipeline.hokusai_pipeline run \
-    --contributed-data=verified_data.csv \
-    --enable-attestation \
-    --output-dir=./attestations
-```
-
-## Troubleshooting Quick Start Issues
-
-### Pipeline Fails Immediately
-
-Check Python path:
-```bash
-export PYTHONPATH=.
-python -m src.pipeline.hokusai_pipeline run --dry-run
-```
-
-### Import Errors
-
-Ensure virtual environment is activated:
-```bash
-which python
-# Should show: /path/to/project/venv/bin/python
-```
-
-### No Output Generated
-
-Check output directory permissions:
-```bash
-mkdir -p outputs
-chmod 755 outputs
+outputs/
+├── deltaone_output_20240115_103000.json  # Main attestation file
+├── metrics_summary.csv                    # Detailed metrics
+├── model_artifacts/                       # Trained models
+│   ├── baseline_model.pkl
+│   └── improved_model.pkl
+├── evaluation_results/                    # Evaluation details
+│   └── benchmark_scores.json
+└── pipeline.log                          # Execution logs
 ```
 
 ## Next Steps
 
 Now that you've run your first pipeline:
 
-1. **[Data Contribution Guide](../data-contribution/overview.md)** - Learn about data formats and requirements
-2. **[Pipeline Configuration](./configuration.md)** - Customize pipeline behavior
-3. **[Architecture Deep Dive](../architecture/overview.md)** - Understand how it works
-4. **[API Reference](../api-reference/index.md)** - Integrate with your systems
+1. **Submit Real Data**: See [First Contribution](./first-contribution.md)
+2. **Configure Pipeline**: Check [Configuration Guide](../data-pipeline/configuration.md)
+3. **Integrate with Your App**: Read [API Reference](../developer-guide/api-reference.md)
+4. **Deploy to Production**: Follow [Production Guide](../tutorials/production-deployment.md)
 
-## Getting Help
+## Troubleshooting Quick Start
 
-- Check [FAQ](../troubleshooting/faq.md)
-- Join [Discord](https://discord.gg/hokusai)
-- File [GitHub Issues](https://github.com/hokusai/hokusai-data-pipeline/issues)
+### Pipeline Fails Immediately
+```bash
+# Check Python environment
+which python  # Should show venv path
+
+# Reinstall dependencies
+pip install -r requirements.txt
+```
+
+### No Output Generated
+```bash
+# Check logs
+cat outputs/pipeline.log | grep ERROR
+
+# Verify data format
+python -m src.cli.validate_data --input-file=your_data.csv
+```
+
+### MLFlow UI Not Working
+```bash
+# Kill existing process
+pkill -f "mlflow ui"
+
+# Start with specific settings
+mlflow ui --backend-store-uri ./mlruns --port 5001
+```
+
+## Learn More
+
+- **Architecture**: [System Architecture](../overview/architecture.md)
+- **Data Formats**: [Data Requirements](../data-pipeline/data-formats.md)
+- **Tutorials**: [Step-by-Step Tutorials](../tutorials/basic-workflow.md)
+- **Support**: [Get Help](https://discord.gg/hokusai)

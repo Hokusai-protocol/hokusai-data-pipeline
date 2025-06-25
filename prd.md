@@ -1,110 +1,179 @@
 # Product Requirements Document: Update Hokusai Documentation
 
+## Executive Summary
+
+Update the Hokusai data pipeline documentation to reflect the current architecture, including the new hokusai-ml-platform package. The documentation should enable junior developers to understand and use the Hokusai ecosystem effectively, formatted for Docusaurus integration at docs.hokus.ai.
+
+## Current State Analysis
+
+### Existing Documentation
+- **docs.hokus.ai**: High-level protocol documentation focusing on tokenomics and governance
+- **Repository README**: Technical overview of the data pipeline
+- **In-repo docs**: Architecture diagrams, integration guides, and API documentation
+
+### Recent Architectural Changes
+1. **MLOps Platform Evolution**: The project evolved from a simple evaluation pipeline to include MLOps services, then refocused on core pipeline functionality
+2. **hokusai-ml-platform Package**: A new package structure was created (though implementation is pending)
+3. **Enhanced Features**: ETH wallet integration, ZK-schema support, and improved data validation
+
 ## Objectives
 
-The primary objective is to create comprehensive documentation for the Hokusai data pipeline that enables users to understand and use the system from end-to-end. The documentation should be formatted as markdown files compatible with Docusaurus for integration into the docs.hokus.ai website.
+1. **Primary Goal**: Create comprehensive documentation that bridges the gap between high-level protocol docs and technical implementation details
+2. **Enable Developers**: Provide clear guides for using the hokusai-ml-platform package in their projects
+3. **Maintain Consistency**: Align with existing Docusaurus structure while adding necessary sections
+4. **Production Ready**: Document the complete journey from data contribution to model improvement attestation
 
-## Personas
+## Target Personas
 
 ### Primary Users
-- **ML Engineers**: Need to understand how to integrate the pipeline into their model training workflow
-- **Data Contributors**: Need to know how to prepare and submit data for model improvement
-- **DevOps Engineers**: Need to deploy and maintain the pipeline infrastructure
-- **Developers**: Need to integrate with the pipeline API and understand output formats
+1. **Junior ML Engineers**
+   - Need: Step-by-step guides to integrate Hokusai into their ML workflows
+   - Pain Point: Understanding how to use the platform without deep blockchain knowledge
+
+2. **Data Scientists**
+   - Need: Clear documentation on data formats and model evaluation metrics
+   - Pain Point: Understanding attestation outputs and their significance
+
+3. **Application Developers**
+   - Need: API documentation and SDK usage examples
+   - Pain Point: Integrating Hokusai rewards into their applications
 
 ### Secondary Users
-- **Product Managers**: Need to understand pipeline capabilities and limitations
-- **Security Auditors**: Need to verify data handling and attestation mechanisms
+1. **Senior Engineers**: Architecture documentation for system integration
+2. **DevOps Teams**: Deployment and monitoring guides
+3. **Product Managers**: Feature capabilities and limitations
 
 ## Success Criteria
 
-1. Complete documentation covering all pipeline modules and features
-2. Clear step-by-step guides for common use cases
-3. API reference documentation for all public interfaces
-4. Architecture diagrams explaining data flow and system components
-5. Troubleshooting guides for common issues
-6. All documentation formatted for Docusaurus compatibility
-7. Documentation validated against current codebase functionality
+1. **Completeness**: All current features documented with examples
+2. **Clarity**: Junior developer can set up and run a model improvement workflow within 2 hours
+3. **Accuracy**: All code examples tested and working with current codebase
+4. **Integration**: Seamless fit with existing docs.hokus.ai structure
+5. **Maintainability**: Clear update process for future changes
 
-## Implementation Tasks
+## Documentation Scope
 
-### Task 1: Audit Existing Documentation
-- Review current README.md and all docs/*.md files in the repository
-- Review existing documentation at https://docs.hokus.ai/, particularly:
-  - The "Supplying Data" section at https://docs.hokus.ai/supplying-data
-  - Other relevant sections for pipeline usage and integration
-- Identify gaps between documented and actual functionality
-- Create inventory of undocumented features and modules
-- Note areas requiring clarification or expansion
+### 1. Getting Started Enhancement
+- Quick start guide with hokusai-ml-platform
+- Installation via pip/npm
+- First model improvement example
+- Understanding attestation outputs
 
-### Task 2: Create Documentation Structure
-- Design information architecture for docs.hokus.ai
-- Create documentation categories (Getting Started, Architecture, API Reference, etc.)
-- Define navigation structure and page hierarchy
-- Create template for consistent documentation format
+### 2. hokusai-ml-platform Package Documentation
+- Package architecture and components
+- Core modules (models, registry, versioning, ab_testing, inference)
+- API reference with examples
+- Integration patterns
 
-### Task 3: Write Core Documentation
-- **Getting Started Guide**: Installation, setup, and first pipeline run
-- **Architecture Overview**: System components, data flow, and design decisions
-- **Pipeline Configuration**: All configuration options and environment variables
-- **Data Contribution Guide**: Data formats, validation requirements, and submission process
-- **Model Integration Guide**: How to integrate baseline and new models
-- **Output Format Reference**: Detailed schema for attestation-ready outputs
+### 3. Data Pipeline Deep Dive
+- Complete pipeline architecture
+- Metaflow workflow explanation
+- Data validation and PII handling
+- Model evaluation process
+- Attestation generation
 
-### Task 4: Create API Reference Documentation
-- Document all public Python modules and classes
-- Include function signatures, parameters, and return values
-- Add code examples for common usage patterns
-- Document error codes and exception handling
+### 4. Practical Tutorials
+- Tutorial 1: Basic model improvement workflow
+- Tutorial 2: Using HuggingFace datasets
+- Tutorial 3: Multi-contributor scenarios
+- Tutorial 4: A/B testing models
+- Tutorial 5: Production deployment
 
-### Task 5: Write Operations Documentation
-- **Deployment Guide**: Production deployment requirements and steps
-- **Monitoring Guide**: MLFlow integration and pipeline monitoring
-- **Performance Tuning**: Optimization for high-throughput scenarios
-- **Security Guide**: Data handling, PII protection, and access control
+### 5. Developer Resources
+- API reference (Python SDK)
+- Output schemas and formats
+- Error handling and debugging
+- Performance optimization
+- Security best practices
 
-### Task 6: Create Tutorials and Examples
-- **Tutorial 1**: Running pipeline in dry-run mode
-- **Tutorial 2**: Contributing data to improve a model
-- **Tutorial 3**: Integrating with HuggingFace datasets
-- **Tutorial 4**: Generating attestation proofs
-- **Example Code**: Complete working examples for common scenarios
-
-### Task 7: Add Troubleshooting Documentation
-- Common error messages and solutions
-- Debugging techniques for pipeline issues
-- FAQ section based on known issues
-- Performance troubleshooting guide
-
-### Task 8: Create Developer Documentation
-- Contributing guidelines
-- Testing documentation (unit and integration tests)
-- Code style and best practices
-- Extension points and customization options
-
-### Task 9: Format for Docusaurus
-- Convert all markdown to Docusaurus-compatible format
-- Add necessary frontmatter metadata
-- Create sidebars configuration
-- Ensure proper internal linking between documents
-
-### Task 10: Validation and Review
-- Test all code examples for accuracy
-- Verify configuration options against codebase
-- Check all internal and external links
-- Ensure consistency in terminology and style
+### 6. Integration Guides
+- Integrating with existing ML pipelines
+- Using with popular frameworks (TensorFlow, PyTorch, scikit-learn)
+- Blockchain integration for rewards
+- Monitoring and observability
 
 ## Technical Requirements
 
-- All documentation must be in Markdown format
-- Code blocks must include proper syntax highlighting
-- Diagrams should use Mermaid or similar text-based format
-- All file paths and commands must be tested and accurate
-- Documentation must match current main branch functionality
+1. **Format**: Markdown files compatible with Docusaurus v2
+2. **Structure**: Maintain existing sidebar categories, add new sections as needed
+3. **Code Examples**: Working examples for each major feature
+4. **Diagrams**: Mermaid diagrams for architecture visualization
+5. **Testing**: All code snippets must be executable
+6. **Links**: Proper cross-referencing between sections
 
 ## Deliverables
 
-1. Complete set of markdown documentation files
-2. Docusaurus configuration files (sidebars.js, etc.)
-3. Documentation validation checklist
-4. Migration guide from current docs to new structure
+1. **Documentation Files** (`/documentation/` directory)
+   - Updated overview and getting started guides
+   - Complete hokusai-ml-platform package docs
+   - Enhanced pipeline documentation
+   - New tutorials and examples
+   - API reference
+
+2. **Docusaurus Configuration**
+   - Updated `sidebars.js` with new sections
+   - Proper metadata for all pages
+   - Search optimization
+
+3. **Example Repository**
+   - Working examples for all tutorials
+   - Template projects for common use cases
+
+4. **Migration Guide**
+   - What's new since last documentation update
+   - Breaking changes and how to handle them
+
+## Documentation Structure
+
+```
+documentation/
+├── overview/
+│   ├── introduction.md          # Updated with ml-platform info
+│   └── architecture.md          # Current system architecture
+├── getting-started/
+│   ├── installation.md          # pip install hokusai-ml-platform
+│   ├── quick-start.md           # 5-minute example
+│   └── first-contribution.md    # Complete first workflow
+├── ml-platform/
+│   ├── overview.md              # Package architecture
+│   ├── core-concepts.md         # Models, registry, versioning
+│   ├── api-reference.md         # Detailed API docs
+│   └── examples.md              # Code examples
+├── data-pipeline/
+│   ├── architecture.md          # Metaflow pipeline details
+│   ├── configuration.md         # All config options
+│   ├── data-formats.md          # Input/output specifications
+│   └── attestation.md           # ZK-proof outputs
+├── tutorials/
+│   ├── basic-workflow.md        # End-to-end example
+│   ├── huggingface-integration.md
+│   ├── multi-contributor.md
+│   ├── ab-testing.md
+│   └── production-deployment.md
+├── developer-guide/
+│   ├── api-reference.md         # Complete API docs
+│   ├── troubleshooting.md       # Common issues
+│   ├── best-practices.md        # Recommendations
+│   └── security.md              # Security considerations
+└── reference/
+    ├── cli-commands.md          # All CLI options
+    ├── environment-vars.md      # Configuration reference
+    ├── output-schemas.md        # JSON schemas
+    └── glossary.md              # Terms and concepts
+```
+
+## Implementation Timeline
+
+1. **Phase 1**: Documentation audit and structure (Completed)
+2. **Phase 2**: Core documentation writing (Current)
+3. **Phase 3**: Tutorial creation and testing
+4. **Phase 4**: API documentation generation
+5. **Phase 5**: Review and integration
+
+## Success Metrics
+
+1. **Developer Onboarding**: Time to first successful model improvement < 2 hours
+2. **Documentation Coverage**: 100% of public APIs documented
+3. **Example Success Rate**: All examples run without errors
+4. **User Feedback**: Positive feedback from test users
+5. **Search Performance**: Key terms easily discoverable
