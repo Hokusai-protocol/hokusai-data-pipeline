@@ -1,102 +1,179 @@
-# Product Requirements Document: Hokusai ML Platform Package
+# Product Requirements Document: Update Hokusai Documentation
+
+## Executive Summary
+
+Update the Hokusai data pipeline documentation to reflect the current architecture, including the new hokusai-ml-platform package. The documentation should enable junior developers to understand and use the Hokusai ecosystem effectively, formatted for Docusaurus integration at docs.hokus.ai.
+
+## Current State Analysis
+
+### Existing Documentation
+- **docs.hokus.ai**: High-level protocol documentation focusing on tokenomics and governance
+- **Repository README**: Technical overview of the data pipeline
+- **In-repo docs**: Architecture diagrams, integration guides, and API documentation
+
+### Recent Architectural Changes
+1. **MLOps Platform Evolution**: The project evolved from a simple evaluation pipeline to include MLOps services, then refocused on core pipeline functionality
+2. **hokusai-ml-platform Package**: A new package structure was created (though implementation is pending)
+3. **Enhanced Features**: ETH wallet integration, ZK-schema support, and improved data validation
 
 ## Objectives
 
-Package the hokusai-data-pipeline's ML platform capabilities into a reusable Python package called `hokusai-ml-platform` that can be imported and used by other Hokusai projects, particularly GTM-backend.
+1. **Primary Goal**: Create comprehensive documentation that bridges the gap between high-level protocol docs and technical implementation details
+2. **Enable Developers**: Provide clear guides for using the hokusai-ml-platform package in their projects
+3. **Maintain Consistency**: Align with existing Docusaurus structure while adding necessary sections
+4. **Production Ready**: Document the complete journey from data contribution to model improvement attestation
 
-## Personas
+## Target Personas
 
-### Primary User: ML Engineers
-- Need to integrate Hokusai's ML infrastructure into their projects
-- Want consistent model management across different services
-- Require tracking of model improvements and contributor attribution
+### Primary Users
+1. **Junior ML Engineers**
+   - Need: Step-by-step guides to integrate Hokusai into their ML workflows
+   - Pain Point: Understanding how to use the platform without deep blockchain knowledge
 
-### Secondary User: Data Scientists
-- Need to register and version models
-- Want to track experiments and model lineage
-- Require A/B testing capabilities for model comparison
+2. **Data Scientists**
+   - Need: Clear documentation on data formats and model evaluation metrics
+   - Pain Point: Understanding attestation outputs and their significance
+
+3. **Application Developers**
+   - Need: API documentation and SDK usage examples
+   - Pain Point: Integrating Hokusai rewards into their applications
+
+### Secondary Users
+1. **Senior Engineers**: Architecture documentation for system integration
+2. **DevOps Teams**: Deployment and monitoring guides
+3. **Product Managers**: Feature capabilities and limitations
 
 ## Success Criteria
 
-1. Create a pip-installable package with core ML services
-2. Maintain compatibility with existing hokusai-data-pipeline functionality
-3. Provide clear separation between core platform and pipeline-specific features
-4. Enable GTM-backend to use model registry and tracking features
-5. Support both library import and API client usage patterns
+1. **Completeness**: All current features documented with examples
+2. **Clarity**: Junior developer can set up and run a model improvement workflow within 2 hours
+3. **Accuracy**: All code examples tested and working with current codebase
+4. **Integration**: Seamless fit with existing docs.hokus.ai structure
+5. **Maintainability**: Clear update process for future changes
+
+## Documentation Scope
+
+### 1. Getting Started Enhancement
+- Quick start guide with hokusai-ml-platform
+- Installation via pip/npm
+- First model improvement example
+- Understanding attestation outputs
+
+### 2. hokusai-ml-platform Package Documentation
+- Package architecture and components
+- Core modules (models, registry, versioning, ab_testing, inference)
+- API reference with examples
+- Integration patterns
+
+### 3. Data Pipeline Deep Dive
+- Complete pipeline architecture
+- Metaflow workflow explanation
+- Data validation and PII handling
+- Model evaluation process
+- Attestation generation
+
+### 4. Practical Tutorials
+- Tutorial 1: Basic model improvement workflow
+- Tutorial 2: Using HuggingFace datasets
+- Tutorial 3: Multi-contributor scenarios
+- Tutorial 4: A/B testing models
+- Tutorial 5: Production deployment
+
+### 5. Developer Resources
+- API reference (Python SDK)
+- Output schemas and formats
+- Error handling and debugging
+- Performance optimization
+- Security best practices
+
+### 6. Integration Guides
+- Integrating with existing ML pipelines
+- Using with popular frameworks (TensorFlow, PyTorch, scikit-learn)
+- Blockchain integration for rewards
+- Monitoring and observability
 
 ## Technical Requirements
 
-### Package Structure
-Create a Python package with the following structure:
-- Core ML infrastructure modules (models, registry, versioning, A/B testing, inference)
-- MLOps tracking modules (experiments, performance, lineage)
-- Pipeline components (data, training, evaluation, attestation)
-- API clients and schemas
-- Utility modules (config, logging, metrics)
-
-### Dependencies
-- Core dependencies: mlflow, metaflow, redis, fastapi, pydantic
-- Optional dependencies for specific use cases (gtm, pipeline)
-
-### Key Features
-1. **Model Registry**: Central registry for all models with MLflow integration
-2. **Version Management**: Track model versions and enable rollbacks
-3. **A/B Testing Framework**: Compare model performance with traffic routing
-4. **Inference Pipeline**: Optimized inference with caching
-5. **Experiment Tracking**: Track all experiments and model improvements
-6. **Performance Tracking**: Monitor model performance deltas
-7. **Model Lineage**: Track improvement history and contributor impact
-8. **Attestation Support**: Generate ZK-ready attestations for improvements
-
-## Implementation Tasks
-
-### Setup and Configuration
-1. Create new package structure under `hokusai-ml-platform/`
-2. Set up pyproject.toml with proper dependencies and optional groups
-3. Configure package metadata and entry points
-
-### Core Infrastructure
-1. Extract and refactor model abstraction layer from existing codebase
-2. Implement ModelRegistry class with MLflow integration
-3. Create ModelVersionManager for version control
-4. Build A/B testing framework with traffic routing
-5. Develop inference pipeline with Redis caching
-
-### MLOps Tracking
-1. Implement ExperimentManager for experiment tracking
-2. Create PerformanceTracker for delta calculations
-3. Build model lineage tracking system
-4. Integrate with existing attestation generation
-
-### API Layer
-1. Create FastAPI endpoints for model management
-2. Develop Python client library for API access
-3. Define shared schemas for data exchange
-4. Implement authentication and authorization
-
-### Integration
-1. Ensure backward compatibility with hokusai-data-pipeline
-2. Create migration guide for existing code
-3. Build example integrations for GTM-backend
-4. Document API usage patterns
-
-### Testing and Documentation
-1. Write comprehensive unit tests for all modules
-2. Create integration tests with mock services
-3. Develop usage examples and tutorials
-4. Generate API documentation
-
-## Constraints
-
-- Must maintain compatibility with existing hokusai-data-pipeline workflows
-- Should not require changes to current Metaflow pipeline structure
-- Must support both synchronous and asynchronous usage patterns
-- Should minimize dependencies for lightweight installations
+1. **Format**: Markdown files compatible with Docusaurus v2
+2. **Structure**: Maintain existing sidebar categories, add new sections as needed
+3. **Code Examples**: Working examples for each major feature
+4. **Diagrams**: Mermaid diagrams for architecture visualization
+5. **Testing**: All code snippets must be executable
+6. **Links**: Proper cross-referencing between sections
 
 ## Deliverables
 
-1. `hokusai-ml-platform` Python package
-2. Complete test suite with >80% coverage
-3. API documentation and client libraries
-4. Migration guide from embedded to package usage
-5. Example implementations for common use cases
+1. **Documentation Files** (`/documentation/` directory)
+   - Updated overview and getting started guides
+   - Complete hokusai-ml-platform package docs
+   - Enhanced pipeline documentation
+   - New tutorials and examples
+   - API reference
+
+2. **Docusaurus Configuration**
+   - Updated `sidebars.js` with new sections
+   - Proper metadata for all pages
+   - Search optimization
+
+3. **Example Repository**
+   - Working examples for all tutorials
+   - Template projects for common use cases
+
+4. **Migration Guide**
+   - What's new since last documentation update
+   - Breaking changes and how to handle them
+
+## Documentation Structure
+
+```
+documentation/
+├── overview/
+│   ├── introduction.md          # Updated with ml-platform info
+│   └── architecture.md          # Current system architecture
+├── getting-started/
+│   ├── installation.md          # pip install hokusai-ml-platform
+│   ├── quick-start.md           # 5-minute example
+│   └── first-contribution.md    # Complete first workflow
+├── ml-platform/
+│   ├── overview.md              # Package architecture
+│   ├── core-concepts.md         # Models, registry, versioning
+│   ├── api-reference.md         # Detailed API docs
+│   └── examples.md              # Code examples
+├── data-pipeline/
+│   ├── architecture.md          # Metaflow pipeline details
+│   ├── configuration.md         # All config options
+│   ├── data-formats.md          # Input/output specifications
+│   └── attestation.md           # ZK-proof outputs
+├── tutorials/
+│   ├── basic-workflow.md        # End-to-end example
+│   ├── huggingface-integration.md
+│   ├── multi-contributor.md
+│   ├── ab-testing.md
+│   └── production-deployment.md
+├── developer-guide/
+│   ├── api-reference.md         # Complete API docs
+│   ├── troubleshooting.md       # Common issues
+│   ├── best-practices.md        # Recommendations
+│   └── security.md              # Security considerations
+└── reference/
+    ├── cli-commands.md          # All CLI options
+    ├── environment-vars.md      # Configuration reference
+    ├── output-schemas.md        # JSON schemas
+    └── glossary.md              # Terms and concepts
+```
+
+## Implementation Timeline
+
+1. **Phase 1**: Documentation audit and structure (Completed)
+2. **Phase 2**: Core documentation writing (Current)
+3. **Phase 3**: Tutorial creation and testing
+4. **Phase 4**: API documentation generation
+5. **Phase 5**: Review and integration
+
+## Success Metrics
+
+1. **Developer Onboarding**: Time to first successful model improvement < 2 hours
+2. **Documentation Coverage**: 100% of public APIs documented
+3. **Example Success Rate**: All examples run without errors
+4. **User Feedback**: Positive feedback from test users
+5. **Search Performance**: Key terms easily discoverable

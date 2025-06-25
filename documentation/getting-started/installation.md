@@ -7,35 +7,40 @@ sidebar_position: 1
 
 # Installation Guide
 
-## Overview
+This guide covers installing and setting up the Hokusai data pipeline for local development and production use.
 
-This guide walks you through installing and setting up the Hokusai data pipeline on your local machine. The pipeline is a Python-based system that uses Metaflow for orchestration and MLFlow for experiment tracking.
+## Prerequisites
 
-## System Requirements
+### System Requirements
+- **Operating System**: Linux, macOS, or Windows with WSL2
+- **Python**: 3.8 or higher
+- **Memory**: Minimum 8GB RAM (16GB recommended)
+- **Storage**: At least 10GB free space
+- **Docker**: (Optional) For containerized deployment
 
-### Minimum Requirements
-- Python 3.8 or higher
-- 8GB RAM
-- 10GB free disk space
-- Unix-based OS (macOS, Linux) or WSL on Windows
-
-### Recommended Requirements
-- Python 3.11
-- 16GB RAM
-- 50GB free disk space for model storage
-- SSD for faster data processing
-
-## Installation Steps
-
-### 1. Clone the Repository
-
+### Required Software
 ```bash
-git clone https://github.com/hokusai/hokusai-data-pipeline.git
+# Check Python version
+python --version  # Should be 3.8+
+
+# Check pip
+pip --version
+
+# Check git
+git --version
+```
+
+## Installation Methods
+
+### Method 1: From Source (Recommended)
+
+#### 1. Clone the Repository
+```bash
+git clone https://github.com/Hokusai-protocol/hokusai-data-pipeline.git
 cd hokusai-data-pipeline
 ```
 
-### 2. Create Python Virtual Environment
-
+#### 2. Create Virtual Environment
 ```bash
 # Create virtual environment
 python -m venv venv
@@ -48,85 +53,71 @@ source venv/bin/activate
 venv\Scripts\activate
 ```
 
-### 3. Run Setup Script
-
-The project includes a setup script that handles all dependencies:
-
+#### 3. Install Dependencies
 ```bash
-./setup.sh
-```
+# Upgrade pip
+pip install --upgrade pip
 
-This script will:
-- Install Python dependencies from requirements.txt
-- Set up MLFlow tracking directory
-- Create necessary data directories
-- Validate the installation
-
-### 4. Manual Installation (Alternative)
-
-If you prefer manual installation or the setup script fails:
-
-```bash
-# Install dependencies
+# Install requirements
 pip install -r requirements.txt
 
-# Create necessary directories
-mkdir -p data/test_fixtures
-mkdir -p outputs
-mkdir -p mlruns
+# Install development dependencies (optional)
+pip install -r requirements-dev.txt
 ```
 
-## Environment Configuration
+#### 4. Set Up Environment Variables
+```bash
+# Copy example environment file
+cp .env.example .env
 
-### Required Environment Variables
+# Edit .env with your settings
+nano .env  # or use your preferred editor
+```
 
-Create a `.env` file in the project root:
-
+Required environment variables:
 ```bash
 # MLFlow Configuration
-MLFLOW_TRACKING_URI=file:./mlruns
-MLFLOW_EXPERIMENT_NAME=hokusai-pipeline
+MLFLOW_TRACKING_URI=./mlruns
+MLFLOW_EXPERIMENT_NAME=hokusai-evaluation
 
 # Pipeline Configuration
-HOKUSAI_TEST_MODE=false
-PIPELINE_LOG_LEVEL=INFO
-RANDOM_SEED=42
+HOKUSAI_OUTPUT_DIR=./outputs
+HOKUSAI_LOG_LEVEL=INFO
 
-# Optional: Linear API for workflow automation
-LINEAR_API_KEY=your_linear_api_key_here
+# Optional: For cloud storage
+AWS_ACCESS_KEY_ID=your_key
+AWS_SECRET_ACCESS_KEY=your_secret
+S3_BUCKET=your_bucket
 ```
 
-### Optional Configuration
-
-For production environments:
+### Method 2: Using Docker (Coming Soon)
 
 ```bash
-# Remote MLFlow server
-MLFLOW_TRACKING_URI=http://your-mlflow-server:5000
+# Pull the Docker image
+docker pull hokusai/data-pipeline:latest
 
-# S3 artifact storage
-MLFLOW_ARTIFACT_ROOT=s3://your-bucket/artifacts
+# Run with docker-compose
+docker-compose up -d
+```
 
-# Advanced logging
-PIPELINE_LOG_LEVEL=DEBUG
+### Method 3: pip Installation (Future Release)
+
+Once the `hokusai-ml-platform` package is released:
+```bash
+# Install from PyPI
+pip install hokusai-ml-platform
+
+# Or install with ML extras
+pip install hokusai-ml-platform[ml]
 ```
 
 ## Verify Installation
 
-### 1. Check Python Environment
-
+### 1. Run Tests
 ```bash
-# Verify Python version
-python --version
+# Run unit tests
+pytest tests/unit/
 
-# Verify key packages
-python -c "import metaflow; print(f'Metaflow: {metaflow.__version__}')"
-python -c "import mlflow; print(f'MLFlow: {mlflow.__version__}')"
-```
-
-### 2. Run Test Suite
-
-```bash
 # Run all tests
 pytest
 
@@ -134,66 +125,181 @@ pytest
 pytest --cov=src
 ```
 
-### 3. Test Dry-Run Mode
-
+### 2. Check CLI
 ```bash
-# Run pipeline in test mode
+# Verify CLI is working
+python -m src.cli.validate_data --help
+
+# Run pipeline help
+python -m src.pipeline.hokusai_pipeline --help
+```
+
+### 3. Run Dry-Run Mode
+```bash
+# Test pipeline with mock data
 python -m src.pipeline.hokusai_pipeline run \
     --dry-run \
-    --contributed-data=data/test_fixtures/test_queries.csv
+    --contributed-data=data/test_fixtures/test_queries.csv \
+    --output-dir=./test_output
 ```
 
-## Common Installation Issues
+Expected output:
+```
+Pipeline completed successfully!
+Output written to: ./test_output/deltaone_output_*.json
+```
 
-### Issue: Permission Denied on setup.sh
+## MLFlow Setup
 
+### 1. Start MLFlow UI (Optional)
 ```bash
-# Make setup script executable
+# Start MLFlow tracking server
+mlflow ui --host 0.0.0.0 --port 5000
+
+# Access at http://localhost:5000
+```
+
+### 2. Configure MLFlow Backend
+For production, configure a proper backend:
+```bash
+# PostgreSQL backend
+export MLFLOW_TRACKING_URI=postgresql://user:password@localhost/mlflow
+
+# S3 artifact store
+export MLFLOW_ARTIFACT_ROOT=s3://bucket/mlflow-artifacts
+```
+
+## Configuration
+
+### Pipeline Configuration
+Create `config/pipeline_config.yaml`:
+```yaml
+pipeline:
+  name: hokusai-evaluation
+  version: 1.0.0
+  
+training:
+  batch_size: 32
+  epochs: 10
+  learning_rate: 0.001
+  
+evaluation:
+  metrics:
+    - accuracy
+    - precision
+    - recall
+    - f1_score
+    - auroc
+  
+output:
+  format: json
+  include_attestation: true
+  compression: gzip
+```
+
+### Data Validation Rules
+Configure in `config/validation_rules.yaml`:
+```yaml
+data_validation:
+  required_columns:
+    - query
+    - document
+    - relevance
+  
+  max_file_size_mb: 1000
+  
+  pii_detection:
+    enabled: true
+    fields_to_check:
+      - query
+      - document
+```
+
+## Troubleshooting
+
+### Common Issues
+
+#### 1. Import Errors
+```bash
+# Error: ModuleNotFoundError: No module named 'metaflow'
+# Solution:
+pip install metaflow
+
+# Ensure you're in the virtual environment
+which python  # Should show venv path
+```
+
+#### 2. Permission Errors
+```bash
+# Error: Permission denied when creating outputs
+# Solution:
 chmod +x setup.sh
+sudo chown -R $USER:$USER outputs/
 ```
 
-### Issue: Python Version Mismatch
-
-Ensure you're using Python 3.8+:
+#### 3. Memory Issues
 ```bash
-# Install Python 3.11 using pyenv
-pyenv install 3.11.8
-pyenv local 3.11.8
+# Error: MemoryError during pipeline execution
+# Solution: Set memory limits
+export METAFLOW_MEMORY=8192
+export METAFLOW_CPU=4
 ```
 
-### Issue: Missing System Dependencies
-
-On Ubuntu/Debian:
+#### 4. MLFlow Connection Issues
 ```bash
-sudo apt-get update
-sudo apt-get install python3-dev build-essential
+# Error: Cannot connect to MLFlow
+# Solution: Check tracking URI
+mlflow ui --backend-store-uri ./mlruns
 ```
 
-On macOS:
-```bash
-# Install Xcode Command Line Tools
-xcode-select --install
-```
+### Getting Help
 
-### Issue: MLFlow UI Not Starting
+If you encounter issues:
 
-```bash
-# Check if port 5000 is in use
-lsof -i :5000
-
-# Use alternative port
-mlflow ui --port 5001
-```
+1. Check the [Troubleshooting Guide](../developer-guide/troubleshooting.md)
+2. Search [GitHub Issues](https://github.com/Hokusai-protocol/hokusai-data-pipeline/issues)
+3. Join our [Discord Community](https://discord.gg/hokusai)
+4. Create a new issue with:
+   - Error message
+   - Steps to reproduce
+   - Environment details (OS, Python version)
+   - Relevant logs
 
 ## Next Steps
 
 - [Quick Start Guide](./quick-start.md) - Run your first pipeline
-- [Configuration Reference](./configuration.md) - Detailed configuration options
-- [Architecture Overview](../architecture/overview.md) - Understand the system design
+- [First Contribution](./first-contribution.md) - Submit data for model improvement
+- [Configuration Guide](../data-pipeline/configuration.md) - Advanced configuration options
+- [API Reference](../developer-guide/api-reference.md) - Integrate with your applications
 
-## Support
+## Appendix: Development Setup
 
-For installation issues:
-1. Check the [Troubleshooting Guide](../troubleshooting/common-issues.md)
-2. Review existing [GitHub Issues](https://github.com/hokusai/hokusai-data-pipeline/issues)
-3. Join our [Discord community](https://discord.gg/hokusai)
+### For Contributors
+```bash
+# Install pre-commit hooks
+pip install pre-commit
+pre-commit install
+
+# Install development tools
+pip install black isort flake8 mypy
+
+# Run code formatting
+black src/ tests/
+isort src/ tests/
+
+# Run linting
+flake8 src/ tests/
+mypy src/
+```
+
+### VS Code Configuration
+`.vscode/settings.json`:
+```json
+{
+  "python.linting.enabled": true,
+  "python.linting.flake8Enabled": true,
+  "python.formatting.provider": "black",
+  "editor.formatOnSave": true,
+  "python.testing.pytestEnabled": true
+}
+```
