@@ -1,0 +1,6 @@
+# Install hokusai-ml-platform from GitHub
+git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git@main#subdirectory=hokusai-ml-platform
+
+# Additional dependencies for this example
+scikit-learn>=1.3.0
+numpy>=1.24.0
