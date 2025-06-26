@@ -8,7 +8,6 @@ from pathlib import Path
 import pandas as pd
 
 from src.utils.config import get_config, get_test_config
-from src.utils.constants import *
 from src.services.model_registry import HokusaiModelRegistry
 from src.services.performance_tracker import PerformanceTracker
 from src.services.experiment_manager import ExperimentManager
@@ -73,7 +72,7 @@ class HokusaiEvaluationPipeline(FlowSpec):
         """Initialize pipeline configuration and services."""
         self.config = get_test_config() if self.dry_run else get_config()
         
-        print(f"Starting Enhanced Hokusai Pipeline")
+        print("Starting Enhanced Hokusai Pipeline")
         print(f"Environment: {self.config.environment}")
         print(f"Contributor: {self.contributor_address}")
         print(f"Model Type: {self.model_type}")

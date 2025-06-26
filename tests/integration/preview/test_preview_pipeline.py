@@ -3,10 +3,8 @@
 import pytest
 import pandas as pd
 import numpy as np
-import tempfile
 import json
 import time
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 # Imports will be added once modules are implemented
@@ -15,7 +13,7 @@ from unittest.mock import Mock, patch
 # from src.preview.fine_tuner import PreviewFineTuner
 # from src.preview.evaluator import PreviewEvaluator
 # from src.preview.output_formatter import PreviewOutputFormatter
-# from hokusai_preview import PreviewPipeline
+from hokusai_preview import PreviewPipeline
 
 
 class TestPreviewPipelineIntegration:

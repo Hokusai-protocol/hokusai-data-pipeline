@@ -1,8 +1,5 @@
 """Tests for configuration management."""
 
-import pytest
-import os
-from pathlib import Path
 
 from src.utils.config import PipelineConfig, get_config, get_test_config
 

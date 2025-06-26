@@ -213,9 +213,10 @@ class PreviewFineTuner:
         """Process a single batch of data."""
         # In a real implementation, this would do gradient updates
         # For now, it's a placeholder to demonstrate batch processing
-        start_idx = batch_idx * self.batch_size
-        end_idx = start_idx + self.batch_size
-        batch_data = data.iloc[start_idx:end_idx]
+        # start_idx = batch_idx * self.batch_size
+        # end_idx = start_idx + self.batch_size
+        # Note: batch_data will be used in actual training implementation
+        # batch_data = data.iloc[start_idx:end_idx]
         
         # Simulate processing time
         if not self.memory_efficient:

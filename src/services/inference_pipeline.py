@@ -5,7 +5,8 @@ import json
 import logging
 import time
 from typing import Dict, List, Optional, Any, Union, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime
+from collections import defaultdict
 from dataclasses import dataclass, asdict
 from enum import Enum
 import numpy as np
@@ -16,9 +17,8 @@ import hashlib
 import pickle
 import zlib
 from concurrent.futures import ThreadPoolExecutor
-import aioredis
 
-from .model_abstraction import HokusaiModel, compute_feature_hash, ModelFactory
+from .model_abstraction import HokusaiModel, ModelFactory
 from .model_versioning import ModelVersionManager, Environment
 from .ab_testing import ModelTrafficRouter
 from .model_registry import HokusaiModelRegistry
@@ -193,7 +193,7 @@ class InferenceCacheManager:
         Returns:
             Number of entries invalidated
         """
-        pattern = f"inference:*"
+        pattern = "inference:*"
         invalidated = 0
         
         # Scan for matching keys
@@ -409,7 +409,7 @@ class HokusaiInferencePipeline:
         self.enable_fallback = enable_fallback
         
         # Initialize model loader
-        self.model_loader = ModelLoader(registry, version_manager)
+        self.model_loader = ModelLoader(self.registry, self.version_manager)
         
         # Metrics tracking
         self._metrics = defaultdict(int)
@@ -509,7 +509,7 @@ class HokusaiInferencePipeline:
                 try:
                     proba = model.predict_proba(request.features)
                     confidence = float(np.max(proba))
-                except:
+                except Exception:
                     pass
             
             return InferenceResponse(
@@ -576,8 +576,8 @@ class HokusaiInferencePipeline:
         Returns:
             Number of entries cached
         """
-        # Load model
-        model = await self.model_loader.load_model(model_family, version)
+        # Load model (ensures model is loaded into cache)
+        await self.model_loader.load_model(model_family, version)
         model_id = f"{model_family}/{version or 'active'}"
         
         cached = 0

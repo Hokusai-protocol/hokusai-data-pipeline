@@ -1,9 +1,6 @@
 """
 Test documentation code examples and validate documentation accuracy.
 """
-import os
-import subprocess
-import tempfile
 from pathlib import Path
 import pytest
 import re

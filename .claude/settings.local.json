@@ -31,7 +31,8 @@
       "WebFetch(domain:docs.hokus.ai)",
       "Bash(docker logs:*)",
       "Bash(docker compose:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(cat:*)"
     ],
     "deny": []
   }

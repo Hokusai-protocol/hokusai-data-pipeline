@@ -1,9 +1,7 @@
 """Unit tests for ZK output formatter."""
 
-import json
 import pytest
 from unittest.mock import patch, MagicMock
-from datetime import datetime
 
 from src.utils.zk_output_formatter import ZKCompatibleOutputFormatter
 

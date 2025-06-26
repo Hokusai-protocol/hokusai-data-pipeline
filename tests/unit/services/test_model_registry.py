@@ -1,10 +1,7 @@
 """Unit tests for the HokusaiModelRegistry service."""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-import mlflow
-from datetime import datetime
-import json
+from unittest.mock import Mock, patch
 
 from src.services.model_registry import HokusaiModelRegistry
 
@@ -185,7 +182,7 @@ class TestHokusaiModelRegistry:
         # Verify
         assert len(lineage) == 3
         assert lineage[0]["version"] == "1"
-        assert lineage[0]["is_baseline"] == True
+        assert lineage[0]["is_baseline"] is True
         assert lineage[1]["contributor"] == "0xABC123"
         assert lineage[2]["contributor"] == "0xDEF456"
         assert lineage[2]["cumulative_improvement"]["accuracy"] == 0.04
@@ -244,11 +241,11 @@ class TestHokusaiModelRegistry:
     def test_validate_eth_address(self, registry):
         """Test Ethereum address validation."""
         # Valid addresses
-        assert registry._validate_eth_address("0x742d35Cc6634C0532925a3b844Bc9e7595f62341") == True
-        assert registry._validate_eth_address("0x0000000000000000000000000000000000000000") == True
+        assert registry._validate_eth_address("0x742d35Cc6634C0532925a3b844Bc9e7595f62341") is True
+        assert registry._validate_eth_address("0x0000000000000000000000000000000000000000") is True
         
         # Invalid addresses
-        assert registry._validate_eth_address("0x742d35Cc6634C0532925a3b844Bc9e") == False
-        assert registry._validate_eth_address("742d35Cc6634C0532925a3b844Bc9e7595f62341") == False
-        assert registry._validate_eth_address("invalid") == False
-        assert registry._validate_eth_address("") == False
+        assert registry._validate_eth_address("0x742d35Cc6634C0532925a3b844Bc9e") is False
+        assert registry._validate_eth_address("742d35Cc6634C0532925a3b844Bc9e7595f62341") is False
+        assert registry._validate_eth_address("invalid") is False
+        assert registry._validate_eth_address("") is False

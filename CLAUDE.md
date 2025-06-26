@@ -34,7 +34,7 @@ pip install -r requirements.txt
 node tools/workflow.js
 
 # Get Linear backlog
-node tools/get-backlog.ts
+npx tsx ~/.claude/tools/get-backlog.ts "Hokusai data pipeline"
 
 # Environment setup
 # Ensure .env file contains LINEAR_API_KEY

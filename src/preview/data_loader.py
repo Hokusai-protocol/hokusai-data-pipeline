@@ -3,9 +3,8 @@
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Optional, Union
 import json
-from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 import logging
 

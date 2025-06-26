@@ -1,9 +1,7 @@
 """Unit tests for the ExperimentManager service."""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock, call
-import mlflow
-from datetime import datetime
+from unittest.mock import Mock, patch
 import numpy as np
 
 from src.services.experiment_manager import ExperimentManager
@@ -98,8 +96,8 @@ class TestExperimentManager:
     
     @patch('mlflow.pyfunc.load_model')
     @patch('mlflow.start_run')
-    @patch('mlflow.log_metrics')
-    def test_compare_models_success(self, mock_log_metrics, mock_start_run, 
+    @patch('mlflow.log_metric')
+    def test_compare_models_success(self, mock_log_metric, mock_start_run, 
                                   mock_load_model, manager, mock_test_data):
         """Test successful model comparison."""
         # Setup baseline model
@@ -144,14 +142,15 @@ class TestExperimentManager:
         assert comparison_result["candidate_metrics"]["accuracy"] is not None
         
         # Verify MLflow logging
-        mock_log_metrics.assert_called()
-        logged_metrics = {}
-        for call in mock_log_metrics.call_args_list:
-            logged_metrics.update(call[0][0])
+        mock_log_metric.assert_called()
         
-        assert "baseline_accuracy" in logged_metrics
-        assert "candidate_accuracy" in logged_metrics
-        assert "accuracy_improvement" in logged_metrics
+        # Check that specific metrics were logged
+        metric_calls = [call[0] for call in mock_log_metric.call_args_list]
+        metric_names = [call[0] for call in metric_calls]
+        
+        assert any("baseline_accuracy" in name for name in metric_names)
+        assert any("candidate_accuracy" in name for name in metric_names)
+        assert any("accuracy_improvement" in name for name in metric_names)
     
     @patch('src.services.experiment_manager.accuracy_score')
     @patch('src.services.experiment_manager.roc_auc_score')
@@ -233,7 +232,7 @@ class TestExperimentManager:
             "comparison_threshold": 0.01
         }
         
-        assert manager._validate_config(valid_config) == True
+        assert manager._validate_config(valid_config) is True
         
         # Invalid configs
         with pytest.raises(ValueError, match="test_size must be between"):
@@ -282,7 +281,7 @@ class TestExperimentManager:
         mock_create_exp.return_value = "123"
         
         with patch('mlflow.set_experiment'):
-            manager = ExperimentManager(experiment_name="new_experiment")
+            ExperimentManager(experiment_name="new_experiment")
         
         mock_create_exp.assert_called_once_with("new_experiment")
     

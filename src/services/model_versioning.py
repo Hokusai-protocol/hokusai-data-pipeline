@@ -2,16 +2,15 @@
 
 import json
 import logging
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any
 from datetime import datetime
 from dataclasses import dataclass, asdict
 from enum import Enum
 import redis
-import mlflow
 from packaging import version
 import hashlib
 
-from .model_abstraction import HokusaiModel, ModelStatus, ModelMetadata
+from .model_abstraction import HokusaiModel, ModelStatus
 from .model_registry import HokusaiModelRegistry
 
 logger = logging.getLogger(__name__)
@@ -124,7 +123,7 @@ class ModelVersionManager:
         """
         # Validate version format
         try:
-            parsed_version = version.parse(version_tag)
+            version.parse(version_tag)
         except version.InvalidVersion:
             raise ValueError(f"Invalid version format: {version_tag}")
         

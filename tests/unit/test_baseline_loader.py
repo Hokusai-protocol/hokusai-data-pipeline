@@ -3,10 +3,7 @@
 import pytest
 import json
 import pickle
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import mlflow
-import time
+from unittest.mock import Mock, patch
 
 from src.modules.baseline_loader import BaselineModelLoader
 
@@ -75,7 +72,7 @@ class TestBaselineModelLoader:
         mock_run_context.return_value.__exit__ = Mock(return_value=None)
         
         loader = BaselineModelLoader()
-        result = loader.load_from_mlflow("test_model", None, "test_run", "metaflow_123")
+        loader.load_from_mlflow("test_model", None, "test_run", "metaflow_123")
         
         mock_load_model.assert_called_once_with("models:/test_model/latest")
         mock_log_params.assert_called_once_with({

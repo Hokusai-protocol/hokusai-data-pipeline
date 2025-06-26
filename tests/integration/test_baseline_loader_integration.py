@@ -5,7 +5,6 @@ import tempfile
 import shutil
 import json
 import pickle
-import pandas as pd
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import mlflow
@@ -23,21 +22,19 @@ class TestBaselineModelLoaderIntegration:
         self.temp_path = Path(self.temp_dir)
         
         # End any existing MLflow runs to avoid conflicts
-        import mlflow
         try:
             while mlflow.active_run():
                 mlflow.end_run()
-        except:
+        except Exception:
             pass
         
     def teardown_method(self):
         """Clean up test environment."""
         # Clean up MLflow runs
-        import mlflow
         try:
             while mlflow.active_run():
                 mlflow.end_run()
-        except:
+        except Exception:
             pass
             
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -240,7 +237,7 @@ class TestBaselineModelLoaderIntegration:
         # For this test, let's simplify and check that the right errors occur
         # without MLflow context complications
         try:
-            result = loader.load_from_path(nonexistent_path, "missing_test", "meta_missing")
+            loader.load_from_path(nonexistent_path, "missing_test", "meta_missing")
             # If we get here, the test should fail
             assert False, "Expected FileNotFoundError was not raised"
         except FileNotFoundError:
@@ -260,7 +257,7 @@ class TestBaselineModelLoaderIntegration:
         import logging
         with patch.object(logging.getLogger("src.modules.baseline_loader"), "error") as mock_logger:
             try:
-                result = loader.load_from_path(corrupted_path, "corrupt_test", "meta_corrupt")
+                loader.load_from_path(corrupted_path, "corrupt_test", "meta_corrupt")
                 # If we get here, check that error was logged
                 mock_logger.assert_called_once()
                 error_msg = str(mock_logger.call_args)
@@ -391,21 +388,19 @@ class TestBaselineModelLoaderReliability:
         self.temp_path = Path(self.temp_dir)
         
         # End any existing MLflow runs to avoid conflicts
-        import mlflow
         try:
             while mlflow.active_run():
                 mlflow.end_run()
-        except:
+        except Exception:
             pass
     
     def teardown_method(self):
         """Clean up test environment."""
         # Clean up MLflow runs
-        import mlflow
         try:
             while mlflow.active_run():
                 mlflow.end_run()
-        except:
+        except Exception:
             pass
             
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -454,8 +449,9 @@ class TestBaselineModelLoaderReliability:
             f.write(model_content)
         
         # Calculate expected hash
-        import hashlib
-        expected_hash = hashlib.sha256(model_content).hexdigest()
+        # import hashlib
+        # Note: expected_hash would be used in actual implementation
+        # expected_hash = hashlib.sha256(model_content).hexdigest()
         
         with patch('src.modules.baseline_loader.mlflow_run_context') as mock_context:
             mock_context.return_value.__enter__ = MagicMock()

@@ -1,14 +1,9 @@
 """Integration tests for enhanced Metaflow pipeline with MLOps services."""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import pandas as pd
-import numpy as np
-from metaflow import FlowSpec, step, Parameter
 
-from src.services.model_registry import HokusaiModelRegistry
-from src.services.performance_tracker import PerformanceTracker
-from src.services.experiment_manager import ExperimentManager
 
 
 class TestEnhancedPipelineIntegration:
@@ -204,7 +199,8 @@ class TestEnhancedPipelineIntegration:
         mock_start_run.return_value.__enter__ = Mock(return_value=mock_run)
         mock_start_run.return_value.__exit__ = Mock(return_value=None)
         
-        pipeline = HokusaiEvaluationPipeline()
+        # Create pipeline instance to verify initialization
+        HokusaiEvaluationPipeline()
         
         # Simulate metrics from different stages
         all_metrics = {

@@ -2,11 +2,10 @@
 
 import mlflow
 import mlflow.pyfunc
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 import logging
 from datetime import datetime
 import re
-import json
 
 logger = logging.getLogger(__name__)
 

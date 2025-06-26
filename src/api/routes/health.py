@@ -1,6 +1,6 @@
 """Health check endpoints."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from datetime import datetime
 import mlflow
 import redis
@@ -22,7 +22,7 @@ async def health_check():
     try:
         mlflow.get_tracking_uri()
         services_status["mlflow"] = "healthy"
-    except:
+    except Exception:
         services_status["mlflow"] = "unhealthy"
     
     # Check Redis
@@ -30,7 +30,7 @@ async def health_check():
         r = redis.Redis(host=settings.redis_host, port=settings.redis_port)
         r.ping()
         services_status["redis"] = "healthy"
-    except:
+    except Exception:
         services_status["redis"] = "unhealthy"
     
     # Check PostgreSQL
@@ -38,7 +38,7 @@ async def health_check():
         conn = psycopg2.connect(settings.postgres_uri)
         conn.close()
         services_status["postgres"] = "healthy"
-    except:
+    except Exception:
         services_status["postgres"] = "unhealthy"
     
     # Overall status

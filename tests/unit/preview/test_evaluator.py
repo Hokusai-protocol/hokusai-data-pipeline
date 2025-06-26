@@ -3,11 +3,11 @@
 import pytest
 import pandas as pd
 import numpy as np
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 
 # Import will be added once module is implemented
-# from src.preview.evaluator import PreviewEvaluator
+from src.preview.evaluator import PreviewEvaluator
 
 
 class TestPreviewEvaluator:

@@ -3,7 +3,6 @@
 import json
 from pathlib import Path
 from typing import Dict, Any, Union
-from datetime import datetime
 import sys
 
 class PreviewOutputFormatter:

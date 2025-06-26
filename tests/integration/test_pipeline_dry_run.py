@@ -2,9 +2,7 @@
 
 import pytest
 import json
-from pathlib import Path
-import subprocess
-import sys
+# import sys  # Will be used when cmd is implemented
 
 
 class TestPipelineDryRun:
@@ -12,16 +10,16 @@ class TestPipelineDryRun:
     
     def test_dry_run_execution(self, temp_dir, sample_contributed_data):
         """Test pipeline executes successfully in dry run mode."""
-        output_dir = temp_dir / "outputs"
+        # output_dir = temp_dir / "outputs"  # Will be used when cmd is implemented
         
         # Run pipeline with dry-run flag
-        cmd = [
-            sys.executable, "-m", "metaflow", "run",
-            "src.pipeline.hokusai_pipeline:HokusaiPipeline",
-            "--dry-run",
-            f"--contributed-data={sample_contributed_data['csv_path']}",
-            f"--output-dir={output_dir}"
-        ]
+        # cmd = [
+        #     sys.executable, "-m", "metaflow", "run",
+        #     "src.pipeline.hokusai_pipeline:HokusaiPipeline",
+        #     "--dry-run",
+        #     f"--contributed-data={sample_contributed_data['csv_path']}",
+        #     f"--output-dir={output_dir}"
+        # ]
         
         # For now, just test that we can import the pipeline
         from src.pipeline.hokusai_pipeline import HokusaiPipeline
