@@ -13,13 +13,13 @@ class TestPipelineDryRun:
         output_dir = temp_dir / "outputs"
         
         # Run pipeline with dry-run flag
-        cmd = [
-            sys.executable, "-m", "metaflow", "run",
-            "src.pipeline.hokusai_pipeline:HokusaiPipeline",
-            "--dry-run",
-            f"--contributed-data={sample_contributed_data['csv_path']}",
-            f"--output-dir={output_dir}"
-        ]
+        # cmd = [
+        #     sys.executable, "-m", "metaflow", "run",
+        #     "src.pipeline.hokusai_pipeline:HokusaiPipeline",
+        #     "--dry-run",
+        #     f"--contributed-data={sample_contributed_data['csv_path']}",
+        #     f"--output-dir={output_dir}"
+        # ]
         
         # For now, just test that we can import the pipeline
         from src.pipeline.hokusai_pipeline import HokusaiPipeline

@@ -72,7 +72,7 @@ class TestBaselineModelLoader:
         mock_run_context.return_value.__exit__ = Mock(return_value=None)
         
         loader = BaselineModelLoader()
-        result = loader.load_from_mlflow("test_model", None, "test_run", "metaflow_123")
+        loader.load_from_mlflow("test_model", None, "test_run", "metaflow_123")
         
         mock_load_model.assert_called_once_with("models:/test_model/latest")
         mock_log_params.assert_called_once_with({

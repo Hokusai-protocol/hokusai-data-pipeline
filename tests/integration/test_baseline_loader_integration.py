@@ -257,7 +257,7 @@ class TestBaselineModelLoaderIntegration:
         import logging
         with patch.object(logging.getLogger("src.modules.baseline_loader"), "error") as mock_logger:
             try:
-                result = loader.load_from_path(corrupted_path, "corrupt_test", "meta_corrupt")
+                loader.load_from_path(corrupted_path, "corrupt_test", "meta_corrupt")
                 # If we get here, check that error was logged
                 mock_logger.assert_called_once()
                 error_msg = str(mock_logger.call_args)
@@ -450,7 +450,8 @@ class TestBaselineModelLoaderReliability:
         
         # Calculate expected hash
         import hashlib
-        expected_hash = hashlib.sha256(model_content).hexdigest()
+        # Note: expected_hash would be used in actual implementation
+        # expected_hash = hashlib.sha256(model_content).hexdigest()
         
         with patch('src.modules.baseline_loader.mlflow_run_context') as mock_context:
             mock_context.return_value.__enter__ = MagicMock()

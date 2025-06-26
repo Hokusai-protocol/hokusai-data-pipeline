@@ -280,7 +280,7 @@ class TestExperimentManager:
         mock_create_exp.return_value = "123"
         
         with patch('mlflow.set_experiment'):
-            manager = ExperimentManager(experiment_name="new_experiment")
+            ExperimentManager(experiment_name="new_experiment")
         
         mock_create_exp.assert_called_once_with("new_experiment")
     

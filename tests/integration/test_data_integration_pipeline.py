@@ -125,10 +125,10 @@ class TestDataIntegrationPipelineIntegration:
         integrator = DataIntegrator(random_seed=42)
         
         # Simulate pipeline parameters
-        config = {
-            "random_seed": 42,
-            "evaluation_metrics": ["accuracy", "precision", "recall", "f1_score", "auroc"]
-        }
+        # config = {
+        #     "random_seed": 42,
+        #     "evaluation_metrics": ["accuracy", "precision", "recall", "f1_score", "auroc"]
+        # }
         
         # Step 1: Load and integrate data (simulating integrate_contributed_data step)
         contributed_data = integrator.load_data(

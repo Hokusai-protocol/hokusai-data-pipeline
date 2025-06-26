@@ -231,7 +231,7 @@ class TestDeploymentPipeline:
         ]
         
         for command, expected_output in deployment_steps:
-            result = subprocess.run(command.split(), capture_output=True, text=True)
+            subprocess.run(command.split(), capture_output=True, text=True)
             assert mock_run.called
             # In real scenario, we'd check result.returncode == 0
 
