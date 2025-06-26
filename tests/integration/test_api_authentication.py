@@ -1,8 +1,7 @@
 """Tests for API authentication system."""
 
 import pytest
-import asyncio
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch
 from fastapi.testclient import TestClient
 from fastapi import HTTPException
 import jwt
@@ -107,7 +106,6 @@ class TestAPIAuthentication:
     def test_authentication_middleware(self):
         """Test authentication middleware integration."""
         from src.api.main import app
-        from src.api.middleware.auth import AuthMiddleware
         
         client = TestClient(app)
         
@@ -134,7 +132,6 @@ class TestAPIAuthentication:
     
     def test_rate_limiting(self):
         """Test API rate limiting functionality."""
-        from src.api.middleware.auth import RateLimiter
         from src.api.main import app
         
         client = TestClient(app)

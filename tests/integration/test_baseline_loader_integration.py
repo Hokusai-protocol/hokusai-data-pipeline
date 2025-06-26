@@ -5,7 +5,6 @@ import tempfile
 import shutil
 import json
 import pickle
-import pandas as pd
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import mlflow
@@ -23,21 +22,19 @@ class TestBaselineModelLoaderIntegration:
         self.temp_path = Path(self.temp_dir)
         
         # End any existing MLflow runs to avoid conflicts
-        import mlflow
         try:
             while mlflow.active_run():
                 mlflow.end_run()
-        except:
+        except Exception:
             pass
         
     def teardown_method(self):
         """Clean up test environment."""
         # Clean up MLflow runs
-        import mlflow
         try:
             while mlflow.active_run():
                 mlflow.end_run()
-        except:
+        except Exception:
             pass
             
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -391,21 +388,19 @@ class TestBaselineModelLoaderReliability:
         self.temp_path = Path(self.temp_dir)
         
         # End any existing MLflow runs to avoid conflicts
-        import mlflow
         try:
             while mlflow.active_run():
                 mlflow.end_run()
-        except:
+        except Exception:
             pass
     
     def teardown_method(self):
         """Clean up test environment."""
         # Clean up MLflow runs
-        import mlflow
         try:
             while mlflow.active_run():
                 mlflow.end_run()
-        except:
+        except Exception:
             pass
             
         shutil.rmtree(self.temp_dir, ignore_errors=True)

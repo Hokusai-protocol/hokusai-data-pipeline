@@ -4,8 +4,7 @@ Unit tests for the schema validation utilities.
 
 import json
 import pytest
-from pathlib import Path
-from unittest.mock import patch, mock_open
+from unittest.mock import patch
 
 from src.utils.schema_validator import (
     SchemaValidator,

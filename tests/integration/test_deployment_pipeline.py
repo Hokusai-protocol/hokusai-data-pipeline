@@ -1,8 +1,6 @@
 """Tests for CI/CD deployment pipeline."""
 
-import pytest
 import yaml
-import json
 from pathlib import Path
 from unittest.mock import Mock, patch
 import subprocess

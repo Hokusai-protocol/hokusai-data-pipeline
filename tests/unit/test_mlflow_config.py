@@ -3,9 +3,7 @@
 import pytest
 import tempfile
 import shutil
-from pathlib import Path
 from unittest.mock import patch, MagicMock
-import mlflow
 from src.utils.mlflow_config import (
     MLFlowConfig,
     generate_run_name,

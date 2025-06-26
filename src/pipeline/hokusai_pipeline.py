@@ -6,7 +6,11 @@ from datetime import datetime
 from pathlib import Path
 
 from src.utils.config import get_config, get_test_config
-from src.utils.constants import *
+from src.utils.constants import (
+    ATTESTATION_SCHEMA_VERSION,
+    ATTESTATION_VERSION,
+    STATUS_SUCCESS
+)
 
 
 class HokusaiPipeline(FlowSpec):
@@ -47,7 +51,7 @@ class HokusaiPipeline(FlowSpec):
         """Initialize pipeline configuration and validate inputs."""
         self.config = get_test_config() if self.dry_run else get_config()
         
-        print(f"Starting Hokusai pipeline")
+        print("Starting Hokusai pipeline")
         print(f"Environment: {self.config.environment}")
         print(f"Dry run: {self.dry_run}")
         print(f"Random seed: {self.config.random_seed}")
@@ -745,7 +749,7 @@ class HokusaiPipeline(FlowSpec):
             self.delta_one = delta_computation["delta_one"]
             self.delta_output = delta_output
             
-            print(f"DeltaOne computation completed successfully")
+            print("DeltaOne computation completed successfully")
             print(f"DeltaOne score: {self.delta_one:.4f}")
             print(f"Metrics evaluated: {list(delta_computation['metric_deltas'].keys())}")
             print(f"Contributor samples: {contributor_data['contributed_samples']}")
@@ -874,7 +878,7 @@ class HokusaiPipeline(FlowSpec):
             json.dump(self.attestation_output, f, indent=2)
         
         print(f"Attestation output saved to: {attestation_file}")
-        print(f"Pipeline completed successfully!")
+        print("Pipeline completed successfully!")
         print(f"DeltaOne score: {self.delta_one:.4f}")
 
 

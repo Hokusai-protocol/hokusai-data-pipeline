@@ -1,7 +1,7 @@
 """Evaluation module for preview pipeline."""
 
 import warnings
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, Tuple, Any
 import pandas as pd
 import numpy as np
 from sklearn.metrics import (

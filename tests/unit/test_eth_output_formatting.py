@@ -1,10 +1,8 @@
 """
 Tests for ETH address integration in ZK output formatting.
 """
-import pytest
 from unittest.mock import patch
 from src.utils.zk_output_formatter import ZKCompatibleOutputFormatter
-from src.utils.eth_address_validator import ETHAddressValidationError
 
 
 class TestETHOutputFormatting:

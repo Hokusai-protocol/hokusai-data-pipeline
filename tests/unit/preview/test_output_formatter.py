@@ -2,12 +2,9 @@
 
 import pytest
 import json
-from datetime import datetime
-from pathlib import Path
-from unittest.mock import Mock, patch, mock_open
 
 # Import will be added once module is implemented
-# from src.preview.output_formatter import PreviewOutputFormatter
+from src.preview.output_formatter import PreviewOutputFormatter
 
 
 class TestPreviewOutputFormatter:

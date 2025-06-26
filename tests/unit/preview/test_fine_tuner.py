@@ -3,11 +3,11 @@
 import pytest
 import pandas as pd
 import numpy as np
-from unittest.mock import Mock, patch, MagicMock, call
+from unittest.mock import Mock, patch
 import time
 
 # Import will be added once module is implemented
-# from src.preview.fine_tuner import PreviewFineTuner
+from src.preview.fine_tuner import PreviewFineTuner
 
 
 class TestPreviewFineTuner:

@@ -192,7 +192,7 @@ class ExperimentManager:
         # Calculate metrics safely
         try:
             metrics["accuracy"] = accuracy_score(y_true, y_pred_binary)
-        except:
+        except Exception:
             metrics["accuracy"] = 0.0
         
         try:
@@ -201,22 +201,22 @@ class ExperimentManager:
                 metrics["auroc"] = roc_auc_score(y_true, y_pred)
             else:
                 metrics["auroc"] = 0.0
-        except:
+        except Exception:
             metrics["auroc"] = 0.0
         
         try:
             metrics["f1_score"] = f1_score(y_true, y_pred_binary, average='weighted')
-        except:
+        except Exception:
             metrics["f1_score"] = 0.0
         
         try:
             metrics["precision"] = precision_score(y_true, y_pred_binary, average='weighted')
-        except:
+        except Exception:
             metrics["precision"] = 0.0
         
         try:
             metrics["recall"] = recall_score(y_true, y_pred_binary, average='weighted')
-        except:
+        except Exception:
             metrics["recall"] = 0.0
         
         return metrics

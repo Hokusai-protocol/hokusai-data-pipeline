@@ -6,7 +6,6 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, Tuple, List
 import mlflow
-import numpy as np
 
 logger = logging.getLogger(__name__)
 

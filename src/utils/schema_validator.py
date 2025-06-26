@@ -11,7 +11,6 @@ import hashlib
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 from jsonschema import validate, ValidationError, Draft202012Validator
-from jsonschema.exceptions import SchemaError
 
 
 class SchemaValidator:

@@ -4,13 +4,12 @@ import json
 import random
 import hashlib
 from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime
 from dataclasses import dataclass, asdict
 from enum import Enum
 import logging
 import redis
 import numpy as np
-from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 

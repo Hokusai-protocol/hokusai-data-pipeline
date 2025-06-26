@@ -1,9 +1,7 @@
 """Unit tests for the PerformanceTracker service."""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-import json
-import hashlib
+from unittest.mock import patch
 from datetime import datetime
 
 from src.services.performance_tracker import PerformanceTracker
@@ -177,7 +175,7 @@ class TestPerformanceTracker:
     def test_validate_metrics_format(self, tracker):
         """Test metrics format validation."""
         valid_metrics = {"accuracy": 0.85, "auroc": 0.82}
-        assert tracker._validate_metrics(valid_metrics) == True
+        assert tracker._validate_metrics(valid_metrics) is True
         
         # Invalid metrics
         with pytest.raises(ValueError, match="must be a dictionary"):

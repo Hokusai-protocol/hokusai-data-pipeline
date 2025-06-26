@@ -3,10 +3,7 @@
 import pytest
 import json
 import pickle
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import mlflow
-import time
+from unittest.mock import Mock, patch
 
 from src.modules.baseline_loader import BaselineModelLoader
 

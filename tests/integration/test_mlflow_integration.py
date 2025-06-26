@@ -6,7 +6,6 @@ import shutil
 import pandas as pd
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-import mlflow
 from src.modules.baseline_loader import BaselineModelLoader
 from src.modules.data_integration import DataIntegrator
 from src.utils.mlflow_config import MLFlowConfig

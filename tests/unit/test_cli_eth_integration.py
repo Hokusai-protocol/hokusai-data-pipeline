@@ -1,15 +1,12 @@
 """
 Tests for ETH address integration in CLI.
 """
-import pytest
 from unittest.mock import patch, MagicMock
 from click.testing import CliRunner
 from pathlib import Path
 import tempfile
-import json
 
 from cli.hokusai_validate.cli import main
-from src.utils.eth_address_validator import ETHAddressValidationError
 
 
 class TestCLIETHIntegration:

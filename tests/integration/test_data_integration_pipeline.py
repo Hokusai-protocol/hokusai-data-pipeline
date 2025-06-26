@@ -208,7 +208,7 @@ class TestDataIntegrationPipelineIntegration:
         hash2 = data_manifest["data_hash"]
         assert hash1 == hash2, "Data hashes should be consistent"
         
-        print(f"Pipeline simulation successful:")
+        print("Pipeline simulation successful:")
         print(f"  - Integrated {training_samples} total samples")
         print(f"  - Added {contributed_samples} contributed samples")
         print(f"  - Data hash: {data_manifest['data_hash'][:16]}...")

@@ -1,14 +1,13 @@
 """Unit tests for preview model manager module."""
 
 import pytest
-import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 import json
 import pickle
 
 # Import will be added once module is implemented
-# from src.preview.model_manager import PreviewModelManager
+from src.preview.model_manager import PreviewModelManager
 
 
 class TestPreviewModelManager:
@@ -119,12 +118,12 @@ class TestPreviewModelManager:
         manager = PreviewModelManager()
         
         # Compatible model
-        assert manager.check_compatibility(mock_baseline_model) == True
+        assert manager.check_compatibility(mock_baseline_model) is True
         
         # Incompatible model (missing required methods)
         incompatible_model = Mock()
         incompatible_model.predict = None
-        assert manager.check_compatibility(incompatible_model) == False
+        assert manager.check_compatibility(incompatible_model) is False
 
     @pytest.mark.skip(reason="PreviewModelManager not yet implemented")
     def test_get_model_metrics(self, mock_baseline_model):

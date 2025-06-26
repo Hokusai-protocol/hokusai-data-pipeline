@@ -2,7 +2,6 @@
 
 import pytest
 import pandas as pd
-import numpy as np
 from pathlib import Path
 
 from src.modules.data_integration import DataIntegrator

@@ -1,6 +1,6 @@
 """Authentication middleware for API security."""
 
-from fastapi import Request, HTTPException, status, Depends
+from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
@@ -8,13 +8,11 @@ from typing import Optional, Dict, List, Any
 from functools import wraps
 import logging
 import secrets
-import hashlib
 import boto3
 from botocore.exceptions import ClientError
 from eth_account import Account
 from eth_account.messages import encode_defunct
 import redis
-import asyncio
 
 from src.api.utils.config import get_settings
 
@@ -170,7 +168,7 @@ async def validate_api_key(api_key: str) -> bool:
         # In production, you'd search through stored keys
         # For now, we'll check a specific pattern
         response = secrets_client.get_secret_value(
-            SecretId=f"hokusai/api-keys/test_user"
+            SecretId="hokusai/api-keys/test_user"
         )
         stored_key = response['SecretString']
         return api_key == stored_key

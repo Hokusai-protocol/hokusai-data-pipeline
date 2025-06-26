@@ -1,10 +1,7 @@
 """Tests for infrastructure configuration validation."""
 
-import pytest
-import json
 import yaml
 from pathlib import Path
-from typing import Dict, Any
 
 
 class TestInfrastructureValidation:

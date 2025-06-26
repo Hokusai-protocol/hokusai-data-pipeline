@@ -3,7 +3,7 @@
 import hashlib
 import json
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from pathlib import Path
 
 from src.utils.constants import ATTESTATION_VERSION, ATTESTATION_SCHEMA_VERSION

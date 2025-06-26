@@ -1,7 +1,6 @@
 """Model-related API endpoints."""
 
 from fastapi import APIRouter, HTTPException, Depends, status, Request
-from typing import Dict, Any
 import logging
 import re
 

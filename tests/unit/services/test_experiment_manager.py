@@ -1,9 +1,7 @@
 """Unit tests for the ExperimentManager service."""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock, call
-import mlflow
-from datetime import datetime
+from unittest.mock import Mock, patch
 import numpy as np
 
 from src.services.experiment_manager import ExperimentManager
@@ -233,7 +231,7 @@ class TestExperimentManager:
             "comparison_threshold": 0.01
         }
         
-        assert manager._validate_config(valid_config) == True
+        assert manager._validate_config(valid_config) is True
         
         # Invalid configs
         with pytest.raises(ValueError, match="test_size must be between"):

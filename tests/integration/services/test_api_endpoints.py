@@ -2,11 +2,9 @@
 
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import Mock, patch
-import json
+from unittest.mock import patch
 
 from src.api.main import app
-from src.api.models import ModelRegistration, ContributorImpactResponse
 
 
 class TestAPIEndpoints:
