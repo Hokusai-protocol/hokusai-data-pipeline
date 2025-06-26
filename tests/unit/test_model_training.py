@@ -170,14 +170,16 @@ class TestModelTrainer:
         assert isinstance(model, MockModel)
         assert model.param1 == "test_value"
     
+    @patch('mlflow.active_run')
     @patch('mlflow.start_run')
     @patch('mlflow.log_param')
     @patch('mlflow.log_metric')
     @patch('mlflow.sklearn.log_model')
     def test_log_model_to_mlflow_sklearn(self, mock_log_model, mock_log_metric,
-                                         mock_log_param, mock_start_run):
+                                         mock_log_param, mock_start_run, mock_active_run):
         """Test logging sklearn model to MLflow."""
         # Setup mocks
+        mock_active_run.return_value = None  # No active run
         mock_run = Mock()
         mock_run.info.run_id = "test_run_id"
         mock_start_run.return_value.__enter__ = Mock(return_value=mock_run)
@@ -211,6 +213,7 @@ class TestModelTrainer:
         # Check that model was logged
         mock_log_model.assert_called_once_with(model, "test_model")
     
+    @patch('mlflow.active_run')
     @patch('mlflow.start_run')
     @patch('mlflow.log_param')
     @patch('mlflow.log_metric')
@@ -218,9 +221,10 @@ class TestModelTrainer:
     @patch('tempfile.NamedTemporaryFile')
     def test_log_model_to_mlflow_mock(self, mock_temp_file, mock_log_artifact,
                                       mock_log_metric, mock_log_param,
-                                      mock_start_run):
+                                      mock_start_run, mock_active_run):
         """Test logging mock model to MLflow."""
         # Setup mocks
+        mock_active_run.return_value = None  # No active run
         mock_run = Mock()
         mock_run.info.run_id = "test_run_id"
         mock_start_run.return_value.__enter__ = Mock(return_value=mock_run)
@@ -354,14 +358,16 @@ class TestModelTrainerIntegration:
         assert training_report["model_type"] == "mock_integration_test"
         assert training_report["training_samples"] == len(X_train)
     
+    @patch('mlflow.active_run')
     @patch('mlflow.start_run')
     @patch('mlflow.log_param')
     @patch('mlflow.log_metric')
     @patch('mlflow.sklearn.log_model')
     def test_full_training_workflow_sklearn(self, mock_log_model, mock_log_metric,
-                                          mock_log_param, mock_start_run):
+                                          mock_log_param, mock_start_run, mock_active_run):
         """Test complete training workflow with sklearn model."""
         # Setup MLflow mocks
+        mock_active_run.return_value = None  # No active run
         mock_run = Mock()
         mock_run.info.run_id = "integration_test_run"
         mock_start_run.return_value.__enter__ = Mock(return_value=mock_run)
