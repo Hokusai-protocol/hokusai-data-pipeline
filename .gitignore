@@ -112,3 +112,12 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg outputs/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+*.tfplan
+*.terraform.lock.hcl

@@ -207,7 +207,7 @@ resource "aws_db_instance" "mlflow" {
   identifier = "${var.project_name}-mlflow-${var.environment}"
   
   engine         = "postgres"
-  engine_version = "15.4"
+  engine_version = "15.7"
   instance_class = var.db_instance_class
   
   allocated_storage     = 20
@@ -317,12 +317,46 @@ resource "aws_lb_listener" "http" {
   protocol          = "HTTP"
   
   default_action {
-    type = "redirect"
+    type = "fixed-response"
     
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "Not Found"
+      status_code  = "404"
+    }
+  }
+}
+
+# API listener rule
+resource "aws_lb_listener_rule" "api" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 100
+  
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
+  }
+  
+  condition {
+    path_pattern {
+      values = ["/api*"]
+    }
+  }
+}
+
+# MLflow listener rule
+resource "aws_lb_listener_rule" "mlflow" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 200
+  
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.mlflow.arn
+  }
+  
+  condition {
+    path_pattern {
+      values = ["/mlflow*"]
     }
   }
 }
@@ -616,7 +650,7 @@ resource "aws_ecs_service" "api" {
     container_port   = 8001
   }
   
-  depends_on = [aws_lb_listener.https]
+  depends_on = [aws_lb_listener.http]
 }
 
 resource "aws_ecs_service" "mlflow" {
@@ -639,7 +673,7 @@ resource "aws_ecs_service" "mlflow" {
     container_port   = 5000
   }
   
-  depends_on = [aws_lb_listener.https]
+  depends_on = [aws_lb_listener.http]
 }
 
 # ECR Repositories
@@ -663,7 +697,7 @@ resource "aws_ecr_repository" "mlflow" {
 
 # Internal Load Balancer for MLflow
 resource "aws_lb" "mlflow_internal" {
-  name               = "${var.project_name}-mlflow-internal-${var.environment}"
+  name               = "${var.project_name}-mlflow-int-${var.environment}"
   internal           = true
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
