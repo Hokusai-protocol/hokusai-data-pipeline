@@ -49,6 +49,16 @@ The Hokusai platform provides a complete MLOps solution for evaluating the perfo
 
 ## Quick Start
 
+### Installing the Hokusai ML Platform Package
+
+```bash
+# Install directly from GitHub
+pip install git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform
+
+# Or install from the local repository for development
+pip install -e ./hokusai-ml-platform
+```
+
 ### Running the MLOps Platform
 
 ```bash
@@ -533,4 +543,27 @@ REDIS_PORT=6379
 # Rate Limiting
 RATE_LIMIT_REQUESTS=100
 RATE_LIMIT_PERIOD=60
+```
+
+## Troubleshooting
+
+### Installation Issues
+
+#### License Configuration Error
+If you encounter an error like `setuptools.errors.InvalidConfigError: License classifiers have been superseded by license expressions` when installing the package, this has been fixed in the latest version. Make sure you're installing from the main branch.
+
+#### Missing Tracking Components
+The `ExperimentManager` and `PerformanceTracker` components are now included in the `hokusai.tracking` module. If you encounter import errors, ensure you have the latest version installed:
+
+```bash
+# Upgrade to latest version
+pip install --upgrade git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform
+```
+
+#### Development Installation
+For development work, install in editable mode with all optional dependencies:
+
+```bash
+cd hokusai-ml-platform
+pip install -e ".[dev,gtm,pipeline]"
 ```

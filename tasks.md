@@ -1,84 +1,65 @@
-# Development Tasks: Package Installation
+# Implementation Tasks for Fix Pip Install Problems
 
-## 1. Package Metadata and Configuration
-1. [x] Verify and enhance pyproject.toml metadata
-   a. [x] Add complete project description and long description
-   b. [x] Add all required classifiers (Development Status, Intended Audience, License, etc.)
-   c. [x] Add keywords for PyPI discoverability
-   d. [x] Ensure all dependencies have version constraints
-   e. [x] Add project URLs (homepage, documentation, repository)
+## 1. Fix pyproject.toml License Configuration
+1. [x] Locate hokusai-ml-platform/pyproject.toml file
+   a. [x] Find the hokusai-ml-platform directory in the repository
+   b. [x] Open pyproject.toml file for editing
+2. [x] Update license field format
+   a. [x] Change line 11 from `license = "Apache-2.0"` to `license = {text = "Apache-2.0"}`
+   b. [x] Verify the syntax is correct
+3. [x] Remove deprecated license classifier
+   a. [x] Locate line 30 with `"License :: OSI Approved :: Apache Software License",`
+   b. [x] Remove this line from the classifiers list
+   c. [x] Ensure proper comma placement in the classifiers list
 
-## 2. Build System Setup
-2. [x] Configure package building
-   a. [x] Add build dependencies to pyproject.toml
-   b. [ ] Create MANIFEST.in for non-Python files if needed
-   c. [x] Test package building locally with `python -m build`
-   d. [x] Verify wheel and sdist contents are correct
+## 2. Implement Missing Tracking Components (Dependent on #1)
+4. [x] Create ExperimentManager class
+   a. [x] Locate the tracking module directory
+   b. [x] Create or update experiment_manager.py file
+   c. [x] Implement basic ExperimentManager class with required methods
+   d. [x] Add proper imports and type hints
+5. [x] Create PerformanceTracker class
+   a. [x] Create or update performance_tracker.py file
+   b. [x] Implement basic PerformanceTracker class with required methods
+   c. [x] Add proper imports and type hints
+6. [x] Update tracking module __init__.py
+   a. [x] Add imports for ExperimentManager and PerformanceTracker
+   b. [x] Update __all__ list to include new components
+7. [ ] Verify integration with hokusai_integration.py
+   a. [ ] Review current mock implementations
+   b. [ ] Ensure new implementations match expected interface
+   c. [ ] Update hokusai_integration.py to use real implementations
 
-## 3. GitHub Actions CI/CD Pipeline
-3. [x] Create .github/workflows/publish.yml
-   a. [x] Add workflow trigger on release creation
-   b. [x] Set up Python environment and dependencies
-   c. [x] Run tests before building
-   d. [x] Build wheel and source distribution
-   e. [x] Upload artifacts for release
+## 3. Testing (Dependent on #1, #2)
+8. [x] Write and implement tests
+   a. [x] Create test_installation.py for installation tests
+   b. [x] Write test for local pip install
+   c. [x] Write test for import functionality
+   d. [x] Create test_tracking_components.py for new components
+   e. [x] Write unit tests for ExperimentManager
+   f. [x] Write unit tests for PerformanceTracker
+   g. [ ] Add integration tests for GTM backend compatibility
 
-## 4. Installation Documentation (Dependent on Package Metadata)
-4. [x] Create comprehensive installation guide
-   a. [x] Write docs/installation.md with quick start instructions
-   b. [x] Document installation from GitHub
-   c. [x] Document editable installation for development
-   d. [x] Add troubleshooting section for common issues
-   e. [x] Create migration guide from local development
+## 4. Documentation (Dependent on #1, #2, #3)
+9. [x] Update README.md
+   a. [x] Add installation instructions with pip command
+   b. [x] Include troubleshooting section for common issues
+   c. [x] Document the tracking module components
+10. [ ] Update package documentation
+    a. [ ] Document ExperimentManager API
+    b. [ ] Document PerformanceTracker API
+    c. [ ] Add usage examples for tracking components
 
-## 5. Version Management System
-5. [x] Implement semantic versioning
-   a. [ ] Create version management script or use bump2version
-   b. [x] Set up CHANGELOG.md with initial release notes
-   c. [ ] Create GitHub Actions workflow for version tagging
-   d. [ ] Document versioning policy in CONTRIBUTING.md
-
-## 6. Private Repository Installation Support (Dependent on Documentation)
-6. [x] Document and test private installation methods
-   a. [x] Test and document pip install from private GitHub repo
-   b. [x] Create example requirements.txt with GitHub URL
-   c. [x] Document authentication methods for private repos
-   d. [x] Test git submodule approach and document
-
-## 7. Testing (Dependent on Build System)
-7. [x] Write and implement tests
-   a. [x] Database schema tests
-   b. [x] API endpoint tests
-   c. [x] Package installation tests
-   d. [x] Import verification tests
-   e. [x] Dependency resolution tests
-
-## 8. PyPI Preparation (Dependent on Build System and Testing)
-8. [ ] Prepare for PyPI publication
-   a. [ ] Register PyPI account for Hokusai project
-   b. [ ] Set up PyPI API tokens
-   c. [ ] Test package upload to TestPyPI
-   d. [x] Create GitHub Actions workflow for PyPI deployment
-   e. [x] Document PyPI release process
-
-## 9. Integration Examples (Dependent on Installation Documentation)
-9. [x] Create example projects
-   a. [x] Create examples/basic_usage directory
-   b. [x] Write simple ML model improvement example
-   c. [x] Create example with full pipeline usage
-   d. [x] Add requirements.txt showing proper installation
-   e. [ ] Test examples work with installed package
-
-## 10. Documentation Updates
-10. [x] Update main README.md
-    a. [x] Add installation section with pip commands
-    b. [x] Update quick start to use installed package
-    c. [ ] Add badge for PyPI version (when published)
-    d. [x] Update import statements in examples
-
-## 11. Release Process Documentation
-11. [x] Document release workflow
-    a. [x] Create RELEASE.md with step-by-step process
-    b. [x] Document pre-release checklist
-    c. [x] Add post-release verification steps
-    d. [x] Create release announcement template
+## 5. Validation and Testing
+11. [x] Test backward compatibility
+    a. [x] Run existing tests to ensure no breaking changes
+    b. [x] Test import statements from existing code
+    c. [x] Verify API compatibility
+12. [x] Manual installation testing
+    a. [x] Test pip install from local directory
+    b. [ ] Test pip install from GitHub (after changes are committed)
+    c. [x] Verify all modules import correctly
+13. [ ] Run linting and type checking
+    a. [ ] Run Python linter (ruff or equivalent)
+    b. [ ] Run type checker (mypy or equivalent)
+    c. [ ] Fix any issues found
