@@ -91,10 +91,12 @@ class TestPerformanceTracker:
     
     def test_generate_attestation_hash_consistency(self, tracker, data_contribution):
         """Test that attestation hash is deterministic for same inputs."""
+        import time
         delta = {"accuracy": 0.04}
         
         # Generate two attestations
         attestation1 = tracker._generate_attestation(delta, data_contribution)
+        time.sleep(1.1)  # Sleep for more than 1 second to ensure different timestamps
         attestation2 = tracker._generate_attestation(delta, data_contribution)
         
         # The timestamps will be different, so hashes will be different

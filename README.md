@@ -237,6 +237,18 @@ export MLFLOW_EXPERIMENT_NAME="hokusai-production"
 export MLFLOW_ARTIFACT_ROOT="s3://my-bucket/artifacts"
 ```
 
+### Viewing MLFlow UI
+
+To view the MLFlow tracking UI:
+
+```bash
+# Start MLFlow UI (default port 5000)
+mlflow ui
+
+# Or specify a different port
+mlflow ui --port 5001
+```
+
 See [docs/PIPELINE_README.md](docs/PIPELINE_README.md) for detailed documentation.
 
 ## Data Integration

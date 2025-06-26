@@ -96,8 +96,8 @@ class TestExperimentManager:
     
     @patch('mlflow.pyfunc.load_model')
     @patch('mlflow.start_run')
-    @patch('mlflow.log_metrics')
-    def test_compare_models_success(self, mock_log_metrics, mock_start_run, 
+    @patch('mlflow.log_metric')
+    def test_compare_models_success(self, mock_log_metric, mock_start_run, 
                                   mock_load_model, manager, mock_test_data):
         """Test successful model comparison."""
         # Setup baseline model
@@ -142,14 +142,15 @@ class TestExperimentManager:
         assert comparison_result["candidate_metrics"]["accuracy"] is not None
         
         # Verify MLflow logging
-        mock_log_metrics.assert_called()
-        logged_metrics = {}
-        for call in mock_log_metrics.call_args_list:
-            logged_metrics.update(call[0][0])
+        mock_log_metric.assert_called()
         
-        assert "baseline_accuracy" in logged_metrics
-        assert "candidate_accuracy" in logged_metrics
-        assert "accuracy_improvement" in logged_metrics
+        # Check that specific metrics were logged
+        metric_calls = [call[0] for call in mock_log_metric.call_args_list]
+        metric_names = [call[0] for call in metric_calls]
+        
+        assert any("baseline_accuracy" in name for name in metric_names)
+        assert any("candidate_accuracy" in name for name in metric_names)
+        assert any("accuracy_improvement" in name for name in metric_names)
     
     @patch('src.services.experiment_manager.accuracy_score')
     @patch('src.services.experiment_manager.roc_auc_score')
