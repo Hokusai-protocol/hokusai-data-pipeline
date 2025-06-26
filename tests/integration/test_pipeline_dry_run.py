@@ -2,7 +2,7 @@
 
 import pytest
 import json
-import sys
+# import sys  # Will be used when cmd is implemented
 
 
 class TestPipelineDryRun:
@@ -10,7 +10,7 @@ class TestPipelineDryRun:
     
     def test_dry_run_execution(self, temp_dir, sample_contributed_data):
         """Test pipeline executes successfully in dry run mode."""
-        output_dir = temp_dir / "outputs"
+        # output_dir = temp_dir / "outputs"  # Will be used when cmd is implemented
         
         # Run pipeline with dry-run flag
         # cmd = [

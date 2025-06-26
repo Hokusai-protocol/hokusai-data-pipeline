@@ -237,7 +237,7 @@ class TestBaselineModelLoaderIntegration:
         # For this test, let's simplify and check that the right errors occur
         # without MLflow context complications
         try:
-            result = loader.load_from_path(nonexistent_path, "missing_test", "meta_missing")
+            loader.load_from_path(nonexistent_path, "missing_test", "meta_missing")
             # If we get here, the test should fail
             assert False, "Expected FileNotFoundError was not raised"
         except FileNotFoundError:
@@ -449,7 +449,7 @@ class TestBaselineModelLoaderReliability:
             f.write(model_content)
         
         # Calculate expected hash
-        import hashlib
+        # import hashlib
         # Note: expected_hash would be used in actual implementation
         # expected_hash = hashlib.sha256(model_content).hexdigest()
         
