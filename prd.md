@@ -1,50 +1,117 @@
-# Product Requirements Document: Fix Pip Install Problems
+# Infrastructure Setup PRD
 
 ## Objectives
 
-Resolve the package installation issues in the hokusai-ml-platform package to enable seamless pip installation from GitHub and ensure all required components are properly implemented for the GTM backend integration.
+Establish cloud-based infrastructure to make the Hokusai data pipeline available to external projects with secure model storage, MLFlow tracking, authentication, and automated deployment.
 
 ## Personas
 
-- **Data Scientists**: Need to quickly install and use the hokusai-ml-platform package for their ML evaluation workflows
-- **DevOps Engineers**: Require reliable package installation for CI/CD pipelines and automated deployments
-- **Backend Developers**: Need properly implemented tracking components for GTM integration
+- **External Developer**: Integrates Hokusai ML platform into their project, needs API access and model storage
+- **Data Contributor**: Submits data to improve models, requires secure authentication
+- **Platform Administrator**: Manages infrastructure, monitors usage, and handles deployments
 
 ## Success Criteria
 
-1. The hokusai-ml-platform package can be installed directly from GitHub using pip without errors
-2. All license-related configuration errors are resolved
-3. The ExperimentManager and PerformanceTracker components are properly implemented in the tracking module
-4. Installation process is tested and documented
-5. Changes are backward compatible with existing installations
+1. External projects can access Hokusai ML platform APIs with authentication
+2. Models and artifacts are securely stored in S3-compatible storage
+3. MLFlow tracking server is accessible for experiment tracking
+4. Automated CI/CD deploys updates to production when merged to main
+5. Infrastructure supports high availability and scalability
 
 ## Tasks
 
-### 1. Fix pyproject.toml License Configuration
-Update the license specification in hokusai-ml-platform/pyproject.toml to comply with modern setuptools requirements:
-- Change the license field format from string to dictionary format
-- Remove deprecated license classifier from the classifiers list
+### 1. AWS Infrastructure Setup
 
-### 2. Implement Missing Tracking Components
-Create proper implementations for the missing components referenced in the GTM backend:
-- Implement ExperimentManager class in the tracking module
-- Implement PerformanceTracker class in the tracking module
-- Ensure these components integrate properly with the existing hokusai_integration.py
+Set up core AWS services for the Hokusai platform:
 
-### 3. Add Installation Tests
-Create automated tests to verify successful package installation:
-- Test pip install from local directory
-- Test pip install from GitHub repository
-- Test that all modules can be imported without errors
+- **S3 Buckets**:
+  - `hokusai-mlflow-artifacts`: Store model artifacts and datasets
+  - `hokusai-pipeline-data`: Store contributed data and outputs
+  - Configure lifecycle policies for cost optimization
+  - Enable versioning and encryption
 
-### 4. Update Documentation
-Update the package documentation to reflect the changes:
-- Document the proper installation command
-- Add troubleshooting section for common installation issues
-- Update any references to the tracking module components
+- **RDS PostgreSQL**:
+  - Database for MLFlow backend store
+  - Multi-AZ deployment for high availability
+  - Automated backups with 7-day retention
 
-### 5. Validate Backward Compatibility
-Ensure that existing code using the package continues to function:
-- Test existing import statements
-- Verify API compatibility for the new tracking components
-- Ensure no breaking changes in the package structure
+- **EC2/ECS**:
+  - Container hosting for API and MLFlow server
+  - Auto-scaling configuration
+  - Load balancer setup
+
+### 2. Authentication System
+
+Implement authentication for external access:
+
+- **API Key Management**:
+  - Generate and manage API keys for external projects
+  - Store keys securely in AWS Secrets Manager
+  - Implement key rotation policies
+
+- **ETH Address Authentication**:
+  - Support ETH wallet address as authentication method
+  - Implement signature verification for requests
+  - Map ETH addresses to API permissions
+
+### 3. MLFlow Server Deployment
+
+Deploy MLFlow tracking server on AWS:
+
+- Configure MLFlow with S3 backend for artifacts
+- Set up PostgreSQL as backend store
+- Enable authentication for MLFlow UI
+- Configure HTTPS with SSL certificates
+
+### 4. API Service Deployment
+
+Deploy the Hokusai Model Registry API:
+
+- Containerize API service using existing Dockerfile
+- Deploy to ECS with auto-scaling
+- Configure Application Load Balancer
+- Set up health checks and monitoring
+
+### 5. CI/CD Pipeline
+
+Implement automated deployment pipeline:
+
+- **GitHub Actions Workflow**:
+  - Trigger on merge to main branch
+  - Run tests and build containers
+  - Deploy to AWS ECS
+  - Update infrastructure as code
+
+- **Infrastructure as Code**:
+  - Use Terraform or CloudFormation
+  - Version control infrastructure changes
+  - Implement staging environment
+
+### 6. Monitoring and Logging
+
+Set up observability infrastructure:
+
+- CloudWatch logs for all services
+- Prometheus/Grafana for metrics (optional)
+- Alert configuration for critical issues
+- Cost monitoring and optimization
+
+### 7. Documentation
+
+Create comprehensive deployment documentation:
+
+- Infrastructure architecture diagram
+- Deployment procedures
+- Authentication setup guide
+- Troubleshooting runbook
+- API endpoint documentation
+
+### 8. Security Hardening
+
+Implement security best practices:
+
+- VPC configuration with private subnets
+- Security groups with minimal permissions
+- IAM roles and policies
+- Secrets management
+- Regular security audits

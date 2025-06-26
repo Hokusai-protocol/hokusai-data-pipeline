@@ -508,7 +508,9 @@ curl -H "Authorization: Bearer your-token-here" http://localhost:8001/api/v1/mod
 #### Health Check
 - `GET /health` - Service health status and dependencies
 
-### Docker Infrastructure
+### Infrastructure
+
+### Local Development (Docker Compose)
 
 The platform uses Docker Compose to orchestrate multiple services:
 
@@ -519,6 +521,19 @@ The platform uses Docker Compose to orchestrate multiple services:
 - **Prometheus**: Metrics collection (optional)
 - **Grafana**: Metrics visualization (optional)
 - **Model Registry API**: REST API service
+
+### Production Deployment (AWS)
+
+For production deployments, the platform includes complete AWS infrastructure:
+
+- **ECS Fargate**: Containerized services with auto-scaling
+- **RDS PostgreSQL**: Managed database with Multi-AZ deployment
+- **S3**: Secure artifact storage with encryption
+- **Application Load Balancer**: HTTPS endpoints with health checks
+- **CloudWatch**: Comprehensive monitoring and alerting
+- **Secrets Manager**: Secure credential storage
+
+See [infrastructure/README.md](infrastructure/README.md) for detailed deployment instructions.
 
 ### Configuration
 
