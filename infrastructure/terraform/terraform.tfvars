@@ -10,11 +10,11 @@ public_subnet_cidrs = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
 
 # Database Configuration
 # CHANGE_ME: Use a strong password for production
-database_password = "KaK9&$jN&6$g$56KDkdnXcNRD"
+database_password = "YcAhadh5KTR/EuRta9Da3ddgplkvQ35X/1ICAurSr+k="
 db_instance_class = "db.t3.micro"  # Use larger instance for production
 
 # API Configuration
-api_secret_key = "rd5bDa#hS3&A5@KjmFEdDBf&!"
+api_secret_key = "A544iJ7a7GGy9x4fczYdzFrHM"
 
 # Container Configuration
 api_image_tag = "latest"
