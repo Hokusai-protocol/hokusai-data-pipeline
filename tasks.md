@@ -1,87 +1,137 @@
-# DSPy Model Loader Implementation Tasks
+# Implementation Tasks: DSPy Pipeline Executor
 
-## 1. [x] Create DSPy Model Loader Module Structure
-   a. [x] Create src/services/dspy_model_loader.py main module
-   b. [x] Create src/services/dspy/ directory for submodules
-   c. [x] Create src/services/dspy/__init__.py
-   d. [x] Create src/services/dspy/config_parser.py for configuration parsing
-   e. [x] Create src/services/dspy/validators.py for DSPy validation logic
-   f. [x] Create src/services/dspy/loaders.py for local and remote loading
+## Core Implementation
 
-## 2. [x] Implement Configuration Parser
-   a. [x] Create YAML configuration schema definition
-   b. [x] Implement YAML parser using PyYAML
-   c. [x] Add support for parsing Python class configurations
-   d. [x] Create configuration validation methods
-   e. [x] Handle nested configuration structures
+1. [x] Create DSPyPipelineExecutor class
+   a. [x] Define class structure in `src/services/dspy_pipeline_executor.py`
+   b. [x] Implement initialization with configuration options
+   c. [x] Add program caching mechanism
+   d. [x] Implement program loading from model ID or instance
 
-## 3. [x] Implement Local File Loader
-   a. [x] Create LocalDSPyLoader class
-   b. [x] Implement file path resolution logic
-   c. [x] Add Python module import functionality
-   d. [x] Handle dependency resolution
-   e. [x] Add caching for loaded modules
+2. [x] Implement input validation
+   a. [x] Extract signature requirements from DSPy programs
+   b. [x] Validate input dictionaries against signatures
+   c. [x] Handle missing or extra fields gracefully
+   d. [x] Support type coercion for compatible types
 
-## 4. [x] Implement Remote Repository Loader  
-   a. [x] Create RemoteDSPyLoader class
-   b. [x] Integrate huggingface_hub library
-   c. [x] Implement authentication handling
-   d. [x] Add download and caching logic
-   e. [x] Handle network errors gracefully
+3. [x] Build execution engine
+   a. [x] Implement single execution method
+   b. [x] Capture intermediate outputs during execution
+   c. [x] Handle execution timeouts
+   d. [x] Implement retry logic for transient failures
 
-## 5. [x] Implement DSPy Module Validation
-   a. [x] Create DSPyValidator class
-   b. [x] Implement signature validation methods
-   c. [x] Add chain validation logic
-   d. [x] Validate input/output specifications
-   e. [x] Create comprehensive validation report
+4. [x] Create output formatting
+   a. [x] Design standardized output schema
+   b. [x] Include execution metadata (timing, version, etc.)
+   c. [x] Serialize outputs to JSON-compatible format
+   d. [x] Handle complex output types (objects, arrays)
 
-## 6. [x] Integrate with Hokusai Model Registry
-   a. [x] Extend HokusaiModel class for DSPy models
-   b. [x] Add DSPy-specific metadata fields to registry
-   c. [x] Implement DSPy model registration methods
-   d. [x] Add version tracking for DSPy programs
-   e. [x] Update model retrieval to support DSPy models
+## MLflow Integration
 
-## 7. [x] Write and Implement Tests
-   a. [x] Unit tests for configuration parser
-   b. [x] Unit tests for local file loader
-   c. [x] Unit tests for remote repository loader
-   d. [x] Unit tests for DSPy validators
-   e. [ ] Integration tests for model registry
-   f. [ ] End-to-end tests for complete workflow
+5. [x] Implement MLflow autologging
+   a. [x] Initialize mlflow.dspy.autolog() when available
+   b. [x] Create custom logging if autolog not available
+   c. [x] Log program configuration and metadata
+   d. [x] Track execution parameters
 
-## 8. [x] Extend Model Abstraction Layer
-   a. [x] Add DSPyModel class to model_abstraction.py
-   b. [x] Implement DSPy-specific inference methods
-   c. [x] Add DSPy program execution support
-   d. [x] Create adapter for DSPy signatures
-   e. [x] Test integration with existing models
+6. [x] Add execution tracking
+   a. [x] Log input data (with size limits)
+   b. [x] Track intermediate outputs from chains
+   c. [x] Record execution timing metrics
+   d. [x] Log resource usage statistics
 
-## 9. [ ] Update API Endpoints
-   a. [ ] Add POST /api/v1/models/dspy/load endpoint
-   b. [ ] Add POST /api/v1/models/dspy/register endpoint
-   c. [ ] Add GET /api/v1/models/dspy/{model_id} endpoint
-   d. [ ] Update OpenAPI schema documentation
-   e. [ ] Add request/response models
+## Execution Modes
 
-## 10. [x] Create Example Configurations
-   a. [x] Create examples/dspy/ directory
-   b. [x] Add basic YAML configuration example
-   c. [x] Add complex multi-signature example
-   d. [x] Create Python class definition example
-   e. [x] Add HuggingFace loading example
+7. [x] Implement batch execution
+   a. [x] Accept multiple inputs in single call
+   b. [x] Execute in parallel where possible
+   c. [x] Aggregate results and errors
+   d. [x] Return batch execution report
 
-## 11. [x] Documentation
-   a. [x] Update README.md with DSPy model loader section
-   b. [x] Create docs/DSPY_MODEL_LOADER.md detailed guide
-   c. [ ] Add API documentation for new endpoints
-   d. [x] Create troubleshooting guide
-   e. [x] Add configuration reference
+8. [x] Add dry-run mode
+   a. [x] Validate inputs without execution
+   b. [x] Check program availability
+   c. [x] Estimate resource requirements
+   d. [x] Return validation report
 
-## 12. [x] Dependencies (Dependent on Documentation)
-   a. [x] Add dspy to requirements.txt
-   b. [x] Add pyyaml to requirements.txt if not present
-   c. [x] Add huggingface_hub to requirements.txt
-   d. [ ] Update setup.py with new dependencies
-   e. [ ] Test dependency installation
+9. [x] Create debug mode
+   a. [x] Enable verbose logging
+   b. [x] Capture full execution traces
+   c. [x] Include LLM prompts and responses
+   d. [x] Format debug output for readability
+
+## Error Handling
+
+10. [x] Implement comprehensive error handling
+    a. [x] Catch and wrap DSPy exceptions
+    b. [x] Add context to error messages
+    c. [x] Implement error recovery strategies
+    d. [x] Log errors with full context
+
+11. [x] Add monitoring and alerting
+    a. [x] Track execution success rates
+    b. [x] Monitor latency percentiles
+    c. [x] Alert on repeated failures
+    d. [x] Generate execution reports
+
+## API Development
+
+12. [x] Create REST API endpoints
+    a. [x] POST /api/v1/dspy/execute - Single execution
+    b. [x] POST /api/v1/dspy/execute/batch - Batch execution
+    c. [x] GET /api/v1/dspy/programs - List available programs
+    d. [x] GET /api/v1/dspy/execution/{id} - Get execution details
+
+13. [ ] Build Python client interface
+    a. [ ] Create client class for API interaction
+    b. [ ] Implement async execution support
+    c. [ ] Add result polling mechanism
+    d. [ ] Include usage examples
+
+## Testing (Dependent on Core Implementation)
+
+14. [x] Write unit tests
+    a. [x] Test input validation logic
+    b. [x] Test execution with mock DSPy programs
+    c. [x] Test error handling scenarios
+    d. [x] Test output formatting
+
+15. [x] Create integration tests
+    a. [x] Test with real DSPy programs
+    b. [x] Test MLflow integration
+    c. [x] Test API endpoints
+    d. [x] Test batch execution
+
+16. [x] Add performance tests
+    a. [x] Benchmark execution overhead
+    b. [x] Test concurrent execution limits
+    c. [x] Measure memory usage patterns
+    d. [x] Validate <100ms overhead target
+
+## Documentation
+
+17. [x] Write technical documentation
+    a. [x] Document API endpoints and schemas
+    b. [x] Create integration guide
+    c. [x] Add configuration reference
+    d. [x] Include troubleshooting guide
+
+18. [x] Create usage examples
+    a. [x] Basic execution example
+    b. [x] Batch processing example
+    c. [x] Error handling example
+    d. [x] MLflow tracking example
+
+## Integration
+
+19. [ ] Integrate with existing services
+    a. [ ] Update model registry to track DSPy executions
+    b. [ ] Add to Metaflow pipeline steps
+    c. [ ] Include in Docker compose setup
+    d. [ ] Update API documentation
+
+20. [ ] Add configuration management
+    a. [ ] Define environment variables
+    b. [ ] Create configuration schema
+    c. [ ] Add to .env.example
+    d. [ ] Update deployment scripts

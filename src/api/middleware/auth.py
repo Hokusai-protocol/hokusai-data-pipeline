@@ -22,7 +22,8 @@ settings = get_settings()
 
 # Initialize clients
 try:
-    secrets_client = boto3.client('secretsmanager', region_name=settings.aws_region)
+    aws_region = getattr(settings, 'aws_region', 'us-east-1')
+    secrets_client = boto3.client('secretsmanager', region_name=aws_region)
 except Exception as e:
     logger.warning(f"Failed to initialize Secrets Manager client: {e}")
     secrets_client = None

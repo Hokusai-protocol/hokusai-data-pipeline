@@ -8,7 +8,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import logging
 
-from src.api.routes import models, health
+from src.api.routes import models, health, dspy
 from src.api.middleware.auth import AuthMiddleware
 from src.api.utils.config import get_settings
 
@@ -48,6 +48,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Include routers
 app.include_router(health.router, tags=["health"])
 app.include_router(models.router, prefix="/models", tags=["models"])
+app.include_router(dspy.router, tags=["dspy"])
 
 # Global exception handler
 @app.exception_handler(Exception)
