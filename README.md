@@ -46,6 +46,7 @@ The Hokusai platform provides a complete MLOps solution for evaluating the perfo
 - **Comprehensive Testing**: Unit and integration tests included
 - **Attestation Output**: ZK-proof ready JSON format with data provenance
 - **MLFlow Integration**: Automatic experiment tracking, parameter logging, and artifact storage
+- **DSPy Model Support**: Load and manage DSPy (Declarative Self-Prompting) programs
 
 ## Quick Start
 
@@ -655,6 +656,47 @@ from src.utils.metrics import migrate_metric_name
 old_name = "accuracy"
 new_name = migrate_metric_name(old_name)  # Returns "model:accuracy"
 ```
+
+## DSPy Model Support
+
+The platform now includes comprehensive support for DSPy (Declarative Self-Prompting) models:
+
+### Loading DSPy Models
+
+```python
+from src.services.dspy_model_loader import DSPyModelLoader
+
+# Initialize loader
+loader = DSPyModelLoader()
+
+# Load from configuration
+program = loader.load_from_config("examples/dspy/basic_config.yaml")
+
+# Load from Python class
+program = loader.load_from_class("my_models.EmailAssistant", "EmailAssistant")
+
+# Load from HuggingFace
+program = loader.load_from_huggingface("hokusai/dspy-model", "model.pkl")
+```
+
+### DSPy Configuration Example
+
+```yaml
+name: email-assistant
+version: 1.0.0
+source:
+  type: local
+  path: ./models/email_assistant.py
+  class_name: EmailAssistant
+
+signatures:
+  generate_email:
+    inputs: [recipient, subject, context]
+    outputs: [email_body]
+    description: Generate professional emails
+```
+
+See [docs/DSPY_MODEL_LOADER.md](docs/DSPY_MODEL_LOADER.md) for detailed documentation.
 
 ### Configuration
 

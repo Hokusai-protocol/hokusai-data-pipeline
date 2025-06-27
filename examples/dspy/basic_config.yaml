@@ -1,0 +1,45 @@
+# Basic DSPy Model Configuration
+# This example shows a simple DSPy model configuration
+
+name: email-assistant
+version: 1.0.0
+description: DSPy-based email assistant model
+author: Hokusai Team
+
+# Source configuration - where to load the model from
+source:
+  type: local
+  path: ./models/email_assistant.py
+  class_name: EmailAssistant
+  format: python
+
+# Signature definitions
+signatures:
+  draft_email:
+    inputs:
+      - recipient
+      - subject
+      - context
+    outputs:
+      - email_body
+    description: Draft an email based on recipient and context
+    examples:
+      - input:
+          recipient: "john@example.com"
+          subject: "Meeting Follow-up"
+          context: "Discussed project timeline"
+        output:
+          email_body: "Hi John, Thank you for our meeting today..."
+
+  improve_email:
+    inputs:
+      - original_email
+      - feedback
+    outputs:
+      - improved_email
+    description: Improve an email based on feedback
+
+# Dependencies required by the model
+dependencies:
+  - dspy>=2.0.0
+  - transformers>=4.30.0

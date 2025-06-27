@@ -1,114 +1,87 @@
-# DeltaOne Detector Implementation Tasks
+# DSPy Model Loader Implementation Tasks
 
-## Core Module Implementation
+## 1. [x] Create DSPy Model Loader Module Structure
+   a. [x] Create src/services/dspy_model_loader.py main module
+   b. [x] Create src/services/dspy/ directory for submodules
+   c. [x] Create src/services/dspy/__init__.py
+   d. [x] Create src/services/dspy/config_parser.py for configuration parsing
+   e. [x] Create src/services/dspy/validators.py for DSPy validation logic
+   f. [x] Create src/services/dspy/loaders.py for local and remote loading
 
-1. [ ] Create deltaone_evaluator.py module structure
-   a. [ ] Create src/evaluation/deltaone_evaluator.py file
-   b. [ ] Add __init__.py to evaluation module
-   c. [ ] Set up module imports and dependencies
+## 2. [x] Implement Configuration Parser
+   a. [x] Create YAML configuration schema definition
+   b. [x] Implement YAML parser using PyYAML
+   c. [x] Add support for parsing Python class configurations
+   d. [x] Create configuration validation methods
+   e. [x] Handle nested configuration structures
 
-2. [ ] Implement detect_delta_one function
-   a. [ ] Define function signature with model_name parameter
-   b. [ ] Implement MLflow client initialization
-   c. [ ] Add error handling for connection issues
-   d. [ ] Add logging configuration
+## 3. [x] Implement Local File Loader
+   a. [x] Create LocalDSPyLoader class
+   b. [x] Implement file path resolution logic
+   c. [x] Add Python module import functionality
+   d. [x] Handle dependency resolution
+   e. [x] Add caching for loaded modules
 
-3. [ ] Implement model version retrieval
-   a. [ ] Create function to search model versions by name
-   b. [ ] Implement version sorting by version number
-   c. [ ] Add validation for model existence
-   d. [ ] Handle case when no versions exist
+## 4. [x] Implement Remote Repository Loader  
+   a. [x] Create RemoteDSPyLoader class
+   b. [x] Integrate huggingface_hub library
+   c. [x] Implement authentication handling
+   d. [x] Add download and caching logic
+   e. [x] Handle network errors gracefully
 
-4. [ ] Implement baseline identification logic
-   a. [ ] Find latest version with benchmark_value tag
-   b. [ ] Validate benchmark metadata exists
-   c. [ ] Handle missing baseline scenarios
-   d. [ ] Add fallback to first version if needed
+## 5. [x] Implement DSPy Module Validation
+   a. [x] Create DSPyValidator class
+   b. [x] Implement signature validation methods
+   c. [x] Add chain validation logic
+   d. [x] Validate input/output specifications
+   e. [x] Create comprehensive validation report
 
-5. [ ] Implement metric comparison
-   a. [ ] Extract benchmark_metric from model tags
-   b. [ ] Retrieve current metric value from latest version
-   c. [ ] Calculate percentage point difference
-   d. [ ] Implement 1pp threshold check
+## 6. [x] Integrate with Hokusai Model Registry
+   a. [x] Extend HokusaiModel class for DSPy models
+   b. [x] Add DSPy-specific metadata fields to registry
+   c. [x] Implement DSPy model registration methods
+   d. [x] Add version tracking for DSPy programs
+   e. [x] Update model retrieval to support DSPy models
 
-## MLflow Integration
+## 7. [x] Write and Implement Tests
+   a. [x] Unit tests for configuration parser
+   b. [x] Unit tests for local file loader
+   c. [x] Unit tests for remote repository loader
+   d. [x] Unit tests for DSPy validators
+   e. [ ] Integration tests for model registry
+   f. [ ] End-to-end tests for complete workflow
 
-6. [ ] Enhance model registry utilities
-   a. [ ] Add helper functions for version queries
-   b. [ ] Implement tag validation utilities
-   c. [ ] Create metric extraction helpers
-   d. [ ] Add version comparison utilities
+## 8. [x] Extend Model Abstraction Layer
+   a. [x] Add DSPyModel class to model_abstraction.py
+   b. [x] Implement DSPy-specific inference methods
+   c. [x] Add DSPy program execution support
+   d. [x] Create adapter for DSPy signatures
+   e. [x] Test integration with existing models
 
-7. [ ] Implement metric logging for DeltaOne
-   a. [ ] Log deltaone_achieved metric when threshold met
-   b. [ ] Log delta_value with actual improvement
-   c. [ ] Add timestamp and model version metadata
-   d. [ ] Use standardized metric naming convention
+## 9. [ ] Update API Endpoints
+   a. [ ] Add POST /api/v1/models/dspy/load endpoint
+   b. [ ] Add POST /api/v1/models/dspy/register endpoint
+   c. [ ] Add GET /api/v1/models/dspy/{model_id} endpoint
+   d. [ ] Update OpenAPI schema documentation
+   e. [ ] Add request/response models
 
-## Notification System
+## 10. [x] Create Example Configurations
+   a. [x] Create examples/dspy/ directory
+   b. [x] Add basic YAML configuration example
+   c. [x] Add complex multi-signature example
+   d. [x] Create Python class definition example
+   e. [x] Add HuggingFace loading example
 
-8. [ ] Create webhook notification module
-   a. [ ] Define webhook configuration schema
-   b. [ ] Implement HTTP POST notification
-   c. [ ] Add retry logic for failed requests
-   d. [ ] Include security headers and authentication
+## 11. [x] Documentation
+   a. [x] Update README.md with DSPy model loader section
+   b. [x] Create docs/DSPY_MODEL_LOADER.md detailed guide
+   c. [ ] Add API documentation for new endpoints
+   d. [x] Create troubleshooting guide
+   e. [x] Add configuration reference
 
-9. [ ] Implement notification payload
-   a. [ ] Define JSON payload structure
-   b. [ ] Include model details and delta value
-   c. [ ] Add contributor information if available
-   d. [ ] Include timestamp and verification data
-
-## Testing (Dependent on Core Module Implementation)
-
-10. [ ] Write unit tests for deltaone_evaluator
-    a. [ ] Test detect_delta_one with valid models
-    b. [ ] Test with missing baseline scenarios
-    c. [ ] Test metric calculation accuracy
-    d. [ ] Test edge cases (0% improvement, negative delta)
-
-11. [ ] Create integration tests
-    a. [ ] Set up test MLflow registry
-    b. [ ] Create mock models with metrics
-    c. [ ] Test full detection workflow
-    d. [ ] Verify webhook notifications
-
-12. [ ] Add performance tests
-    a. [ ] Test with large number of model versions
-    b. [ ] Measure detection latency
-    c. [ ] Test concurrent detection requests
-    d. [ ] Validate memory usage
-
-## Configuration and Documentation
-
-13. [ ] Add configuration support
-    a. [ ] Create config schema for deltaone settings
-    b. [ ] Add environment variable support
-    c. [ ] Document configuration options
-    d. [ ] Add config validation
-
-14. [ ] Update README.md with DeltaOne documentation
-    a. [ ] Add DeltaOne detector overview
-    b. [ ] Document API usage and examples
-    c. [ ] Include configuration guide
-    d. [ ] Add troubleshooting section
-
-15. [ ] Create example usage scripts
-    a. [ ] Basic detection example
-    b. [ ] Webhook integration example
-    c. [ ] Batch detection example
-    d. [ ] Custom metric example
-
-## Integration with Existing Pipeline
-
-16. [ ] Integrate with pipeline workflow
-    a. [ ] Add DeltaOne detection step to Metaflow pipeline
-    b. [ ] Update pipeline configuration
-    c. [ ] Test with existing models
-    d. [ ] Verify metric logging integration
-
-17. [ ] Update CLI tools
-    a. [ ] Add deltaone command to CLI
-    b. [ ] Implement status checking
-    c. [ ] Add manual trigger option
-    d. [ ] Include dry-run mode
+## 12. [x] Dependencies (Dependent on Documentation)
+   a. [x] Add dspy to requirements.txt
+   b. [x] Add pyyaml to requirements.txt if not present
+   c. [x] Add huggingface_hub to requirements.txt
+   d. [ ] Update setup.py with new dependencies
+   e. [ ] Test dependency installation

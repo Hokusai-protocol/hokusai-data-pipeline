@@ -1,0 +1,114 @@
+# Multi-Signature DSPy Model Configuration
+# This example demonstrates a complex DSPy model with multiple signatures and chains
+
+name: content-generation-pipeline
+version: 2.0.0
+description: Advanced content generation pipeline with multiple processing stages
+author: Hokusai ML Team
+
+# Remote source from HuggingFace
+source:
+  type: huggingface
+  repo_id: hokusai/content-pipeline
+  filename: models/pipeline.pkl
+  # token: ${HF_TOKEN}  # Use environment variable for authentication
+
+# Multiple signature definitions
+signatures:
+  research:
+    inputs:
+      - topic
+      - depth
+    outputs:
+      - research_summary
+      - key_points
+      - sources
+    description: Research a topic and extract key information
+    
+  draft_content:
+    inputs:
+      - topic
+      - research_summary
+      - target_audience
+      - style
+    outputs:
+      - draft
+      - metadata
+    description: Create initial content draft
+    
+  critique:
+    inputs:
+      - draft
+      - criteria
+    outputs:
+      - critique
+      - suggestions
+      - score
+    description: Critique content and provide improvement suggestions
+    
+  revise:
+    inputs:
+      - draft
+      - critique
+      - suggestions
+    outputs:
+      - revised_draft
+      - changes_made
+    description: Revise content based on critique
+    
+  format:
+    inputs:
+      - content
+      - format_type
+    outputs:
+      - formatted_content
+    description: Format content for different platforms
+
+# Chain definitions - how signatures work together
+chains:
+  full_pipeline:
+    description: Complete content generation pipeline
+    steps:
+      - research
+      - draft_content
+      - critique
+      - revise
+      - format
+    input_signature: research
+    output_signature: format
+    
+  quick_draft:
+    description: Quick draft without research
+    steps:
+      - draft_content
+      - format
+    input_signature: draft_content
+    output_signature: format
+    
+  improvement_loop:
+    description: Iterative improvement loop
+    steps:
+      - critique
+      - revise
+    input_signature: critique
+    output_signature: revise
+    max_iterations: 3
+
+# Model-specific configuration
+model_config:
+  temperature: 0.7
+  max_tokens: 2000
+  model_name: gpt-4
+  
+# Performance metrics to track
+metrics:
+  - coherence_score
+  - factual_accuracy
+  - engagement_score
+  - format_compliance
+
+# Dependencies
+dependencies:
+  - dspy>=2.0.0
+  - openai>=1.0.0
+  - tiktoken>=0.5.0

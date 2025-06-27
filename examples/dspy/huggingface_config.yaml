@@ -1,0 +1,64 @@
+# HuggingFace DSPy Model Configuration
+# This example shows how to load a DSPy model from HuggingFace Hub
+
+name: sentiment-analyzer
+version: 1.2.0
+description: DSPy-based sentiment analysis with explanation
+author: Hokusai Community
+
+# Load from HuggingFace Hub
+source:
+  type: huggingface
+  repo_id: hokusai/dspy-sentiment-analyzer
+  filename: model/sentiment_analyzer.pkl
+  # Optional: specify revision/branch
+  revision: main
+  # Optional: use token from environment variable for private repos
+  # token: ${HUGGINGFACE_TOKEN}
+
+# Model signatures
+signatures:
+  analyze_sentiment:
+    inputs:
+      - text
+      - domain  # e.g., "product_review", "social_media", "news"
+    outputs:
+      - sentiment  # positive, negative, neutral
+      - confidence
+      - explanation
+    description: Analyze sentiment with domain-specific context
+    
+  batch_analyze:
+    inputs:
+      - texts  # List of texts
+      - domain
+    outputs:
+      - sentiments  # List of sentiments
+      - aggregated_sentiment
+      - summary
+    description: Analyze multiple texts and provide summary
+
+# Model metadata for Hokusai registry
+metadata:
+  model_type: dspy
+  task: sentiment_analysis
+  languages: 
+    - en
+    - es
+    - fr
+  performance:
+    accuracy: 0.92
+    f1_score: 0.89
+  training_data: "MultiDomain Sentiment Dataset v3"
+
+# Integration with Hokusai token system
+hokusai_token:
+  token_id: sentiment-analyzer-v1
+  benchmark_metric: accuracy
+  benchmark_value: 0.92
+
+# Dependencies (will be checked but not auto-installed)
+dependencies:
+  - dspy>=2.0.0
+  - transformers>=4.30.0
+  - torch>=2.0.0
