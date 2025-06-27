@@ -1,63 +1,114 @@
-# Implementation Tasks: Metric Logging Convention
+# DeltaOne Detector Implementation Tasks
 
-## 1. [x] Create metric logging module structure
-   a. [x] Create `src/utils/metrics.py` file
-   b. [x] Set up module imports and dependencies
-   c. [x] Define constants for standard metrics
-   d. [x] Create module documentation
+## Core Module Implementation
 
-## 2. [x] Define standard metric naming conventions
-   a. [x] Create `STANDARD_METRICS` dictionary
-   b. [x] Define metric categories (usage, model, pipeline, custom)
-   c. [x] Document naming patterns and rules
-   d. [x] Create validation regex patterns
+1. [ ] Create deltaone_evaluator.py module structure
+   a. [ ] Create src/evaluation/deltaone_evaluator.py file
+   b. [ ] Add __init__.py to evaluation module
+   c. [ ] Set up module imports and dependencies
 
-## 3. [x] Implement core logging functions
-   a. [x] Create `log_metric()` function with MLflow integration
-   b. [x] Implement `log_metrics()` for batch logging
-   c. [x] Add `log_metric_with_metadata()` function
-   d. [x] Implement metric name validation
+2. [ ] Implement detect_delta_one function
+   a. [ ] Define function signature with model_name parameter
+   b. [ ] Implement MLflow client initialization
+   c. [ ] Add error handling for connection issues
+   d. [ ] Add logging configuration
 
-## 4. [x] Create metric organization utilities
-   a. [x] Implement metric prefix handling
-   b. [x] Create metric search functionality
-   c. [x] Add metric grouping capabilities
-   d. [x] Implement metric aggregation helpers
+3. [ ] Implement model version retrieval
+   a. [ ] Create function to search model versions by name
+   b. [ ] Implement version sorting by version number
+   c. [ ] Add validation for model existence
+   d. [ ] Handle case when no versions exist
 
-## 5. [x] Add validation and error handling
-   a. [x] Validate metric names against conventions
-   b. [x] Check metric value types and ranges
-   c. [x] Handle MLflow logging errors gracefully
-   d. [x] Add logging for debugging
+4. [ ] Implement baseline identification logic
+   a. [ ] Find latest version with benchmark_value tag
+   b. [ ] Validate benchmark metadata exists
+   c. [ ] Handle missing baseline scenarios
+   d. [ ] Add fallback to first version if needed
 
-## 6. [x] Update existing pipeline integration
-   a. [x] Update `hokusai_pipeline.py` to use new metric logging
-   b. [x] Modify evaluation steps to log standardized metrics
-   c. [x] Update model registry to log usage metrics
-   d. [x] Ensure backward compatibility
+5. [ ] Implement metric comparison
+   a. [ ] Extract benchmark_metric from model tags
+   b. [ ] Retrieve current metric value from latest version
+   c. [ ] Calculate percentage point difference
+   d. [ ] Implement 1pp threshold check
 
-## 7. [x] Write and implement tests
-   a. [x] Unit tests for metric logging functions
-   b. [x] Tests for metric validation
-   c. [x] Integration tests with MLflow
-   d. [x] Performance tests for batch logging
-   e. [ ] End-to-end pipeline tests
+## MLflow Integration
 
-## 8. [x] Create example implementations
-   a. [x] Basic metric logging examples
-   b. [x] Pipeline integration examples
-   c. [x] Model registry usage examples
-   d. [x] Custom metric examples
+6. [ ] Enhance model registry utilities
+   a. [ ] Add helper functions for version queries
+   b. [ ] Implement tag validation utilities
+   c. [ ] Create metric extraction helpers
+   d. [ ] Add version comparison utilities
 
-## 9. [x] Documentation
-   a. [x] Update README.md with metric logging guide
-   b. [x] Create metric naming convention guide
-   c. [x] Add API documentation
-   d. [x] Create migration guide for existing code
-   e. [x] Update CLAUDE.md with metric conventions
+7. [ ] Implement metric logging for DeltaOne
+   a. [ ] Log deltaone_achieved metric when threshold met
+   b. [ ] Log delta_value with actual improvement
+   c. [ ] Add timestamp and model version metadata
+   d. [ ] Use standardized metric naming convention
 
-## 10. [ ] Performance optimization
-   a. [ ] Implement asynchronous logging option
-   b. [ ] Add metric caching for high-frequency updates
-   c. [ ] Optimize batch logging performance
-   d. [ ] Add performance benchmarks
+## Notification System
+
+8. [ ] Create webhook notification module
+   a. [ ] Define webhook configuration schema
+   b. [ ] Implement HTTP POST notification
+   c. [ ] Add retry logic for failed requests
+   d. [ ] Include security headers and authentication
+
+9. [ ] Implement notification payload
+   a. [ ] Define JSON payload structure
+   b. [ ] Include model details and delta value
+   c. [ ] Add contributor information if available
+   d. [ ] Include timestamp and verification data
+
+## Testing (Dependent on Core Module Implementation)
+
+10. [ ] Write unit tests for deltaone_evaluator
+    a. [ ] Test detect_delta_one with valid models
+    b. [ ] Test with missing baseline scenarios
+    c. [ ] Test metric calculation accuracy
+    d. [ ] Test edge cases (0% improvement, negative delta)
+
+11. [ ] Create integration tests
+    a. [ ] Set up test MLflow registry
+    b. [ ] Create mock models with metrics
+    c. [ ] Test full detection workflow
+    d. [ ] Verify webhook notifications
+
+12. [ ] Add performance tests
+    a. [ ] Test with large number of model versions
+    b. [ ] Measure detection latency
+    c. [ ] Test concurrent detection requests
+    d. [ ] Validate memory usage
+
+## Configuration and Documentation
+
+13. [ ] Add configuration support
+    a. [ ] Create config schema for deltaone settings
+    b. [ ] Add environment variable support
+    c. [ ] Document configuration options
+    d. [ ] Add config validation
+
+14. [ ] Update README.md with DeltaOne documentation
+    a. [ ] Add DeltaOne detector overview
+    b. [ ] Document API usage and examples
+    c. [ ] Include configuration guide
+    d. [ ] Add troubleshooting section
+
+15. [ ] Create example usage scripts
+    a. [ ] Basic detection example
+    b. [ ] Webhook integration example
+    c. [ ] Batch detection example
+    d. [ ] Custom metric example
+
+## Integration with Existing Pipeline
+
+16. [ ] Integrate with pipeline workflow
+    a. [ ] Add DeltaOne detection step to Metaflow pipeline
+    b. [ ] Update pipeline configuration
+    c. [ ] Test with existing models
+    d. [ ] Verify metric logging integration
+
+17. [ ] Update CLI tools
+    a. [ ] Add deltaone command to CLI
+    b. [ ] Implement status checking
+    c. [ ] Add manual trigger option
+    d. [ ] Include dry-run mode

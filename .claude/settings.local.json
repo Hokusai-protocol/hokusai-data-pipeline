@@ -32,7 +32,8 @@
       "Bash(docker logs:*)",
       "Bash(docker compose:*)",
       "Bash(curl:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(osascript:*)"
     ],
     "deny": []
   }
