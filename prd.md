@@ -1,117 +1,100 @@
-# Infrastructure Setup PRD
+# Product Requirements Document: Token-Aware MLflow Model Registry
 
-## Objectives
+## Objective
+Extend the MLflow model registration functionality to include Hokusai-specific metadata that tracks token associations, performance metrics, and baseline values for each model version.
 
-Establish cloud-based infrastructure to make the Hokusai data pipeline available to external projects with secure model storage, MLFlow tracking, authentication, and automated deployment.
+## Problem Statement
+Currently, MLflow model registry lacks the ability to associate models with Hokusai tokens and track their performance benchmarks in a standardized way. This makes it difficult to:
+- Link model versions to their corresponding Hokusai tokens
+- Track baseline performance values for comparison
+- Identify which performance metric is being optimized
+- Maintain consistent metadata across the Hokusai ecosystem
 
-## Personas
+## Solution Overview
+Implement an enhanced model registration system that:
+1. Extends MLflow's register_model functionality with required Hokusai metadata
+2. Enforces a schema for token-related tags
+3. Provides a helper function for simplified registration
+4. Integrates with existing MLflow infrastructure
 
-- **External Developer**: Integrates Hokusai ML platform into their project, needs API access and model storage
-- **Data Contributor**: Submits data to improve models, requires secure authentication
-- **Platform Administrator**: Manages infrastructure, monitors usage, and handles deployments
+## Key Requirements
+
+### Functional Requirements
+1. **Enhanced Model Registration**
+   - Accept Hokusai token ID during model registration
+   - Store performance metric name (e.g., "reply_rate", "conversion_rate")
+   - Record baseline performance value for comparison
+   - Maintain compatibility with standard MLflow features
+
+2. **Helper Function Implementation**
+   - Create `register_tokenized_model()` function
+   - Validate required tags before registration
+   - Provide clear error messages for missing metadata
+   - Support both new registrations and version updates
+
+3. **Schema Enforcement**
+   - Define required tag schema
+   - Validate tag formats and values
+   - Ensure consistency across registrations
+   - Support extensibility for future metadata
+
+### Technical Requirements
+1. **Integration**
+   - Work with existing MLflow tracking server
+   - Compatible with current pipeline infrastructure
+   - Support both local and remote model registries
+
+2. **Data Structure**
+   - Tags stored as key-value pairs in MLflow
+   - Performance values stored as strings (convertible to float)
+   - Token IDs follow Hokusai naming conventions
+
+## Implementation Details
+
+### Tag Schema
+```python
+required_tags = {
+    "hokusai_token_id": str,      # e.g., "msg-ai"
+    "benchmark_metric": str,       # e.g., "reply_rate"
+    "benchmark_value": str,        # e.g., "0.1342"
+}
+```
+
+### API Example
+```python
+mlflow.register_model(
+    model_uri="runs:/<run-id>/model",
+    name="MSG-AI",
+    tags={
+        "hokusai_token_id": "msg-ai",
+        "benchmark_metric": "reply_rate",
+        "benchmark_value": "0.1342",
+    }
+)
+```
+
+### Helper Function
+```python
+register_tokenized_model(
+    model_uri="runs:/<run-id>/model",
+    model_name="MSG-AI",
+    token_id="msg-ai",
+    metric_name="reply_rate",
+    baseline_value=0.1342
+)
+```
 
 ## Success Criteria
+1. Models can be registered with Hokusai-specific metadata
+2. Required tags are validated and enforced
+3. Helper function simplifies the registration process
+4. Existing MLflow functionality remains intact
+5. Clear documentation and examples provided
 
-1. External projects can access Hokusai ML platform APIs with authentication
-2. Models and artifacts are securely stored in S3-compatible storage
-3. MLFlow tracking server is accessible for experiment tracking
-4. Automated CI/CD deploys updates to production when merged to main
-5. Infrastructure supports high availability and scalability
-
-## Tasks
-
-### 1. AWS Infrastructure Setup
-
-Set up core AWS services for the Hokusai platform:
-
-- **S3 Buckets**:
-  - `hokusai-mlflow-artifacts`: Store model artifacts and datasets
-  - `hokusai-pipeline-data`: Store contributed data and outputs
-  - Configure lifecycle policies for cost optimization
-  - Enable versioning and encryption
-
-- **RDS PostgreSQL**:
-  - Database for MLFlow backend store
-  - Multi-AZ deployment for high availability
-  - Automated backups with 7-day retention
-
-- **EC2/ECS**:
-  - Container hosting for API and MLFlow server
-  - Auto-scaling configuration
-  - Load balancer setup
-
-### 2. Authentication System
-
-Implement authentication for external access:
-
-- **API Key Management**:
-  - Generate and manage API keys for external projects
-  - Store keys securely in AWS Secrets Manager
-  - Implement key rotation policies
-
-- **ETH Address Authentication**:
-  - Support ETH wallet address as authentication method
-  - Implement signature verification for requests
-  - Map ETH addresses to API permissions
-
-### 3. MLFlow Server Deployment
-
-Deploy MLFlow tracking server on AWS:
-
-- Configure MLFlow with S3 backend for artifacts
-- Set up PostgreSQL as backend store
-- Enable authentication for MLFlow UI
-- Configure HTTPS with SSL certificates
-
-### 4. API Service Deployment
-
-Deploy the Hokusai Model Registry API:
-
-- Containerize API service using existing Dockerfile
-- Deploy to ECS with auto-scaling
-- Configure Application Load Balancer
-- Set up health checks and monitoring
-
-### 5. CI/CD Pipeline
-
-Implement automated deployment pipeline:
-
-- **GitHub Actions Workflow**:
-  - Trigger on merge to main branch
-  - Run tests and build containers
-  - Deploy to AWS ECS
-  - Update infrastructure as code
-
-- **Infrastructure as Code**:
-  - Use Terraform or CloudFormation
-  - Version control infrastructure changes
-  - Implement staging environment
-
-### 6. Monitoring and Logging
-
-Set up observability infrastructure:
-
-- CloudWatch logs for all services
-- Prometheus/Grafana for metrics (optional)
-- Alert configuration for critical issues
-- Cost monitoring and optimization
-
-### 7. Documentation
-
-Create comprehensive deployment documentation:
-
-- Infrastructure architecture diagram
-- Deployment procedures
-- Authentication setup guide
-- Troubleshooting runbook
-- API endpoint documentation
-
-### 8. Security Hardening
-
-Implement security best practices:
-
-- VPC configuration with private subnets
-- Security groups with minimal permissions
-- IAM roles and policies
-- Secrets management
-- Regular security audits
+## Deliverables
+1. Implementation of `register_tokenized_model()` function
+2. Schema validation logic for required tags
+3. Integration with existing model registry
+4. Unit tests for new functionality
+5. Documentation updates
+6. Example usage in pipeline code

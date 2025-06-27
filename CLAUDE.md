@@ -100,6 +100,19 @@ The project uses a structured 7-step workflow (defined in `tools/prompts/workflo
 - **Task Management**: Linear API
 - **Version Control**: Git/GitHub
 
+### Token-Aware MLflow Model Registry
+The project now includes token-aware model registration capabilities:
+- **register_tokenized_model()**: Register models with Hokusai token metadata
+- **validate_hokusai_tags()**: Ensure required token metadata is present
+- **get_tokenized_model()**: Retrieve models by name and version
+- **list_models_by_token()**: Find all models associated with a token
+- **validate_token_id()**: Enforce token ID naming conventions
+
+Required tags for tokenized models:
+- `hokusai_token_id`: Token identifier (e.g., "msg-ai")
+- `benchmark_metric`: Performance metric name
+- `benchmark_value`: Baseline performance value
+
 ### Python Dependencies (To Be Added)
 - `metaflow`: Pipeline orchestration
 - `mlflow`: Experiment tracking

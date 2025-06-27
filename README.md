@@ -428,7 +428,7 @@ hokusai-data-pipeline/
 
 ### Model Registry Service
 
-The `HokusaiModelRegistry` service provides centralized model management:
+The `HokusaiModelRegistry` service provides centralized model management with enhanced token-aware functionality:
 
 ```python
 from src.services.model_registry import HokusaiModelRegistry
@@ -454,6 +454,56 @@ improved_result = registry.register_improved_model(
 # Get model lineage
 lineage = registry.get_model_lineage("baseline_001")
 ```
+
+#### Token-Aware Model Registry
+
+The registry now supports associating models with Hokusai tokens for tracking performance benchmarks:
+
+```python
+from hokusai.core.registry import ModelRegistry
+
+# Initialize registry
+registry = ModelRegistry("http://localhost:5000")
+
+# Register a tokenized model
+result = registry.register_tokenized_model(
+    model_uri="runs:/abc123def456/model",
+    model_name="MSG-AI",
+    token_id="msg-ai",
+    metric_name="reply_rate",
+    baseline_value=0.1342,
+    additional_tags={
+        "dataset": "customer_interactions_v2",
+        "environment": "production"
+    }
+)
+
+# Retrieve tokenized model
+model = registry.get_tokenized_model("MSG-AI", "1")
+print(f"Token: {model['token_id']}, Baseline: {model['baseline_value']}")
+
+# List all models for a token
+models = registry.list_models_by_token("msg-ai")
+for m in models:
+    print(f"{m['model_name']} v{m['version']}: {m['metric_name']} = {m['baseline_value']}")
+
+# Update model tags
+registry.update_model_tags("MSG-AI", "1", {
+    "benchmark_value": "0.1456",  # Updated performance
+    "last_evaluated": "2024-01-15"
+})
+```
+
+**Token ID Requirements:**
+- Lowercase letters, numbers, and hyphens only
+- Maximum 64 characters
+- Cannot start or end with hyphen
+- Examples: `msg-ai`, `lead-scorer`, `churn-predictor-v2`
+
+**Required Tags:**
+- `hokusai_token_id`: Unique identifier for the Hokusai token
+- `benchmark_metric`: Performance metric name (e.g., "reply_rate", "conversion_rate")
+- `benchmark_value`: Baseline performance value (must be numeric)
 
 ### Performance Tracking Service
 
