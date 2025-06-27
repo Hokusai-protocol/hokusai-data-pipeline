@@ -1,104 +1,113 @@
-# Product Requirements Document: DSPy Model Loader
+# Product Requirements Document: DSPy Pipeline Executor
 
 ## Objectives
 
-Create a utility module within the Hokusai ML Platform that enables loading and management of DSPy (Declarative Self-Prompting) programs from structured configurations. This module will support loading DSPy program modules with defined signatures from both local files and remote repositories, while providing validation of DSPy module structure and integration with the existing Hokusai model registry.
+The DSPy Pipeline Executor provides a runtime environment for executing DSPy programs within the Hokusai ML platform. This component will bridge the gap between loaded DSPy models and actual inference execution, enabling:
+
+1. Structured execution of DSPy programs with input validation
+2. Comprehensive logging of intermediate steps and outputs
+3. Integration with MLflow for experiment tracking and tracing
+4. Standardized API for DSPy program invocation across the platform
 
 ## Personas
 
-**Primary User**: ML Engineers implementing DSPy-based models who need to load, validate, and register DSPy programs within the Hokusai ecosystem
+### Primary Users
+- **ML Engineers**: Execute and test DSPy programs with various inputs, track performance metrics
+- **Data Scientists**: Run experiments with DSPy models, analyze intermediate outputs
+- **Platform Developers**: Integrate DSPy execution into larger pipelines and services
 
-**Secondary User**: Data Scientists who want to experiment with different DSPy configurations and need a standardized way to manage DSPy program variants
+### Secondary Users
+- **DevOps Engineers**: Monitor DSPy execution performance and resource usage
+- **Product Teams**: Access DSPy model outputs through standardized APIs
 
 ## Success Criteria
 
-1. Successfully load DSPy programs from YAML configuration files and Python classes
-2. Validate DSPy module structure including signatures and chains
-3. Support loading from local filesystem and remote repositories (HuggingFace)
-4. Integrate with existing Hokusai model registry for versioning and tracking
-5. Provide clear error messages for invalid DSPy configurations
-6. Maintain compatibility with existing Hokusai ML platform architecture
+1. **Functional Success**
+   - Execute any valid DSPy program loaded through the DSPyModelLoader
+   - Capture all intermediate outputs from DSPy execution chains
+   - Log execution traces to MLflow automatically
+   - Handle errors gracefully with detailed error messages
+
+2. **Performance Success**
+   - Execute DSPy programs with <100ms overhead
+   - Support concurrent execution of multiple DSPy programs
+   - Efficient memory usage for large input/output data
+
+3. **Integration Success**
+   - Seamless integration with existing MLflow tracking
+   - Compatible with all DSPy program types (single/multi-signature)
+   - Works with token-aware model registry
 
 ## Tasks
 
-### Core Implementation
+### Core Executor Implementation
+1. Create `DSPyPipelineExecutor` class in `src/services/dspy_pipeline_executor.py`
+   - Accept DSPy program instances or model IDs
+   - Validate input dictionaries against program signatures
+   - Execute programs and capture outputs
+   - Handle execution errors with context
 
-1. Create DSPy model loader module structure
-   - Design the module architecture within src/services/
-   - Define interfaces for DSPy program loading and validation
-   - Create base classes for DSPy model abstraction
+2. Input/Output Processing
+   - Implement input validation against DSPy signatures
+   - Support multiple input formats (dict, JSON, structured objects)
+   - Standardize output format with metadata
+   - Type conversion and serialization handling
 
-2. Implement configuration parser
-   - Support YAML configuration format for DSPy programs
-   - Parse Python class definitions for DSPy modules
-   - Handle nested configuration structures for complex programs
+3. MLflow Integration
+   - Automatic `mlflow.dspy.autolog()` initialization
+   - Log program metadata (signatures, configuration)
+   - Track intermediate outputs from execution chains
+   - Record execution timing and resource usage
 
-3. Implement local file loader
-   - Load DSPy programs from local Python files
-   - Support relative and absolute path resolution
-   - Handle module imports and dependencies
+4. Execution Modes
+   - Synchronous execution for immediate results
+   - Batch execution for multiple inputs
+   - Dry-run mode for validation without execution
+   - Debug mode with verbose intermediate logging
 
-4. Implement remote repository loader
-   - Integrate with HuggingFace Hub API
-   - Support authentication for private repositories
-   - Cache downloaded models locally
+5. Error Handling and Recovery
+   - Graceful handling of DSPy execution failures
+   - Detailed error messages with signature context
+   - Retry logic for transient failures
+   - Fallback mechanisms for partial execution
 
-5. Implement DSPy module validation
-   - Validate presence of required DSPy signatures
-   - Check module structure compliance
-   - Verify chain definitions and connections
-   - Validate input/output specifications
+6. Monitoring and Observability
+   - Execution metrics (latency, throughput, success rate)
+   - Resource usage tracking (memory, CPU)
+   - Detailed execution logs with trace IDs
+   - Integration with platform monitoring tools
 
-6. Integrate with Hokusai model registry
-   - Extend existing model registry to support DSPy models
-   - Add DSPy-specific metadata fields
-   - Support versioning for DSPy programs
+7. API Design
+   - RESTful endpoint for DSPy execution
+   - Python client interface for programmatic access
+   - Batch execution endpoints
+   - Status and result retrieval APIs
 
-### Configuration Schema
+### Configuration and Management
+1. Executor configuration options
+   - Timeout settings per execution
+   - Resource limits (memory, CPU)
+   - MLflow tracking configuration
+   - Logging verbosity levels
 
-1. Define YAML schema for DSPy programs
-   - Specify required fields (name, version, signatures)
-   - Define optional fields (description, author, dependencies)
-   - Support multiple signature definitions
-
-2. Define validation rules
-   - Required signature components
-   - Valid chain types and connections
-   - Supported data types for inputs/outputs
-
-### Error Handling
-
-1. Implement comprehensive error handling
-   - Invalid configuration format errors
-   - Missing signature errors
-   - Module import errors
-   - Network errors for remote loading
-
-2. Create informative error messages
-   - Provide specific guidance for fixing issues
-   - Include validation error details
-   - Suggest correct configuration format
+2. Caching and Optimization
+   - Cache loaded DSPy programs
+   - Result caching for identical inputs
+   - Connection pooling for external services
+   - Lazy loading of program dependencies
 
 ### Integration Points
+1. Integration with DSPyModelLoader
+   - Load programs by model ID
+   - Access program metadata
+   - Version compatibility checking
 
-1. Extend model abstraction layer
-   - Add DSPy model type to existing abstraction
-   - Implement DSPy-specific inference methods
-   - Support DSPy program execution
+2. Integration with Model Registry
+   - Track execution against registered models
+   - Update model usage metrics
+   - Link executions to model versions
 
-2. Update API endpoints
-   - Add endpoints for DSPy model loading
-   - Support DSPy model registration
-   - Enable DSPy model querying
-
-### Documentation
-
-1. Create usage documentation
-   - Example YAML configurations
-   - Python class definition examples
-   - Integration with Hokusai pipeline
-
-2. Update API documentation
-   - Document new DSPy endpoints
-   - Include request/response examples
-   - Add error response documentation
+3. Integration with existing pipelines
+   - Metaflow step integration
+   - API service integration
+   - Batch processing integration

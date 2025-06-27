@@ -696,7 +696,37 @@ signatures:
     description: Generate professional emails
 ```
 
-See [docs/DSPY_MODEL_LOADER.md](docs/DSPY_MODEL_LOADER.md) for detailed documentation.
+### Executing DSPy Programs
+
+```python
+from src.services.dspy_pipeline_executor import DSPyPipelineExecutor
+
+# Initialize executor
+executor = DSPyPipelineExecutor()
+
+# Execute program
+result = executor.execute(
+    model_id="email-assistant-v1",
+    inputs={"recipient": "john@example.com", "subject": "Meeting"}
+)
+
+# Batch execution
+results = executor.execute_batch(
+    model_id="email-assistant-v1",
+    inputs_list=[{"recipient": "john"}, {"recipient": "jane"}]
+)
+```
+
+### DSPy REST API
+
+```bash
+# Execute DSPy program via API
+curl -X POST http://localhost:8001/api/v1/dspy/execute \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{"program_id": "email-assistant", "inputs": {...}}'
+```
+
+See [docs/DSPY_MODEL_LOADER.md](docs/DSPY_MODEL_LOADER.md) and [docs/DSPY_PIPELINE_EXECUTOR.md](docs/DSPY_PIPELINE_EXECUTOR.md) for detailed documentation.
 
 ### Configuration
 
