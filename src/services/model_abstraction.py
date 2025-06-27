@@ -19,6 +19,7 @@ class ModelType(Enum):
     CLASSIFICATION = "classification"
     REGRESSION = "regression"
     RANKING = "ranking"
+    DSPY = "dspy"
 
 
 class ModelStatus(Enum):
@@ -385,6 +386,141 @@ class TensorFlowHokusaiModel(HokusaiModel):
         return self.predict(X)
 
 
+class DSPyHokusaiModel(HokusaiModel):
+    """Adapter for DSPy (Declarative Self-Prompting) models."""
+    
+    def __init__(self, dspy_program: Any, metadata: ModelMetadata):
+        super().__init__(metadata)
+        self._model = dspy_program
+        self._is_loaded = dspy_program is not None
+        self._signatures = {}
+        self._extract_signatures()
+    
+    def _extract_signatures(self) -> None:
+        """Extract signatures from the DSPy program."""
+        if self._model is None:
+            return
+            
+        # Extract signatures from DSPy program attributes
+        for attr_name in dir(self._model):
+            if attr_name.startswith("_"):
+                continue
+            attr = getattr(self._model, attr_name)
+            if hasattr(attr, "fields") or hasattr(attr, "input_fields"):
+                self._signatures[attr_name] = attr
+    
+    def load(self, model_path: str) -> None:
+        """Load DSPy model from file."""
+        import pickle
+        import json
+        from pathlib import Path
+        
+        path = Path(model_path)
+        
+        if path.suffix == '.pkl':
+            with open(model_path, 'rb') as f:
+                self._model = pickle.load(f)
+        elif path.suffix == '.json':
+            # For JSON, we'd need custom deserialization
+            with open(model_path, 'r') as f:
+                config = json.load(f)
+            # This would require implementing DSPy program reconstruction from config
+            raise NotImplementedError("JSON loading for DSPy models not yet implemented")
+        else:
+            raise ValueError(f"Unsupported file format for DSPy model: {path.suffix}")
+            
+        self._is_loaded = True
+        self._extract_signatures()
+        logger.info(f"Loaded DSPy model from {model_path}")
+    
+    def predict(self, X: Union[np.ndarray, pd.DataFrame]) -> np.ndarray:
+        """Make predictions using DSPy model."""
+        if not self._is_loaded:
+            raise RuntimeError("Model not loaded")
+        
+        # DSPy models work differently - they process text/structured inputs
+        # Convert input to appropriate format for DSPy
+        if isinstance(X, pd.DataFrame):
+            # Assume each row is a separate input
+            results = []
+            for idx, row in X.iterrows():
+                # Convert row to dict and call forward
+                input_dict = row.to_dict()
+                result = self._model.forward(**input_dict)
+                results.append(self._extract_output(result))
+            return np.array(results)
+        else:
+            # For numpy arrays, we need to know the feature mapping
+            raise NotImplementedError("Direct numpy array input not supported for DSPy models")
+    
+    def predict_proba(self, X: Union[np.ndarray, pd.DataFrame]) -> np.ndarray:
+        """Return prediction probabilities."""
+        # DSPy models typically don't return probabilities directly
+        # This would need to be implemented based on specific DSPy program design
+        raise NotImplementedError("Probability predictions not supported for DSPy models")
+    
+    def _extract_output(self, dspy_output: Any) -> Any:
+        """Extract prediction from DSPy output format."""
+        # DSPy outputs can be complex objects - extract the relevant field
+        if hasattr(dspy_output, 'completion'):
+            return dspy_output.completion
+        elif hasattr(dspy_output, 'output'):
+            return dspy_output.output
+        elif isinstance(dspy_output, dict):
+            # Look for common output keys
+            for key in ['output', 'result', 'prediction', 'completion']:
+                if key in dspy_output:
+                    return dspy_output[key]
+        return dspy_output
+    
+    def validate_input(self, X: Union[np.ndarray, pd.DataFrame]) -> bool:
+        """Validate input data format for DSPy models."""
+        if isinstance(X, pd.DataFrame):
+            # For DSPy, we need to check if columns match expected signature inputs
+            if self._signatures:
+                # Get the first signature's expected inputs
+                first_sig = next(iter(self._signatures.values()))
+                if hasattr(first_sig, 'input_fields'):
+                    required_fields = list(first_sig.input_fields.keys())
+                    missing_fields = set(required_fields) - set(X.columns)
+                    if missing_fields:
+                        raise ValueError(f"Missing required input fields: {missing_fields}")
+            return True
+        else:
+            raise ValueError("DSPy models require pandas DataFrame input with named columns")
+    
+    def get_signatures(self) -> Dict[str, Any]:
+        """Get all signatures defined in the DSPy program."""
+        return self._signatures
+    
+    def explain_prediction(self, X: Union[np.ndarray, pd.DataFrame], 
+                         idx: int = 0) -> Optional[Dict[str, Any]]:
+        """Explain a DSPy prediction by showing the reasoning chain."""
+        if not isinstance(X, pd.DataFrame):
+            raise ValueError("DSPy explanations require DataFrame input")
+            
+        # Get single input
+        input_row = X.iloc[idx].to_dict()
+        
+        # Run forward with trace enabled (if supported)
+        if hasattr(self._model, 'forward_with_trace'):
+            result, trace = self._model.forward_with_trace(**input_row)
+            return {
+                'input': input_row,
+                'output': self._extract_output(result),
+                'trace': trace,
+                'signatures_used': list(self._signatures.keys())
+            }
+        else:
+            # Basic explanation without trace
+            result = self._model.forward(**input_row)
+            return {
+                'input': input_row,
+                'output': self._extract_output(result),
+                'signatures_used': list(self._signatures.keys())
+            }
+
+
 class ModelFactory:
     """Factory for creating HokusaiModel instances."""
     
@@ -392,6 +528,7 @@ class ModelFactory:
         'sklearn': SklearnHokusaiModel,
         'xgboost': XGBoostHokusaiModel,
         'tensorflow': TensorFlowHokusaiModel,
+        'dspy': DSPyHokusaiModel,
     }
     
     @classmethod
