@@ -8,6 +8,13 @@ from mlflow.tracking import MlflowClient
 
 from .models import HokusaiModel
 
+# Required tags for Hokusai tokenized models
+REQUIRED_HOKUSAI_TAGS = {
+    "hokusai_token_id": str,
+    "benchmark_metric": str,
+    "benchmark_value": str
+}
+
 
 class RegistryException(Exception):
     """Exception raised by model registry operations"""
@@ -303,6 +310,219 @@ class ModelRegistry:
             
         except Exception as e:
             raise RegistryException(f"Failed to rollback model: {str(e)}")
+    
+    def register_tokenized_model(
+        self,
+        model_uri: str,
+        model_name: str,
+        token_id: str,
+        metric_name: str,
+        baseline_value: float,
+        additional_tags: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
+        """Register a model with Hokusai token metadata
+        
+        Args:
+            model_uri: MLflow model URI (e.g., "runs:/abc123/model")
+            model_name: Name for the registered model
+            token_id: Hokusai token ID (e.g., "msg-ai")
+            metric_name: Performance metric name (e.g., "reply_rate")
+            baseline_value: Baseline performance value
+            additional_tags: Optional additional tags
+            
+        Returns:
+            Dict with registration details
+            
+        Raises:
+            ValueError: Invalid parameters
+            RegistryException: Registration failed
+        """
+        # Validate parameters
+        if not all([model_uri, model_name, token_id, metric_name]):
+            raise ValueError("All parameters are required")
+        
+        if not isinstance(baseline_value, (int, float)):
+            raise ValueError("baseline_value must be numeric")
+        
+        # Validate token ID format
+        self.validate_token_id(token_id)
+        
+        try:
+            # Create or get registered model
+            try:
+                self.client.create_registered_model(
+                    name=model_name,
+                    description=f"Hokusai tokenized model: {token_id}"
+                )
+            except Exception:
+                # Model already exists
+                pass
+            
+            # Create model version
+            model_version = self.client.create_model_version(
+                name=model_name,
+                source=model_uri,
+                description=f"Token: {token_id}, Metric: {metric_name}"
+            )
+            
+            # Set required Hokusai tags
+            tags = {
+                "hokusai_token_id": token_id,
+                "benchmark_metric": metric_name,
+                "benchmark_value": str(baseline_value)
+            }
+            
+            # Add any additional tags
+            if additional_tags:
+                tags.update(additional_tags)
+            
+            # Set all tags
+            for key, value in tags.items():
+                self.client.set_model_version_tag(
+                    name=model_name,
+                    version=model_version.version,
+                    key=key,
+                    value=str(value)
+                )
+            
+            return {
+                "model_name": model_name,
+                "version": model_version.version,
+                "token_id": token_id,
+                "metric_name": metric_name,
+                "baseline_value": baseline_value,
+                "tags": tags
+            }
+            
+        except Exception as e:
+            raise RegistryException(f"Failed to register tokenized model: {str(e)}")
+    
+    def validate_hokusai_tags(self, tags: Dict[str, str]) -> None:
+        """Validate required Hokusai tags
+        
+        Args:
+            tags: Dictionary of tags to validate
+            
+        Raises:
+            RegistryException: Invalid or missing tags
+        """
+        for tag_name, tag_type in REQUIRED_HOKUSAI_TAGS.items():
+            if tag_name not in tags:
+                raise RegistryException(f"Missing required tag: {tag_name}")
+            
+            if not isinstance(tags[tag_name], tag_type):
+                raise RegistryException(f"Tag {tag_name} must be a {tag_type.__name__}")
+            
+            # Special validation for benchmark_value
+            if tag_name == "benchmark_value":
+                try:
+                    float(tags[tag_name])
+                except ValueError:
+                    raise RegistryException("benchmark_value must be convertible to float")
+    
+    def get_tokenized_model(self, model_name: str, version: str) -> Dict[str, Any]:
+        """Get a tokenized model by name and version
+        
+        Args:
+            model_name: Registered model name
+            version: Model version
+            
+        Returns:
+            Dict with model details including token metadata
+        """
+        try:
+            model_version = self.client.get_model_version(
+                name=model_name,
+                version=version
+            )
+            
+            tags = model_version.tags
+            self.validate_hokusai_tags(tags)
+            
+            return {
+                "model_name": model_name,
+                "version": version,
+                "token_id": tags["hokusai_token_id"],
+                "metric_name": tags["benchmark_metric"],
+                "baseline_value": float(tags["benchmark_value"]),
+                "tags": tags
+            }
+            
+        except Exception as e:
+            raise RegistryException(f"Failed to get tokenized model: {str(e)}")
+    
+    def list_models_by_token(self, token_id: str) -> List[Dict[str, Any]]:
+        """List all models associated with a token
+        
+        Args:
+            token_id: Hokusai token ID
+            
+        Returns:
+            List of model details
+        """
+        try:
+            models = []
+            
+            # Search across all registered models
+            for rm in self.client.search_registered_models():
+                versions = self.client.search_model_versions(f"name='{rm.name}'")
+                
+                for version in versions:
+                    if version.tags.get("hokusai_token_id") == token_id:
+                        try:
+                            model_data = self.get_tokenized_model(rm.name, version.version)
+                            models.append(model_data)
+                        except RegistryException:
+                            # Skip models without valid Hokusai tags
+                            continue
+            
+            return models
+            
+        except Exception as e:
+            raise RegistryException(f"Failed to list models by token: {str(e)}")
+    
+    def update_model_tags(self, model_name: str, version: str, tags: Dict[str, str]) -> None:
+        """Update tags for a model version
+        
+        Args:
+            model_name: Registered model name
+            version: Model version
+            tags: Tags to update
+        """
+        try:
+            for key, value in tags.items():
+                self.client.set_model_version_tag(
+                    name=model_name,
+                    version=version,
+                    key=key,
+                    value=str(value)
+                )
+        except Exception as e:
+            raise RegistryException(f"Failed to update model tags: {str(e)}")
+    
+    def validate_token_id(self, token_id: str) -> None:
+        """Validate token ID format
+        
+        Args:
+            token_id: Token ID to validate
+            
+        Raises:
+            ValueError: Invalid token ID format
+        """
+        import re
+        
+        if not token_id:
+            raise ValueError("Invalid token ID: cannot be empty")
+        
+        if len(token_id) > 64:
+            raise ValueError("Invalid token ID: too long (max 64 chars)")
+        
+        # Allow lowercase letters, numbers, and hyphens
+        if not re.match(r'^[a-z0-9-]+$', token_id):
+            raise ValueError("Invalid token ID: must contain only lowercase letters, numbers, and hyphens")
+        
+        if token_id.startswith('-') or token_id.endswith('-'):
+            raise ValueError("Invalid token ID: cannot start or end with hyphen")
     
     def delete_model_version(self, model_id: str) -> bool:
         """Delete a specific model version"""
