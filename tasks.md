@@ -1,59 +1,63 @@
-# Implementation Tasks: Token-Aware MLflow Model Registry
+# Implementation Tasks: Metric Logging Convention
 
-## 1. [x] Create model registry module structure
-   a. [x] Create `hokusai_ml_platform/model_registry.py` file
+## 1. [x] Create metric logging module structure
+   a. [x] Create `src/utils/metrics.py` file
    b. [x] Set up module imports and dependencies
-   c. [x] Create `__init__.py` with proper exports
+   c. [x] Define constants for standard metrics
+   d. [x] Create module documentation
 
-## 2. [x] Implement core registry helper function
-   a. [x] Create `register_tokenized_model()` function
-   b. [x] Add parameter validation
-   c. [x] Convert baseline_value to string format
-   d. [x] Handle MLflow client initialization
+## 2. [x] Define standard metric naming conventions
+   a. [x] Create `STANDARD_METRICS` dictionary
+   b. [x] Define metric categories (usage, model, pipeline, custom)
+   c. [x] Document naming patterns and rules
+   d. [x] Create validation regex patterns
 
-## 3. [x] Implement tag schema validation
-   a. [x] Define `REQUIRED_HOKUSAI_TAGS` constant
-   b. [x] Create `validate_hokusai_tags()` function
-   c. [x] Add type checking for tag values
-   d. [x] Implement clear error messages
+## 3. [x] Implement core logging functions
+   a. [x] Create `log_metric()` function with MLflow integration
+   b. [x] Implement `log_metrics()` for batch logging
+   c. [x] Add `log_metric_with_metadata()` function
+   d. [x] Implement metric name validation
 
-## 4. [x] Add model registration logic
-   a. [x] Integrate with MLflow's register_model API
-   b. [x] Handle both new registrations and version updates
-   c. [x] Add proper error handling
-   d. [x] Return registration details
+## 4. [x] Create metric organization utilities
+   a. [x] Implement metric prefix handling
+   b. [x] Create metric search functionality
+   c. [x] Add metric grouping capabilities
+   d. [x] Implement metric aggregation helpers
 
-## 5. [x] Create utility functions
-   a. [x] Add `get_tokenized_model()` retrieval function
-   b. [x] Create `list_models_by_token()` function
-   c. [x] Implement `update_model_tags()` function
-   d. [x] Add `validate_token_id()` helper
+## 5. [x] Add validation and error handling
+   a. [x] Validate metric names against conventions
+   b. [x] Check metric value types and ranges
+   c. [x] Handle MLflow logging errors gracefully
+   d. [x] Add logging for debugging
 
-## 6. [ ] Update existing pipeline integration
-   a. [ ] Modify `train_new_model` step to use new registry
-   b. [ ] Update `compare_and_output_delta` to include token metadata
-   c. [ ] Ensure backward compatibility
+## 6. [x] Update existing pipeline integration
+   a. [x] Update `hokusai_pipeline.py` to use new metric logging
+   b. [x] Modify evaluation steps to log standardized metrics
+   c. [x] Update model registry to log usage metrics
+   d. [x] Ensure backward compatibility
 
 ## 7. [x] Write and implement tests
-   a. [x] Unit tests for `register_tokenized_model()`
-   b. [x] Tests for schema validation
+   a. [x] Unit tests for metric logging functions
+   b. [x] Tests for metric validation
    c. [x] Integration tests with MLflow
-   d. [x] Mock tests for error conditions
+   d. [x] Performance tests for batch logging
    e. [ ] End-to-end pipeline tests
 
 ## 8. [x] Create example implementations
-   a. [x] Basic usage example script
-   b. [x] Integration example with pipeline
-   c. [x] Migration example for existing models
-   d. [x] Error handling examples
+   a. [x] Basic metric logging examples
+   b. [x] Pipeline integration examples
+   c. [x] Model registry usage examples
+   d. [x] Custom metric examples
 
 ## 9. [x] Documentation
-   a. [x] Update README.md with new registry features
-   b. [x] Add docstrings to all functions
-   c. [x] Create API documentation
-   d. [x] Add usage guide to CLAUDE.md
+   a. [x] Update README.md with metric logging guide
+   b. [x] Create metric naming convention guide
+   c. [x] Add API documentation
+   d. [x] Create migration guide for existing code
+   e. [x] Update CLAUDE.md with metric conventions
 
-## 10. [ ] Dependencies (No blockers)
-   a. [ ] Verify MLflow version compatibility
-   b. [ ] Update requirements.txt if needed
-   c. [ ] Check for any new dependencies
+## 10. [ ] Performance optimization
+   a. [ ] Implement asynchronous logging option
+   b. [ ] Add metric caching for high-frequency updates
+   c. [ ] Optimize batch logging performance
+   d. [ ] Add performance benchmarks

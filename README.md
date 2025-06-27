@@ -597,6 +597,65 @@ For production deployments, the platform includes complete AWS infrastructure:
 
 See [infrastructure/README.md](infrastructure/README.md) for detailed deployment instructions.
 
+## Metric Logging Convention
+
+The platform uses a standardized metric logging convention for consistent tracking across all components:
+
+### Metric Categories
+
+- **usage:** - User interaction metrics (e.g., `usage:reply_rate`, `usage:conversion_rate`)
+- **model:** - Model performance metrics (e.g., `model:accuracy`, `model:f1_score`)
+- **pipeline:** - Pipeline execution metrics (e.g., `pipeline:duration_seconds`, `pipeline:data_processed`)
+- **custom:** - Custom metrics specific to your use case
+
+### Usage Example
+
+```python
+from src.utils.metrics import log_model_metrics, log_pipeline_metrics, log_usage_metrics
+
+# Log model performance metrics
+log_model_metrics({
+    "accuracy": 0.89,
+    "f1_score": 0.87,
+    "latency_ms": 15.2
+})
+
+# Log pipeline execution metrics
+log_pipeline_metrics({
+    "duration_seconds": 120.5,
+    "data_processed": 10000,
+    "success_rate": 0.98
+})
+
+# Log usage metrics
+log_usage_metrics({
+    "reply_rate": 0.1523,
+    "conversion_rate": 0.0821
+})
+```
+
+### Metric Naming Convention
+
+- Use lowercase with underscores: `metric_name`
+- Include category prefix: `category:metric_name`
+- Valid pattern: `^([a-z]+:)?[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$`
+
+### Standard Metrics Reference
+
+See `STANDARD_METRICS` in `src/utils/metrics.py` for the full list of predefined metrics.
+
+### Migration from Legacy Metrics
+
+The `migrate_metric_name()` function helps convert old metric names to the new convention:
+
+```python
+from src.utils.metrics import migrate_metric_name
+
+# Automatic migration
+old_name = "accuracy"
+new_name = migrate_metric_name(old_name)  # Returns "model:accuracy"
+```
+
 ### Configuration
 
 Environment variables can be set in `.env` file:

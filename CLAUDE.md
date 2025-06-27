@@ -113,6 +113,18 @@ Required tags for tokenized models:
 - `benchmark_metric`: Performance metric name
 - `benchmark_value`: Baseline performance value
 
+### Metric Logging Convention
+The project now uses standardized metric logging with categories:
+- **usage:** - User metrics (e.g., `usage:reply_rate`)
+- **model:** - Model metrics (e.g., `model:accuracy`)
+- **pipeline:** - Pipeline metrics (e.g., `pipeline:duration_seconds`)
+- **custom:** - Custom metrics (e.g., `custom:delta_one_score`)
+
+Use the helper functions in `src/utils/metrics.py`:
+- `log_usage_metrics()` - Automatically prefixes with "usage:"
+- `log_model_metrics()` - Automatically prefixes with "model:"
+- `log_pipeline_metrics()` - Automatically prefixes with "pipeline:"
+
 ### Python Dependencies (To Be Added)
 - `metaflow`: Pipeline orchestration
 - `mlflow`: Experiment tracking
