@@ -110,13 +110,19 @@ class DSPyPipelineExecutor:
             experiment_name = config.mlflow_experiment_name or "dspy-execution"
             mlflow.set_experiment(experiment_name)
             
-            # Try to enable DSPy autolog if available
+            # Enable DSPy autolog using our integration
             try:
-                if hasattr(mlflow, 'dspy'):
-                    mlflow.dspy.autolog()
-                    logger.info("MLflow DSPy autolog enabled")
-            except Exception as e:
-                logger.debug(f"MLflow DSPy autolog not available: {e}")
+                from src.integrations.mlflow_dspy import autolog
+                autolog()
+                logger.info("MLflow DSPy autolog enabled via Hokusai integration")
+            except ImportError:
+                # Fallback to native MLflow DSPy autolog if available
+                try:
+                    if hasattr(mlflow, 'dspy'):
+                        mlflow.dspy.autolog()
+                        logger.info("MLflow DSPy autolog enabled (native)")
+                except Exception as e:
+                    logger.debug(f"MLflow DSPy autolog not available: {e}")
                 
         except Exception as e:
             logger.warning(f"Failed to initialize MLflow tracking: {e}")
