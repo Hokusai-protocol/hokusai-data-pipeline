@@ -178,6 +178,13 @@ class DSPyModelLoader:
             
         # Log with MLflow
         with mlflow.start_run() as run:
+            # Enable tracing for this model registration
+            try:
+                from src.integrations.mlflow_dspy import autolog
+                autolog()
+            except ImportError:
+                pass
+                
             # Log metadata
             mlflow.log_params({
                 "model_type": "dspy",

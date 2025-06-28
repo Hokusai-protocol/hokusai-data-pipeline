@@ -1,114 +1,125 @@
-# Product Requirements Document: DSPy Signature Library
+# Product Requirements Document: Integrate DSPy with MLflow Tracing
 
 ## Objectives
 
-The DSPy Signature Library provides a centralized registry of reusable prompt signatures for DSPy models across the Hokusai platform. This component will standardize common prompt patterns, improve consistency across models, and accelerate development of new DSPy programs by providing pre-built, tested signatures.
+This feature integrates DSPy program execution with MLflow's tracing capabilities to provide comprehensive visibility into prompt-based model operations. By wrapping all DSPy executions with automatic MLflow tracing, we enable detailed tracking of inputs, intermediate outputs, and final results throughout the DSPy program lifecycle.
 
 Key objectives:
-1. Create a comprehensive library of reusable DSPy signatures
-2. Enable easy import and aliasing of signatures in DSPy programs
-3. Support model-specific variants while maintaining base signatures
-4. Provide version control and documentation for signatures
-5. Integrate with existing DSPy Model Loader and Pipeline Executor
+1. Automatically enable MLflow tracing for all DSPy program executions
+2. Capture complete execution traces including inputs, outputs, and intermediate steps
+3. Ensure module names and signatures are traceable in MLflow UI
+4. Provide seamless integration without requiring code changes in existing DSPy programs
+5. Enable performance monitoring and debugging of DSPy pipelines
 
 ## Personas
 
 ### Primary Users
-- **DSPy Developers**: Build new DSPy programs using standardized signatures
-- **ML Engineers**: Customize and extend signatures for specific use cases
-- **Platform Developers**: Maintain and evolve the signature library
+- **ML Engineers**: Monitor and debug DSPy program performance in production
+- **Data Scientists**: Analyze prompt effectiveness and model behavior
+- **Platform Engineers**: Ensure system reliability and performance
 
 ### Secondary Users
-- **Data Scientists**: Reference signature patterns for prompt engineering
-- **DevOps Engineers**: Deploy and version signature updates
+- **Product Managers**: Review model performance metrics and user interactions
+- **DevOps Engineers**: Monitor system health and troubleshoot issues
 
 ## Success Criteria
 
-1. **Functional Success**
-   - Repository contains 20+ common DSPy signatures
-   - Signatures can be imported with single import statement
-   - Support for signature inheritance and composition
-   - Automatic validation of signature compatibility
+1. **Automatic Tracing**
+   - All DSPy executions automatically log to MLflow without manual instrumentation
+   - Zero configuration required for basic tracing functionality
+   - Support for custom trace metadata and tags
 
-2. **Developer Experience**
-   - Clear documentation for each signature
-   - Examples showing signature usage
-   - Type hints and IDE autocompletion support
-   - Easy signature discovery and search
+2. **Complete Visibility**
+   - Capture 100% of DSPy program executions
+   - Log all inputs, outputs, and intermediate transformations
+   - Track execution time and resource usage
+   - Preserve module hierarchy and signature information
 
-3. **Integration Success**
-   - Seamless integration with DSPy Model Loader
-   - Backward compatibility with existing DSPy programs
-   - Version management for signature updates
+3. **Performance Impact**
+   - Less than 5% overhead on execution time
+   - Minimal memory footprint for trace storage
+   - Configurable sampling for high-volume scenarios
+
+4. **Integration Quality**
+   - Compatible with existing DSPy programs without modifications
+   - Works with all DSPy module types and signatures
+   - Integrates with existing MLflow experiments and runs
 
 ## Tasks
 
-### Core Library Implementation
-1. Create signature registry structure
-   - Design module organization for signatures
-   - Implement base signature classes
-   - Create signature metadata format
-   - Build signature validation framework
+### Core Implementation
+1. Create MLflow Tracing Integration
+   - Implement automatic `mlflow.dspy.autolog()` functionality
+   - Create wrapper classes for DSPy modules
+   - Build trace context management
+   - Handle nested module execution tracing
 
-2. Implement Common Signatures
-   - Text generation signatures (DraftText, ReviseText, ExpandText)
-   - Analysis signatures (CritiqueText, SummarizeText, ExtractInfo)
-   - Conversation signatures (RespondToUser, ClarifyIntent, GenerateFollowUp)
-   - Task-specific signatures (EmailDraft, CodeGeneration, DataAnalysis)
+2. Capture Execution Details
+   - Log input parameters and values
+   - Record intermediate computation steps
+   - Capture final outputs and predictions
+   - Track execution metadata (timestamps, duration, etc.)
 
-3. Aliasing and Customization System
-   - Create aliasing mechanism for model-specific variants
-   - Support signature parameter overrides
-   - Enable signature composition
-   - Implement inheritance for signature specialization
+3. Preserve DSPy Structure
+   - Map DSPy module names to MLflow spans
+   - Record signature information in trace metadata
+   - Maintain parent-child relationships for nested modules
+   - Support custom module attributes
 
-4. Version Control Integration
-   - Track signature versions and changes
-   - Support multiple signature versions simultaneously
-   - Migration tools for signature updates
-   - Changelog generation for signatures
+### Configuration and Control
+1. Configuration System
+   - Enable/disable tracing via environment variables
+   - Configure trace sampling rates
+   - Set custom tags and metadata
+   - Control verbosity levels
 
-### Integration and Discovery
-1. Search and Discovery Features
-   - Signature catalog with descriptions
-   - Tag-based signature search
-   - Usage statistics tracking
-   - Signature recommendation engine
+2. Performance Optimization
+   - Implement efficient trace buffering
+   - Batch trace uploads to MLflow
+   - Add caching for repeated executions
+   - Minimize serialization overhead
 
-2. Documentation System
-   - Auto-generated signature documentation
-   - Interactive examples in documentation
-   - Best practices guide
-   - Migration guides for deprecated signatures
+### Integration Points
+1. DSPy Pipeline Executor Integration
+   - Update pipeline executor to enable tracing
+   - Ensure compatibility with existing execution flow
+   - Add trace-aware error handling
+   - Support distributed execution tracing
 
-3. Testing Framework
-   - Unit tests for each signature
-   - Integration tests with DSPy programs
-   - Performance benchmarks
-   - Compatibility testing across DSPy versions
+2. Model Loader Enhancement
+   - Auto-enable tracing for loaded models
+   - Preserve tracing configuration across saves/loads
+   - Support trace replay for debugging
+   - Enable trace comparison between versions
 
-### Developer Tools
-1. CLI Tools
-   - Signature scaffolding generator
-   - Signature validation command
-   - Import helper commands
-   - Signature usage analyzer
+### Testing and Validation
+1. Unit Testing
+   - Test trace capture for all DSPy module types
+   - Verify correct parent-child span relationships
+   - Validate trace metadata accuracy
+   - Test error handling and edge cases
 
-2. IDE Integration
-   - VS Code extension for signature discovery
-   - Autocomplete for signature imports
-   - Inline documentation
-   - Signature preview functionality
+2. Integration Testing
+   - Test with real DSPy programs
+   - Verify MLflow UI trace visualization
+   - Test performance under load
+   - Validate distributed execution scenarios
 
-### Quality Assurance
-1. Signature Standards
-   - Naming conventions enforcement
-   - Input/output type validation
-   - Description format requirements
-   - Example requirement for each signature
+3. Performance Testing
+   - Benchmark overhead of tracing
+   - Test with high-volume execution scenarios
+   - Measure memory usage patterns
+   - Optimize hot paths
 
-2. Review Process
-   - Signature proposal template
-   - Review checklist for new signatures
-   - Community contribution guidelines
-   - Deprecation policy and process
+### Documentation and Examples
+1. Usage Documentation
+   - Installation and setup guide
+   - Configuration reference
+   - Troubleshooting guide
+   - Best practices for production use
+
+2. Example Implementations
+   - Basic DSPy program with tracing
+   - Advanced tracing configurations
+   - Custom metadata examples
+   - Performance monitoring dashboard setup
