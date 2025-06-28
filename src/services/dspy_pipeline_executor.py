@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import mlflow
 from src.services.dspy_model_loader import DSPyModelLoader
 from src.utils.config import get_config
+from src.dspy_signatures.base import BaseSignature
 
 logger = logging.getLogger(__name__)
 
@@ -131,14 +132,25 @@ class DSPyPipelineExecutor:
         Raises:
             ValidationError: If inputs are invalid
         """
-        if not hasattr(program, 'signature'):
-            # If no signature, assume inputs are valid
+        # Check if program has a signature attribute
+        signature = None
+        if hasattr(program, 'signature'):
+            signature = program.signature
+        elif isinstance(program, BaseSignature):
+            signature = program
+            
+        if not signature:
+            # If no signature found, assume inputs are valid
             return
             
-        signature = program.signature
-        
-        # Check for required input fields
-        if hasattr(signature, 'input_fields'):
+        # If signature is a BaseSignature instance, use its validation
+        if isinstance(signature, BaseSignature):
+            try:
+                signature.validate_inputs(inputs)
+            except ValueError as e:
+                raise ValidationError(str(e))
+        # Otherwise check for required input fields
+        elif hasattr(signature, 'input_fields'):
             required_fields = signature.input_fields
             missing_fields = [f for f in required_fields if f not in inputs]
             

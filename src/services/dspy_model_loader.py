@@ -8,6 +8,7 @@ import mlflow
 from .dspy import DSPyConfigParser, LocalDSPyLoader, RemoteDSPyLoader, DSPyValidator
 from .model_registry import HokusaiModelRegistry
 from ..utils.logging_utils import get_pipeline_logger
+from ..dspy_signatures import get_global_registry, SignatureLoader
 
 logger = get_pipeline_logger(__name__)
 
@@ -35,6 +36,8 @@ class DSPyModelLoader:
         self.local_loader = LocalDSPyLoader()
         self.remote_loader = RemoteDSPyLoader()
         self.validator = DSPyValidator()
+        self.signature_registry = get_global_registry()
+        self.signature_loader = SignatureLoader()
         
     def load_from_config(self, config_path: Union[str, Path]) -> Dict[str, Any]:
         """Load DSPy program from a configuration file.
@@ -233,3 +236,86 @@ class DSPyModelLoader:
         token = source.get("token")
         
         return self.load_from_huggingface(repo_id, filename, token)
+    
+    def load_signature_from_library(self, signature_name: str) -> Any:
+        """Load a signature from the DSPy signature library.
+        
+        Args:
+            signature_name: Name or alias of the signature to load
+            
+        Returns:
+            DSPy signature instance
+            
+        Raises:
+            KeyError: If signature not found in library
+        """
+        logger.info(f"Loading signature from library: {signature_name}")
+        return self.signature_loader.load(signature_name)
+    
+    def list_available_signatures(self, category: Optional[str] = None,
+                                tags: Optional[list] = None) -> list:
+        """List available signatures from the library.
+        
+        Args:
+            category: Optional category filter
+            tags: Optional list of tags to filter by
+            
+        Returns:
+            List of available signature names
+        """
+        if category or tags:
+            return self.signature_registry.search(category=category, tags=tags)
+        return self.signature_registry.list_signatures()
+    
+    def create_program_with_library_signatures(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a DSPy program using signatures from the library.
+        
+        Args:
+            config: Configuration specifying which signatures to use
+            
+        Returns:
+            Dictionary containing the created program and metadata
+            
+        Example config:
+            {
+                "name": "email-assistant",
+                "signatures": {
+                    "draft": {"library": "EmailDraft"},
+                    "revise": {"library": "ReviseText", "overrides": {"tone": "professional"}}
+                },
+                "chains": [
+                    {"name": "email_chain", "steps": ["draft", "revise"]}
+                ]
+            }
+        """
+        logger.info(f"Creating program with library signatures: {config.get('name', 'unnamed')}")
+        
+        # Load signatures from library
+        signatures = {}
+        for sig_name, sig_config in config.get("signatures", {}).items():
+            if "library" in sig_config:
+                library_name = sig_config["library"]
+                sig = self.signature_loader.load(library_name)
+                
+                # Apply any overrides if specified
+                if "overrides" in sig_config:
+                    # This would need implementation in the signature loader
+                    logger.info(f"Applying overrides to {library_name}: {sig_config['overrides']}")
+                
+                signatures[sig_name] = sig
+        
+        # Create program structure
+        program_data = {
+            "program": {
+                "signatures": signatures,
+                "chains": config.get("chains", [])
+            },
+            "metadata": {
+                "name": config.get("name", "unnamed"),
+                "source_type": "library_composition",
+                "signatures": list(signatures.keys()),
+                "library_signatures": {k: v["library"] for k, v in config.get("signatures", {}).items() if "library" in v}
+            }
+        }
+        
+        return program_data
