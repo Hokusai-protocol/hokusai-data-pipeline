@@ -6,6 +6,12 @@ from pipeline import Pipeline, PipelineConfig
 from evaluator import Evaluator
 from comparator import Comparator
 from status_checker import StatusChecker
+import sys
+import os
+
+# Add src directory to path to import signature commands
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+from cli.signatures import signatures as signature_commands
 
 
 @click.group()
@@ -104,6 +110,9 @@ def status():
         click.echo(f"Error: {str(e)}", err=True)
         raise click.ClickException(str(e))
 
+
+# Add signature commands to the main CLI
+cli.add_command(signature_commands)
 
 if __name__ == '__main__':
     cli()

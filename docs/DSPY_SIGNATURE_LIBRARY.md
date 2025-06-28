@@ -574,6 +574,26 @@ insights = executor.execute(
 )
 ```
 
+## CLI Tools
+
+The signature library includes comprehensive CLI tools for management and discovery:
+
+```bash
+# List all signatures
+python cli/src/cli.py signatures list
+
+# Show signature details
+python cli/src/cli.py signatures show EmailDraft
+
+# Test a signature
+python cli/src/cli.py signatures test DraftText --inputs '{"topic": "AI"}'
+
+# Export signatures
+python cli/src/cli.py signatures export-catalog --format yaml
+```
+
+See [CLI_SIGNATURES.md](CLI_SIGNATURES.md) for complete CLI documentation.
+
 ## Contributing
 
 To contribute new signatures:
