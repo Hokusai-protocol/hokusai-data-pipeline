@@ -1,113 +1,114 @@
-# Product Requirements Document: DSPy Pipeline Executor
+# Product Requirements Document: DSPy Signature Library
 
 ## Objectives
 
-The DSPy Pipeline Executor provides a runtime environment for executing DSPy programs within the Hokusai ML platform. This component will bridge the gap between loaded DSPy models and actual inference execution, enabling:
+The DSPy Signature Library provides a centralized registry of reusable prompt signatures for DSPy models across the Hokusai platform. This component will standardize common prompt patterns, improve consistency across models, and accelerate development of new DSPy programs by providing pre-built, tested signatures.
 
-1. Structured execution of DSPy programs with input validation
-2. Comprehensive logging of intermediate steps and outputs
-3. Integration with MLflow for experiment tracking and tracing
-4. Standardized API for DSPy program invocation across the platform
+Key objectives:
+1. Create a comprehensive library of reusable DSPy signatures
+2. Enable easy import and aliasing of signatures in DSPy programs
+3. Support model-specific variants while maintaining base signatures
+4. Provide version control and documentation for signatures
+5. Integrate with existing DSPy Model Loader and Pipeline Executor
 
 ## Personas
 
 ### Primary Users
-- **ML Engineers**: Execute and test DSPy programs with various inputs, track performance metrics
-- **Data Scientists**: Run experiments with DSPy models, analyze intermediate outputs
-- **Platform Developers**: Integrate DSPy execution into larger pipelines and services
+- **DSPy Developers**: Build new DSPy programs using standardized signatures
+- **ML Engineers**: Customize and extend signatures for specific use cases
+- **Platform Developers**: Maintain and evolve the signature library
 
 ### Secondary Users
-- **DevOps Engineers**: Monitor DSPy execution performance and resource usage
-- **Product Teams**: Access DSPy model outputs through standardized APIs
+- **Data Scientists**: Reference signature patterns for prompt engineering
+- **DevOps Engineers**: Deploy and version signature updates
 
 ## Success Criteria
 
 1. **Functional Success**
-   - Execute any valid DSPy program loaded through the DSPyModelLoader
-   - Capture all intermediate outputs from DSPy execution chains
-   - Log execution traces to MLflow automatically
-   - Handle errors gracefully with detailed error messages
+   - Repository contains 20+ common DSPy signatures
+   - Signatures can be imported with single import statement
+   - Support for signature inheritance and composition
+   - Automatic validation of signature compatibility
 
-2. **Performance Success**
-   - Execute DSPy programs with <100ms overhead
-   - Support concurrent execution of multiple DSPy programs
-   - Efficient memory usage for large input/output data
+2. **Developer Experience**
+   - Clear documentation for each signature
+   - Examples showing signature usage
+   - Type hints and IDE autocompletion support
+   - Easy signature discovery and search
 
 3. **Integration Success**
-   - Seamless integration with existing MLflow tracking
-   - Compatible with all DSPy program types (single/multi-signature)
-   - Works with token-aware model registry
+   - Seamless integration with DSPy Model Loader
+   - Backward compatibility with existing DSPy programs
+   - Version management for signature updates
 
 ## Tasks
 
-### Core Executor Implementation
-1. Create `DSPyPipelineExecutor` class in `src/services/dspy_pipeline_executor.py`
-   - Accept DSPy program instances or model IDs
-   - Validate input dictionaries against program signatures
-   - Execute programs and capture outputs
-   - Handle execution errors with context
+### Core Library Implementation
+1. Create signature registry structure
+   - Design module organization for signatures
+   - Implement base signature classes
+   - Create signature metadata format
+   - Build signature validation framework
 
-2. Input/Output Processing
-   - Implement input validation against DSPy signatures
-   - Support multiple input formats (dict, JSON, structured objects)
-   - Standardize output format with metadata
-   - Type conversion and serialization handling
+2. Implement Common Signatures
+   - Text generation signatures (DraftText, ReviseText, ExpandText)
+   - Analysis signatures (CritiqueText, SummarizeText, ExtractInfo)
+   - Conversation signatures (RespondToUser, ClarifyIntent, GenerateFollowUp)
+   - Task-specific signatures (EmailDraft, CodeGeneration, DataAnalysis)
 
-3. MLflow Integration
-   - Automatic `mlflow.dspy.autolog()` initialization
-   - Log program metadata (signatures, configuration)
-   - Track intermediate outputs from execution chains
-   - Record execution timing and resource usage
+3. Aliasing and Customization System
+   - Create aliasing mechanism for model-specific variants
+   - Support signature parameter overrides
+   - Enable signature composition
+   - Implement inheritance for signature specialization
 
-4. Execution Modes
-   - Synchronous execution for immediate results
-   - Batch execution for multiple inputs
-   - Dry-run mode for validation without execution
-   - Debug mode with verbose intermediate logging
+4. Version Control Integration
+   - Track signature versions and changes
+   - Support multiple signature versions simultaneously
+   - Migration tools for signature updates
+   - Changelog generation for signatures
 
-5. Error Handling and Recovery
-   - Graceful handling of DSPy execution failures
-   - Detailed error messages with signature context
-   - Retry logic for transient failures
-   - Fallback mechanisms for partial execution
+### Integration and Discovery
+1. Search and Discovery Features
+   - Signature catalog with descriptions
+   - Tag-based signature search
+   - Usage statistics tracking
+   - Signature recommendation engine
 
-6. Monitoring and Observability
-   - Execution metrics (latency, throughput, success rate)
-   - Resource usage tracking (memory, CPU)
-   - Detailed execution logs with trace IDs
-   - Integration with platform monitoring tools
+2. Documentation System
+   - Auto-generated signature documentation
+   - Interactive examples in documentation
+   - Best practices guide
+   - Migration guides for deprecated signatures
 
-7. API Design
-   - RESTful endpoint for DSPy execution
-   - Python client interface for programmatic access
-   - Batch execution endpoints
-   - Status and result retrieval APIs
+3. Testing Framework
+   - Unit tests for each signature
+   - Integration tests with DSPy programs
+   - Performance benchmarks
+   - Compatibility testing across DSPy versions
 
-### Configuration and Management
-1. Executor configuration options
-   - Timeout settings per execution
-   - Resource limits (memory, CPU)
-   - MLflow tracking configuration
-   - Logging verbosity levels
+### Developer Tools
+1. CLI Tools
+   - Signature scaffolding generator
+   - Signature validation command
+   - Import helper commands
+   - Signature usage analyzer
 
-2. Caching and Optimization
-   - Cache loaded DSPy programs
-   - Result caching for identical inputs
-   - Connection pooling for external services
-   - Lazy loading of program dependencies
+2. IDE Integration
+   - VS Code extension for signature discovery
+   - Autocomplete for signature imports
+   - Inline documentation
+   - Signature preview functionality
 
-### Integration Points
-1. Integration with DSPyModelLoader
-   - Load programs by model ID
-   - Access program metadata
-   - Version compatibility checking
+### Quality Assurance
+1. Signature Standards
+   - Naming conventions enforcement
+   - Input/output type validation
+   - Description format requirements
+   - Example requirement for each signature
 
-2. Integration with Model Registry
-   - Track execution against registered models
-   - Update model usage metrics
-   - Link executions to model versions
-
-3. Integration with existing pipelines
-   - Metaflow step integration
-   - API service integration
-   - Batch processing integration
+2. Review Process
+   - Signature proposal template
+   - Review checklist for new signatures
+   - Community contribution guidelines
+   - Deprecation policy and process

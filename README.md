@@ -726,7 +726,27 @@ curl -X POST http://localhost:8001/api/v1/dspy/execute \
   -d '{"program_id": "email-assistant", "inputs": {...}}'
 ```
 
-See [docs/DSPY_MODEL_LOADER.md](docs/DSPY_MODEL_LOADER.md) and [docs/DSPY_PIPELINE_EXECUTOR.md](docs/DSPY_PIPELINE_EXECUTOR.md) for detailed documentation.
+### DSPy Signature Library
+
+The platform includes a comprehensive library of reusable DSPy signatures:
+
+```python
+from src.dspy_signatures import EmailDraft, SummarizeText, RespondToUser
+
+# Use pre-built signatures
+email_sig = EmailDraft()
+summary_sig = SummarizeText()
+
+# Browse available signatures
+from src.dspy_signatures import get_global_registry
+registry = get_global_registry()
+print(registry.list_signatures())  # Shows 20+ available signatures
+```
+
+See documentation:
+- [DSPy Model Loader](docs/DSPY_MODEL_LOADER.md) - Loading and managing DSPy models
+- [DSPy Pipeline Executor](docs/DSPY_PIPELINE_EXECUTOR.md) - Executing DSPy programs
+- [DSPy Signature Library](docs/DSPY_SIGNATURE_LIBRARY.md) - Pre-built signatures and customization
 
 ### Configuration
 
