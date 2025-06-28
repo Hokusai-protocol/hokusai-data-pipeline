@@ -1,162 +1,185 @@
-# Implementation Tasks: Integrate DSPy with MLflow Tracing
+# Implementation Tasks: Add Teleprompt Fine-tuning Pipeline
 
-## Core MLflow Integration
+## Core Pipeline Service
 
-1. [ ] Create MLflow DSPy autolog module
-   a. [ ] Implement `mlflow.dspy.autolog()` function in `src/integrations/mlflow_dspy.py`
-   b. [ ] Create configuration class for autolog settings
-   c. [ ] Add environment variable support for enabling/disabling
-   d. [ ] Implement singleton pattern for global autolog state
+1. [ ] Create Teleprompt Fine-tuning Service
+   a. [ ] Create `src/services/teleprompt_finetuner.py` main service class
+   b. [ ] Implement configuration management for optimization strategies
+   c. [ ] Create pipeline orchestration logic
+   d. [ ] Add MLflow integration for trace loading
+   e. [ ] Integrate with existing DeltaOne evaluator
 
-2. [ ] Build DSPy module wrapper system
-   a. [ ] Create `TracedModule` wrapper class that inherits from DSPy Module
-   b. [ ] Implement automatic wrapping for all DSPy module types
-   c. [ ] Preserve original module functionality and attributes
-   d. [ ] Add trace context injection
+2. [ ] Build Trace Data Loader
+   a. [ ] Create `src/services/trace_loader.py` for MLflow trace queries
+   b. [ ] Implement filtering by date range and outcome scores
+   c. [ ] Add contributor metadata preservation
+   d. [ ] Create batching logic for large trace volumes
+   e. [ ] Add data validation and quality checks
 
-3. [ ] Implement trace capture logic
-   a. [ ] Create span management for module execution
-   b. [ ] Capture input parameters with type information
-   c. [ ] Log intermediate computation steps
-   d. [ ] Record output values and predictions
-   e. [ ] Track execution timing and resource usage
+3. [ ] Implement Teleprompt Compiler Integration
+   a. [ ] Create wrapper for dspy.teleprompt.compile()
+   b. [ ] Support multiple optimization strategies (BootstrapFewShot, BootstrapFewShotWithRandomSearch)
+   c. [ ] Implement timeout and retry logic
+   d. [ ] Add progress tracking and logging
+   e. [ ] Handle compilation failures gracefully
 
-4. [ ] Handle nested module tracing
-   a. [ ] Implement parent-child span relationships
-   b. [ ] Create trace context propagation
-   c. [ ] Handle recursive module calls
-   d. [ ] Support parallel execution tracing
+4. [ ] Create Model Version Manager
+   a. [ ] Generate unique version identifiers for optimized models
+   b. [ ] Store optimized DSPy programs in MLflow
+   c. [ ] Track optimization metadata (strategy, parameters, trace count)
+   d. [ ] Maintain model lineage from baseline
+   e. [ ] Store contributor information with versions
 
-## Signature and Metadata Tracking
+## DeltaOne and Attestation Integration
 
-5. [ ] Capture DSPy signature information
-   a. [ ] Extract signature fields from modules
-   b. [ ] Log input/output field definitions
-   c. [ ] Record field types and constraints
-   d. [ ] Track signature version information
+5. [ ] Integrate DeltaOne Evaluator
+   a. [ ] Add hooks to evaluate optimized model performance
+   b. [ ] Compare against baseline model metrics
+   c. [ ] Calculate performance delta
+   d. [ ] Detect when DeltaOne threshold (≥1%) is reached
+   e. [ ] Trigger attestation generation workflow
 
-6. [ ] Implement metadata enrichment
-   a. [ ] Add module name and type to traces
-   b. [ ] Include signature library references
-   c. [ ] Track module configuration parameters
-   d. [ ] Support custom user metadata
+6. [ ] Build Attestation Generator
+   a. [ ] Create `src/services/optimization_attestation.py`
+   b. [ ] Generate attestation data structure with all required fields
+   c. [ ] Include contributor addresses and contribution weights
+   d. [ ] Add cryptographic proof generation
+   e. [ ] Store attestations in MLflow and prepare for blockchain
 
-7. [ ] Create trace visualization helpers
-   a. [ ] Format traces for MLflow UI display
-   b. [ ] Add custom trace attributes
-   c. [ ] Implement trace filtering logic
-   d. [ ] Create trace export utilities
+7. [ ] Implement Contributor Attribution System
+   a. [ ] Track which traces were used in optimization
+   b. [ ] Calculate contribution weights based on trace quality/quantity
+   c. [ ] Map traces to contributor ETH addresses
+   d. [ ] Generate contributor reward distribution data
+   e. [ ] Create audit trail for attribution
 
-## Performance and Configuration
+## Data Processing Pipeline
 
-8. [ ] Implement performance optimizations
-   a. [ ] Add trace buffering with configurable size
-   b. [ ] Implement async trace logging
-   c. [ ] Create sampling strategies for high-volume scenarios
-   d. [ ] Minimize serialization overhead
+8. [ ] Create Trace Preprocessing Module
+   a. [ ] Implement trace filtering by quality scores
+   b. [ ] Remove outliers and anomalous traces
+   c. [ ] Balance trace distribution across categories
+   d. [ ] Validate trace format and completeness
+   e. [ ] Preserve all contributor metadata
 
-9. [ ] Build configuration system
-   a. [ ] Create `MLflowDSPyConfig` class
-   b. [ ] Add environment variable mappings
-   c. [ ] Implement configuration validation
-   d. [ ] Support runtime configuration updates
+9. [ ] Build Outcome Score Integration
+   a. [ ] Support multiple outcome metric types
+   b. [ ] Implement score normalization across metrics
+   c. [ ] Weight traces by outcome quality
+   d. [ ] Handle missing or partial scores
+   e. [ ] Link all scores to contributors
 
-10. [ ] Add trace sampling controls
-    a. [ ] Implement rate-based sampling
-    b. [ ] Add deterministic sampling option
-    c. [ ] Create custom sampling predicates
-    d. [ ] Support per-module sampling configuration
+10. [ ] Implement Batch Processing System
+    a. [ ] Create efficient trace loading in batches
+    b. [ ] Support incremental optimization
+    c. [ ] Enable parallel processing where possible
+    d. [ ] Maintain contributor attribution across batches
+    e. [ ] Add checkpointing for long-running optimizations
 
-## Integration with Existing Components
+## Scheduling and Orchestration
 
-11. [ ] Update DSPy Pipeline Executor
-    a. [ ] Add MLflow tracing initialization
-    b. [ ] Implement trace context for pipeline runs
-    c. [ ] Update error handling to include trace info
-    d. [ ] Add trace metadata to pipeline results
+11. [ ] Create Pipeline Scheduler
+    a. [ ] Implement configurable schedule (daily/weekly/monthly)
+    b. [ ] Add trigger conditions (minimum trace count, time elapsed)
+    c. [ ] Support manual triggering via API
+    d. [ ] Handle pipeline dependencies
+    e. [ ] Schedule DeltaOne evaluation post-optimization
 
-12. [ ] Enhance DSPy Model Loader
-    a. [ ] Auto-enable tracing for loaded models
-    b. [ ] Preserve trace configuration in model metadata
-    c. [ ] Support trace replay functionality
-    d. [ ] Add trace comparison utilities
-
-13. [ ] Integrate with signature library
-    a. [ ] Add tracing to signature execution
-    b. [ ] Track signature usage statistics
-    c. [ ] Log signature validation results
-    d. [ ] Support signature-specific trace metadata
+12. [ ] Build Monitoring and Alerting System
+    a. [ ] Track pipeline execution status
+    b. [ ] Monitor optimization progress metrics
+    c. [ ] Alert on failures or anomalies
+    d. [ ] Generate performance improvement reports
+    e. [ ] Alert when DeltaOne threshold is achieved
 
 ## Testing
 
-14. [ ] Write unit tests
-    a. [ ] Test autolog initialization and configuration
-    b. [ ] Test module wrapping for all DSPy types
-    c. [ ] Test trace capture accuracy
-    d. [ ] Test performance overhead
+13. [ ] Write Unit Tests
+    a. [ ] Test trace loading and filtering
+    b. [ ] Test teleprompt compilation wrapper
+    c. [ ] Test DeltaOne evaluation integration
+    d. [ ] Test attestation generation
+    e. [ ] Test contributor attribution logic
 
-15. [ ] Create integration tests
-    a. [ ] Test with complete DSPy programs
-    b. [ ] Verify MLflow UI trace display
-    c. [ ] Test distributed execution scenarios
-    d. [ ] Test error handling and recovery
+14. [ ] Create Integration Tests
+    a. [ ] Test end-to-end pipeline flow
+    b. [ ] Test with real DSPy programs
+    c. [ ] Verify MLflow integration
+    d. [ ] Test scheduling mechanisms
+    e. [ ] Validate attestation generation
 
-16. [ ] Implement performance benchmarks
-    a. [ ] Measure tracing overhead
-    b. [ ] Test memory usage patterns
-    c. [ ] Benchmark high-volume scenarios
-    d. [ ] Profile hot code paths
+15. [ ] Implement Performance Tests
+    a. [ ] Test with large trace volumes (100k+)
+    b. [ ] Measure optimization time
+    c. [ ] Verify memory usage is reasonable
+    d. [ ] Test parallel processing efficiency
+    e. [ ] Benchmark DeltaOne detection
 
-17. [ ] Add end-to-end tests
-    a. [ ] Test with real signature library usage
-    b. [ ] Verify trace data completeness
-    c. [ ] Test configuration changes
-    d. [ ] Validate trace export/import
+16. [ ] Add Validation Tests
+    a. [ ] Verify optimized models improve performance
+    b. [ ] Test rollback on optimization failure
+    c. [ ] Validate contributor attribution accuracy
+    d. [ ] Test attestation data completeness
+    e. [ ] Verify no performance regression
+
+## Configuration and Deployment
+
+17. [ ] Create Configuration System
+    a. [ ] Add pipeline configuration schema
+    b. [ ] Support environment-based configuration
+    c. [ ] Create optimization strategy configurations
+    d. [ ] Add scheduling configuration
+    e. [ ] Include DeltaOne threshold settings
+
+18. [ ] Build CLI Interface
+    a. [ ] Create CLI commands for manual pipeline runs
+    b. [ ] Add status checking commands
+    c. [ ] Implement configuration management commands
+    d. [ ] Add trace inspection utilities
+    e. [ ] Create attestation verification commands
+
+19. [ ] Implement API Endpoints
+    a. [ ] Create REST endpoints for pipeline control
+    b. [ ] Add endpoints for status monitoring
+    c. [ ] Implement trace submission endpoints
+    d. [ ] Add attestation retrieval endpoints
+    e. [ ] Create contributor query endpoints
 
 ## Documentation
 
-18. [ ] Write user documentation
-    a. [ ] Create getting started guide
-    b. [ ] Document configuration options
-    c. [ ] Add troubleshooting section
-    d. [ ] Include best practices guide
+20. [ ] Write User Documentation
+    a. [ ] Create pipeline setup guide
+    b. [ ] Document optimization strategies
+    c. [ ] Add configuration reference
+    d. [ ] Write troubleshooting guide
+    e. [ ] Document attestation format
 
-19. [ ] Create example implementations
-    a. [ ] Basic DSPy program with tracing
-    b. [ ] Advanced configuration example
-    c. [ ] Custom metadata example
-    d. [ ] Performance monitoring setup
+21. [ ] Create Developer Documentation
+    a. [ ] Document API endpoints
+    b. [ ] Add code architecture overview
+    c. [ ] Create contribution guidelines
+    d. [ ] Document testing procedures
+    e. [ ] Add deployment instructions
 
-20. [ ] Add API documentation
-    a. [ ] Document public API functions
-    b. [ ] Add docstrings to all classes
-    c. [ ] Create configuration reference
-    d. [ ] Document trace schema
+22. [ ] Build Example Implementations
+    a. [ ] Create example optimization configurations
+    b. [ ] Add sample DSPy program optimizations
+    c. [ ] Show attestation verification examples
+    d. [ ] Demonstrate contributor attribution
+    e. [ ] Create scheduling examples
 
 ## Monitoring and Operations
 
-21. [ ] Create monitoring utilities
-    a. [ ] Build trace analysis tools
-    b. [ ] Add trace statistics collection
-    c. [ ] Create alerting integration
-    d. [ ] Implement trace archival
+23. [ ] Set Up Operational Monitoring
+    a. [ ] Configure pipeline health checks
+    b. [ ] Add performance metrics collection
+    c. [ ] Set up error tracking
+    d. [ ] Create operational dashboards
+    e. [ ] Implement audit logging
 
-22. [ ] Add operational tools
-    a. [ ] Create trace debugging utilities
-    b. [ ] Build trace comparison tools
-    c. [ ] Add trace migration scripts
-    d. [ ] Implement trace cleanup tools
-
-## Release and Deployment
-
-23. [ ] Prepare for release
-    a. [ ] Update package dependencies
-    b. [ ] Add MLflow version compatibility checks
-    c. [ ] Create migration guide for existing users
-    d. [ ] Update CI/CD pipelines
-
-24. [ ] Create deployment artifacts
-    a. [ ] Update Docker images with tracing support
-    b. [ ] Add tracing to kubernetes manifests
-    c. [ ] Update infrastructure documentation
-    d. [ ] Create rollback procedures
+24. [ ] Create Maintenance Procedures
+    a. [ ] Document backup procedures
+    b. [ ] Create recovery runbooks
+    c. [ ] Add data retention policies
+    d. [ ] Document scaling procedures
+    e. [ ] Create DeltaOne verification procedures

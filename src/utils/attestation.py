@@ -9,6 +9,27 @@ from pathlib import Path
 from src.utils.constants import ATTESTATION_VERSION, ATTESTATION_SCHEMA_VERSION
 
 
+def generate_attestation_hash(attestation: Dict[str, Any]) -> str:
+    """Generate a deterministic hash for an attestation.
+    
+    Args:
+        attestation: Attestation dictionary
+        
+    Returns:
+        SHA256 hash of the attestation
+    """
+    # Remove mutable fields
+    content = attestation.copy()
+    content.pop("attestation_hash", None)
+    content.pop("timestamp", None)
+    
+    # Serialize deterministically
+    content_str = json.dumps(content, sort_keys=True, separators=(",", ":"))
+    
+    # Return SHA256 hash
+    return hashlib.sha256(content_str.encode()).hexdigest()
+
+
 class AttestationGenerator:
     """Generates attestation-ready outputs for pipeline results."""
     
