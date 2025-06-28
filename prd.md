@@ -1,125 +1,181 @@
-# Product Requirements Document: Integrate DSPy with MLflow Tracing
+# Product Requirements Document: Add Teleprompt Fine-tuning Pipeline
 
 ## Objectives
 
-This feature integrates DSPy program execution with MLflow's tracing capabilities to provide comprehensive visibility into prompt-based model operations. By wrapping all DSPy executions with automatic MLflow tracing, we enable detailed tracking of inputs, intermediate outputs, and final results throughout the DSPy program lifecycle.
+Create a pipeline that automatically recompiles and optimizes DSPy programs using the teleprompt.compile() functionality based on logged usage data and outcomes. This enables continuous improvement of prompt-based models by learning from real-world usage patterns and performance metrics. **Critically, the pipeline must generate attestations when optimized models achieve DeltaOne improvements (≥1% improvement over baseline).**
 
 Key objectives:
-1. Automatically enable MLflow tracing for all DSPy program executions
-2. Capture complete execution traces including inputs, outputs, and intermediate steps
-3. Ensure module names and signatures are traceable in MLflow UI
-4. Provide seamless integration without requiring code changes in existing DSPy programs
-5. Enable performance monitoring and debugging of DSPy pipelines
+1. Accept labeled traces from production usage (prompt + reply + outcome scores)
+2. Use teleprompt.compile() to optimize DSPy programs based on actual performance
+3. Output updated, optimized DSPy programs with improved prompts
+4. Store new versions with metadata in MLflow registry
+5. Enable automated fine-tuning cycles based on accumulated usage data
+6. **Generate attestation-ready outputs when DeltaOne threshold is reached**
+7. **Track contributor attribution for data used in optimization**
 
 ## Personas
 
 ### Primary Users
-- **ML Engineers**: Monitor and debug DSPy program performance in production
-- **Data Scientists**: Analyze prompt effectiveness and model behavior
-- **Platform Engineers**: Ensure system reliability and performance
+- **ML Engineers**: Configure and monitor the fine-tuning pipeline
+- **Data Scientists**: Analyze optimization results and model improvements
+- **Platform Engineers**: Deploy and maintain the automated pipeline
+- **Contributors**: Receive rewards when their data leads to DeltaOne improvements
 
 ### Secondary Users
-- **Product Managers**: Review model performance metrics and user interactions
-- **DevOps Engineers**: Monitor system health and troubleshoot issues
+- **Product Managers**: Track model performance improvements over time
+- **DevOps Engineers**: Schedule and orchestrate pipeline runs
+- **Token Holders**: Verify model improvements through attestations
 
 ## Success Criteria
 
-1. **Automatic Tracing**
-   - All DSPy executions automatically log to MLflow without manual instrumentation
-   - Zero configuration required for basic tracing functionality
-   - Support for custom trace metadata and tags
+1. **Functional Success**
+   - Pipeline successfully ingests labeled traces from MLflow
+   - Teleprompt compilation produces optimized DSPy programs
+   - New model versions are automatically registered in MLflow
+   - Performance improvements are measurable and tracked
+   - **Attestations are generated for DeltaOne improvements**
 
-2. **Complete Visibility**
-   - Capture 100% of DSPy program executions
-   - Log all inputs, outputs, and intermediate transformations
-   - Track execution time and resource usage
-   - Preserve module hierarchy and signature information
+2. **Performance Metrics**
+   - Optimization improves model performance by ≥5% on average
+   - Pipeline completes within 2 hours for typical workloads
+   - Support for processing 100k+ traces per run
+   - Automated validation ensures no performance regression
+   - **DeltaOne detection accuracy of 100%**
 
-3. **Performance Impact**
-   - Less than 5% overhead on execution time
-   - Minimal memory footprint for trace storage
-   - Configurable sampling for high-volume scenarios
-
-4. **Integration Quality**
-   - Compatible with existing DSPy programs without modifications
-   - Works with all DSPy module types and signatures
-   - Integrates with existing MLflow experiments and runs
+3. **Operational Success**
+   - Pipeline runs reliably on schedule (daily/weekly/monthly)
+   - Clear logging and monitoring of optimization progress
+   - Rollback capability if optimization fails
+   - Integration with existing MLflow experiments
+   - **Attestation generation is automatic and verifiable**
 
 ## Tasks
 
-### Core Implementation
-1. Create MLflow Tracing Integration
-   - Implement automatic `mlflow.dspy.autolog()` functionality
-   - Create wrapper classes for DSPy modules
-   - Build trace context management
-   - Handle nested module execution tracing
+### Core Pipeline Implementation
+1. Create Teleprompt Fine-tuning Service
+   - Build service to orchestrate teleprompt compilation
+   - Implement trace data loading from MLflow
+   - Create optimization configuration management
+   - Handle multiple DSPy programs in parallel
+   - **Integrate with DeltaOne evaluator**
 
-2. Capture Execution Details
-   - Log input parameters and values
-   - Record intermediate computation steps
-   - Capture final outputs and predictions
-   - Track execution metadata (timestamps, duration, etc.)
+2. Trace Data Collection and Preparation
+   - Query MLflow for labeled execution traces
+   - Filter and validate trace quality
+   - Format traces for teleprompt consumption
+   - Implement data sampling strategies
+   - **Maintain contributor attribution throughout pipeline**
 
-3. Preserve DSPy Structure
-   - Map DSPy module names to MLflow spans
-   - Record signature information in trace metadata
-   - Maintain parent-child relationships for nested modules
-   - Support custom module attributes
+3. Teleprompt Integration
+   - Integrate DSPy teleprompt.compile() functionality
+   - Configure optimization strategies (BootstrapFewShot, etc.)
+   - Handle compilation parameters and constraints
+   - Implement timeout and retry logic
+   - **Track which traces contributed to optimization**
 
-### Configuration and Control
-1. Configuration System
-   - Enable/disable tracing via environment variables
-   - Configure trace sampling rates
-   - Set custom tags and metadata
-   - Control verbosity levels
+4. Model Versioning and Storage
+   - Generate new version identifiers
+   - Store optimized programs in MLflow
+   - Track optimization metrics and metadata
+   - Maintain lineage from base to optimized models
+   - **Store contributor information with model version**
 
-2. Performance Optimization
-   - Implement efficient trace buffering
-   - Batch trace uploads to MLflow
-   - Add caching for repeated executions
-   - Minimize serialization overhead
+### DeltaOne Integration
+1. Performance Evaluation
+   - Compare optimized model against baseline
+   - Calculate performance delta using standard metrics
+   - Detect when DeltaOne threshold (≥1%) is reached
+   - Trigger attestation generation
 
-### Integration Points
-1. DSPy Pipeline Executor Integration
-   - Update pipeline executor to enable tracing
-   - Ensure compatibility with existing execution flow
-   - Add trace-aware error handling
-   - Support distributed execution tracing
+2. Attestation Generation
+   - Create attestation data structure with:
+     - Model ID and version
+     - Baseline performance metrics
+     - Optimized performance metrics
+     - Delta calculation
+     - Contributing data hashes
+     - Contributor addresses and weights
+   - Generate cryptographic proof of improvement
+   - Store attestation in MLflow and prepare for on-chain submission
 
-2. Model Loader Enhancement
-   - Auto-enable tracing for loaded models
-   - Preserve tracing configuration across saves/loads
-   - Support trace replay for debugging
-   - Enable trace comparison between versions
+3. Contributor Attribution
+   - Track which traces/data contributed to optimization
+   - Calculate contribution weights based on:
+     - Volume of data provided
+     - Quality scores of traces
+     - Impact on optimization
+   - Include contributor ETH addresses in attestation
+   - Prepare data for reward distribution
+
+### Data Pipeline Components
+1. Trace Filtering and Quality Control
+   - Filter traces by outcome scores
+   - Remove outliers and anomalies
+   - Ensure balanced representation
+   - Validate trace completeness
+   - **Preserve contributor metadata**
+
+2. Outcome Score Integration
+   - Support multiple outcome metrics (reply_rate, engagement, etc.)
+   - Weight traces by outcome quality
+   - Handle missing or partial scores
+   - Normalize scores across different metrics
+   - **Link outcomes to original contributors**
+
+3. Batch Processing
+   - Implement efficient batch loading
+   - Handle large trace volumes
+   - Support incremental optimization
+   - Enable parallel processing
+   - **Maintain contributor attribution in batches**
+
+### Scheduling and Orchestration
+1. Pipeline Scheduling
+   - Create configurable schedule (daily/weekly/monthly)
+   - Implement trigger conditions (minimum trace count, etc.)
+   - Support manual triggering
+   - Handle dependencies and prerequisites
+   - **Schedule DeltaOne evaluation after optimization**
+
+2. Monitoring and Alerting
+   - Track pipeline execution status
+   - Monitor optimization progress
+   - Alert on failures or anomalies
+   - Generate performance reports
+   - **Alert when DeltaOne is achieved**
 
 ### Testing and Validation
-1. Unit Testing
-   - Test trace capture for all DSPy module types
-   - Verify correct parent-child span relationships
-   - Validate trace metadata accuracy
-   - Test error handling and edge cases
+1. Optimization Validation
+   - Compare optimized vs original performance
+   - Run A/B tests on sample data
+   - Validate prompt quality
+   - Check for edge cases
+   - **Verify DeltaOne calculations**
 
 2. Integration Testing
    - Test with real DSPy programs
-   - Verify MLflow UI trace visualization
-   - Test performance under load
-   - Validate distributed execution scenarios
+   - Verify MLflow integration
+   - Test scheduling mechanisms
+   - Validate rollback procedures
+   - **Test attestation generation**
 
-3. Performance Testing
-   - Benchmark overhead of tracing
-   - Test with high-volume execution scenarios
-   - Measure memory usage patterns
-   - Optimize hot paths
+3. Attestation Testing
+   - Verify attestation data completeness
+   - Test cryptographic proof generation
+   - Validate contributor attribution
+   - Test integration with reward system
 
-### Documentation and Examples
-1. Usage Documentation
-   - Installation and setup guide
-   - Configuration reference
+### Documentation and Operations
+1. Pipeline Documentation
+   - Usage guide for configuration
+   - Optimization strategy selection
    - Troubleshooting guide
-   - Best practices for production use
+   - Performance tuning tips
+   - **Attestation format documentation**
 
-2. Example Implementations
-   - Basic DSPy program with tracing
-   - Advanced tracing configurations
-   - Custom metadata examples
-   - Performance monitoring dashboard setup
+2. Operational Procedures
+   - Deployment instructions
+   - Monitoring setup
+   - Backup and recovery
+   - Maintenance procedures
+   - **DeltaOne verification procedures**

@@ -9,9 +9,10 @@ from status_checker import StatusChecker
 import sys
 import os
 
-# Add src directory to path to import signature commands
+# Add src directory to path to import commands
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 from cli.signatures import signatures as signature_commands
+from cli.teleprompt import teleprompt as teleprompt_commands
 
 
 @click.group()
@@ -111,8 +112,9 @@ def status():
         raise click.ClickException(str(e))
 
 
-# Add signature commands to the main CLI
+# Add commands to the main CLI
 cli.add_command(signature_commands)
+cli.add_command(teleprompt_commands)
 
 if __name__ == '__main__':
     cli()
