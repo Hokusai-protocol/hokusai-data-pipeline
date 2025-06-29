@@ -1,305 +1,259 @@
 ---
-title: Installation Guide
 id: installation
+title: Installation Guide
 sidebar_label: Installation
 sidebar_position: 1
 ---
 
 # Installation Guide
 
-This guide covers installing and setting up the Hokusai data pipeline for local development and production use.
+This guide covers the installation and setup of the Hokusai ML Platform.
 
 ## Prerequisites
 
-### System Requirements
-- **Operating System**: Linux, macOS, or Windows with WSL2
-- **Python**: 3.8 or higher
-- **Memory**: Minimum 8GB RAM (16GB recommended)
-- **Storage**: At least 10GB free space
-- **Docker**: (Optional) For containerized deployment
+Before installing Hokusai ML Platform, ensure you have:
 
-### Required Software
-```bash
-# Check Python version
-python --version  # Should be 3.8+
-
-# Check pip
-pip --version
-
-# Check git
-git --version
-```
+- Python 3.8 or higher
+- pip package manager
+- Git (for development installation)
+- Docker (optional, for containerized deployment)
 
 ## Installation Methods
 
-### Method 1: From Source (Recommended)
+### 1. Install from PyPI (Recommended)
 
-#### 1. Clone the Repository
 ```bash
-git clone https://github.com/Hokusai-protocol/hokusai-data-pipeline.git
+pip install hokusai-ml-platform
+```
+
+### 2. Install from GitHub
+
+For the latest development version:
+
+```bash
+pip install git+https://github.com/hokusai-protocol/hokusai-data-pipeline.git
+```
+
+### 3. Development Installation
+
+Clone the repository and install in editable mode:
+
+```bash
+git clone https://github.com/hokusai-protocol/hokusai-data-pipeline.git
 cd hokusai-data-pipeline
+pip install -e .
 ```
 
-#### 2. Create Virtual Environment
+## Dependencies
+
+The platform will automatically install required dependencies:
+
+- `mlflow>=2.8.1` - Experiment tracking and model registry
+- `metaflow>=2.10.6` - Pipeline orchestration
+- `redis>=5.0.1` - Caching and session management
+- `fastapi>=0.104.1` - API framework
+- `pydantic>=2.5.0` - Data validation
+- `pandas>=2.0.0` - Data manipulation
+- `numpy>=1.24.0` - Numerical operations
+- `scikit-learn>=1.3.0` - ML utilities
+
+## Environment Setup
+
+### 1. MLflow Configuration
+
+Set up MLflow tracking server:
+
 ```bash
-# Create virtual environment
-python -m venv venv
+# Set tracking URI (local file store)
+export MLFLOW_TRACKING_URI=file:./mlruns
 
-# Activate virtual environment
-# On macOS/Linux:
-source venv/bin/activate
-
-# On Windows:
-venv\Scripts\activate
+# Or use a remote tracking server
+export MLFLOW_TRACKING_URI=http://mlflow-server:5000
 ```
 
-#### 3. Install Dependencies
+### 2. Redis Configuration (Optional)
+
+If using caching features:
+
 ```bash
-# Upgrade pip
-pip install --upgrade pip
-
-# Install requirements
-pip install -r requirements.txt
-
-# Install development dependencies (optional)
-pip install -r requirements-dev.txt
+# Set Redis connection
+export REDIS_URL=redis://localhost:6379/0
 ```
 
-#### 4. Set Up Environment Variables
-```bash
-# Copy example environment file
-cp .env.example .env
+### 3. Hokusai Configuration
 
-# Edit .env with your settings
-nano .env  # or use your preferred editor
+Create a `.env` file in your project root:
+
+```env
+# MLflow settings
+MLFLOW_TRACKING_URI=file:./mlruns
+MLFLOW_EXPERIMENT_NAME=hokusai-experiments
+
+# Redis settings (optional)
+REDIS_URL=redis://localhost:6379/0
+
+# API settings
+HOKUSAI_API_URL=http://localhost:8000
+HOKUSAI_API_KEY=your-api-key
+
+# Ethereum settings
+ETH_PROVIDER_URL=https://mainnet.infura.io/v3/your-project-id
 ```
 
-Required environment variables:
-```bash
-# MLFlow Configuration
-MLFLOW_TRACKING_URI=./mlruns
-MLFLOW_EXPERIMENT_NAME=hokusai-evaluation
+## Docker Installation
 
-# Pipeline Configuration
-HOKUSAI_OUTPUT_DIR=./outputs
-HOKUSAI_LOG_LEVEL=INFO
+### Using Docker Compose
 
-# Optional: For cloud storage
-AWS_ACCESS_KEY_ID=your_key
-AWS_SECRET_ACCESS_KEY=your_secret
-S3_BUCKET=your_bucket
+1. Create `docker-compose.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  mlflow:
+    image: mlflow/mlflow:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlflow-data:/mlflow
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:///mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+      --host 0.0.0.0
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis-data:/data
+
+  hokusai-api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - mlflow
+      - redis
 ```
 
-### Method 2: Using Docker (Coming Soon)
+2. Start services:
 
 ```bash
-# Pull the Docker image
-docker pull hokusai/data-pipeline:latest
-
-# Run with docker-compose
 docker-compose up -d
 ```
 
-### Method 3: pip Installation (Future Release)
+### Using Pre-built Docker Image
 
-Once the `hokusai-ml-platform` package is released:
 ```bash
-# Install from PyPI
-pip install hokusai-ml-platform
-
-# Or install with ML extras
-pip install hokusai-ml-platform[ml]
+docker run -p 8000:8000 \
+  -e MLFLOW_TRACKING_URI=http://localhost:5000 \
+  hokusai/ml-platform:latest
 ```
 
-## Verify Installation
+## Verification
 
-### 1. Run Tests
+Verify your installation:
+
+```python
+import hokusai
+from hokusai.core import ModelRegistry
+from hokusai.evaluation import detect_delta_one
+
+# Check version
+print(f"Hokusai ML Platform version: {hokusai.__version__}")
+
+# Test basic functionality
+registry = ModelRegistry()
+print("Model Registry initialized successfully!")
+```
+
+## Common Installation Issues
+
+### Issue: MLflow Connection Error
+
+**Error**: `ConnectionError: Unable to connect to MLflow tracking server`
+
+**Solution**:
 ```bash
-# Run unit tests
-pytest tests/unit/
+# Start MLflow server
+mlflow server --host 0.0.0.0 --port 5000
 
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=src
+# Update tracking URI
+export MLFLOW_TRACKING_URI=http://localhost:5000
 ```
 
-### 2. Check CLI
+### Issue: Redis Connection Failed
+
+**Error**: `redis.exceptions.ConnectionError: Error connecting to Redis`
+
+**Solution**:
 ```bash
-# Verify CLI is working
-python -m src.cli.validate_data --help
+# Start Redis server
+redis-server
 
-# Run pipeline help
-python -m src.pipeline.hokusai_pipeline --help
+# Or using Docker
+docker run -d -p 6379:6379 redis:7-alpine
 ```
 
-### 3. Run Dry-Run Mode
+### Issue: Missing Dependencies
+
+**Error**: `ModuleNotFoundError: No module named 'package_name'`
+
+**Solution**:
 ```bash
-# Test pipeline with mock data
-python -m src.pipeline.hokusai_pipeline run \
-    --dry-run \
-    --contributed-data=data/test_fixtures/test_queries.csv \
-    --output-dir=./test_output
+# Reinstall with all dependencies
+pip install hokusai-ml-platform[all]
+
+# Or install specific extras
+pip install hokusai-ml-platform[dspy,inference]
 ```
 
-Expected output:
-```
-Pipeline completed successfully!
-Output written to: ./test_output/deltaone_output_*.json
-```
+## Platform-Specific Instructions
 
-## MLFlow Setup
+### macOS
 
-### 1. Start MLFlow UI (Optional)
+Install system dependencies:
 ```bash
-# Start MLFlow tracking server
-mlflow ui --host 0.0.0.0 --port 5000
+# Install Homebrew if not present
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# Access at http://localhost:5000
+# Install Redis
+brew install redis
+brew services start redis
 ```
 
-### 2. Configure MLFlow Backend
-For production, configure a proper backend:
+### Ubuntu/Debian
+
 ```bash
-# PostgreSQL backend
-export MLFLOW_TRACKING_URI=postgresql://user:password@localhost/mlflow
+# Update package list
+sudo apt update
 
-# S3 artifact store
-export MLFLOW_ARTIFACT_ROOT=s3://bucket/mlflow-artifacts
+# Install Python and pip
+sudo apt install python3-pip python3-dev
+
+# Install Redis
+sudo apt install redis-server
+sudo systemctl start redis
 ```
 
-## Configuration
+### Windows
 
-### Pipeline Configuration
-Create `config/pipeline_config.yaml`:
-```yaml
-pipeline:
-  name: hokusai-evaluation
-  version: 1.0.0
-  
-training:
-  batch_size: 32
-  epochs: 10
-  learning_rate: 0.001
-  
-evaluation:
-  metrics:
-    - accuracy
-    - precision
-    - recall
-    - f1_score
-    - auroc
-  
-output:
-  format: json
-  include_attestation: true
-  compression: gzip
-```
-
-### Data Validation Rules
-Configure in `config/validation_rules.yaml`:
-```yaml
-data_validation:
-  required_columns:
-    - query
-    - document
-    - relevance
-  
-  max_file_size_mb: 1000
-  
-  pii_detection:
-    enabled: true
-    fields_to_check:
-      - query
-      - document
-```
-
-## Troubleshooting
-
-### Common Issues
-
-#### 1. Import Errors
+Using WSL2 (recommended):
 ```bash
-# Error: ModuleNotFoundError: No module named 'metaflow'
-# Solution:
-pip install metaflow
+# Install WSL2
+wsl --install
 
-# Ensure you're in the virtual environment
-which python  # Should show venv path
+# Follow Ubuntu instructions within WSL2
 ```
-
-#### 2. Permission Errors
-```bash
-# Error: Permission denied when creating outputs
-# Solution:
-chmod +x setup.sh
-sudo chown -R $USER:$USER outputs/
-```
-
-#### 3. Memory Issues
-```bash
-# Error: MemoryError during pipeline execution
-# Solution: Set memory limits
-export METAFLOW_MEMORY=8192
-export METAFLOW_CPU=4
-```
-
-#### 4. MLFlow Connection Issues
-```bash
-# Error: Cannot connect to MLFlow
-# Solution: Check tracking URI
-mlflow ui --backend-store-uri ./mlruns
-```
-
-### Getting Help
-
-If you encounter issues:
-
-1. Check the [Troubleshooting Guide](../developer-guide/troubleshooting.md)
-2. Search [GitHub Issues](https://github.com/Hokusai-protocol/hokusai-data-pipeline/issues)
-3. Join our [Discord Community](https://discord.gg/hokusai)
-4. Create a new issue with:
-   - Error message
-   - Steps to reproduce
-   - Environment details (OS, Python version)
-   - Relevant logs
 
 ## Next Steps
 
-- [Quick Start Guide](./quick-start.md) - Run your first pipeline
-- [First Contribution](./first-contribution.md) - Submit data for model improvement
-- [Configuration Guide](../data-pipeline/configuration.md) - Advanced configuration options
-- [API Reference](../developer-guide/api-reference.md) - Integrate with your applications
-
-## Appendix: Development Setup
-
-### For Contributors
-```bash
-# Install pre-commit hooks
-pip install pre-commit
-pre-commit install
-
-# Install development tools
-pip install black isort flake8 mypy
-
-# Run code formatting
-black src/ tests/
-isort src/ tests/
-
-# Run linting
-flake8 src/ tests/
-mypy src/
-```
-
-### VS Code Configuration
-`.vscode/settings.json`:
-```json
-{
-  "python.linting.enabled": true,
-  "python.linting.flake8Enabled": true,
-  "python.formatting.provider": "black",
-  "editor.formatOnSave": true,
-  "python.testing.pytestEnabled": true
-}
-```
+After installation, proceed to:
+- [Quickstart Guide](./quickstart.md) - Get started with your first model
+- [Configuration Guide](./configuration.md) - Detailed configuration options
+- [API Setup](../api-reference/setup.md) - Set up API endpoints
