@@ -1,181 +1,109 @@
-# Product Requirements Document: Add Teleprompt Fine-tuning Pipeline
+# Product Requirements Document: Update Hokusai ML Platform Documentation
 
 ## Objectives
 
-Create a pipeline that automatically recompiles and optimizes DSPy programs using the teleprompt.compile() functionality based on logged usage data and outcomes. This enables continuous improvement of prompt-based models by learning from real-world usage patterns and performance metrics. **Critically, the pipeline must generate attestations when optimized models achieve DeltaOne improvements (≥1% improvement over baseline).**
-
-Key objectives:
-1. Accept labeled traces from production usage (prompt + reply + outcome scores)
-2. Use teleprompt.compile() to optimize DSPy programs based on actual performance
-3. Output updated, optimized DSPy programs with improved prompts
-4. Store new versions with metadata in MLflow registry
-5. Enable automated fine-tuning cycles based on accumulated usage data
-6. **Generate attestation-ready outputs when DeltaOne threshold is reached**
-7. **Track contributor attribution for data used in optimization**
+1. Create comprehensive documentation that enables developers to understand and use the Hokusai ML Platform end-to-end
+2. Maintain compatibility with the existing Docusaurus site structure at docs.hokus.ai
+3. Cover all new features and capabilities added to the platform
+4. Provide clear examples and tutorials for common use cases
 
 ## Personas
 
-### Primary Users
-- **ML Engineers**: Configure and monitor the fine-tuning pipeline
-- **Data Scientists**: Analyze optimization results and model improvements
-- **Platform Engineers**: Deploy and maintain the automated pipeline
-- **Contributors**: Receive rewards when their data leads to DeltaOne improvements
+### Primary: Junior Developer
+- New to ML platforms and blockchain concepts
+- Needs step-by-step guidance to build a project using Hokusai models
+- Requires clear examples and explanations of concepts
 
-### Secondary Users
-- **Product Managers**: Track model performance improvements over time
-- **DevOps Engineers**: Schedule and orchestrate pipeline runs
-- **Token Holders**: Verify model improvements through attestations
+### Secondary: ML Engineer
+- Experienced with MLOps tools like MLflow
+- Wants to understand Hokusai-specific features (DeltaOne, token rewards)
+- Needs API reference and advanced configuration options
+
+### Tertiary: Data Contributor
+- Wants to contribute datasets and earn rewards
+- Needs to understand data requirements and submission process
+- Requires guidance on ETH wallet setup and reward tracking
 
 ## Success Criteria
 
-1. **Functional Success**
-   - Pipeline successfully ingests labeled traces from MLflow
-   - Teleprompt compilation produces optimized DSPy programs
-   - New model versions are automatically registered in MLflow
-   - Performance improvements are measurable and tracked
-   - **Attestations are generated for DeltaOne improvements**
-
-2. **Performance Metrics**
-   - Optimization improves model performance by ≥5% on average
-   - Pipeline completes within 2 hours for typical workloads
-   - Support for processing 100k+ traces per run
-   - Automated validation ensures no performance regression
-   - **DeltaOne detection accuracy of 100%**
-
-3. **Operational Success**
-   - Pipeline runs reliably on schedule (daily/weekly/monthly)
-   - Clear logging and monitoring of optimization progress
-   - Rollback capability if optimization fails
-   - Integration with existing MLflow experiments
-   - **Attestation generation is automatic and verifiable**
+1. A developer can successfully install and configure the Hokusai ML Platform
+2. Clear documentation exists for all major features:
+   - Model registry and versioning
+   - DeltaOne detection and rewards
+   - DSPy integration
+   - A/B testing framework
+   - Data contribution workflow
+3. API references are complete and accurate
+4. Examples demonstrate real-world use cases
+5. Documentation follows Docusaurus conventions and integrates with existing site
 
 ## Tasks
 
-### Core Pipeline Implementation
-1. Create Teleprompt Fine-tuning Service
-   - Build service to orchestrate teleprompt compilation
-   - Implement trace data loading from MLflow
-   - Create optimization configuration management
-   - Handle multiple DSPy programs in parallel
-   - **Integrate with DeltaOne evaluator**
+### 1. Audit Existing Documentation
+- Review current docs at docs.hokus.ai
+- Identify gaps between documented and implemented features
+- Note areas requiring updates or expansion
 
-2. Trace Data Collection and Preparation
-   - Query MLflow for labeled execution traces
-   - Filter and validate trace quality
-   - Format traces for teleprompt consumption
-   - Implement data sampling strategies
-   - **Maintain contributor attribution throughout pipeline**
+### 2. Create Installation and Setup Guide
+- Document PyPI installation process
+- Cover environment configuration
+- Include troubleshooting section
+- Add quickstart tutorial
 
-3. Teleprompt Integration
-   - Integrate DSPy teleprompt.compile() functionality
-   - Configure optimization strategies (BootstrapFewShot, etc.)
-   - Handle compilation parameters and constraints
-   - Implement timeout and retry logic
-   - **Track which traces contributed to optimization**
+### 3. Document Core Features
+- Model Registry and Token-Aware Registration
+- DeltaOne Detector and Performance Tracking
+- DSPy Pipeline Executor and Signature Library
+- A/B Testing and Model Versioning
+- Baseline Model Loading
+- Metric Logging Conventions
 
-4. Model Versioning and Storage
-   - Generate new version identifiers
-   - Store optimized programs in MLflow
-   - Track optimization metrics and metadata
-   - Maintain lineage from base to optimized models
-   - **Store contributor information with model version**
+### 4. Create API Reference
+- Document all public APIs
+- Include request/response examples
+- Cover authentication requirements
+- Add error handling guidance
 
-### DeltaOne Integration
-1. Performance Evaluation
-   - Compare optimized model against baseline
-   - Calculate performance delta using standard metrics
-   - Detect when DeltaOne threshold (≥1%) is reached
-   - Trigger attestation generation
+### 5. Write Tutorials and Examples
+- "Building Your First Hokusai Model"
+- "Contributing Data for Rewards"
+- "Implementing A/B Tests"
+- "Using DSPy with Hokusai"
+- "Tracking Model Performance"
 
-2. Attestation Generation
-   - Create attestation data structure with:
-     - Model ID and version
-     - Baseline performance metrics
-     - Optimized performance metrics
-     - Delta calculation
-     - Contributing data hashes
-     - Contributor addresses and weights
-   - Generate cryptographic proof of improvement
-   - Store attestation in MLflow and prepare for on-chain submission
+### 6. Document Data Contribution Process
+- Data format requirements
+- ETH wallet setup
+- Submission workflow
+- Reward tracking
+- License compatibility (especially for HuggingFace datasets)
 
-3. Contributor Attribution
-   - Track which traces/data contributed to optimization
-   - Calculate contribution weights based on:
-     - Volume of data provided
-     - Quality scores of traces
-     - Impact on optimization
-   - Include contributor ETH addresses in attestation
-   - Prepare data for reward distribution
+### 7. Create Developer Guides
+- Architecture overview
+- Integration patterns
+- Best practices
+- Performance optimization
+- Security considerations
 
-### Data Pipeline Components
-1. Trace Filtering and Quality Control
-   - Filter traces by outcome scores
-   - Remove outliers and anomalies
-   - Ensure balanced representation
-   - Validate trace completeness
-   - **Preserve contributor metadata**
+### 8. Format for Docusaurus
+- Follow existing sidebar structure
+- Add new sections as needed
+- Ensure proper markdown formatting
+- Include code highlighting
+- Add navigation and cross-references
 
-2. Outcome Score Integration
-   - Support multiple outcome metrics (reply_rate, engagement, etc.)
-   - Weight traces by outcome quality
-   - Handle missing or partial scores
-   - Normalize scores across different metrics
-   - **Link outcomes to original contributors**
+## Technical Requirements
 
-3. Batch Processing
-   - Implement efficient batch loading
-   - Handle large trace volumes
-   - Support incremental optimization
-   - Enable parallel processing
-   - **Maintain contributor attribution in batches**
+- All documentation in Markdown format
+- Compatible with Docusaurus v2
+- Code examples tested and working
+- Diagrams for complex concepts
+- Searchable and well-organized
 
-### Scheduling and Orchestration
-1. Pipeline Scheduling
-   - Create configurable schedule (daily/weekly/monthly)
-   - Implement trigger conditions (minimum trace count, etc.)
-   - Support manual triggering
-   - Handle dependencies and prerequisites
-   - **Schedule DeltaOne evaluation after optimization**
+## Deliverables
 
-2. Monitoring and Alerting
-   - Track pipeline execution status
-   - Monitor optimization progress
-   - Alert on failures or anomalies
-   - Generate performance reports
-   - **Alert when DeltaOne is achieved**
-
-### Testing and Validation
-1. Optimization Validation
-   - Compare optimized vs original performance
-   - Run A/B tests on sample data
-   - Validate prompt quality
-   - Check for edge cases
-   - **Verify DeltaOne calculations**
-
-2. Integration Testing
-   - Test with real DSPy programs
-   - Verify MLflow integration
-   - Test scheduling mechanisms
-   - Validate rollback procedures
-   - **Test attestation generation**
-
-3. Attestation Testing
-   - Verify attestation data completeness
-   - Test cryptographic proof generation
-   - Validate contributor attribution
-   - Test integration with reward system
-
-### Documentation and Operations
-1. Pipeline Documentation
-   - Usage guide for configuration
-   - Optimization strategy selection
-   - Troubleshooting guide
-   - Performance tuning tips
-   - **Attestation format documentation**
-
-2. Operational Procedures
-   - Deployment instructions
-   - Monitoring setup
-   - Backup and recovery
-   - Maintenance procedures
-   - **DeltaOne verification procedures**
+1. Complete documentation set in `/documentation/` directory
+2. Updated sidebar configuration
+3. Migration guide for existing users
+4. API reference documentation
+5. Tutorial series with working examples

@@ -32,7 +32,7 @@ The Hokusai platform provides a complete MLOps solution for evaluating the perfo
 │ Contributed     │     ┌──────────────────┐     ┌─────────────────┐
 │ Data            │────▶│ Train New Model  │     │ Generate        │
 └─────────────────┘     └──────────────────┘     │ Attestation     │
-                                                └─────────────────┘
+                                                 └─────────────────┘
 ```
 
 ## Features
