@@ -1,92 +1,64 @@
-# Documentation Update Tasks
+# Implementation Tasks: Model Registration from Hokusai Site
 
-## 1. [x] Review and Audit Existing Documentation
-   a. [x] Visit docs.hokus.ai and catalog current documentation structure
-   b. [x] Review the existing sidebar configuration
-   c. [x] List all features mentioned in the codebase that lack documentation
-   d. [x] Identify outdated or incorrect information
-   e. [x] Create gap analysis report
+## 1. CLI Command Implementation
+1. [x] Create new CLI command structure
+   a. [x] Add `model` command group to hokusai-ml-platform CLI
+   b. [x] Implement `register` subcommand with required arguments
+   c. [x] Add argument parsing for --token-id, --model-path, --metric, --baseline
+   d. [x] Implement help text and usage examples
 
-## 2. [x] Create Installation and Setup Documentation
-   a. [x] Write installation guide for pip install
-   b. [x] Document environment setup and dependencies
-   c. [x] Create configuration guide for MLflow, Redis, and other services
-   d. [x] Write troubleshooting guide for common issues
-   e. [x] Create quickstart tutorial
+## 2. Database Integration Layer
+2. [x] Implement database connection and operations
+   a. [x] Create database configuration module
+   b. [x] Implement token validation function (check if token exists and is in Draft status)
+   c. [x] Create function to update model status to 'registered'
+   d. [x] Implement function to save mlflow_run_id to database
+   e. [x] Add transaction support for atomic operations
 
-## 3. [x] Document Model Registry and Versioning
-   a. [x] Write overview of token-aware model registry
-   b. [x] Document register_tokenized_model() function
-   c. [x] Create examples of model registration with Hokusai tokens
-   d. [x] Document model metadata requirements
-   e. [x] Write guide on model versioning best practices
+## 3. Model Upload to MLflow
+3. [x] Implement MLflow integration
+   a. [x] Create MLflow client configuration
+   b. [x] Implement model artifact upload function
+   c. [x] Add metadata tagging (token_id, metric, baseline)
+   d. [x] Generate and return mlflow_run_id
+   e. [x] Handle model versioning
 
-## 4. [x] Document DeltaOne Detection System
-   a. [x] Explain DeltaOne concept and 1pp improvement threshold
-   b. [x] Document detect_delta_one() function
-   c. [x] Create examples of DeltaOne detection in practice
-   d. [x] Document webhook integration for notifications
-   e. [x] Write guide on baseline model selection
+## 4. Metric Validation System
+4. [x] Create metric validation module
+   a. [x] Define supported metrics list (auroc, accuracy, f1, etc.)
+   b. [x] Implement baseline comparison logic
+   c. [x] Create metric calculation function if needed
+   d. [x] Add validation for numeric baseline values
+   e. [x] Implement threshold checking
 
-## 5. [x] Document DSPy Integration
-   a. [x] Write DSPy overview and its role in Hokusai
-   b. [x] Document signature library and available signatures
-   c. [x] Create DSPy pipeline executor guide
-   d. [x] Write teleprompt fine-tuning documentation
-   e. [x] Create examples of DSPy program usage
+## 5. Event System Integration
+5. [x] Implement event emission functionality
+   a. [x] Design event payload structure
+   b. [x] Create event publisher interface (support multiple backends)
+   c. [x] Implement pub/sub event emission
+   d. [x] Add webhook support option
+   e. [x] Create database watcher alternative
 
-## 6. [ ] Document A/B Testing Framework
-   a. [ ] Write A/B testing overview and concepts
-   b. [ ] Document ModelTrafficRouter usage
-   c. [ ] Create examples of setting up A/B tests
-   d. [ ] Document routing strategies (random, deterministic, sticky)
-   e. [ ] Write guide on analyzing A/B test results
+## 6. Error Handling and Logging
+6. [x] Implement comprehensive error handling
+   a. [x] Create custom exception classes
+   b. [x] Add detailed error messages for each failure scenario
+   c. [x] Implement logging throughout the registration flow
+   d. [x] Add retry logic for transient failures
+   e. [x] Create error recovery mechanisms
 
-## 7. [x] Create API Reference Documentation
-   a. [x] Document all REST API endpoints
-   b. [x] Create request/response examples for each endpoint
-   c. [x] Document authentication requirements
-   d. [x] Write error code reference
-   e. [x] Create API client usage examples
+## 7. Testing
+7. [x] Write and implement tests
+   a. [x] Unit tests for CLI command parsing
+   b. [x] Integration tests for database operations
+   c. [x] Mock tests for MLflow integration
+   d. [x] End-to-end registration flow tests
+   e. [x] Error scenario tests
 
-## 8. [x] Write Data Contribution Documentation
-   a. [x] Document supported data formats
-   b. [x] Create ETH wallet setup guide
-   c. [x] Write data submission workflow
-   d. [x] Document reward calculation and distribution
-   e. [x] Create HuggingFace dataset integration guide
-
-## 9. [x] Create Tutorial Series
-   a. [x] Write "Building Your First Hokusai Model" tutorial
-   b. [x] Create "Contributing Data for Rewards" guide
-   c. [ ] Write "Implementing A/B Tests" tutorial
-   d. [ ] Create "Using DSPy with Hokusai" guide
-   e. [ ] Write "Tracking Model Performance" tutorial
-
-## 10. [x] Document Architecture and Best Practices
-   a. [x] Create architecture overview diagram
-   b. [ ] Write integration patterns guide
-   c. [ ] Document security best practices
-   d. [ ] Create performance optimization guide
-   e. [ ] Write deployment recommendations
-
-## 11. [x] Format Documentation for Docusaurus
-   a. [x] Organize files in /documentation/ directory
-   b. [x] Create/update sidebar.js configuration
-   c. [x] Add proper frontmatter to all markdown files
-   d. [x] Ensure consistent formatting and styling
-   e. [x] Add navigation links between related pages
-
-## 12. [x] Create Supporting Materials
-   a. [ ] Write migration guide for existing users
-   b. [x] Create glossary of Hokusai-specific terms
-   c. [ ] Add code snippets and examples repository
-   d. [ ] Create FAQ section
-   e. [ ] Write contribution guidelines for documentation
-
-## 13. [ ] Testing and Validation
-   a. [ ] Test all code examples
-   b. [ ] Verify API endpoints and responses
-   c. [ ] Check all links and references
-   d. [ ] Validate Docusaurus compatibility
-   e. [ ] Review documentation with target personas
+## 8. Documentation
+8. [x] Create comprehensive documentation
+   a. [x] Update CLI documentation with new command
+   b. [x] Write user guide for model registration
+   c. [x] Document configuration requirements
+   d. [x] Add troubleshooting section
+   e. [x] Create example workflows

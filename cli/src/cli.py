@@ -13,6 +13,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 from cli.signatures import signatures as signature_commands
 from cli.teleprompt import teleprompt as teleprompt_commands
+from cli.model import model as model_commands
 
 
 @click.group()
@@ -115,6 +116,7 @@ def status():
 # Add commands to the main CLI
 cli.add_command(signature_commands)
 cli.add_command(teleprompt_commands)
+cli.add_command(model_commands)
 
 if __name__ == '__main__':
     cli()
