@@ -1,109 +1,61 @@
-# Product Requirements Document: Update Hokusai ML Platform Documentation
+# Product Requirements Document: Model Registration from Hokusai Site
 
-## Objectives
+## Objective
 
-1. Create comprehensive documentation that enables developers to understand and use the Hokusai ML Platform end-to-end
-2. Maintain compatibility with the existing Docusaurus site structure at docs.hokus.ai
-3. Cover all new features and capabilities added to the platform
-4. Provide clear examples and tutorials for common use cases
+Enable users to register and upload AI models that have been created on the Hokusai site, linking them to their associated tokens and validating their performance metrics against baseline requirements.
 
-## Personas
+## User Personas
 
-### Primary: Junior Developer
-- New to ML platforms and blockchain concepts
-- Needs step-by-step guidance to build a project using Hokusai models
-- Requires clear examples and explanations of concepts
-
-### Secondary: ML Engineer
-- Experienced with MLOps tools like MLflow
-- Wants to understand Hokusai-specific features (DeltaOne, token rewards)
-- Needs API reference and advanced configuration options
-
-### Tertiary: Data Contributor
-- Wants to contribute datasets and earn rewards
-- Needs to understand data requirements and submission process
-- Requires guidance on ETH wallet setup and reward tracking
+1. **Model Developer**: Technical user who has trained an AI model and created a token on the Hokusai site
+2. **Data Scientist**: User who needs to register models for deployment in the ML pipeline
+3. **Token Creator**: User who creates tokens in Draft form on the Hokusai site and needs to associate them with models
 
 ## Success Criteria
 
-1. A developer can successfully install and configure the Hokusai ML Platform
-2. Clear documentation exists for all major features:
-   - Model registry and versioning
-   - DeltaOne detection and rewards
-   - DSPy integration
-   - A/B testing framework
-   - Data contribution workflow
-3. API references are complete and accurate
-4. Examples demonstrate real-world use cases
-5. Documentation follows Docusaurus conventions and integrates with existing site
-
-## Tasks
-
-### 1. Audit Existing Documentation
-- Review current docs at docs.hokus.ai
-- Identify gaps between documented and implemented features
-- Note areas requiring updates or expansion
-
-### 2. Create Installation and Setup Guide
-- Document PyPI installation process
-- Cover environment configuration
-- Include troubleshooting section
-- Add quickstart tutorial
-
-### 3. Document Core Features
-- Model Registry and Token-Aware Registration
-- DeltaOne Detector and Performance Tracking
-- DSPy Pipeline Executor and Signature Library
-- A/B Testing and Model Versioning
-- Baseline Model Loading
-- Metric Logging Conventions
-
-### 4. Create API Reference
-- Document all public APIs
-- Include request/response examples
-- Cover authentication requirements
-- Add error handling guidance
-
-### 5. Write Tutorials and Examples
-- "Building Your First Hokusai Model"
-- "Contributing Data for Rewards"
-- "Implementing A/B Tests"
-- "Using DSPy with Hokusai"
-- "Tracking Model Performance"
-
-### 6. Document Data Contribution Process
-- Data format requirements
-- ETH wallet setup
-- Submission workflow
-- Reward tracking
-- License compatibility (especially for HuggingFace datasets)
-
-### 7. Create Developer Guides
-- Architecture overview
-- Integration patterns
-- Best practices
-- Performance optimization
-- Security considerations
-
-### 8. Format for Docusaurus
-- Follow existing sidebar structure
-- Add new sections as needed
-- Ensure proper markdown formatting
-- Include code highlighting
-- Add navigation and cross-references
+1. Users can successfully register models using a CLI command with token ID, model path, metric name, and baseline value
+2. Models are uploaded to MLflow with proper metadata and tracking
+3. The system validates metric values against baseline requirements
+4. Model status is updated to 'registered' in the database upon successful validation
+5. A "token_ready_for_deploy" event is emitted for downstream processes
 
 ## Technical Requirements
 
-- All documentation in Markdown format
-- Compatible with Docusaurus v2
-- Code examples tested and working
-- Diagrams for complex concepts
-- Searchable and well-organized
+### Command Line Interface
+Create a CLI command with the following syntax:
+```
+hokusai-ml-platform model register \
+  --token-id XRAY \
+  --model-path ./checkpoints/final \
+  --metric auroc \
+  --baseline 0.82
+```
 
-## Deliverables
+### Core Functionality
+1. **Model Upload**: Upload the model artifact to MLflow model registry
+2. **Database Integration**: Save the mlflow_run_id to the database for the specified token model
+3. **Metric Validation**: Validate that the provided metric value meets or exceeds the baseline
+4. **Status Update**: Mark model status as 'registered' in the database
+5. **Event Emission**: Emit a "token_ready_for_deploy" event via pub/sub, webhook, or database watcher
 
-1. Complete documentation set in `/documentation/` directory
-2. Updated sidebar configuration
-3. Migration guide for existing users
-4. API reference documentation
-5. Tutorial series with working examples
+### Data Flow
+1. User creates token on Hokusai site (token created in Draft status)
+2. User trains model locally or in their environment
+3. User runs registration command with required parameters
+4. System uploads model to MLflow
+5. System validates metrics against baseline
+6. System updates database with model metadata
+7. System emits deployment ready event
+
+### Error Handling
+1. Validate token exists in Draft status before proceeding
+2. Verify model path exists and is readable
+3. Ensure metric name is valid and supported
+4. Check baseline value is numeric and reasonable
+5. Handle MLflow connection errors gracefully
+6. Provide clear error messages for validation failures
+
+### Integration Points
+1. **Hokusai Site Database**: Read token information and update model status
+2. **MLflow**: Upload models and track experiments
+3. **Event System**: Emit events for downstream consumers
+4. **CLI Framework**: Integrate with existing hokusai-ml-platform CLI
