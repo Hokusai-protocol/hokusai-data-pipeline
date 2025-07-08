@@ -171,7 +171,7 @@ jobs:
     - name: Terraform Plan
       working-directory: ./infrastructure/terraform
       run: |
-        # Plan targeting only ECS resources to avoid security group conflicts
+        # Plan targeting only ECS resources (ECR permissions now fixed)
         terraform plan \
           -target=aws_ecs_task_definition.api \
           -target=aws_ecs_task_definition.mlflow \
