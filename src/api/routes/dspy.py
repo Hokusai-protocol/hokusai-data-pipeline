@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from typing import Any, NoReturn, Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -260,7 +260,7 @@ async def list_dspy_programs(token_data: dict = Depends(require_auth)):
 @router.get("/execution/{execution_id}")
 async def get_execution_details(
     execution_id: str, token_data: dict = Depends(require_auth)
-) -> NoReturn:
+) -> dict[str, Any]:
     """Get details of a specific execution.
 
     This endpoint would typically retrieve execution details from a database

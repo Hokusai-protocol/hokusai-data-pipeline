@@ -11,7 +11,7 @@ from click.testing import CliRunner
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
-from cli.model import register
+from src.cli.model import register
 
 
 class TestModelRegistrationCLI:

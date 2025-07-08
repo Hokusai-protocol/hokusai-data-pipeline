@@ -12,8 +12,15 @@ import pytest
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
-from events import ConsoleHandler, EventPublisher, EventType, WebhookHandler
-from events.handlers import CompositeHandler, DatabaseWatcherHandler
+from events import (
+    CompositeHandler,
+    ConsoleHandler,
+    DatabaseWatcherHandler,
+    Event,
+    EventPublisher,
+    EventType,
+    WebhookHandler,
+)
 from events.publisher import Event
 
 
