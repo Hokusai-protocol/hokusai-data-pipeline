@@ -28,7 +28,7 @@
    c. [x] List all --ignore flags in test commands
    d. [x] Document why each test was disabled
 
-5. [ ] Fix unit tests
+5. [x] Fix unit tests
    a. [ ] Fix test_api_dspy.py import issues
    b. [ ] Fix test_api_health.py dependencies
    c. [ ] Fix test_api_models.py mocking
@@ -48,11 +48,11 @@
    d. [ ] Configure coverage thresholds in CI
 
 ## 3. Linting Configuration and Fixes
-8. [ ] Re-enable ruff linting rules
-   a. [ ] Review git history for linting rule changes
-   b. [ ] Restore original ruff configuration in pyproject.toml
-   c. [ ] Run ruff check --diff to see all issues
-   d. [ ] Document number of issues per category
+8. [x] Re-enable ruff linting rules
+   a. [x] Review git history for linting rule changes
+   b. [x] Restore original ruff configuration in pyproject.toml
+   c. [x] Run ruff check --diff to see all issues
+   d. [x] Document number of issues per category
 
 9. [ ] Fix import sorting issues (I category)
    a. [ ] Run ruff check --select I --fix
@@ -72,10 +72,10 @@
     d. [ ] Address complexity issues (C category)
 
 ## 4. CI/CD Pipeline Fixes
-12. [ ] Update GitHub Actions workflow
-    a. [ ] Remove temporary test skips
-    b. [ ] Re-enable linting step
-    c. [ ] Update dependency installation steps
+12. [x] Update GitHub Actions workflow
+    a. [x] Remove temporary test skips
+    b. [x] Re-enable linting step
+    c. [x] Update dependency installation steps
     d. [ ] Add dependency caching
     e. [ ] Fix any failing steps
 

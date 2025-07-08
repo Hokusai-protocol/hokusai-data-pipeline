@@ -1,0 +1,31 @@
+# Combined requirements file that resolves version conflicts
+# Core dependencies
+python-dotenv==1.0.0
+click==8.1.7
+pydantic==2.5.0
+rich==13.7.0
+tqdm==4.66.1
+jsonschema==4.20.0
+pyyaml==6.0.1
+pyarrow<15,>=4.0.0  # Compatible with MLflow 2.9.0
+fastparquet==2023.10.0
+
+# MLflow and data science
+mlflow==2.9.0
+metaflow==2.11.0
+numpy<2.0  # MLflow requirement
+pandas==2.0.3
+scikit-learn==1.4.0
+
+# Development dependencies
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+ruff==0.1.8
+mypy==1.7.0
+pre-commit==3.6.0
+pip-tools==7.3.0
+
+# Documentation
+mkdocs==1.5.3
+mkdocs-material==9.5.0
