@@ -151,7 +151,7 @@ class TokenOperations:
                 ORDER BY updated_at DESC
             """
             
-            results = self.connection.execute_query(query, {"status": status.value})
+            self.connection.execute_query(query, {"status": status.value})
             
             # In a real implementation, we would parse the results
             # For now, return an empty list

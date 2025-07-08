@@ -5,7 +5,7 @@ import logging
 from typing import Optional, Any, Dict, List
 from contextlib import contextmanager
 from .config import DatabaseConfig
-from .models import TokenModel, ModelStatus
+# Models imported when needed
 
 logger = logging.getLogger(__name__)
 

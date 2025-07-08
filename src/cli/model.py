@@ -4,15 +4,14 @@ Model management CLI commands for Hokusai ML Platform
 import click
 import os
 import mlflow
-from typing import Optional, Dict, Any
-from pathlib import Path
+from typing import Optional
 import sys
 
 # Add parent directory to path to import database modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from database import DatabaseConfig, DatabaseConnection, TokenOperations, ModelStatus
+from database import DatabaseConfig, DatabaseConnection, TokenOperations
 from validation import MetricValidator, BaselineComparator
-from events import EventPublisher, EventType, WebhookHandler, ConsoleHandler
+from events import EventPublisher, WebhookHandler, ConsoleHandler
 from errors import (
     configure_logging, ErrorHandler, TokenNotFoundError, 
     MetricValidationError, MLflowError, DatabaseConnectionError
@@ -59,7 +58,7 @@ def register(token_id: str, model_path: str, metric: str, baseline: float,
         
         if not validator.validate_baseline(metric, baseline):
             raise MetricValidationError(metric, baseline, 
-                                      reason=f"Invalid baseline value for metric")
+                                      reason="Invalid baseline value for metric")
         
         # Step 2: Initialize MLflow
         if mlflow_uri:
@@ -123,7 +122,7 @@ def register(token_id: str, model_path: str, metric: str, baseline: float,
                 f"Model performance ({actual_metric_value:.4f}) does not meet baseline requirement ({baseline:.4f})"
             )
         
-        click.echo(f"✓ Model performance validation:")
+        click.echo("✓ Model performance validation:")
         click.echo(f"   Current: {actual_metric_value:.4f}")
         click.echo(f"   Baseline: {baseline:.4f}")
         click.echo(f"   Improvement: {validation_result['improvement']:.4f} ({validation_result['improvement_percentage']:.2f}%)")
@@ -172,8 +171,8 @@ def register(token_id: str, model_path: str, metric: str, baseline: float,
         
         click.echo(f"✅ Model registration complete for token {token_id}")
         click.echo(f"   MLflow run ID: {mlflow_run_id}")
-        click.echo(f"   Status: registered")
-        click.echo(f"   Event emitted: token_ready_for_deploy")
+        click.echo("   Status: registered")
+        click.echo("   Event emitted: token_ready_for_deploy")
         
     except (TokenNotFoundError, MetricValidationError, DatabaseConnectionError, 
             MLflowError) as e:
@@ -245,8 +244,8 @@ def status(token_id: str, db_config: Optional[str]):
         # TODO: Implement database query to get model status
         # For now, we'll show a placeholder
         click.echo(f"Token ID: {token_id}")
-        click.echo(f"Status: Draft")  # Placeholder
-        click.echo(f"MLflow run ID: Not registered")  # Placeholder
+        click.echo("Status: Draft")  # Placeholder
+        click.echo("MLflow run ID: Not registered")  # Placeholder
         
     except Exception as e:
         click.echo(f"Error: {str(e)}", err=True)

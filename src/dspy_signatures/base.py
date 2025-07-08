@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List, Any, Dict, Optional, Type, Union
+from typing import List, Any, Dict, Type
 import dspy
 
 from .metadata import SignatureMetadata
@@ -26,9 +26,9 @@ class SignatureField:
         # Basic type checking
         if self.type_hint in (str, int, float, bool):
             return isinstance(value, self.type_hint)
-        elif self.type_hint == list:
+        elif self.type_hint is list:
             return isinstance(value, list)
-        elif self.type_hint == dict:
+        elif self.type_hint is dict:
             return isinstance(value, dict)
         
         # For other types, just check if value exists

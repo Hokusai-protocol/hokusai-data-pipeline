@@ -70,7 +70,7 @@ def optimize(program: str, strategy: str, days: int, min_traces: int,
         click.echo(f"Optimization failed: {result.error_message}", err=True)
         return
     
-    click.echo(f"✓ Optimization successful!")
+    click.echo("✓ Optimization successful!")
     click.echo(f"  Traces used: {result.trace_count}")
     click.echo(f"  Time: {result.optimization_time:.2f}s")
     click.echo(f"  Contributors: {len(result.contributors)}")
@@ -218,19 +218,19 @@ def show_attestation(attestation_id: str, format: str):
         click.echo(f"\nAttestation: {attestation.attestation_id}")
         click.echo("=" * 60)
         
-        click.echo(f"\nModel Information:")
+        click.echo("\nModel Information:")
         click.echo(f"  Model ID: {attestation.model_id}")
         click.echo(f"  Baseline: {attestation.baseline_version}")
         click.echo(f"  Optimized: {attestation.optimized_version}")
         click.echo(f"  Strategy: {attestation.optimization_strategy}")
         
-        click.echo(f"\nPerformance:")
+        click.echo("\nPerformance:")
         click.echo(f"  DeltaOne Achieved: {attestation.deltaone_achieved}")
         click.echo(f"  Performance Delta: {attestation.performance_delta:.2%}")
         click.echo(f"  Baseline Metrics: {attestation.baseline_metrics}")
         click.echo(f"  Optimized Metrics: {attestation.optimized_metrics}")
         
-        click.echo(f"\nOptimization Details:")
+        click.echo("\nOptimization Details:")
         click.echo(f"  Trace Count: {attestation.trace_count:,}")
         click.echo(f"  Time: {attestation.optimization_time_seconds:.2f}s")
         click.echo(f"  Outcome Metric: {attestation.outcome_metric}")
@@ -239,7 +239,7 @@ def show_attestation(attestation_id: str, format: str):
         for contrib in attestation.contributors:
             click.echo(f"  - {contrib['address'][:16]}... ({contrib['weight']:.2%}, {contrib['trace_count']} traces)")
         
-        click.echo(f"\nVerification:")
+        click.echo("\nVerification:")
         click.echo(f"  Hash: {attestation.attestation_hash[:32]}...")
         click.echo(f"  Valid: {service.verify_attestation(attestation)}")
 

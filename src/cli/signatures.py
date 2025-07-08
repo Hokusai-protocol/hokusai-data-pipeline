@@ -5,7 +5,7 @@ import json
 import yaml
 import os
 import sys
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 
 # Add parent directory to path for imports
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))

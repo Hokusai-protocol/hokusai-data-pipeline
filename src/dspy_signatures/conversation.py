@@ -1,6 +1,6 @@
 """Conversation signatures for DSPy."""
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 from .base import BaseSignature, SignatureField
 
