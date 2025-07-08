@@ -33,7 +33,8 @@
       "Bash(docker compose:*)",
       "Bash(curl:*)",
       "Bash(cat:*)",
-      "Bash(osascript:*)"
+      "Bash(osascript:*)",
+      "Bash(gh run view:*)"
     ],
     "deny": []
   }
