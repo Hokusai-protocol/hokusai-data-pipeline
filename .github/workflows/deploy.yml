@@ -171,10 +171,8 @@ jobs:
     - name: Terraform Plan
       working-directory: ./infrastructure/terraform
       run: |
-        # Plan targeting only ECS resources (ECR permissions now fixed)
+        # Update ECS services without destroying task definitions
         terraform plan \
-          -target=aws_ecs_task_definition.api \
-          -target=aws_ecs_task_definition.mlflow \
           -target=aws_ecs_service.api \
           -target=aws_ecs_service.mlflow \
           -var="aws_region=${{ env.AWS_REGION }}" \
