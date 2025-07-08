@@ -33,4 +33,4 @@ mypy==1.7.0
 # Documentation
 mkdocs==1.5.3
 mkdocs-material==9.5.0
-# dspy-ai>=2.6.5  # Temporarily disabled due to installation issues
+dspy-ai  # No version constraint to avoid conflicts
