@@ -1,0 +1,20 @@
+[tool.ruff]
+# Exclude common directories
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+]
+
+# Allow imports after sys.path modifications
+[tool.ruff.lint]
+ignore = ["E402"]  # Module level import not at top of file
+
+# Per-file ignores
+[tool.ruff.lint.per-file-ignores]
+"src/cli/signatures.py" = ["E402"]
+"tests/*" = ["F401", "F841"]  # Unused imports and variables in tests
+EOF < /dev/null

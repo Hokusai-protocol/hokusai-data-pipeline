@@ -12,15 +12,17 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
+# Import after path adjustment to avoid import errors
+# pylint: disable=wrong-import-position
+from src.dspy_signatures import get_global_registry
+from src.dspy_signatures.loader import SignatureLoader
+from src.services.dspy_pipeline_executor import DSPyPipelineExecutor
+
 try:
     from tabulate import tabulate
 except ImportError:
     print("Warning: tabulate not installed, using basic formatting")
     tabulate = None
-
-from src.dspy_signatures import get_global_registry
-from src.dspy_signatures.loader import SignatureLoader
-from src.services.dspy_pipeline_executor import DSPyPipelineExecutor
 
 
 @click.group()
