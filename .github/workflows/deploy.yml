@@ -171,8 +171,9 @@ jobs:
     - name: Terraform Plan
       working-directory: ./infrastructure/terraform
       run: |
-        # Update ECS services without destroying task definitions
+        # Force update ECS services with new images
         terraform plan \
+          -refresh=false \
           -target=aws_ecs_service.api \
           -target=aws_ecs_service.mlflow \
           -var="aws_region=${{ env.AWS_REGION }}" \
@@ -183,11 +184,26 @@ jobs:
           -var="mlflow_image_tag=${{ github.sha }}" \
           -out=tfplan
     
-    - name: Terraform Apply
-      working-directory: ./infrastructure/terraform
+    - name: Update ECS Services
       run: |
-        # Apply the targeted plan
-        terraform apply -auto-approve tfplan
+        # Update ECS services with new images directly
+        # Force new deployment to pick up latest images
+        
+        # Update API service
+        aws ecs update-service \
+          --cluster hokusai-development \
+          --service hokusai-api \
+          --force-new-deployment \
+          --desired-count 2
+        
+        # Update MLflow service  
+        aws ecs update-service \
+          --cluster hokusai-development \
+          --service hokusai-mlflow \
+          --force-new-deployment \
+          --desired-count 1
+        
+        echo "✅ Services updated with new images"
     
     - name: Run deployment validation
       run: |
