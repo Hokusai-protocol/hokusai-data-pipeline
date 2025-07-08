@@ -87,6 +87,10 @@ jobs:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
+    permissions:
+      id-token: write
+      contents: read
+    
     outputs:
       api-image: ${{ steps.build-api.outputs.image }}
       mlflow-image: ${{ steps.build-mlflow.outputs.image }}
@@ -135,6 +139,11 @@ jobs:
     needs: build
     environment: production
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    permissions:
+      id-token: write
+      contents: read
+      issues: write
     
     steps:
     - name: Checkout code
