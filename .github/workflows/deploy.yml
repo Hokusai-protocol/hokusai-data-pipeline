@@ -156,34 +156,6 @@ jobs:
       with:
         terraform_version: 1.6.0
     
-    - name: Terraform Init
-      working-directory: ./infrastructure/terraform
-      run: |
-        terraform init \
-          -backend-config="bucket=${{ secrets.TERRAFORM_STATE_BUCKET }}" \
-          -backend-config="key=hokusai/terraform.tfstate" \
-          -backend-config="region=${{ env.AWS_REGION }}"
-    
-    - name: Terraform Validate
-      working-directory: ./infrastructure/terraform
-      run: terraform validate
-    
-    - name: Terraform Plan
-      working-directory: ./infrastructure/terraform
-      run: |
-        # Force update ECS services with new images
-        terraform plan \
-          -refresh=false \
-          -target=aws_ecs_service.api \
-          -target=aws_ecs_service.mlflow \
-          -var="aws_region=${{ env.AWS_REGION }}" \
-          -var="environment=development" \
-          -var="database_password=${{ secrets.DATABASE_PASSWORD }}" \
-          -var="api_secret_key=${{ secrets.API_SECRET_KEY }}" \
-          -var="api_image_tag=${{ github.sha }}" \
-          -var="mlflow_image_tag=${{ github.sha }}" \
-          -out=tfplan
-    
     - name: Update ECS Services
       run: |
         # Update ECS services with new images directly
