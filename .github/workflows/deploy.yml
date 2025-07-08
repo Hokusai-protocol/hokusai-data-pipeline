@@ -131,10 +131,9 @@ jobs:
         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_MLFLOW:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
   deploy:
-    name: Deploy to Production
+    name: Deploy to Development
     runs-on: ubuntu-latest
     needs: build
-    environment: production
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     permissions:
@@ -174,7 +173,7 @@ jobs:
       run: |
         terraform plan \
           -var="aws_region=${{ env.AWS_REGION }}" \
-          -var="environment=production" \
+          -var="environment=development" \
           -var="database_password=${{ secrets.DATABASE_PASSWORD }}" \
           -var="api_secret_key=${{ secrets.API_SECRET_KEY }}" \
           -var="api_image_tag=${{ github.sha }}" \
@@ -190,26 +189,11 @@ jobs:
         chmod +x ./infrastructure/scripts/validate.sh
         ./infrastructure/scripts/validate.sh || true
     
-    - name: Notify deployment success
-      if: success()
-      uses: actions/github-script@v7
-      with:
-        script: |
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: '✅ Deployment to production completed successfully!'
-          })
-    
-    - name: Notify deployment failure
-      if: failure()
-      uses: actions/github-script@v7
-      with:
-        script: |
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: '❌ Deployment to production failed. Please check the logs.'
-          })
+    - name: Deployment Summary
+      if: always()
+      run: |
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "✅ Deployment to development completed successfully!"
+        else
+          echo "❌ Deployment to development failed. Please check the logs."
+        fi
