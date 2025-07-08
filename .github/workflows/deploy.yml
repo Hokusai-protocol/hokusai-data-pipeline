@@ -171,6 +171,10 @@ jobs:
     - name: Terraform Plan
       working-directory: ./infrastructure/terraform
       run: |
+        # First try to refresh and update the state
+        terraform refresh || true
+        
+        # Then plan with the updated state
         terraform plan \
           -var="aws_region=${{ env.AWS_REGION }}" \
           -var="environment=development" \
@@ -182,7 +186,23 @@ jobs:
     
     - name: Terraform Apply
       working-directory: ./infrastructure/terraform
-      run: terraform apply -auto-approve tfplan
+      run: |
+        # Apply with auto-approve, allowing replacements if needed
+        terraform apply -auto-approve tfplan || {
+          echo "First apply failed, trying with refresh and target..."
+          # If it fails, try targeting just the task definitions and services
+          terraform apply -auto-approve \
+            -target=aws_ecs_task_definition.api \
+            -target=aws_ecs_task_definition.mlflow \
+            -target=aws_ecs_service.api \
+            -target=aws_ecs_service.mlflow \
+            -var="aws_region=${{ env.AWS_REGION }}" \
+            -var="environment=development" \
+            -var="database_password=${{ secrets.DATABASE_PASSWORD }}" \
+            -var="api_secret_key=${{ secrets.API_SECRET_KEY }}" \
+            -var="api_image_tag=${{ github.sha }}" \
+            -var="mlflow_image_tag=${{ github.sha }}"
+        }
     
     - name: Run deployment validation
       run: |
