@@ -20,6 +20,8 @@ ignore = [
     "E722",  # Bare except
     "E712",  # True/False comparisons
     "F821",  # Undefined names
+    "F541",  # f-string without placeholders
+    "F811",  # Redefinition of unused variable
 ]
 
 # Per-file ignores
