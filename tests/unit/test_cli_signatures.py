@@ -240,7 +240,10 @@ class TestSignaturesCLI:
 
             # Mock executor
             mock_executor = Mock()
-            mock_executor.execute_signature.return_value = {"email_body": "Dear John..."}
+            mock_result = Mock()
+            mock_result.success = True
+            mock_result.outputs = {"email_body": "Dear John..."}
+            mock_executor.execute.return_value = mock_result
             mock_executor_class.return_value = mock_executor
 
             result = self.runner.invoke(
@@ -248,8 +251,8 @@ class TestSignaturesCLI:
             )
 
             assert result.exit_code == 0
-            assert "Test Results" in result.output
-            assert "Passed: 1" in result.output
+            assert "Execution successful" in result.output
+            assert "email_body" in result.output
 
         finally:
             os.unlink(test_file)
