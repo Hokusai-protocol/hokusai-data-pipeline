@@ -5,6 +5,7 @@ import os
 import tempfile
 from unittest.mock import Mock, patch
 
+import pytest
 import yaml
 from click.testing import CliRunner
 
