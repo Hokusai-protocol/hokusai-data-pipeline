@@ -11,9 +11,6 @@ env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY_API: hokusai-api
   ECR_REPOSITORY_MLFLOW: hokusai-mlflow
-  ECS_CLUSTER: hokusai-production
-  ECS_SERVICE_API: hokusai-api
-  ECS_SERVICE_MLFLOW: hokusai-mlflow
 
 jobs:
   test:
@@ -187,29 +184,6 @@ jobs:
     - name: Terraform Apply
       working-directory: ./infrastructure/terraform
       run: terraform apply -auto-approve tfplan
-    
-    - name: Update ECS Service - API
-      run: |
-        aws ecs update-service \
-          --cluster ${{ env.ECS_CLUSTER }} \
-          --service ${{ env.ECS_SERVICE_API }} \
-          --force-new-deployment \
-          --region ${{ env.AWS_REGION }}
-    
-    - name: Update ECS Service - MLflow
-      run: |
-        aws ecs update-service \
-          --cluster ${{ env.ECS_CLUSTER }} \
-          --service ${{ env.ECS_SERVICE_MLFLOW }} \
-          --force-new-deployment \
-          --region ${{ env.AWS_REGION }}
-    
-    - name: Wait for services to stabilize
-      run: |
-        aws ecs wait services-stable \
-          --cluster ${{ env.ECS_CLUSTER }} \
-          --services ${{ env.ECS_SERVICE_API }} ${{ env.ECS_SERVICE_MLFLOW }} \
-          --region ${{ env.AWS_REGION }}
     
     - name: Run deployment validation
       run: |
