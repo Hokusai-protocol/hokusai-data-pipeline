@@ -56,6 +56,8 @@ jobs:
     
     - name: Run tests with pytest
       run: |
+        # Install dspy-ai for tests only with timeout
+        pip install --timeout=120 dspy-ai || echo "Warning: dspy-ai installation failed"
         pytest tests/unit/ -v --cov=src --cov-report=xml
     
     - name: Upload coverage reports
