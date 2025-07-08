@@ -207,7 +207,7 @@ resource "aws_db_instance" "mlflow" {
   identifier = "${var.project_name}-mlflow-${var.environment}"
   
   engine         = "postgres"
-  engine_version = "15.7"
+  engine_version = "15.12"
   instance_class = var.db_instance_class
   
   allocated_storage     = 20
