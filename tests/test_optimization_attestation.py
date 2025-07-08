@@ -1,13 +1,12 @@
 """Tests for Optimization Attestation Service."""
 
-import pytest
 import json
-from datetime import datetime
-from unittest.mock import patch, Mock
+
+import pytest
 
 from src.services.optimization_attestation import (
+    OptimizationAttestation,
     OptimizationAttestationService,
-    OptimizationAttestation
 )
 
 
@@ -19,49 +18,40 @@ def sample_attestation_data():
             "model_id": "TestModel",
             "baseline_version": "1.0.0",
             "optimized_version": "1.0.0-opt-bfs-20240115120000",
-            "optimization_strategy": "bootstrap_fewshot"
+            "optimization_strategy": "bootstrap_fewshot",
         },
         "performance_data": {
             "deltaone_achieved": True,
             "delta": 0.025,  # 2.5% improvement
-            "baseline_metrics": {
-                "accuracy": 0.850,
-                "reply_rate": 0.120
-            },
-            "optimized_metrics": {
-                "accuracy": 0.875,
-                "reply_rate": 0.145
-            }
+            "baseline_metrics": {"accuracy": 0.850, "reply_rate": 0.120},
+            "optimized_metrics": {"accuracy": 0.875, "reply_rate": 0.145},
         },
         "optimization_metadata": {
             "trace_count": 10000,
             "optimization_time": 180.5,
             "outcome_metric": "reply_rate",
-            "date_range": {
-                "start": "2024-01-01T00:00:00",
-                "end": "2024-01-15T00:00:00"
-            }
+            "date_range": {"start": "2024-01-01T00:00:00", "end": "2024-01-15T00:00:00"},
         },
         "contributors": [
             {
                 "contributor_id": "alice",
                 "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f62341",
                 "weight": 0.6,
-                "trace_count": 6000
+                "trace_count": 6000,
             },
             {
                 "contributor_id": "bob",
                 "address": "0x5aAeb6053f3E94C9b9A09f33669435E7Ef1BeAed",
                 "weight": 0.3,
-                "trace_count": 3000
+                "trace_count": 3000,
             },
             {
                 "contributor_id": "charlie",
                 "address": "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359",
                 "weight": 0.1,
-                "trace_count": 1000
-            }
-        ]
+                "trace_count": 1000,
+            },
+        ],
     }
 
 
@@ -78,9 +68,7 @@ class TestOptimizationAttestationService:
         """Test attestation creation."""
         service = OptimizationAttestationService()
 
-        attestation = service.create_attestation(
-            **sample_attestation_data
-        )
+        attestation = service.create_attestation(**sample_attestation_data)
 
         assert isinstance(attestation, OptimizationAttestation)
         assert attestation.schema_version == "1.0"
@@ -160,6 +148,7 @@ class TestOptimizationAttestationService:
 
         # Create another with different model
         import copy
+
         data2 = copy.deepcopy(sample_attestation_data)
         data2["model_info"]["model_id"] = "OtherModel"
         att2 = service.create_attestation(**data2)

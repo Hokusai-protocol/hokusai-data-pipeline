@@ -1,37 +1,38 @@
 """Loader for DSPy signatures."""
 
-import yaml
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional, Type
+from typing import Any
 
-from .registry import get_global_registry
+import yaml
+
 from .base import BaseSignature, SignatureField
+from .registry import get_global_registry
 
 
 class SignatureLoader:
     """Loads and manages DSPy signatures."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.registry = get_global_registry()
 
     def load(self, name: str) -> BaseSignature:
         """Load a signature by name or alias from the registry."""
         return self.registry.get(name)
 
-    def load_from_yaml(self, path: str) -> Dict[str, Any]:
+    def load_from_yaml(self, path: str) -> dict[str, Any]:
         """Load signature configuration from YAML file."""
         with open(path) as f:
             config = yaml.safe_load(f)
         return config
 
-    def load_from_json(self, path: str) -> Dict[str, Any]:
+    def load_from_json(self, path: str) -> dict[str, Any]:
         """Load signature configuration from JSON file."""
         with open(path) as f:
             config = json.load(f)
         return config
 
-    def create_custom_signature(self, config: Dict[str, Any]) -> Type[BaseSignature]:
+    def create_custom_signature(self, config: dict[str, Any]) -> type[BaseSignature]:
         """Create a custom signature from configuration."""
         name = config.get("name", "CustomSignature")
         base_signature_name = config.get("base")
@@ -65,7 +66,7 @@ class SignatureLoader:
                             description=field_config.get("description", ""),
                             type_hint=eval(field_config.get("type", "str")),
                             required=field_config.get("required", False),
-                            default=field_config.get("default")
+                            default=field_config.get("default"),
                         )
                         fields.append(field)
 
@@ -88,7 +89,7 @@ class SignatureLoader:
                             name=field_name,
                             description=field_config.get("description", ""),
                             type_hint=eval(field_config.get("type", "str")),
-                            required=field_config.get("required", True)
+                            required=field_config.get("required", True),
                         )
                         fields.append(field)
 
@@ -103,7 +104,9 @@ class SignatureLoader:
 
         return CustomSignature
 
-    def save_signature_config(self, signature: BaseSignature, path: str, format: str = "yaml") -> None:
+    def save_signature_config(
+        self, signature: BaseSignature, path: str, format: str = "yaml"
+    ) -> None:
         """Save signature configuration to file."""
         config = {
             "name": signature.name,
@@ -117,7 +120,7 @@ class SignatureLoader:
                     "description": f.description,
                     "type": str(f.type_hint),
                     "required": f.required,
-                    "default": f.default
+                    "default": f.default,
                 }
                 for f in signature.input_fields
             ],
@@ -126,11 +129,11 @@ class SignatureLoader:
                     "name": f.name,
                     "description": f.description,
                     "type": str(f.type_hint),
-                    "required": f.required
+                    "required": f.required,
                 }
                 for f in signature.output_fields
             ],
-            "examples": signature.get_examples() if hasattr(signature, "get_examples") else []
+            "examples": signature.get_examples() if hasattr(signature, "get_examples") else [],
         }
 
         path_obj = Path(path)
@@ -145,7 +148,7 @@ class SignatureLoader:
         else:
             raise ValueError(f"Unsupported format: {format}")
 
-    def load_all_from_directory(self, directory: str) -> Dict[str, BaseSignature]:
+    def load_all_from_directory(self, directory: str) -> dict[str, BaseSignature]:
         """Load all signature configurations from a directory."""
         signatures = {}
         path = Path(directory)

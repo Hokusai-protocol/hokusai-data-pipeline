@@ -1,9 +1,10 @@
 """Configuration management for Hokusai pipeline."""
 
 import os
-from pathlib import Path
-from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Optional
+
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -36,7 +37,9 @@ class PipelineConfig:
     batch_size: int = int(os.getenv("BATCH_SIZE", "1000"))
 
     # Model evaluation settings
-    evaluation_metrics: list = field(default_factory=lambda: ["accuracy", "precision", "recall", "f1", "auroc"])
+    evaluation_metrics: list = field(
+        default_factory=lambda: ["accuracy", "precision", "recall", "f1", "auroc"]
+    )
     confidence_threshold: float = float(os.getenv("CONFIDENCE_THRESHOLD", "0.5"))
 
     # Data sampling
@@ -49,7 +52,7 @@ class PipelineConfig:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.model_dir.mkdir(parents=True, exist_ok=True)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary."""
         return {
             "environment": self.environment,

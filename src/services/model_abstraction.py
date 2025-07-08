@@ -1,14 +1,15 @@
 """Model abstraction layer for supporting multiple models and A/B testing."""
 
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Union
-import numpy as np
-import pandas as pd
-from datetime import datetime
 import hashlib
 import logging
-from dataclasses import dataclass, asdict
+from abc import ABC, abstractmethod
+from dataclasses import asdict, dataclass
+from datetime import datetime
 from enum import Enum
+from typing import Any, Optional, Union
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -43,14 +44,14 @@ class ModelMetadata:
     status: ModelStatus
     created_at: datetime
     updated_at: datetime
-    training_metadata: Dict[str, Any]
-    performance_metrics: Dict[str, float]
-    feature_names: List[str]
-    feature_types: Dict[str, str]
+    training_metadata: dict[str, Any]
+    performance_metrics: dict[str, float]
+    feature_names: list[str]
+    feature_types: dict[str, str]
     contributor_address: Optional[str] = None
     baseline_model_id: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert metadata to dictionary."""
         data = asdict(self)
         data["model_type"] = self.model_type.value
@@ -62,15 +63,15 @@ class ModelMetadata:
 
 class HokusaiModel(ABC):
     """Abstract base class for all Hokusai models.
-    
+
     This class defines the interface that all models must implement
     to be compatible with the Hokusai platform's model management,
     A/B testing, and inference pipeline.
     """
 
-    def __init__(self, model_metadata: ModelMetadata):
+    def __init__(self, model_metadata: ModelMetadata) -> None:
         """Initialize the model with metadata.
-        
+
         Args:
             model_metadata: Model metadata including version, features, etc.
 
@@ -82,7 +83,7 @@ class HokusaiModel(ABC):
     @abstractmethod
     def load(self, model_path: str) -> None:
         """Load the model from disk or remote storage.
-        
+
         Args:
             model_path: Path to the model artifact
 
@@ -92,10 +93,10 @@ class HokusaiModel(ABC):
     @abstractmethod
     def predict(self, X: Union[np.ndarray, pd.DataFrame]) -> np.ndarray:
         """Make predictions on input data.
-        
+
         Args:
             X: Input features as numpy array or pandas DataFrame
-            
+
         Returns:
             Predictions as numpy array
 
@@ -105,28 +106,28 @@ class HokusaiModel(ABC):
     @abstractmethod
     def predict_proba(self, X: Union[np.ndarray, pd.DataFrame]) -> np.ndarray:
         """Return prediction probabilities for classification models.
-        
+
         Args:
             X: Input features
-            
+
         Returns:
             Prediction probabilities
 
         """
         pass
 
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """Return model metadata and configuration.
-        
+
         Returns:
             Dictionary containing model information
 
         """
         return self.metadata.to_dict()
 
-    def get_required_features(self) -> List[str]:
+    def get_required_features(self) -> list[str]:
         """Return list of required feature names.
-        
+
         Returns:
             List of feature names expected by the model
 
@@ -135,10 +136,10 @@ class HokusaiModel(ABC):
 
     def validate_input(self, X: Union[np.ndarray, pd.DataFrame]) -> bool:
         """Validate input data format and shape.
-        
+
         Args:
             X: Input data to validate
-            
+
         Returns:
             True if input is valid, raises ValueError otherwise
 
@@ -156,8 +157,7 @@ class HokusaiModel(ABC):
             # Check shape
             if X.shape[1] != len(self.metadata.feature_names):
                 raise ValueError(
-                    f"Expected {len(self.metadata.feature_names)} features, "
-                    f"got {X.shape[1]}"
+                    f"Expected {len(self.metadata.feature_names)} features, " f"got {X.shape[1]}"
                 )
         else:
             raise ValueError(f"Unsupported input type: {type(X)}")
@@ -166,10 +166,10 @@ class HokusaiModel(ABC):
 
     def preprocess(self, X: Union[np.ndarray, pd.DataFrame]) -> np.ndarray:
         """Preprocess input data before prediction.
-        
+
         Args:
             X: Raw input data
-            
+
         Returns:
             Preprocessed data ready for prediction
 
@@ -181,10 +181,10 @@ class HokusaiModel(ABC):
 
     def postprocess(self, predictions: np.ndarray) -> np.ndarray:
         """Postprocess model predictions.
-        
+
         Args:
             predictions: Raw model predictions
-            
+
         Returns:
             Processed predictions
 
@@ -197,23 +197,24 @@ class HokusaiModel(ABC):
         """Check if model is loaded and ready for inference."""
         return self._is_loaded
 
-    def get_feature_importance(self) -> Optional[Dict[str, float]]:
+    def get_feature_importance(self) -> Optional[dict[str, float]]:
         """Return feature importance scores if available.
-        
+
         Returns:
             Dictionary mapping feature names to importance scores
 
         """
         return None
 
-    def explain_prediction(self, X: Union[np.ndarray, pd.DataFrame],
-                         idx: int = 0) -> Optional[Dict[str, Any]]:
+    def explain_prediction(
+        self, X: Union[np.ndarray, pd.DataFrame], idx: int = 0
+    ) -> Optional[dict[str, Any]]:
         """Explain a single prediction if supported.
-        
+
         Args:
             X: Input data
             idx: Index of the instance to explain
-            
+
         Returns:
             Explanation dictionary or None if not supported
 
@@ -225,14 +226,15 @@ class ModelAdapter:
     """Adapter to convert existing models to HokusaiModel interface."""
 
     @staticmethod
-    def create_sklearn_adapter(sklearn_model: Any,
-                             metadata: ModelMetadata) -> "SklearnHokusaiModel":
+    def create_sklearn_adapter(
+        sklearn_model: Any, metadata: ModelMetadata
+    ) -> "SklearnHokusaiModel":
         """Create a HokusaiModel adapter for scikit-learn models.
-        
+
         Args:
             sklearn_model: Scikit-learn model instance
             metadata: Model metadata
-            
+
         Returns:
             SklearnHokusaiModel instance
 
@@ -240,14 +242,13 @@ class ModelAdapter:
         return SklearnHokusaiModel(sklearn_model, metadata)
 
     @staticmethod
-    def create_xgboost_adapter(xgb_model: Any,
-                             metadata: ModelMetadata) -> "XGBoostHokusaiModel":
+    def create_xgboost_adapter(xgb_model: Any, metadata: ModelMetadata) -> "XGBoostHokusaiModel":
         """Create a HokusaiModel adapter for XGBoost models.
-        
+
         Args:
             xgb_model: XGBoost model instance
             metadata: Model metadata
-            
+
         Returns:
             XGBoostHokusaiModel instance
 
@@ -255,14 +256,15 @@ class ModelAdapter:
         return XGBoostHokusaiModel(xgb_model, metadata)
 
     @staticmethod
-    def create_tensorflow_adapter(tf_model: Any,
-                                metadata: ModelMetadata) -> "TensorFlowHokusaiModel":
+    def create_tensorflow_adapter(
+        tf_model: Any, metadata: ModelMetadata
+    ) -> "TensorFlowHokusaiModel":
         """Create a HokusaiModel adapter for TensorFlow models.
-        
+
         Args:
             tf_model: TensorFlow model instance
             metadata: Model metadata
-            
+
         Returns:
             TensorFlowHokusaiModel instance
 
@@ -273,7 +275,7 @@ class ModelAdapter:
 class SklearnHokusaiModel(HokusaiModel):
     """Adapter for scikit-learn models."""
 
-    def __init__(self, sklearn_model: Any, metadata: ModelMetadata):
+    def __init__(self, sklearn_model: Any, metadata: ModelMetadata) -> None:
         super().__init__(metadata)
         self._model = sklearn_model
         self._is_loaded = sklearn_model is not None
@@ -281,6 +283,7 @@ class SklearnHokusaiModel(HokusaiModel):
     def load(self, model_path: str) -> None:
         """Load scikit-learn model from pickle file."""
         import pickle
+
         with open(model_path, "rb") as f:
             self._model = pickle.load(f)
         self._is_loaded = True
@@ -308,20 +311,17 @@ class SklearnHokusaiModel(HokusaiModel):
         X_processed = self.preprocess(X)
         return self._model.predict_proba(X_processed)
 
-    def get_feature_importance(self) -> Optional[Dict[str, float]]:
+    def get_feature_importance(self) -> Optional[dict[str, float]]:
         """Get feature importance from tree-based models."""
         if hasattr(self._model, "feature_importances_"):
-            return dict(zip(
-                self.metadata.feature_names,
-                self._model.feature_importances_
-            ))
+            return dict(zip(self.metadata.feature_names, self._model.feature_importances_))
         return None
 
 
 class XGBoostHokusaiModel(HokusaiModel):
     """Adapter for XGBoost models."""
 
-    def __init__(self, xgb_model: Any, metadata: ModelMetadata):
+    def __init__(self, xgb_model: Any, metadata: ModelMetadata) -> None:
         super().__init__(metadata)
         self._model = xgb_model
         self._is_loaded = xgb_model is not None
@@ -329,6 +329,7 @@ class XGBoostHokusaiModel(HokusaiModel):
     def load(self, model_path: str) -> None:
         """Load XGBoost model from file."""
         import xgboost as xgb
+
         self._model = xgb.Booster()
         self._model.load_model(model_path)
         self._is_loaded = True
@@ -355,7 +356,7 @@ class XGBoostHokusaiModel(HokusaiModel):
         # For XGBoost, predict() returns probabilities for binary classification
         return self.predict(X)
 
-    def get_feature_importance(self) -> Optional[Dict[str, float]]:
+    def get_feature_importance(self) -> Optional[dict[str, float]]:
         """Get feature importance from XGBoost model."""
         if self._model is not None:
             importance = self._model.get_score(importance_type="gain")
@@ -374,7 +375,7 @@ class XGBoostHokusaiModel(HokusaiModel):
 class TensorFlowHokusaiModel(HokusaiModel):
     """Adapter for TensorFlow/Keras models."""
 
-    def __init__(self, tf_model: Any, metadata: ModelMetadata):
+    def __init__(self, tf_model: Any, metadata: ModelMetadata) -> None:
         super().__init__(metadata)
         self._model = tf_model
         self._is_loaded = tf_model is not None
@@ -382,6 +383,7 @@ class TensorFlowHokusaiModel(HokusaiModel):
     def load(self, model_path: str) -> None:
         """Load TensorFlow model from SavedModel format."""
         import tensorflow as tf
+
         self._model = tf.keras.models.load_model(model_path)
         self._is_loaded = True
         logger.info(f"Loaded TensorFlow model from {model_path}")
@@ -406,7 +408,7 @@ class TensorFlowHokusaiModel(HokusaiModel):
 class DSPyHokusaiModel(HokusaiModel):
     """Adapter for DSPy (Declarative Self-Prompting) models."""
 
-    def __init__(self, dspy_program: Any, metadata: ModelMetadata):
+    def __init__(self, dspy_program: Any, metadata: ModelMetadata) -> None:
         super().__init__(metadata)
         self._model = dspy_program
         self._is_loaded = dspy_program is not None
@@ -428,8 +430,8 @@ class DSPyHokusaiModel(HokusaiModel):
 
     def load(self, model_path: str) -> None:
         """Load DSPy model from file."""
-        import pickle
         import json
+        import pickle
         from pathlib import Path
 
         path = Path(model_path)
@@ -440,7 +442,7 @@ class DSPyHokusaiModel(HokusaiModel):
         elif path.suffix == ".json":
             # For JSON, we'd need custom deserialization
             with open(model_path) as f:
-                config = json.load(f)
+                json.load(f)
             # This would require implementing DSPy program reconstruction from config
             raise NotImplementedError("JSON loading for DSPy models not yet implemented")
         else:
@@ -506,12 +508,13 @@ class DSPyHokusaiModel(HokusaiModel):
         else:
             raise ValueError("DSPy models require pandas DataFrame input with named columns")
 
-    def get_signatures(self) -> Dict[str, Any]:
+    def get_signatures(self) -> dict[str, Any]:
         """Get all signatures defined in the DSPy program."""
         return self._signatures
 
-    def explain_prediction(self, X: Union[np.ndarray, pd.DataFrame],
-                         idx: int = 0) -> Optional[Dict[str, Any]]:
+    def explain_prediction(
+        self, X: Union[np.ndarray, pd.DataFrame], idx: int = 0
+    ) -> Optional[dict[str, Any]]:
         """Explain a DSPy prediction by showing the reasoning chain."""
         if not isinstance(X, pd.DataFrame):
             raise ValueError("DSPy explanations require DataFrame input")
@@ -526,7 +529,7 @@ class DSPyHokusaiModel(HokusaiModel):
                 "input": input_row,
                 "output": self._extract_output(result),
                 "trace": trace,
-                "signatures_used": list(self._signatures.keys())
+                "signatures_used": list(self._signatures.keys()),
             }
         else:
             # Basic explanation without trace
@@ -534,7 +537,7 @@ class DSPyHokusaiModel(HokusaiModel):
             return {
                 "input": input_row,
                 "output": self._extract_output(result),
-                "signatures_used": list(self._signatures.keys())
+                "signatures_used": list(self._signatures.keys()),
             }
 
 
@@ -549,16 +552,16 @@ class ModelFactory:
     }
 
     @classmethod
-    def create_model(cls, model_type: str,
-                    model_instance: Any,
-                    metadata: ModelMetadata) -> HokusaiModel:
+    def create_model(
+        cls, model_type: str, model_instance: Any, metadata: ModelMetadata
+    ) -> HokusaiModel:
         """Create a HokusaiModel instance based on model type.
-        
+
         Args:
             model_type: Type of model ('sklearn', 'xgboost', 'tensorflow')
             model_instance: The actual model instance
             metadata: Model metadata
-            
+
         Returns:
             HokusaiModel instance
 
@@ -570,10 +573,9 @@ class ModelFactory:
         return model_class(model_instance, metadata)
 
     @classmethod
-    def register_model_type(cls, model_type: str,
-                          model_class: type) -> None:
+    def register_model_type(cls, model_type: str, model_class: type) -> None:
         """Register a new model type.
-        
+
         Args:
             model_type: Name of the model type
             model_class: Class that implements HokusaiModel
@@ -588,10 +590,10 @@ class ModelFactory:
 
 def compute_feature_hash(features: Union[np.ndarray, pd.DataFrame]) -> str:
     """Compute a hash of input features for caching.
-    
+
     Args:
         features: Input features
-        
+
     Returns:
         SHA256 hash of the features
 
@@ -604,17 +606,16 @@ def compute_feature_hash(features: Union[np.ndarray, pd.DataFrame]) -> str:
     return hashlib.sha256(feature_bytes).hexdigest()
 
 
-def validate_model_compatibility(model_a: HokusaiModel,
-                               model_b: HokusaiModel) -> bool:
+def validate_model_compatibility(model_a: HokusaiModel, model_b: HokusaiModel) -> bool:
     """Check if two models are compatible for A/B testing.
-    
+
     Args:
         model_a: First model
         model_b: Second model
-        
+
     Returns:
         True if models are compatible
-        
+
     Raises:
         ValueError: If models are incompatible
 
@@ -633,9 +634,7 @@ def validate_model_compatibility(model_a: HokusaiModel,
     if features_a != features_b:
         diff_a = features_a - features_b
         diff_b = features_b - features_a
-        raise ValueError(
-            f"Feature mismatch. A has extra: {diff_a}, B has extra: {diff_b}"
-        )
+        raise ValueError(f"Feature mismatch. A has extra: {diff_a}, B has extra: {diff_b}")
 
     # Check model family
     if model_a.metadata.model_family != model_b.metadata.model_family:

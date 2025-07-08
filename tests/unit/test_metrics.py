@@ -1,16 +1,16 @@
 """Unit tests for metric logging convention functionality."""
+from unittest.mock import Mock, call, patch
+
 import pytest
-from unittest.mock import Mock, patch, call
-import mlflow
 from mlflow.exceptions import MlflowException
 
 from src.utils.metrics import (
-    MetricLogger,
     STANDARD_METRICS,
     MetricCategory,
-    validate_metric_name,
+    MetricLogger,
+    MetricValidationError,
     parse_metric_name,
-    MetricValidationError
+    validate_metric_name,
 )
 
 
@@ -33,7 +33,7 @@ class TestMetricNaming:
             "pipeline:processing_time",
             "custom:user_engagement",
             "usage:reply_rate.v2",
-            "model:f1_score_weighted"
+            "model:f1_score_weighted",
         ]
 
         for name in valid_names:
@@ -50,7 +50,7 @@ class TestMetricNaming:
             "metric@special",
             ":no_category",
             "category:",
-            "123_starts_with_number"
+            "123_starts_with_number",
         ]
 
         for name in invalid_names:
@@ -62,7 +62,7 @@ class TestMetricNaming:
             ("usage:reply_rate", ("usage", "reply_rate")),
             ("model:accuracy", ("model", "accuracy")),
             ("reply_rate", (None, "reply_rate")),
-            ("custom:metric.v2", ("custom", "metric.v2"))
+            ("custom:metric.v2", ("custom", "metric.v2")),
         ]
 
         for metric_name, expected in test_cases:
@@ -105,38 +105,26 @@ class TestMetricLogger:
         metrics = {
             "usage:reply_rate": 0.1523,
             "usage:conversion_rate": 0.0821,
-            "model:accuracy": 0.8934
+            "model:accuracy": 0.8934,
         }
 
         logger.log_metrics(metrics)
 
-        expected_calls = [
-            call(name, value) for name, value in metrics.items()
-        ]
+        expected_calls = [call(name, value) for name, value in metrics.items()]
         mock_mlflow.log_metric.assert_has_calls(expected_calls, any_order=True)
 
     def test_log_metrics_validation(self, logger):
         """Test batch logging validates all metric names."""
-        metrics = {
-            "valid_metric": 0.5,
-            "invalid metric": 0.3
-        }
+        metrics = {"valid_metric": 0.5, "invalid metric": 0.3}
 
         with pytest.raises(MetricValidationError):
             logger.log_metrics(metrics, raise_on_error=True)
 
     def test_log_metric_with_metadata(self, logger, mock_mlflow):
         """Test metric logging with metadata."""
-        metadata = {
-            "model_version": "2.0.1",
-            "experiment": "baseline_comparison"
-        }
+        metadata = {"model_version": "2.0.1", "experiment": "baseline_comparison"}
 
-        logger.log_metric_with_metadata(
-            "usage:reply_rate",
-            0.1523,
-            metadata
-        )
+        logger.log_metric_with_metadata("usage:reply_rate", 0.1523, metadata)
 
         # Should log metric
         mock_mlflow.log_metric.assert_called_with("usage:reply_rate", 0.1523)
@@ -144,7 +132,7 @@ class TestMetricLogger:
         # Should log metadata as params
         expected_param_calls = [
             call("metric_metadata.usage:reply_rate.model_version", "2.0.1"),
-            call("metric_metadata.usage:reply_rate.experiment", "baseline_comparison")
+            call("metric_metadata.usage:reply_rate.experiment", "baseline_comparison"),
         ]
         mock_mlflow.log_param.assert_has_calls(expected_param_calls, any_order=True)
 
@@ -171,7 +159,7 @@ class TestMetricLogger:
             "usage:reply_rate": 0.15,
             "usage:conversion_rate": 0.08,
             "model:accuracy": 0.89,
-            "custom:metric": 0.5
+            "custom:metric": 0.5,
         }
         mock_mlflow.get_run.return_value = mock_run
 
@@ -187,7 +175,7 @@ class TestMetricLogger:
         metrics_list = [
             {"reply_rate": 0.15, "accuracy": 0.85},
             {"reply_rate": 0.18, "accuracy": 0.87},
-            {"reply_rate": 0.12, "accuracy": 0.83}
+            {"reply_rate": 0.12, "accuracy": 0.83},
         ]
 
         aggregated = logger.aggregate_metrics(metrics_list)
@@ -210,10 +198,7 @@ class TestMetricCategories:
 
     def test_get_category_metrics(self):
         """Test getting all metrics for a category."""
-        usage_metrics = [
-            name for name in STANDARD_METRICS.keys()
-            if name.startswith("usage:")
-        ]
+        usage_metrics = [name for name in STANDARD_METRICS.keys() if name.startswith("usage:")]
 
         assert len(usage_metrics) > 0
         assert all(name.startswith("usage:") for name in usage_metrics)
@@ -257,11 +242,7 @@ class TestIntegrationWithPipeline:
         from src.utils.metrics import log_pipeline_metrics
 
         # Simulate pipeline metrics
-        pipeline_metrics = {
-            "data_processed": 1000,
-            "success_rate": 0.95,
-            "duration_seconds": 120.5
-        }
+        pipeline_metrics = {"data_processed": 1000, "success_rate": 0.95, "duration_seconds": 120.5}
 
         log_pipeline_metrics(pipeline_metrics)
 
@@ -269,7 +250,7 @@ class TestIntegrationWithPipeline:
         expected_calls = [
             call("pipeline:data_processed", 1000),
             call("pipeline:success_rate", 0.95),
-            call("pipeline:duration_seconds", 120.5)
+            call("pipeline:duration_seconds", 120.5),
         ]
         mock_mlflow.log_metric.assert_has_calls(expected_calls, any_order=True)
 
@@ -296,7 +277,7 @@ class TestBackwardCompatibility:
             "accuracy": "model:accuracy",
             "f1_score": "model:f1_score",
             "reply_rate": "usage:reply_rate",
-            "processing_time": "pipeline:duration_seconds"
+            "processing_time": "pipeline:duration_seconds",
         }
 
         for old_name, expected_new in migrations.items():

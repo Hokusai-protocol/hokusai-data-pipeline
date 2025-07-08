@@ -1,14 +1,12 @@
 """Evaluation module for preview pipeline."""
 
-import warnings
-from typing import Dict, Tuple, Any
-import pandas as pd
-import numpy as np
-from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score,
-    f1_score, roc_auc_score
-)
 import logging
+import warnings
+from typing import Any
+
+import numpy as np
+import pandas as pd
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 
 logger = logging.getLogger(__name__)
 
@@ -16,21 +14,17 @@ logger = logging.getLogger(__name__)
 class PreviewEvaluator:
     """Handles model evaluation and delta calculation for preview."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize PreviewEvaluator."""
         pass
 
-    def evaluate_model(
-        self,
-        model: Any,
-        test_data: pd.DataFrame
-    ) -> Dict[str, float]:
+    def evaluate_model(self, model: Any, test_data: pd.DataFrame) -> dict[str, float]:
         """Evaluate model performance on test data.
-        
+
         Args:
             model: Model to evaluate
             test_data: Test dataset with features and labels
-            
+
         Returns:
             Dictionary of evaluation metrics
 
@@ -48,23 +42,19 @@ class PreviewEvaluator:
         return metrics
 
     def calculate_metrics(
-        self,
-        y_true: np.ndarray,
-        y_pred: np.ndarray,
-        y_proba: np.ndarray,
-        multiclass: bool = False
-    ) -> Dict[str, float]:
+        self, y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray, multiclass: bool = False
+    ) -> dict[str, float]:
         """Calculate evaluation metrics.
-        
+
         Args:
             y_true: True labels
             y_pred: Predicted labels
             y_proba: Prediction probabilities
             multiclass: Whether this is a multiclass problem
-            
+
         Returns:
             Dictionary of metrics
-            
+
         Raises:
             ValueError: If predictions are empty
 
@@ -97,28 +87,20 @@ class PreviewEvaluator:
         return metrics
 
     def calculate_delta_one_score(
-        self,
-        baseline_metrics: Dict[str, float],
-        new_metrics: Dict[str, float]
+        self, baseline_metrics: dict[str, float], new_metrics: dict[str, float]
     ) -> float:
         """Calculate DeltaOne score (simplified version).
-        
+
         Args:
             baseline_metrics: Baseline model metrics
             new_metrics: New model metrics
-            
+
         Returns:
             DeltaOne score
 
         """
         # Use weighted average of improvements across metrics
-        weights = {
-            "accuracy": 0.2,
-            "precision": 0.2,
-            "recall": 0.2,
-            "f1": 0.2,
-            "auroc": 0.2
-        }
+        weights = {"accuracy": 0.2, "precision": 0.2, "recall": 0.2, "f1": 0.2, "auroc": 0.2}
 
         delta_score = 0.0
 
@@ -138,16 +120,14 @@ class PreviewEvaluator:
         return delta_score
 
     def compare_models(
-        self,
-        baseline_metrics: Dict[str, float],
-        new_metrics: Dict[str, float]
-    ) -> Dict[str, Any]:
+        self, baseline_metrics: dict[str, float], new_metrics: dict[str, float]
+    ) -> dict[str, Any]:
         """Compare baseline and new model metrics.
-        
+
         Args:
             baseline_metrics: Baseline model metrics
             new_metrics: New model metrics
-            
+
         Returns:
             Comparison results with deltas and improvements
 
@@ -159,11 +139,7 @@ class PreviewEvaluator:
         if missing_metrics:
             warnings.warn(f"Missing metrics in comparison: {missing_metrics}")
 
-        comparison = {
-            "metric_deltas": {},
-            "improved_metrics": [],
-            "degraded_metrics": []
-        }
+        comparison = {"metric_deltas": {}, "improved_metrics": [], "degraded_metrics": []}
 
         # Calculate deltas for each metric
         for metric in common_metrics:
@@ -178,7 +154,7 @@ class PreviewEvaluator:
                 "new_value": new_val,
                 "absolute_delta": absolute_delta,
                 "relative_delta": relative_delta,
-                "improvement": absolute_delta > 0
+                "improvement": absolute_delta > 0,
             }
 
             # Track improvements/degradations
@@ -196,10 +172,10 @@ class PreviewEvaluator:
 
     def estimate_confidence(self, sample_size: int) -> float:
         """Estimate confidence based on sample size.
-        
+
         Args:
             sample_size: Number of samples used
-            
+
         Returns:
             Confidence score between 0 and 1
 
@@ -213,12 +189,12 @@ class PreviewEvaluator:
 
         return confidence
 
-    def _prepare_test_data(self, data: pd.DataFrame) -> Tuple[Any, np.ndarray]:
+    def _prepare_test_data(self, data: pd.DataFrame) -> tuple[Any, np.ndarray]:
         """Prepare test data for evaluation.
-        
+
         Args:
             data: Test dataframe
-            
+
         Returns:
             Tuple of (features, labels)
 
@@ -232,8 +208,7 @@ class PreviewEvaluator:
             X = np.array(data["features"].tolist())
         else:
             # Use all columns except label and query_id as features
-            feature_cols = [col for col in data.columns
-                          if col not in ["label", "query_id"]]
+            feature_cols = [col for col in data.columns if col not in ["label", "query_id"]]
             X = data[feature_cols].values
 
         return X, y

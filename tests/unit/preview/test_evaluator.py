@@ -1,10 +1,11 @@
 """Unit tests for preview evaluator module."""
 
-import pytest
-import pandas as pd
-import numpy as np
 from unittest.mock import Mock
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+
+import numpy as np
+import pandas as pd
+import pytest
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 
 # Import will be added once module is implemented
 from src.preview.evaluator import PreviewEvaluator
@@ -17,11 +18,13 @@ class TestPreviewEvaluator:
     def sample_test_data(self):
         """Create sample test data."""
         np.random.seed(42)
-        data = pd.DataFrame({
-            "query_id": range(200),
-            "features": [np.random.rand(10).tolist() for _ in range(200)],
-            "label": np.random.randint(0, 2, 200)
-        })
+        data = pd.DataFrame(
+            {
+                "query_id": range(200),
+                "features": [np.random.rand(10).tolist() for _ in range(200)],
+                "label": np.random.randint(0, 2, 200),
+            }
+        )
         return data
 
     @pytest.fixture
@@ -38,24 +41,12 @@ class TestPreviewEvaluator:
     @pytest.fixture
     def baseline_metrics(self):
         """Create baseline model metrics."""
-        return {
-            "accuracy": 0.85,
-            "precision": 0.83,
-            "recall": 0.87,
-            "f1": 0.85,
-            "auroc": 0.91
-        }
+        return {"accuracy": 0.85, "precision": 0.83, "recall": 0.87, "f1": 0.85, "auroc": 0.91}
 
     @pytest.fixture
     def new_model_metrics(self):
         """Create new model metrics."""
-        return {
-            "accuracy": 0.88,
-            "precision": 0.86,
-            "recall": 0.89,
-            "f1": 0.87,
-            "auroc": 0.93
-        }
+        return {"accuracy": 0.88, "precision": 0.86, "recall": 0.89, "f1": 0.87, "auroc": 0.93}
 
     @pytest.mark.skip(reason="PreviewEvaluator not yet implemented")
     def test_evaluate_model(self, sample_test_data, mock_predictions):
@@ -105,27 +96,18 @@ class TestPreviewEvaluator:
         """Test DeltaOne score calculation."""
         evaluator = PreviewEvaluator()
 
-        delta_one_score = evaluator.calculate_delta_one_score(
-            baseline_metrics,
-            new_model_metrics
-        )
+        delta_one_score = evaluator.calculate_delta_one_score(baseline_metrics, new_model_metrics)
 
         # DeltaOne should be positive for improvement
         assert delta_one_score > 0
 
         # Test with equal metrics (no improvement)
-        same_score = evaluator.calculate_delta_one_score(
-            baseline_metrics,
-            baseline_metrics
-        )
+        same_score = evaluator.calculate_delta_one_score(baseline_metrics, baseline_metrics)
         assert same_score == 0
 
         # Test with worse metrics
         worse_metrics = {k: v - 0.1 for k, v in baseline_metrics.items()}
-        negative_score = evaluator.calculate_delta_one_score(
-            baseline_metrics,
-            worse_metrics
-        )
+        negative_score = evaluator.calculate_delta_one_score(baseline_metrics, worse_metrics)
         assert negative_score < 0
 
     @pytest.mark.skip(reason="PreviewEvaluator not yet implemented")
@@ -193,22 +175,21 @@ class TestPreviewEvaluator:
         # Create multiclass data
         y_true = np.array([0, 1, 2, 0, 1, 2, 0, 1, 2])
         y_pred = np.array([0, 1, 2, 0, 2, 1, 0, 1, 2])
-        y_proba = np.array([
-            [0.8, 0.1, 0.1],
-            [0.1, 0.8, 0.1],
-            [0.1, 0.1, 0.8],
-            [0.7, 0.2, 0.1],
-            [0.2, 0.3, 0.5],
-            [0.3, 0.5, 0.2],
-            [0.9, 0.05, 0.05],
-            [0.1, 0.8, 0.1],
-            [0.1, 0.1, 0.8]
-        ])
-
-        metrics = evaluator.calculate_metrics(
-            y_true, y_pred, y_proba,
-            multiclass=True
+        y_proba = np.array(
+            [
+                [0.8, 0.1, 0.1],
+                [0.1, 0.8, 0.1],
+                [0.1, 0.1, 0.8],
+                [0.7, 0.2, 0.1],
+                [0.2, 0.3, 0.5],
+                [0.3, 0.5, 0.2],
+                [0.9, 0.05, 0.05],
+                [0.1, 0.8, 0.1],
+                [0.1, 0.1, 0.8],
+            ]
         )
+
+        metrics = evaluator.calculate_metrics(y_true, y_pred, y_proba, multiclass=True)
 
         assert "accuracy" in metrics
         assert "precision" in metrics  # Should use macro average

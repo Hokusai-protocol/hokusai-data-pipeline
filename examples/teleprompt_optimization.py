@@ -5,23 +5,22 @@ to optimize DSPy programs based on usage logs and generate attestations
 for DeltaOne achievements.
 """
 
-import os
-from datetime import datetime, timedelta
 import json
+from datetime import datetime, timedelta
 
-from src.services.teleprompt_finetuner import (
-    TelepromptFinetuner,
-    OptimizationConfig,
-    OptimizationStrategy
-)
+from src.dspy_signatures import DraftText, EmailDraft
 from src.services.optimization_attestation import OptimizationAttestationService
-from src.dspy_signatures import EmailDraft, DraftText
+from src.services.teleprompt_finetuner import (
+    OptimizationConfig,
+    OptimizationStrategy,
+    TelepromptFinetuner,
+)
 
 
-def run_basic_optimization():
+def run_basic_optimization() -> None:
     """Run basic teleprompt optimization example."""
     print("=== Basic Teleprompt Optimization ===\n")
-    
+
     # Configure optimization
     config = OptimizationConfig(
         strategy=OptimizationStrategy.BOOTSTRAP_FEWSHOT,
@@ -29,13 +28,13 @@ def run_basic_optimization():
         optimization_rounds=2,
         deltaone_threshold=0.01  # 1% improvement threshold
     )
-    
+
     # Create finetuner
     finetuner = TelepromptFinetuner(config)
-    
+
     # Use EmailDraft signature as example
     program = EmailDraft()
-    
+
     # Run optimization (using last 7 days of traces)
     print("Running optimization...")
     result = finetuner.run_optimization(
@@ -44,7 +43,7 @@ def run_basic_optimization():
         end_date=datetime.now(),
         outcome_metric="reply_rate"
     )
-    
+
     if result.success:
         print(f"✓ Optimization successful!")
         print(f"  - Traces used: {result.trace_count}")
@@ -54,26 +53,26 @@ def run_basic_optimization():
     else:
         print(f"✗ Optimization failed: {result.error_message}")
         return
-    
+
     # Evaluate DeltaOne
     print("\nEvaluating DeltaOne improvement...")
     deltaone_result = finetuner.evaluate_deltaone(result)
-    
+
     print(f"  - Performance delta: {deltaone_result['delta']:.2%}")
     print(f"  - DeltaOne achieved: {deltaone_result['deltaone_achieved']}")
-    
-    if deltaone_result['deltaone_achieved']:
+
+    if deltaone_result["deltaone_achieved"]:
         print("\n🎉 DeltaOne threshold reached! Generating attestation...")
-        
+
         # Generate attestation
         attestation = finetuner.generate_attestation(result, deltaone_result)
-        
+
         print("\nAttestation Summary:")
         print(f"  - ID: {attestation['attestation_hash'][:16]}...")
         print(f"  - Model: {attestation['model_info']['optimized_version']}")
         print(f"  - Improvement: {attestation['performance']['performance_delta']:.2%}")
         print(f"  - Contributors: {len(attestation['contributors'])}")
-        
+
         # Save optimized model
         print("\nSaving optimized model to MLflow...")
         model_info = finetuner.save_optimized_model(
@@ -84,10 +83,10 @@ def run_basic_optimization():
         print(f"  - Model saved: {model_info['model_name']} v{model_info['version']}")
 
 
-def run_scheduled_optimization():
+def run_scheduled_optimization() -> None:
     """Example of scheduled optimization pipeline."""
     print("\n=== Scheduled Optimization Pipeline ===\n")
-    
+
     # Configuration for production use
     config = OptimizationConfig(
         strategy=OptimizationStrategy.BOOTSTRAP_FEWSHOT_RANDOM,
@@ -98,22 +97,22 @@ def run_scheduled_optimization():
         num_candidates=20,
         enable_deltaone_check=True
     )
-    
+
     # Programs to optimize
     programs = [
         ("EmailDraft", EmailDraft(), "reply_rate"),
         ("ContentDraft", DraftText(), "engagement_score")
     ]
-    
+
     # Attestation service
     attestation_service = OptimizationAttestationService()
-    
+
     # Run optimization for each program
     for program_name, program, metric in programs:
         print(f"\nOptimizing {program_name}...")
-        
+
         finetuner = TelepromptFinetuner(config)
-        
+
         # Run optimization
         result = finetuner.run_optimization(
             program=program,
@@ -121,18 +120,18 @@ def run_scheduled_optimization():
             end_date=datetime.now(),
             outcome_metric=metric
         )
-        
+
         if not result.success:
             print(f"  ✗ Failed: {result.error_message}")
             continue
-        
+
         print(f"  ✓ Optimized using {result.trace_count} traces")
-        
+
         # Check DeltaOne
         deltaone_result = finetuner.evaluate_deltaone(result)
         print(f"  - Delta: {deltaone_result['delta']:.2%}")
-        
-        if deltaone_result['deltaone_achieved']:
+
+        if deltaone_result["deltaone_achieved"]:
             # Create attestation through service
             attestation = attestation_service.create_attestation(
                 model_info={
@@ -158,27 +157,27 @@ def run_scheduled_optimization():
                     for cid, info in result.contributors.items()
                 ]
             )
-            
+
             print(f"  ✓ Attestation created: {attestation.attestation_id}")
-            
+
             # Calculate rewards
             rewards = attestation_service.calculate_rewards(
                 attestation,
                 total_reward=1000.0  # Example reward amount
             )
-            
+
             print(f"  - Reward distribution:")
             for address, amount in list(rewards.items())[:3]:
                 print(f"    {address[:10]}...: {amount:.2f}")
 
 
-def demonstrate_contributor_attribution():
+def demonstrate_contributor_attribution() -> None:
     """Demonstrate contributor attribution in optimization."""
     print("\n=== Contributor Attribution Example ===\n")
-    
+
     # Simulate optimization result with multiple contributors
     from src.services.teleprompt_finetuner import OptimizationResult
-    
+
     result = OptimizationResult(
         success=True,
         optimized_program=EmailDraft(),
@@ -207,11 +206,11 @@ def demonstrate_contributor_attribution():
             }
         }
     )
-    
+
     print("Contributors to optimization:")
     print(f"{'Contributor':<12} {'Address':<20} {'Weight':<8} {'Traces':<8} {'Avg Score'}")
     print("-" * 70)
-    
+
     for contrib_id, info in result.contributors.items():
         print(
             f"{contrib_id:<12} "
@@ -220,22 +219,22 @@ def demonstrate_contributor_attribution():
             f"{info['trace_count']:<8} "
             f"{info['avg_score']:.3f}"
         )
-    
+
     # Show reward calculation
     print("\nReward calculation (1000 tokens total):")
     total_reward = 1000
-    
+
     for contrib_id, info in result.contributors.items():
-        reward = total_reward * info['weight']
+        reward = total_reward * info["weight"]
         print(f"  {contrib_id}: {reward:.2f} tokens ({info['weight']:.1%})")
 
 
-def show_attestation_verification():
+def show_attestation_verification() -> None:
     """Demonstrate attestation verification process."""
     print("\n=== Attestation Verification ===\n")
-    
+
     attestation_service = OptimizationAttestationService()
-    
+
     # Create example attestation
     attestation = attestation_service.create_attestation(
         model_info={
@@ -274,15 +273,15 @@ def show_attestation_verification():
             }
         ]
     )
-    
+
     print("Attestation created:")
     print(f"  ID: {attestation.attestation_id}")
     print(f"  Hash: {attestation.attestation_hash[:32]}...")
-    
+
     # Verify attestation
     is_valid = attestation_service.verify_attestation(attestation)
     print(f"\nVerification: {'✓ VALID' if is_valid else '✗ INVALID'}")
-    
+
     # Prepare for blockchain
     print("\nBlockchain representation:")
     blockchain_data = attestation_service.prepare_for_blockchain(attestation)
@@ -292,23 +291,23 @@ def show_attestation_verification():
 if __name__ == "__main__":
     print("Teleprompt Fine-tuning Pipeline Examples")
     print("=" * 50)
-    
+
     # Note: These examples assume MLflow is running and traces are available
     # In a real scenario, you would need actual trace data
-    
+
     try:
         # Basic optimization
         run_basic_optimization()
-        
+
         # Scheduled pipeline
         run_scheduled_optimization()
-        
+
         # Contributor attribution
         demonstrate_contributor_attribution()
-        
+
         # Attestation verification
         show_attestation_verification()
-        
+
     except Exception as e:
         print(f"\nError in example: {e}")
         print("\nNote: These examples require:")

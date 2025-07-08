@@ -2,9 +2,9 @@
 
 import pytest
 
-from src.dspy_signatures.registry import SignatureRegistry
 from src.dspy_signatures.base import BaseSignature, SignatureField
 from src.dspy_signatures.metadata import SignatureMetadata
+from src.dspy_signatures.registry import SignatureRegistry
 
 
 class TestSignatureRegistry:
@@ -40,7 +40,7 @@ class TestSignatureRegistry:
             description="A test signature",
             category="test",
             tags=["test", "example"],
-            version="1.0.0"
+            version="1.0.0",
         )
 
         # Register the signature
@@ -72,7 +72,7 @@ class TestSignatureRegistry:
             description="A test signature",
             category="test",
             tags=["test"],
-            version="1.0.0"
+            version="1.0.0",
         )
 
         registry.register(signature, metadata)
@@ -103,7 +103,7 @@ class TestSignatureRegistry:
             description="A test signature",
             category="test",
             tags=["test"],
-            version="1.0.0"
+            version="1.0.0",
         )
 
         registry.register(signature, metadata)
@@ -141,7 +141,7 @@ class TestSignatureRegistry:
             description="A test signature",
             category="test",
             tags=["test"],
-            version="1.0.0"
+            version="1.0.0",
         )
 
         registry.register(signature, metadata)
@@ -168,8 +168,12 @@ class TestSignatureRegistry:
             # Create a unique class for each iteration
             attrs = {
                 "__module__": "__main__",
-                "get_input_fields": classmethod(lambda cls: [SignatureField("input", "Test input", str, True)]),
-                "get_output_fields": classmethod(lambda cls: [SignatureField("output", "Test output", str, True)])
+                "get_input_fields": classmethod(
+                    lambda cls: [SignatureField("input", "Test input", str, True)]
+                ),
+                "get_output_fields": classmethod(
+                    lambda cls: [SignatureField("output", "Test output", str, True)]
+                ),
             }
             TestSig = type(f"TestSignature{i}", (BaseSignature,), attrs)
 
@@ -180,7 +184,7 @@ class TestSignatureRegistry:
                 description=f"Test signature {i}",
                 category="test",
                 tags=["test"],
-                version="1.0.0"
+                version="1.0.0",
             )
 
             registry.register(sig, metadata)
@@ -200,8 +204,12 @@ class TestSignatureRegistry:
             # Create a unique class for each iteration
             attrs = {
                 "__module__": "__main__",
-                "get_input_fields": classmethod(lambda cls: [SignatureField("input", "Test input", str, True)]),
-                "get_output_fields": classmethod(lambda cls: [SignatureField("output", "Test output", str, True)])
+                "get_input_fields": classmethod(
+                    lambda cls: [SignatureField("input", "Test input", str, True)]
+                ),
+                "get_output_fields": classmethod(
+                    lambda cls: [SignatureField("output", "Test output", str, True)]
+                ),
             }
             TestSig = type(f"Signature{i}", (BaseSignature,), attrs)
 
@@ -212,7 +220,7 @@ class TestSignatureRegistry:
                 description=f"Signature {i}",
                 category=category,
                 tags=[category],
-                version="1.0.0"
+                version="1.0.0",
             )
 
             registry.register(sig, metadata)
@@ -233,15 +241,19 @@ class TestSignatureRegistry:
             ["email", "generation"],
             ["email", "analysis"],
             ["code", "generation"],
-            ["data", "analysis"]
+            ["data", "analysis"],
         ]
 
         for i, tags in enumerate(tag_sets):
             # Create a unique class for each iteration
             attrs = {
                 "__module__": "__main__",
-                "get_input_fields": classmethod(lambda cls: [SignatureField("input", "Test input", str, True)]),
-                "get_output_fields": classmethod(lambda cls: [SignatureField("output", "Test output", str, True)])
+                "get_input_fields": classmethod(
+                    lambda cls: [SignatureField("input", "Test input", str, True)]
+                ),
+                "get_output_fields": classmethod(
+                    lambda cls: [SignatureField("output", "Test output", str, True)]
+                ),
             }
             TestSig = type(f"Signature{i}", (BaseSignature,), attrs)
 
@@ -252,7 +264,7 @@ class TestSignatureRegistry:
                 description=f"Signature {i}",
                 category="test",
                 tags=tags,
-                version="1.0.0"
+                version="1.0.0",
             )
 
             registry.register(sig, metadata)
@@ -291,7 +303,7 @@ class TestSignatureRegistry:
             category="test",
             tags=["test"],
             version="1.0.0",
-            examples=["Example 1", "Example 2"]
+            examples=["Example 1", "Example 2"],
         )
 
         registry.register(signature, metadata)
@@ -310,7 +322,7 @@ class TestSignatureRegistry:
             def get_input_fields(cls):
                 return [
                     SignatureField("text", "Text", str, True),
-                    SignatureField("context", "Context", str, False)
+                    SignatureField("context", "Context", str, False),
                 ]
 
             @classmethod
@@ -342,14 +354,14 @@ class TestSignatureRegistry:
                 description=f"{sig_class.__name__} description",
                 category="test",
                 tags=["test"],
-                version="1.0.0"
+                version="1.0.0",
             )
             registry.register(sig, metadata)
 
         # Check compatibility
-        assert registry.check_compatibility("Signature1", "Signature2") == True
-        assert registry.check_compatibility("Signature1", "Signature3") == False
-        assert registry.check_compatibility("Signature2", "Signature3") == False
+        assert registry.check_compatibility("Signature1", "Signature2")
+        assert not registry.check_compatibility("Signature1", "Signature3")
+        assert not registry.check_compatibility("Signature2", "Signature3")
 
     def test_export_catalog(self):
         """Test exporting signature catalog."""
@@ -360,8 +372,12 @@ class TestSignatureRegistry:
             # Create a unique class for each iteration
             attrs = {
                 "__module__": "__main__",
-                "get_input_fields": classmethod(lambda cls: [SignatureField("input", "Test input", str, True)]),
-                "get_output_fields": classmethod(lambda cls: [SignatureField("output", "Test output", str, True)])
+                "get_input_fields": classmethod(
+                    lambda cls: [SignatureField("input", "Test input", str, True)]
+                ),
+                "get_output_fields": classmethod(
+                    lambda cls: [SignatureField("output", "Test output", str, True)]
+                ),
             }
             TestSig = type(f"TestSignature{i}", (BaseSignature,), attrs)
 
@@ -372,7 +388,7 @@ class TestSignatureRegistry:
                 description=f"Test signature {i}",
                 category="test",
                 tags=["test", f"tag{i}"],
-                version="1.0.0"
+                version="1.0.0",
             )
 
             registry.register(sig, metadata)

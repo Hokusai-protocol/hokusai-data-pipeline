@@ -1,27 +1,28 @@
 """Inference pipeline with caching for high-performance model serving."""
 
 import asyncio
+import hashlib
 import json
 import logging
+import pickle
 import time
-from typing import Dict, List, Optional, Any, Union, Tuple
-from datetime import datetime
+import zlib
 from collections import defaultdict
-from dataclasses import dataclass, asdict
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass
+from datetime import datetime
 from enum import Enum
+from typing import Any, Optional, Union
+
 import numpy as np
 import pandas as pd
 import redis
 from redis.exceptions import RedisError
-import hashlib
-import pickle
-import zlib
-from concurrent.futures import ThreadPoolExecutor
 
-from .model_abstraction import HokusaiModel, ModelFactory
-from .model_versioning import ModelVersionManager, Environment
 from .ab_testing import ModelTrafficRouter
+from .model_abstraction import HokusaiModel, ModelFactory
 from .model_registry import HokusaiModelRegistry
+from .model_versioning import Environment, ModelVersionManager
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +52,9 @@ class InferenceRequest:
 
     request_id: str
     model_family: str
-    features: Union[np.ndarray, pd.DataFrame, Dict[str, Any]]
+    features: Union[np.ndarray, pd.DataFrame, dict[str, Any]]
     user_id: Optional[str] = None
-    request_metadata: Optional[Dict[str, Any]] = None
+    request_metadata: Optional[dict[str, Any]] = None
     timeout_ms: int = 1000
     use_cache: bool = True
 
@@ -77,7 +78,7 @@ class InferenceResponse:
     """Response from model inference."""
 
     request_id: str
-    prediction: Union[np.ndarray, List[float], float]
+    prediction: Union[np.ndarray, list[float], float]
     model_id: str
     model_version: str
     status: InferenceStatus
@@ -85,10 +86,10 @@ class InferenceResponse:
     cached: bool = False
     cache_key: Optional[str] = None
     confidence: Optional[float] = None
-    explanation: Optional[Dict[str, Any]] = None
+    explanation: Optional[dict[str, Any]] = None
     ab_test_id: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         data = asdict(self)
         data["status"] = self.status.value
@@ -100,12 +101,15 @@ class InferenceResponse:
 class InferenceCacheManager:
     """Manages caching for model inference with multiple strategies."""
 
-    def __init__(self, redis_client: redis.Redis,
-                 cache_strategy: CacheStrategy = CacheStrategy.TTL,
-                 default_ttl: int = 3600,
-                 max_cache_size_mb: int = 1024):
+    def __init__(
+        self,
+        redis_client: redis.Redis,
+        cache_strategy: CacheStrategy = CacheStrategy.TTL,
+        default_ttl: int = 3600,
+        max_cache_size_mb: int = 1024,
+    ) -> None:
         """Initialize cache manager.
-        
+
         Args:
             redis_client: Redis client for cache storage
             cache_strategy: Caching strategy to use
@@ -121,10 +125,10 @@ class InferenceCacheManager:
 
     async def get_cached_prediction(self, cache_key: str) -> Optional[np.ndarray]:
         """Retrieve cached prediction if available.
-        
+
         Args:
             cache_key: Cache key
-            
+
         Returns:
             Cached prediction or None
 
@@ -151,16 +155,16 @@ class InferenceCacheManager:
             self._cache_stats["errors"] += 1
             return None
 
-    async def cache_prediction(self, cache_key: str,
-                             prediction: np.ndarray,
-                             ttl: Optional[int] = None) -> bool:
+    async def cache_prediction(
+        self, cache_key: str, prediction: np.ndarray, ttl: Optional[int] = None
+    ) -> bool:
         """Cache a prediction result.
-        
+
         Args:
             cache_key: Cache key
             prediction: Prediction to cache
             ttl: Optional TTL override
-            
+
         Returns:
             True if successful
 
@@ -193,10 +197,10 @@ class InferenceCacheManager:
 
     def invalidate_model_cache(self, model_id: str) -> int:
         """Invalidate all cache entries for a model.
-        
+
         Args:
             model_id: Model identifier
-            
+
         Returns:
             Number of entries invalidated
 
@@ -214,9 +218,9 @@ class InferenceCacheManager:
         logger.info(f"Invalidated {invalidated} cache entries for model {model_id}")
         return invalidated
 
-    def get_cache_stats(self) -> Dict[str, Any]:
+    def get_cache_stats(self) -> dict[str, Any]:
         """Get cache statistics.
-        
+
         Returns:
             Cache statistics dictionary
 
@@ -231,12 +235,12 @@ class InferenceCacheManager:
             "writes": self._cache_stats["writes"],
             "hit_rate": hit_rate,
             "total_requests": total_requests,
-            "cache_size_mb": self._get_total_cache_size_mb()
+            "cache_size_mb": self._get_total_cache_size_mb(),
         }
 
     def clear_cache(self) -> int:
         """Clear all inference cache entries.
-        
+
         Returns:
             Number of entries cleared
 
@@ -305,11 +309,14 @@ class InferenceCacheManager:
 class ModelLoader:
     """Handles model loading and caching in memory."""
 
-    def __init__(self, registry: HokusaiModelRegistry,
-                 version_manager: ModelVersionManager,
-                 max_models_in_memory: int = 10):
+    def __init__(
+        self,
+        registry: HokusaiModelRegistry,
+        version_manager: ModelVersionManager,
+        max_models_in_memory: int = 10,
+    ) -> None:
         """Initialize model loader.
-        
+
         Args:
             registry: Model registry
             version_manager: Version manager
@@ -322,25 +329,26 @@ class ModelLoader:
         self._model_cache = {}
         self._load_times = {}
 
-    async def load_model(self, model_family: str,
-                        version: Optional[str] = None,
-                        environment: Environment = Environment.PRODUCTION) -> HokusaiModel:
+    async def load_model(
+        self,
+        model_family: str,
+        version: Optional[str] = None,
+        environment: Environment = Environment.PRODUCTION,
+    ) -> HokusaiModel:
         """Load a model, using cache if available.
-        
+
         Args:
             model_family: Model family name
             version: Specific version or None for active
             environment: Environment to load from
-            
+
         Returns:
             Loaded model
 
         """
         # Determine version
         if not version:
-            active_version = self.version_manager.get_active_version(
-                model_family, environment
-            )
+            active_version = self.version_manager.get_active_version(model_family, environment)
             if not active_version:
                 raise ValueError(f"No active version for {model_family} in {environment.value}")
             version = active_version.version
@@ -362,6 +370,7 @@ class ModelLoader:
 
         # Load from MLFlow
         import mlflow.pyfunc
+
         mlflow_model = mlflow.pyfunc.load_model(f"models:/{model_version.model_id}")
 
         # Create HokusaiModel wrapper
@@ -369,7 +378,7 @@ class ModelLoader:
         model = ModelFactory.create_model(
             model_type="sklearn",  # Would be detected from metadata
             model_instance=mlflow_model,
-            metadata=model_version.metadata
+            metadata=model_version.metadata,
         )
 
         load_time = time.time() - start_time
@@ -397,14 +406,17 @@ class ModelLoader:
 class HokusaiInferencePipeline:
     """Main inference pipeline with caching, routing, and monitoring."""
 
-    def __init__(self, model_registry: HokusaiModelRegistry,
-                 version_manager: ModelVersionManager,
-                 traffic_router: ModelTrafficRouter,
-                 cache_manager: InferenceCacheManager,
-                 redis_client: redis.Redis,
-                 enable_fallback: bool = True):
+    def __init__(
+        self,
+        model_registry: HokusaiModelRegistry,
+        version_manager: ModelVersionManager,
+        traffic_router: ModelTrafficRouter,
+        cache_manager: InferenceCacheManager,
+        redis_client: redis.Redis,
+        enable_fallback: bool = True,
+    ) -> None:
         """Initialize inference pipeline.
-        
+
         Args:
             model_registry: Model registry
             version_manager: Version manager
@@ -432,10 +444,10 @@ class HokusaiInferencePipeline:
 
     async def predict(self, request: InferenceRequest) -> InferenceResponse:
         """Main prediction endpoint with caching and routing.
-        
+
         Args:
             request: Inference request
-            
+
         Returns:
             Inference response
 
@@ -445,10 +457,7 @@ class HokusaiInferencePipeline:
         try:
             # 1. Determine which model to use (A/B testing)
             model_id, ab_test_id = self.router.route_request(
-                request.request_id,
-                request.model_family,
-                request.user_id,
-                request.request_metadata
+                request.request_id, request.model_family, request.user_id, request.request_metadata
             )
 
             # Parse model ID to get family and version
@@ -470,7 +479,7 @@ class HokusaiInferencePipeline:
                             self._get_ab_variant(model_id, ab_test_id),
                             latency_ms,
                             True,
-                            True
+                            True,
                         )
 
                     return InferenceResponse(
@@ -482,20 +491,15 @@ class HokusaiInferencePipeline:
                         latency_ms=latency_ms,
                         cached=True,
                         cache_key=cache_key,
-                        ab_test_id=ab_test_id
+                        ab_test_id=ab_test_id,
                     )
 
             # 3. Load model
-            model = await self.model_loader.load_model(
-                model_family,
-                model_version
-            )
+            model = await self.model_loader.load_model(model_family, model_version)
 
             # 4. Make prediction
             prediction = await self._predict_with_timeout(
-                model,
-                request.features,
-                request.timeout_ms
+                model, request.features, request.timeout_ms
             )
 
             # 5. Cache result if enabled
@@ -510,11 +514,7 @@ class HokusaiInferencePipeline:
 
             if ab_test_id:
                 self.router.record_prediction_result(
-                    ab_test_id,
-                    self._get_ab_variant(model_id, ab_test_id),
-                    latency_ms,
-                    True,
-                    False
+                    ab_test_id, self._get_ab_variant(model_id, ab_test_id), latency_ms, True, False
                 )
 
             # 8. Get confidence if available
@@ -536,7 +536,7 @@ class HokusaiInferencePipeline:
                 cached=False,
                 cache_key=cache_key,
                 confidence=confidence,
-                ab_test_id=ab_test_id
+                ab_test_id=ab_test_id,
             )
 
         except asyncio.TimeoutError:
@@ -544,12 +544,12 @@ class HokusaiInferencePipeline:
         except Exception as e:
             return await self._handle_error(request, model_id, start_time, e)
 
-    async def predict_batch(self, requests: List[InferenceRequest]) -> List[InferenceResponse]:
+    async def predict_batch(self, requests: list[InferenceRequest]) -> list[InferenceResponse]:
         """Batch prediction with parallel processing.
-        
+
         Args:
             requests: List of inference requests
-            
+
         Returns:
             List of inference responses
 
@@ -570,7 +570,7 @@ class HokusaiInferencePipeline:
                         model_version="unknown",
                         status=InferenceStatus.ERROR,
                         latency_ms=0,
-                        cached=False
+                        cached=False,
                     )
                 )
             else:
@@ -578,16 +578,19 @@ class HokusaiInferencePipeline:
 
         return results
 
-    async def warm_cache(self, model_family: str,
-                        sample_features: List[Union[np.ndarray, pd.DataFrame]],
-                        version: Optional[str] = None) -> int:
+    async def warm_cache(
+        self,
+        model_family: str,
+        sample_features: list[Union[np.ndarray, pd.DataFrame]],
+        version: Optional[str] = None,
+    ) -> int:
         """Warm the cache with sample predictions.
-        
+
         Args:
             model_family: Model family to warm
             sample_features: Sample features to predict
             version: Specific version or None for active
-            
+
         Returns:
             Number of entries cached
 
@@ -604,7 +607,7 @@ class HokusaiInferencePipeline:
                     request_id=f"warmup_{cached}",
                     model_family=model_family,
                     features=features,
-                    use_cache=True
+                    use_cache=True,
                 )
 
                 # Make prediction (will cache)
@@ -617,9 +620,9 @@ class HokusaiInferencePipeline:
         logger.info(f"Warmed cache with {cached} entries for {model_id}")
         return cached
 
-    def get_pipeline_metrics(self) -> Dict[str, Any]:
+    def get_pipeline_metrics(self) -> dict[str, Any]:
         """Get pipeline performance metrics.
-        
+
         Returns:
             Metrics dictionary
 
@@ -628,35 +631,41 @@ class HokusaiInferencePipeline:
 
         return {
             "total_requests": total_requests,
-            "success_rate": self._metrics[InferenceStatus.SUCCESS] / total_requests if total_requests > 0 else 0,
-            "cache_hit_rate": self._metrics[InferenceStatus.CACHE_HIT] / total_requests if total_requests > 0 else 0,
-            "error_rate": self._metrics[InferenceStatus.ERROR] / total_requests if total_requests > 0 else 0,
-            "timeout_rate": self._metrics[InferenceStatus.TIMEOUT] / total_requests if total_requests > 0 else 0,
-            "fallback_rate": self._metrics[InferenceStatus.FALLBACK] / total_requests if total_requests > 0 else 0,
+            "success_rate": self._metrics[InferenceStatus.SUCCESS] / total_requests
+            if total_requests > 0
+            else 0,
+            "cache_hit_rate": self._metrics[InferenceStatus.CACHE_HIT] / total_requests
+            if total_requests > 0
+            else 0,
+            "error_rate": self._metrics[InferenceStatus.ERROR] / total_requests
+            if total_requests > 0
+            else 0,
+            "timeout_rate": self._metrics[InferenceStatus.TIMEOUT] / total_requests
+            if total_requests > 0
+            else 0,
+            "fallback_rate": self._metrics[InferenceStatus.FALLBACK] / total_requests
+            if total_requests > 0
+            else 0,
             "cache_stats": self.cache.get_cache_stats(),
-            "models_in_memory": len(self.model_loader._model_cache)
+            "models_in_memory": len(self.model_loader._model_cache),
         }
 
-    async def _predict_with_timeout(self, model: HokusaiModel,
-                                  features: Union[np.ndarray, pd.DataFrame],
-                                  timeout_ms: int) -> np.ndarray:
+    async def _predict_with_timeout(
+        self, model: HokusaiModel, features: Union[np.ndarray, pd.DataFrame], timeout_ms: int
+    ) -> np.ndarray:
         """Make prediction with timeout."""
         loop = asyncio.get_event_loop()
 
         # Run prediction in thread pool
-        future = loop.run_in_executor(
-            self._executor,
-            model.predict,
-            features
-        )
+        future = loop.run_in_executor(self._executor, model.predict, features)
 
         # Wait with timeout
         timeout_seconds = timeout_ms / 1000.0
         return await asyncio.wait_for(future, timeout=timeout_seconds)
 
-    async def _handle_timeout(self, request: InferenceRequest,
-                            model_id: str,
-                            start_time: float) -> InferenceResponse:
+    async def _handle_timeout(
+        self, request: InferenceRequest, model_id: str, start_time: float
+    ) -> InferenceResponse:
         """Handle prediction timeout."""
         latency_ms = (time.time() - start_time) * 1000
         self._record_metrics(model_id, latency_ms, InferenceStatus.TIMEOUT)
@@ -672,13 +681,12 @@ class HokusaiInferencePipeline:
             model_version="unknown",
             status=InferenceStatus.TIMEOUT,
             latency_ms=latency_ms,
-            cached=False
+            cached=False,
         )
 
-    async def _handle_error(self, request: InferenceRequest,
-                          model_id: str,
-                          start_time: float,
-                          error: Exception) -> InferenceResponse:
+    async def _handle_error(
+        self, request: InferenceRequest, model_id: str, start_time: float, error: Exception
+    ) -> InferenceResponse:
         """Handle prediction error."""
         latency_ms = (time.time() - start_time) * 1000
         logger.error(f"Prediction error for {model_id}: {str(error)}")
@@ -695,12 +703,12 @@ class HokusaiInferencePipeline:
             model_version="unknown",
             status=InferenceStatus.ERROR,
             latency_ms=latency_ms,
-            cached=False
+            cached=False,
         )
 
-    async def _try_fallback(self, request: InferenceRequest,
-                          failed_model_id: str,
-                          start_time: float) -> InferenceResponse:
+    async def _try_fallback(
+        self, request: InferenceRequest, failed_model_id: str, start_time: float
+    ) -> InferenceResponse:
         """Try fallback to previous model version."""
         try:
             # Get previous version
@@ -714,15 +722,12 @@ class HokusaiInferencePipeline:
 
             # Load fallback model
             fallback_model = await self.model_loader.load_model(
-                model_family,
-                fallback_version.version
+                model_family, fallback_version.version
             )
 
             # Make prediction
             prediction = await self._predict_with_timeout(
-                fallback_model,
-                request.features,
-                request.timeout_ms
+                fallback_model, request.features, request.timeout_ms
             )
 
             latency_ms = (time.time() - start_time) * 1000
@@ -735,7 +740,7 @@ class HokusaiInferencePipeline:
                 model_version=fallback_version.version,
                 status=InferenceStatus.FALLBACK,
                 latency_ms=latency_ms,
-                cached=False
+                cached=False,
             )
 
         except Exception as e:
@@ -748,10 +753,10 @@ class HokusaiInferencePipeline:
                 model_version="unknown",
                 status=InferenceStatus.ERROR,
                 latency_ms=latency_ms,
-                cached=False
+                cached=False,
             )
 
-    def _parse_model_id(self, model_id: str) -> Tuple[str, str]:
+    def _parse_model_id(self, model_id: str) -> tuple[str, str]:
         """Parse model ID into family and version."""
         parts = model_id.split("/")
         if len(parts) != 2:

@@ -1,24 +1,23 @@
 """Unit tests for model abstraction service."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock, call
+from datetime import datetime
+from unittest.mock import Mock, patch
+
 import numpy as np
 import pandas as pd
-from datetime import datetime
-from typing import Dict, Any, List
-import json
+import pytest
 
 from src.services.model_abstraction import (
-    ModelType,
-    ModelStatus,
-    ModelMetadata,
+    DSPyHokusaiModel,
     HokusaiModel,
     ModelAdapter,
+    ModelFactory,
+    ModelMetadata,
+    ModelStatus,
+    ModelType,
     SklearnHokusaiModel,
-    XGBoostHokusaiModel,
     TensorFlowHokusaiModel,
-    DSPyHokusaiModel,
-    ModelFactory
+    XGBoostHokusaiModel,
 )
 
 
@@ -63,7 +62,7 @@ class TestModelMetadata:
             feature_names=["feature1", "feature2", "feature3"],
             feature_types={"feature1": "numeric", "feature2": "categorical", "feature3": "numeric"},
             contributor_address="0x123abc",
-            baseline_model_id="model_122"
+            baseline_model_id="model_122",
         )
 
     def test_metadata_creation(self):
@@ -138,7 +137,7 @@ class TestHokusaiModel:
             training_metadata={},
             performance_metrics={},
             feature_names=["f1", "f2"],
-            feature_types={"f1": "numeric", "f2": "numeric"}
+            feature_types={"f1": "numeric", "f2": "numeric"},
         )
         self.model = ConcreteHokusaiModel(self.metadata)
 
@@ -258,7 +257,7 @@ class TestModelAdapter:
 
         # Add entries to cache
         for i in range(3):
-            X = np.array([[i, i+1, i+2]])
+            X = np.array([[i, i + 1, i + 2]])
             self.mock_model.predict.return_value = np.array([i])
             self.adapter.predict(X, use_cache=True)
 
@@ -298,7 +297,7 @@ class TestSklearnHokusaiModel:
             training_metadata={},
             performance_metrics={},
             feature_names=["f1", "f2"],
-            feature_types={"f1": "numeric", "f2": "numeric"}
+            feature_types={"f1": "numeric", "f2": "numeric"},
         )
         self.model = SklearnHokusaiModel(self.metadata)
 
@@ -379,7 +378,7 @@ class TestModelFactory:
             training_metadata={"framework": "sklearn"},
             performance_metrics={},
             feature_names=[],
-            feature_types={}
+            feature_types={},
         )
 
         model = ModelFactory.create_model(metadata)
@@ -400,7 +399,7 @@ class TestModelFactory:
             training_metadata={"framework": "xgboost"},
             performance_metrics={},
             feature_names=[],
-            feature_types={}
+            feature_types={},
         )
 
         model = ModelFactory.create_model(metadata)
@@ -420,7 +419,7 @@ class TestModelFactory:
             training_metadata={"framework": "tensorflow"},
             performance_metrics={},
             feature_names=[],
-            feature_types={}
+            feature_types={},
         )
 
         model = ModelFactory.create_model(metadata)
@@ -440,7 +439,7 @@ class TestModelFactory:
             training_metadata={},
             performance_metrics={},
             feature_names=[],
-            feature_types={}
+            feature_types={},
         )
 
         model = ModelFactory.create_model(metadata)
@@ -460,7 +459,7 @@ class TestModelFactory:
             training_metadata={"framework": "unknown"},
             performance_metrics={},
             feature_names=[],
-            feature_types={}
+            feature_types={},
         )
 
         with pytest.raises(ValueError, match="Unsupported model framework"):
@@ -468,14 +467,28 @@ class TestModelFactory:
 
     def test_register_custom_model_class(self):
         """Test registering custom model class."""
+
         class CustomModel(HokusaiModel):
-            def load(self, path): pass
-            def predict(self, X): pass
-            def predict_proba(self, X): pass
-            def get_feature_importance(self): pass
-            def validate_input(self, X): pass
-            def preprocess(self, X): pass
-            def postprocess(self, pred): pass
+            def load(self, path):
+                pass
+
+            def predict(self, X):
+                pass
+
+            def predict_proba(self, X):
+                pass
+
+            def get_feature_importance(self):
+                pass
+
+            def validate_input(self, X):
+                pass
+
+            def preprocess(self, X):
+                pass
+
+            def postprocess(self, pred):
+                pass
 
         ModelFactory.register_model_class("custom", CustomModel)
 

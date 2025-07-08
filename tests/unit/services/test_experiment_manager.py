@@ -1,8 +1,9 @@
 """Unit tests for the ExperimentManager service."""
 
-import pytest
 from unittest.mock import Mock, patch
+
 import numpy as np
+import pytest
 
 from src.services.experiment_manager import ExperimentManager
 
@@ -29,10 +30,7 @@ class TestExperimentManager:
         return {
             "features": np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]]),
             "labels": np.array([0, 1, 1]),
-            "metadata": {
-                "contributor_id": "contrib_001",
-                "dataset_hash": "0xabc123"
-            }
+            "metadata": {"contributor_id": "contrib_001", "dataset_hash": "0xabc123"},
         }
 
     @pytest.fixture
@@ -41,7 +39,7 @@ class TestExperimentManager:
         return {
             "features": np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 11, 12]]),
             "labels": np.array([0, 1, 1, 0]),
-            "dataset_name": "standard_test_set"
+            "dataset_name": "standard_test_set",
         }
 
     def test_init_default(self):
@@ -61,9 +59,9 @@ class TestExperimentManager:
     @patch("mlflow.start_run")
     @patch("mlflow.log_params")
     @patch("mlflow.set_tag")
-    def test_create_improvement_experiment_success(self, mock_set_tag, mock_log_params,
-                                                 mock_start_run, manager,
-                                                 mock_contributed_data):
+    def test_create_improvement_experiment_success(
+        self, mock_set_tag, mock_log_params, mock_start_run, manager, mock_contributed_data
+    ):
         """Test successful creation of improvement experiment."""
         # Setup mocks
         mock_run = Mock()
@@ -76,8 +74,7 @@ class TestExperimentManager:
 
         # Execute
         experiment_id = manager.create_improvement_experiment(
-            baseline_model_id=baseline_model_id,
-            contributed_data=mock_contributed_data
+            baseline_model_id=baseline_model_id, contributed_data=mock_contributed_data
         )
 
         # Verify
@@ -97,8 +94,9 @@ class TestExperimentManager:
     @patch("mlflow.pyfunc.load_model")
     @patch("mlflow.start_run")
     @patch("mlflow.log_metric")
-    def test_compare_models_success(self, mock_log_metric, mock_start_run,
-                                  mock_load_model, manager, mock_test_data):
+    def test_compare_models_success(
+        self, mock_log_metric, mock_start_run, mock_load_model, manager, mock_test_data
+    ):
         """Test successful model comparison."""
         # Setup baseline model
         baseline_model = Mock()
@@ -128,7 +126,7 @@ class TestExperimentManager:
         comparison_result = manager.compare_models(
             baseline_id="baseline_model/1",
             candidate_id="candidate_model/2",
-            test_data=mock_test_data
+            test_data=mock_test_data,
         )
 
         # Verify results structure
@@ -157,8 +155,9 @@ class TestExperimentManager:
     @patch("src.services.experiment_manager.f1_score")
     @patch("src.services.experiment_manager.precision_score")
     @patch("src.services.experiment_manager.recall_score")
-    def test_calculate_metrics(self, mock_recall, mock_precision, mock_f1,
-                             mock_roc_auc, mock_accuracy, manager):
+    def test_calculate_metrics(
+        self, mock_recall, mock_precision, mock_f1, mock_roc_auc, mock_accuracy, manager
+    ):
         """Test metrics calculation from predictions."""
         # Setup mock returns
         mock_accuracy.return_value = 0.85
@@ -187,9 +186,9 @@ class TestExperimentManager:
     @patch("src.services.experiment_manager.f1_score", return_value=1.0)
     @patch("src.services.experiment_manager.precision_score", return_value=1.0)
     @patch("src.services.experiment_manager.recall_score", return_value=1.0)
-    def test_calculate_metrics_perfect_predictions(self, mock_recall, mock_precision,
-                                                 mock_f1, mock_roc_auc, mock_accuracy,
-                                                 manager):
+    def test_calculate_metrics_perfect_predictions(
+        self, mock_recall, mock_precision, mock_f1, mock_roc_auc, mock_accuracy, manager
+    ):
         """Test metrics calculation with perfect predictions."""
         y_true = np.array([0, 1, 1, 0])
         y_pred = np.array([0.1, 0.9, 0.8, 0.2])
@@ -207,10 +206,24 @@ class TestExperimentManager:
         # Mock run data
         mock_runs = Mock()
         mock_runs.iterrows.return_value = [
-            (0, {"run_id": "run1", "params.baseline_model_id": "model/1",
-                 "metrics.accuracy_improvement": 0.02, "start_time": "2024-01-01"}),
-            (1, {"run_id": "run2", "params.baseline_model_id": "model/1",
-                 "metrics.accuracy_improvement": 0.03, "start_time": "2024-01-02"})
+            (
+                0,
+                {
+                    "run_id": "run1",
+                    "params.baseline_model_id": "model/1",
+                    "metrics.accuracy_improvement": 0.02,
+                    "start_time": "2024-01-01",
+                },
+            ),
+            (
+                1,
+                {
+                    "run_id": "run2",
+                    "params.baseline_model_id": "model/1",
+                    "metrics.accuracy_improvement": 0.03,
+                    "start_time": "2024-01-02",
+                },
+            ),
         ]
         mock_search_runs.return_value = mock_runs
 
@@ -229,7 +242,7 @@ class TestExperimentManager:
             "test_size": 0.2,
             "random_seed": 42,
             "metrics": ["accuracy", "auroc"],
-            "comparison_threshold": 0.01
+            "comparison_threshold": 0.01,
         }
 
         assert manager._validate_config(valid_config) is True
@@ -247,7 +260,7 @@ class TestExperimentManager:
         artifacts = {
             "confusion_matrix": "path/to/confusion_matrix.png",
             "roc_curve": "path/to/roc_curve.png",
-            "experiment_report": "path/to/report.html"
+            "experiment_report": "path/to/report.html",
         }
 
         manager._log_artifacts(artifacts)
@@ -291,7 +304,7 @@ class TestExperimentManager:
             "baseline_metrics": {"accuracy": 0.85, "auroc": 0.82},
             "candidate_metrics": {"accuracy": 0.88, "auroc": 0.85},
             "improvements": {"accuracy": 0.03, "auroc": 0.03},
-            "recommendation": "ACCEPT"
+            "recommendation": "ACCEPT",
         }
 
         report = manager._format_report(comparison_result)

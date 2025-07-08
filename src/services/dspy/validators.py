@@ -1,7 +1,7 @@
 """Validators for DSPy models and configurations."""
 
-from typing import Any, Dict, List, Optional, Set
 import inspect
+from typing import Any, Optional
 
 from ...utils.logging_utils import get_pipeline_logger
 
@@ -10,7 +10,7 @@ logger = get_pipeline_logger(__name__)
 
 class DSPyValidator:
     """Validator for DSPy programs and configurations.
-    
+
     Validates:
     - DSPy program structure and signatures
     - Configuration files
@@ -24,12 +24,12 @@ class DSPyValidator:
     # Valid signature field types
     VALID_FIELD_TYPES = ["input", "output", "instruction", "example"]
 
-    def validate_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_config(self, config: dict[str, Any]) -> dict[str, Any]:
         """Validate a DSPy configuration dictionary.
-        
+
         Args:
             config: Configuration dictionary to validate
-            
+
         Returns:
             Validation result with 'valid' boolean and 'errors' list
 
@@ -55,22 +55,18 @@ class DSPyValidator:
         # Validate chains if present
         if "chains" in config:
             chain_errors = self._validate_chains_config(
-                config["chains"],
-                config.get("signatures", {})
+                config["chains"], config.get("signatures", {})
             )
             errors.extend(chain_errors)
 
-        return {
-            "valid": len(errors) == 0,
-            "errors": errors
-        }
+        return {"valid": len(errors) == 0, "errors": errors}
 
-    def validate_program(self, program: Any) -> Dict[str, Any]:
+    def validate_program(self, program: Any) -> dict[str, Any]:
         """Validate a DSPy program instance.
-        
+
         Args:
             program: DSPy program instance to validate
-            
+
         Returns:
             Validation result with program metadata
 
@@ -82,12 +78,7 @@ class DSPyValidator:
         # Check if it's a valid object
         if program is None:
             errors.append("Program is None")
-            return {
-                "valid": False,
-                "errors": errors,
-                "signatures": signatures,
-                "chains": chains
-            }
+            return {"valid": False, "errors": errors, "signatures": signatures, "chains": chains}
 
         # Check required attributes
         for attr in self.REQUIRED_PROGRAM_ATTRS:
@@ -118,15 +109,15 @@ class DSPyValidator:
             "errors": errors,
             "signatures": signatures,
             "chains": chains,
-            "program_type": type(program).__name__
+            "program_type": type(program).__name__,
         }
 
-    def validate_signature(self, signature: Any) -> Dict[str, Any]:
+    def validate_signature(self, signature: Any) -> dict[str, Any]:
         """Validate a single DSPy signature.
-        
+
         Args:
             signature: DSPy signature to validate
-            
+
         Returns:
             Validation result with signature metadata
 
@@ -143,18 +134,14 @@ class DSPyValidator:
                 for field_name, field_info in signature.fields.items():
                     fields[field_name] = {
                         "type": getattr(field_info, "type", "unknown"),
-                        "description": getattr(field_info, "description", "")
+                        "description": getattr(field_info, "description", ""),
                     }
             except Exception as e:
                 errors.append(f"Error processing signature fields: {str(e)}")
 
-        return {
-            "valid": len(errors) == 0,
-            "errors": errors,
-            "fields": fields
-        }
+        return {"valid": len(errors) == 0, "errors": errors, "fields": fields}
 
-    def _validate_source_config(self, source: Any) -> List[str]:
+    def _validate_source_config(self, source: Any) -> list[str]:
         """Validate source configuration."""
         errors = []
 
@@ -180,7 +167,7 @@ class DSPyValidator:
 
         return errors
 
-    def _validate_signatures_config(self, signatures: Any) -> List[str]:
+    def _validate_signatures_config(self, signatures: Any) -> list[str]:
         """Validate signatures configuration."""
         errors = []
 
@@ -206,7 +193,7 @@ class DSPyValidator:
 
         return errors
 
-    def _validate_chains_config(self, chains: Any, signatures: Dict[str, Any]) -> List[str]:
+    def _validate_chains_config(self, chains: Any, signatures: dict[str, Any]) -> list[str]:
         """Validate chains configuration."""
         errors = []
 
@@ -232,7 +219,7 @@ class DSPyValidator:
 
         return errors
 
-    def _extract_signatures(self, program: Any) -> Dict[str, Any]:
+    def _extract_signatures(self, program: Any) -> dict[str, Any]:
         """Extract signatures from a DSPy program."""
         signatures = {}
 
@@ -245,10 +232,7 @@ class DSPyValidator:
 
             # Check if it looks like a signature
             if hasattr(attr, "fields") or hasattr(attr, "input_fields"):
-                sig_info = {
-                    "name": attr_name,
-                    "type": type(attr).__name__
-                }
+                sig_info = {"name": attr_name, "type": type(attr).__name__}
 
                 # Extract fields if possible
                 if hasattr(attr, "fields"):
@@ -261,7 +245,7 @@ class DSPyValidator:
 
         return signatures
 
-    def _extract_chains(self, program: Any) -> Dict[str, Any]:
+    def _extract_chains(self, program: Any) -> dict[str, Any]:
         """Extract chain information from a DSPy program."""
         chains = {}
 
@@ -278,14 +262,14 @@ class DSPyValidator:
                     sig = inspect.signature(method)
                     chains[method_name] = {
                         "parameters": list(sig.parameters.keys()),
-                        "type": "method"
+                        "type": "method",
                     }
                 except:
                     pass
 
         return chains
 
-    def _validate_forward_method(self, program: Any) -> List[str]:
+    def _validate_forward_method(self, program: Any) -> list[str]:
         """Validate the forward method of a DSPy program."""
         errors = []
 
@@ -311,13 +295,15 @@ class DSPyValidator:
 
         return errors
 
-    def create_validation_report(self, program: Any, config: Optional[Dict[str, Any]] = None) -> str:
+    def create_validation_report(
+        self, program: Any, config: Optional[dict[str, Any]] = None
+    ) -> str:
         """Create a detailed validation report for a DSPy program.
-        
+
         Args:
             program: DSPy program to validate
             config: Optional configuration to validate
-            
+
         Returns:
             Formatted validation report string
 

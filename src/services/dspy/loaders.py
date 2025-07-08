@@ -2,14 +2,13 @@
 
 import importlib
 import importlib.util
-import os
+import json
+import pickle
 import sys
 import tempfile
-from pathlib import Path
-from typing import Any, Dict, Optional, Union
-import pickle
-import json
 from functools import lru_cache
+from pathlib import Path
+from typing import Any, Optional, Union
 
 from ...utils.logging_utils import get_pipeline_logger
 
@@ -18,18 +17,21 @@ logger = get_pipeline_logger(__name__)
 # Try to import huggingface_hub, make it optional
 try:
     from huggingface_hub import hf_hub_download, snapshot_download
+
     HF_HUB_AVAILABLE = True
 except ImportError:
     HF_HUB_AVAILABLE = False
-    logger.warning("huggingface_hub not installed. Remote loading from HuggingFace will not be available.")
+    logger.warning(
+        "huggingface_hub not installed. Remote loading from HuggingFace will not be available."
+    )
 
 
 class LocalDSPyLoader:
     """Loader for DSPy models from local filesystem."""
 
-    def __init__(self, cache_dir: Optional[Path] = None):
+    def __init__(self, cache_dir: Optional[Path] = None) -> None:
         """Initialize local loader.
-        
+
         Args:
             cache_dir: Optional directory for caching loaded modules
 
@@ -40,13 +42,13 @@ class LocalDSPyLoader:
 
     def load_from_file(self, file_path: Union[str, Path]) -> Any:
         """Load DSPy program from a file.
-        
+
         Args:
             file_path: Path to the file containing DSPy program
-            
+
         Returns:
             Loaded DSPy program
-            
+
         Raises:
             FileNotFoundError: If file doesn't exist
             ImportError: If file cannot be loaded
@@ -71,14 +73,14 @@ class LocalDSPyLoader:
 
     def load_python_class(self, module_path: str, class_name: str) -> Any:
         """Load a DSPy program class from a Python module.
-        
+
         Args:
             module_path: Python module path (e.g., "my_models.dspy_programs")
             class_name: Name of the DSPy program class
-            
+
         Returns:
             Instantiated DSPy program
-            
+
         Raises:
             ImportError: If module or class cannot be imported
 
@@ -162,9 +164,9 @@ class LocalDSPyLoader:
 class RemoteDSPyLoader:
     """Loader for DSPy models from remote repositories."""
 
-    def __init__(self, cache_dir: Optional[Path] = None):
+    def __init__(self, cache_dir: Optional[Path] = None) -> None:
         """Initialize remote loader.
-        
+
         Args:
             cache_dir: Optional directory for caching downloaded models
 
@@ -175,18 +177,19 @@ class RemoteDSPyLoader:
         if not HF_HUB_AVAILABLE:
             logger.warning("RemoteDSPyLoader initialized but huggingface_hub is not installed")
 
-    def load_from_huggingface(self, repo_id: str, filename: str,
-                            token: Optional[str] = None) -> Any:
+    def load_from_huggingface(
+        self, repo_id: str, filename: str, token: Optional[str] = None
+    ) -> Any:
         """Load DSPy program from HuggingFace Hub.
-        
+
         Args:
             repo_id: HuggingFace repository ID (e.g., "username/model-name")
             filename: Name of the file to load from the repository
             token: Optional HuggingFace API token for private repos
-            
+
         Returns:
             Loaded DSPy program
-            
+
         Raises:
             ImportError: If huggingface_hub is not installed
             ConnectionError: If unable to connect to HuggingFace Hub
@@ -194,8 +197,10 @@ class RemoteDSPyLoader:
 
         """
         if not HF_HUB_AVAILABLE:
-            raise ImportError("huggingface_hub is required for remote loading. "
-                            "Install with: pip install huggingface_hub")
+            raise ImportError(
+                "huggingface_hub is required for remote loading. "
+                "Install with: pip install huggingface_hub"
+            )
 
         logger.info(f"Loading DSPy model from HuggingFace: {repo_id}/{filename}")
 
@@ -206,7 +211,7 @@ class RemoteDSPyLoader:
                 filename=filename,
                 token=token,
                 cache_dir=self.cache_dir,
-                force_download=False
+                force_download=False,
             )
 
             # Use local loader to load the downloaded file
@@ -215,21 +220,22 @@ class RemoteDSPyLoader:
 
         except Exception as e:
             logger.error(f"Failed to load from HuggingFace: {e}")
-            raise ConnectionError(f"Failed to load DSPy model from HuggingFace: {e}")
+            raise ConnectionError(f"Failed to load DSPy model from HuggingFace: {e}") from e
 
-    def load_from_github(self, repo_url: str, file_path: str,
-                        branch: str = "main", token: Optional[str] = None) -> Any:
+    def load_from_github(
+        self, repo_url: str, file_path: str, branch: str = "main", token: Optional[str] = None
+    ) -> Any:
         """Load DSPy program from GitHub repository.
-        
+
         Args:
             repo_url: GitHub repository URL
             file_path: Path to file within the repository
             branch: Git branch to use (default: "main")
             token: Optional GitHub token for private repos
-            
+
         Returns:
             Loaded DSPy program
-            
+
         Raises:
             ConnectionError: If unable to connect to GitHub
             FileNotFoundError: If file not found in repository
@@ -240,15 +246,15 @@ class RemoteDSPyLoader:
         raise NotImplementedError("GitHub loading not yet implemented")
 
     @lru_cache(maxsize=10)
-    def list_available_models(self, search_query: Optional[str] = None) -> Dict[str, Any]:
+    def list_available_models(self, search_query: Optional[str] = None) -> dict[str, Any]:
         """List available DSPy models from HuggingFace Hub.
-        
+
         Args:
             search_query: Optional search query to filter models
-            
+
         Returns:
             Dictionary of available models with metadata
-            
+
         Raises:
             ImportError: If huggingface_hub is not installed
 
@@ -261,18 +267,19 @@ class RemoteDSPyLoader:
         logger.info("Model listing not fully implemented yet")
         return {}
 
-    def download_model(self, repo_id: str, local_dir: Optional[Path] = None,
-                      token: Optional[str] = None) -> Path:
+    def download_model(
+        self, repo_id: str, local_dir: Optional[Path] = None, token: Optional[str] = None
+    ) -> Path:
         """Download entire DSPy model repository.
-        
+
         Args:
             repo_id: HuggingFace repository ID
             local_dir: Optional local directory to save the model
             token: Optional HuggingFace API token
-            
+
         Returns:
             Path to downloaded model directory
-            
+
         Raises:
             ImportError: If huggingface_hub is not installed
             ConnectionError: If download fails
@@ -286,10 +293,7 @@ class RemoteDSPyLoader:
         try:
             # Download entire repository
             local_path = snapshot_download(
-                repo_id=repo_id,
-                local_dir=local_dir,
-                token=token,
-                cache_dir=self.cache_dir
+                repo_id=repo_id, local_dir=local_dir, token=token, cache_dir=self.cache_dir
             )
 
             logger.info(f"Downloaded model to: {local_path}")
@@ -297,4 +301,4 @@ class RemoteDSPyLoader:
 
         except Exception as e:
             logger.error(f"Failed to download model: {e}")
-            raise ConnectionError(f"Failed to download model: {e}")
+            raise ConnectionError(f"Failed to download model: {e}") from e

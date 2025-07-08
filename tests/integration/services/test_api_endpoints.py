@@ -1,8 +1,9 @@
 """Integration tests for API endpoints."""
 
+from unittest.mock import patch
+
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch
 
 from src.api.main import app
 
@@ -42,18 +43,14 @@ class TestAPIEndpoints:
         """Test successful model lineage retrieval."""
         # Mock lineage data
         mock_lineage = [
-            {
-                "version": "1",
-                "is_baseline": True,
-                "metrics": {"accuracy": 0.85}
-            },
+            {"version": "1", "is_baseline": True, "metrics": {"accuracy": 0.85}},
             {
                 "version": "2",
                 "is_baseline": False,
                 "contributor": "0xABC123",
                 "metrics": {"accuracy": 0.87},
-                "improvements": {"accuracy": 0.02}
-            }
+                "improvements": {"accuracy": 0.02},
+            },
         ]
         mock_registry.get_model_lineage.return_value = mock_lineage
 
@@ -81,24 +78,17 @@ class TestAPIEndpoints:
             "model_name": "new_model",
             "model_type": "lead_scoring",
             "model_data": {"path": "s3://models/new_model.pkl"},
-            "metadata": {
-                "dataset": "training_v2",
-                "version": "2.0.0"
-            }
+            "metadata": {"dataset": "training_v2", "version": "2.0.0"},
         }
 
         # Mock response
         mock_registry.register_baseline.return_value = {
             "model_id": "new_model/1",
             "model_name": "new_model",
-            "version": "1"
+            "version": "1",
         }
 
-        response = client.post(
-            "/models/register",
-            json=registration_data,
-            headers=auth_headers
-        )
+        response = client.post("/models/register", json=registration_data, headers=auth_headers)
 
         assert response.status_code == 201
         data = response.json()
@@ -111,14 +101,10 @@ class TestAPIEndpoints:
             "model_name": "new_model",
             "model_type": "invalid_type",
             "model_data": {"path": "s3://models/new_model.pkl"},
-            "metadata": {}
+            "metadata": {},
         }
 
-        response = client.post(
-            "/models/register",
-            json=registration_data,
-            headers=auth_headers
-        )
+        response = client.post("/models/register", json=registration_data, headers=auth_headers)
 
         assert response.status_code == 422
 
@@ -134,21 +120,18 @@ class TestAPIEndpoints:
                 {
                     "model_id": "model1/2",
                     "improvement": {"accuracy": 0.03},
-                    "timestamp": "2024-01-01T00:00:00Z"
+                    "timestamp": "2024-01-01T00:00:00Z",
                 },
                 {
                     "model_id": "model2/3",
                     "improvement": {"accuracy": 0.02},
-                    "timestamp": "2024-01-02T00:00:00Z"
-                }
-            ]
+                    "timestamp": "2024-01-02T00:00:00Z",
+                },
+            ],
         }
         mock_tracker.get_contributor_impact.return_value = mock_impact
 
-        response = client.get(
-            f"/contributors/{contributor_address}/impact",
-            headers=auth_headers
-        )
+        response = client.get(f"/contributors/{contributor_address}/impact", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -158,10 +141,7 @@ class TestAPIEndpoints:
 
     def test_get_contributor_impact_invalid_address(self, client, auth_headers):
         """Test contributor impact with invalid ETH address."""
-        response = client.get(
-            "/contributors/invalid_address/impact",
-            headers=auth_headers
-        )
+        response = client.get("/contributors/invalid_address/impact", headers=auth_headers)
 
         assert response.status_code == 400
         assert "Invalid Ethereum address" in response.json()["detail"]
@@ -206,8 +186,9 @@ class TestAPIEndpoints:
         assert "/models/{model_id}/lineage" in openapi_spec["paths"]
 
     @patch("src.api.routes.models.mlflow")
-    def test_model_registration_with_mlflow_error(self, mock_mlflow, client,
-                                                 auth_headers, mock_registry):
+    def test_model_registration_with_mlflow_error(
+        self, mock_mlflow, client, auth_headers, mock_registry
+    ):
         """Test model registration when MLflow fails."""
         mock_registry.register_baseline.side_effect = Exception("MLflow connection error")
 
@@ -215,14 +196,10 @@ class TestAPIEndpoints:
             "model_name": "new_model",
             "model_type": "lead_scoring",
             "model_data": {"path": "s3://models/new_model.pkl"},
-            "metadata": {}
+            "metadata": {},
         }
 
-        response = client.post(
-            "/models/register",
-            json=registration_data,
-            headers=auth_headers
-        )
+        response = client.post("/models/register", json=registration_data, headers=auth_headers)
 
         assert response.status_code == 500
         assert "internal server error" in response.json()["detail"].lower()

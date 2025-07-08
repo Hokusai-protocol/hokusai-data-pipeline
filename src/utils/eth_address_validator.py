@@ -1,8 +1,9 @@
 """Ethereum address validation utilities for the Hokusai data pipeline.
 
-This module provides utilities for validating, normalizing, and handling 
+This module provides utilities for validating, normalizing, and handling
 Ethereum addresses in the context of contributor data submissions.
 """
+
 import re
 from typing import Optional
 
@@ -15,14 +16,14 @@ class ETHAddressValidationError(Exception):
 
 def validate_eth_address(address: Optional[str], strict_checksum: bool = False) -> bool:
     """Validate an Ethereum address format and optionally checksum.
-    
+
     Args:
         address: The ETH address to validate
         strict_checksum: If True, enforce EIP-55 checksum validation
-        
+
     Returns:
         True if address is valid
-        
+
     Raises:
         ETHAddressValidationError: If address is invalid
 
@@ -42,7 +43,9 @@ def validate_eth_address(address: Optional[str], strict_checksum: bool = False) 
 
     # Check length (0x + 40 hex characters = 42 total)
     if len(address) != 42:
-        raise ETHAddressValidationError(f"Invalid ETH address length: expected 42 characters, got {len(address)}")
+        raise ETHAddressValidationError(
+            f"Invalid ETH address length: expected 42 characters, got {len(address)}"
+        )
 
     # Check if remaining characters are valid hexadecimal
     hex_part = address[2:]
@@ -58,13 +61,13 @@ def validate_eth_address(address: Optional[str], strict_checksum: bool = False) 
 
 def normalize_eth_address(address: str) -> str:
     """Normalize an ETH address to EIP-55 checksum format.
-    
+
     Args:
         address: The ETH address to normalize
-        
+
     Returns:
         The normalized address with proper checksum
-        
+
     Raises:
         ETHAddressValidationError: If address format is invalid
 
@@ -81,10 +84,10 @@ def normalize_eth_address(address: str) -> str:
 
 def is_valid_eth_checksum(address: str) -> bool:
     """Check if an ETH address has a valid EIP-55 checksum.
-    
+
     Args:
         address: The ETH address to check
-        
+
     Returns:
         True if checksum is valid, False otherwise
 
@@ -104,13 +107,13 @@ def is_valid_eth_checksum(address: str) -> bool:
 
 def _to_checksum_address(address: str) -> str:
     """Convert an ETH address to EIP-55 checksum format.
-    
+
     This implements the EIP-55 checksum algorithm:
     https://github.com/ethereum/EIPs/blob/master/EIPS/eip-55.md
-    
+
     Args:
         address: The lowercase ETH address
-        
+
     Returns:
         The checksummed address
 

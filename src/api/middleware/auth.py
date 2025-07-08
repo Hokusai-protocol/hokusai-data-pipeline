@@ -1,18 +1,20 @@
 """Authentication middleware for API security."""
 
-from fastapi import HTTPException, status, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import JWTError, jwt
-from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Any
-from functools import wraps
 import logging
 import secrets
+from datetime import datetime, timedelta
+from functools import wraps
+from typing import Any, Awaitable, Callable, Optional
+
 import boto3
+import redis
 from botocore.exceptions import ClientError
 from eth_account import Account
 from eth_account.messages import encode_defunct
-import redis
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from src.api.utils.config import get_settings
 
@@ -41,7 +43,7 @@ ADMIN_ADDRESSES = getattr(settings, "admin_eth_addresses", [])
 class RateLimiter:
     """Rate limiting implementation."""
 
-    def __init__(self, requests: int = 100, period: int = 60):
+    def __init__(self, requests: int = 100, period: int = 60) -> None:
         self.requests = requests
         self.period = period
 
@@ -64,14 +66,14 @@ class RateLimiter:
 class AuthMiddleware:
     """Middleware for handling authentication."""
 
-    def __init__(self, app):
+    def __init__(self, app: ASGIApp) -> None:
         self.app = app
         self.rate_limiter = RateLimiter(
             requests=getattr(settings, "rate_limit_requests", 100),
-            period=getattr(settings, "rate_limit_period", 60)
+            period=getattr(settings, "rate_limit_period", 60),
         )
 
-    async def __call__(self, scope, receive, send):
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
         """Process authentication for requests."""
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
@@ -91,10 +93,8 @@ class AuthMiddleware:
             # Rate limiting check
             if not await self.rate_limiter.check_rate_limit(f"api_key:{token[:10]}"):
                 from starlette.responses import JSONResponse
-                response = JSONResponse(
-                    {"detail": "Rate limit exceeded"},
-                    status_code=429
-                )
+
+                response = JSONResponse({"detail": "Rate limit exceeded"}, status_code=429)
                 await response(scope, receive, send)
                 return
 
@@ -111,10 +111,8 @@ class AuthMiddleware:
                 # Rate limiting check
                 if not await self.rate_limiter.check_rate_limit(f"eth:{eth_address}"):
                     from starlette.responses import JSONResponse
-                    response = JSONResponse(
-                        {"detail": "Rate limit exceeded"},
-                        status_code=429
-                    )
+
+                    response = JSONResponse({"detail": "Rate limit exceeded"}, status_code=429)
                     await response(scope, receive, send)
                     return
 
@@ -122,10 +120,8 @@ class AuthMiddleware:
 
         # No valid authentication found
         from starlette.responses import JSONResponse
-        response = JSONResponse(
-            {"detail": "Authorization required"},
-            status_code=401
-        )
+
+        response = JSONResponse({"detail": "Authorization required"}, status_code=401)
         await response(scope, receive, send)
 
 
@@ -144,17 +140,12 @@ def store_api_key(user_id: str, api_key: str) -> None:
 
     try:
         secrets_client.create_secret(
-            Name=secret_name,
-            SecretString=api_key,
-            Description=f"API key for user {user_id}"
+            Name=secret_name, SecretString=api_key, Description=f"API key for user {user_id}"
         )
     except ClientError as e:
         if e.response["Error"]["Code"] == "ResourceExistsException":
             # Update existing secret
-            secrets_client.update_secret(
-                SecretId=secret_name,
-                SecretString=api_key
-            )
+            secrets_client.update_secret(SecretId=secret_name, SecretString=api_key)
         else:
             raise
 
@@ -168,9 +159,7 @@ async def validate_api_key(api_key: str) -> bool:
     try:
         # In production, you'd search through stored keys
         # For now, we'll check a specific pattern
-        response = secrets_client.get_secret_value(
-            SecretId="hokusai/api-keys/test_user"
-        )
+        response = secrets_client.get_secret_value(SecretId="hokusai/api-keys/test_user")
         stored_key = response["SecretString"]
         return api_key == stored_key
     except ClientError:
@@ -200,7 +189,7 @@ def rotate_api_key(user_id: str) -> str:
     return new_key
 
 
-def get_user_permissions(eth_address: str) -> List[str]:
+def get_user_permissions(eth_address: str) -> list[str]:
     """Get permissions for an Ethereum address."""
     permissions = ["read", "contribute"]
 
@@ -210,7 +199,7 @@ def get_user_permissions(eth_address: str) -> List[str]:
     return permissions
 
 
-def generate_jwt_token(user_data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
+def generate_jwt_token(user_data: dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
     """Generate JWT token for session management."""
     to_encode = user_data.copy()
 
@@ -221,24 +210,18 @@ def generate_jwt_token(user_data: Dict[str, Any], expires_delta: Optional[timede
 
     to_encode.update({"exp": expire})
 
-    encoded_jwt = jwt.encode(
-        to_encode,
-        settings.secret_key or "test-secret-key",
-        algorithm="HS256"
-    )
+    encoded_jwt = jwt.encode(to_encode, settings.secret_key or "test-secret-key", algorithm="HS256")
     return encoded_jwt
 
 
-def decode_jwt_token(token: str) -> Dict[str, Any]:
+def decode_jwt_token(token: str) -> dict[str, Any]:
     """Decode and validate JWT token."""
-    return jwt.decode(
-        token,
-        settings.secret_key or "test-secret-key",
-        algorithms=["HS256"]
-    )
+    return jwt.decode(token, settings.secret_key or "test-secret-key", algorithms=["HS256"])
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict[str, Any]:
     """Get current authenticated user."""
     token = credentials.credentials
 
@@ -252,21 +235,20 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             return {"user_id": "api_key_user", "permissions": ["read", "contribute"]}
 
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication credentials"
-        )
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication credentials"
+        ) from None
 
 
-def async_auth_required(func):
+def async_auth_required(func: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
     """Decorator for requiring authentication on async functions."""
+
     @wraps(func)
-    async def wrapper(*args, **kwargs):
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:
         # In a real implementation, this would extract auth from request context
         # For testing, we'll check if user_info is provided
         if "user_info" not in kwargs and len(args) == 0:
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required"
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required"
             )
 
         # Get user info from mock or context
@@ -277,7 +259,9 @@ def async_auth_required(func):
     return wrapper
 
 
-async def require_auth(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict[str, Any]:
+async def require_auth(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict[str, Any]:
     """Dependency for requiring authentication."""
     return await get_current_user(credentials)
 

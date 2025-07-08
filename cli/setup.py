@@ -1,7 +1,6 @@
+"""Setup script for Hokusai Data Pipeline CLI.
 """
-Setup script for Hokusai Data Pipeline CLI
-"""
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 with open("requirements.txt") as f:
     requirements = f.read().splitlines()

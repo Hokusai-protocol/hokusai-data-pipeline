@@ -1,10 +1,11 @@
 """Unit tests for preview model manager module."""
 
-import pytest
-from pathlib import Path
-from unittest.mock import Mock, patch
 import json
 import pickle
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import pytest
 
 # Import will be added once module is implemented
 from src.preview.model_manager import PreviewModelManager
@@ -42,13 +43,9 @@ class TestPreviewModelManager:
                 "precision": 0.83,
                 "recall": 0.87,
                 "f1": 0.85,
-                "auroc": 0.91
+                "auroc": 0.91,
             },
-            "training_config": {
-                "epochs": 50,
-                "batch_size": 32,
-                "learning_rate": 0.001
-            }
+            "training_config": {"epochs": 50, "batch_size": 32, "learning_rate": 0.001},
         }
         metadata_file = tmp_path / "baseline_model_metadata.json"
         with open(metadata_file, "w") as f:
@@ -60,7 +57,10 @@ class TestPreviewModelManager:
         """Test loading baseline model from default path."""
         manager = PreviewModelManager()
 
-        with patch("src.preview.model_manager.PreviewModelManager.DEFAULT_MODEL_PATH", "models/baseline.pkl"):
+        with patch(
+            "src.preview.model_manager.PreviewModelManager.DEFAULT_MODEL_PATH",
+            "models/baseline.pkl",
+        ):
             with patch("pickle.load", return_value=mock_baseline_model):
                 model = manager.load_baseline_model()
 
@@ -134,7 +134,7 @@ class TestPreviewModelManager:
             "precision": 0.83,
             "recall": 0.87,
             "f1": 0.85,
-            "auroc": 0.91
+            "auroc": 0.91,
         }
 
         metrics = manager.get_model_metrics(mock_baseline_model)

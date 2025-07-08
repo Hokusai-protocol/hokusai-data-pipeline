@@ -1,9 +1,11 @@
 """
 Test documentation code examples and validate documentation accuracy.
 """
-from pathlib import Path
-import pytest
+
 import re
+from pathlib import Path
+
+import pytest
 
 
 class TestDocumentationValidation:
@@ -31,12 +33,7 @@ class TestDocumentationValidation:
         bash_blocks = re.findall(r"```bash\n(.*?)\n```", content, re.DOTALL)
 
         # Check that key commands are present
-        commands_found = {
-            "setup": False,
-            "dry_run": False,
-            "pytest": False,
-            "mlflow": False
-        }
+        commands_found = {"setup": False, "dry_run": False, "pytest": False, "mlflow": False}
 
         for block in bash_blocks:
             if "./setup.sh" in block:
@@ -61,7 +58,7 @@ class TestDocumentationValidation:
             "HOKUSAI_TEST_MODE",
             "PIPELINE_LOG_LEVEL",
             "MLFLOW_TRACKING_URI",
-            "MLFLOW_EXPERIMENT_NAME"
+            "MLFLOW_EXPERIMENT_NAME",
         ]
 
         with open(readme_path) as f:
@@ -87,13 +84,19 @@ class TestDocumentationValidation:
 
         # Check if modules exist
         for import_stmt in test_imports:
-            module_path = import_stmt.replace("from ", "").replace(" import", "/").replace(".", "/").split("/")[:-1]
+            module_path = (
+                import_stmt.replace("from ", "")
+                .replace(" import", "/")
+                .replace(".", "/")
+                .split("/")[:-1]
+            )
             module_path = "/".join(module_path) + ".py"
             full_path = root_dir / module_path
 
             # Check either .py file or __init__.py exists
-            assert full_path.exists() or (full_path.parent / "__init__.py").exists(), \
-                f"Module for '{import_stmt}' not found"
+            assert (
+                full_path.exists() or (full_path.parent / "__init__.py").exists()
+            ), f"Module for '{import_stmt}' not found"
 
     def test_documentation_structure_planned(self, docs_dir):
         """Test that documentation structure follows the planned architecture."""
@@ -105,7 +108,7 @@ class TestDocumentationValidation:
             "tutorials",
             "operations",
             "troubleshooting",
-            "developer-guide"
+            "developer-guide",
         ]
 
         # This test will pass initially as docs don't exist yet
@@ -113,8 +116,9 @@ class TestDocumentationValidation:
         if docs_dir.exists():
             for category in expected_categories:
                 category_path = docs_dir / category
-                assert category_path.exists() or any(docs_dir.glob(f"{category}*")), \
-                    f"Documentation category '{category}' not found"
+                assert category_path.exists() or any(
+                    docs_dir.glob(f"{category}*")
+                ), f"Documentation category '{category}' not found"
 
     def test_docusaurus_compatibility(self, docs_dir):
         """Test that markdown files are Docusaurus-compatible."""
@@ -135,8 +139,9 @@ class TestDocumentationValidation:
 
                 frontmatter = content[3:frontmatter_end]
                 # Check for required fields
-                assert "title:" in frontmatter or "id:" in frontmatter, \
-                    f"Missing title or id in frontmatter of {md_file}"
+                assert (
+                    "title:" in frontmatter or "id:" in frontmatter
+                ), f"Missing title or id in frontmatter of {md_file}"
 
     def test_code_blocks_syntax_highlighting(self, root_dir):
         """Test that code blocks have proper syntax highlighting."""
@@ -152,12 +157,20 @@ class TestDocumentationValidation:
         # Verify code blocks have language specified (except diagrams)
         for i, (lang, block_content) in enumerate(code_blocks):
             # Check if it's a diagram (contains box drawing characters)
-            is_diagram = any(char in block_content for char in ["┌", "┐", "└", "┘", "─", "│", "▶", "▼", "▲"])
+            is_diagram = any(
+                char in block_content for char in ["┌", "┐", "└", "┘", "─", "│", "▶", "▼", "▲"]
+            )
 
             if not is_diagram:
-                assert lang != "", f"Code block {i+1} missing language specification"
-                assert lang in ["bash", "python", "json", "yaml", "typescript", "javascript"], \
-                    f"Unexpected language '{lang}' in code block"
+                assert lang != "", f"Code block {i + 1} missing language specification"
+                assert lang in [
+                    "bash",
+                    "python",
+                    "json",
+                    "yaml",
+                    "typescript",
+                    "javascript",
+                ], f"Unexpected language '{lang}' in code block"
 
     def test_internal_links_valid(self, root_dir):
         """Test that internal documentation links are valid."""
@@ -189,7 +202,7 @@ class TestDocumentationValidation:
             "pytest",
             "mlflow ui",
             "node tools/workflow.js",
-            "npx tsx tools/get-backlog.ts"
+            "npx tsx tools/get-backlog.ts",
         ]
 
         for cmd in valid_commands:
@@ -226,12 +239,13 @@ class TestDocumentationCompleteness:
             "modules/data_integration.py",
             "modules/baseline_loader.py",
             "modules/model_training.py",
-            "modules/evaluation.py"
+            "modules/evaluation.py",
         ]
 
         for module in key_modules:
-            assert any(str(m).endswith(module) for m in modules_to_document), \
-                f"Key module {module} not found in source tree"
+            assert any(
+                str(m).endswith(module) for m in modules_to_document
+            ), f"Key module {module} not found in source tree"
 
     def test_configuration_documentation_complete(self, root_dir):
         """Test that all configuration options will be documented."""
@@ -241,7 +255,7 @@ class TestDocumentationCompleteness:
             "mlflow_settings",
             "pipeline_parameters",
             "data_formats",
-            "output_schemas"
+            "output_schemas",
         ]
 
         # This serves as a checklist for documentation

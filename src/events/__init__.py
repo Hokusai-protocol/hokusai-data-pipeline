@@ -1,13 +1,13 @@
-"""Event system for Hokusai ML Platform
+"""Event system for Hokusai ML Platform.
 """
 
+from .handlers import DatabaseWatcherHandler, PubSubHandler, WebhookHandler
 from .publisher import EventPublisher, EventType
-from .handlers import WebhookHandler, PubSubHandler, DatabaseWatcherHandler
 
 __all__ = [
     "EventPublisher",
     "EventType",
     "WebhookHandler",
     "PubSubHandler",
-    "DatabaseWatcherHandler"
+    "DatabaseWatcherHandler",
 ]

@@ -1,9 +1,10 @@
 """Unit tests for baseline_loader module."""
 
-import pytest
 import json
 import pickle
 from unittest.mock import Mock, patch
+
+import pytest
 
 from src.modules.baseline_loader import BaselineModelLoader
 
@@ -30,9 +31,15 @@ class TestBaselineModelLoader:
     @patch("mlflow.pyfunc.load_model")
     @patch("mlflow.models.get_model_info")
     @patch("mlflow.set_tag")
-    def test_load_from_mlflow_success(self, mock_set_tag, mock_get_model_info,
-                                     mock_load_model, mock_log_metrics,
-                                     mock_log_params, mock_run_context):
+    def test_load_from_mlflow_success(
+        self,
+        mock_set_tag,
+        mock_get_model_info,
+        mock_load_model,
+        mock_log_metrics,
+        mock_log_params,
+        mock_run_context,
+    ):
         """Test successful model loading from MLflow registry."""
         # Setup mocks
         mock_model = Mock()
@@ -50,11 +57,9 @@ class TestBaselineModelLoader:
         # Assertions
         assert result == mock_model
         mock_load_model.assert_called_once_with("models:/test_model/1")
-        mock_log_params.assert_called_once_with({
-            "model_name": "test_model",
-            "model_version": "1",
-            "source": "mlflow_registry"
-        })
+        mock_log_params.assert_called_once_with(
+            {"model_name": "test_model", "model_version": "1", "source": "mlflow_registry"}
+        )
         mock_log_metrics.assert_called_once()
         assert mock_log_metrics.call_args[0][0]["model_loaded"] == 1
         assert "load_time_seconds" in mock_log_metrics.call_args[0][0]
@@ -63,8 +68,9 @@ class TestBaselineModelLoader:
     @patch("src.modules.baseline_loader.log_step_parameters")
     @patch("src.modules.baseline_loader.log_step_metrics")
     @patch("mlflow.pyfunc.load_model")
-    def test_load_from_mlflow_latest_version(self, mock_load_model, mock_log_metrics,
-                                           mock_log_params, mock_run_context):
+    def test_load_from_mlflow_latest_version(
+        self, mock_load_model, mock_log_metrics, mock_log_params, mock_run_context
+    ):
         """Test loading latest version when no version specified."""
         mock_model = Mock()
         mock_load_model.return_value = mock_model
@@ -75,11 +81,9 @@ class TestBaselineModelLoader:
         loader.load_from_mlflow("test_model", None, "test_run", "metaflow_123")
 
         mock_load_model.assert_called_once_with("models:/test_model/latest")
-        mock_log_params.assert_called_once_with({
-            "model_name": "test_model",
-            "model_version": "latest",
-            "source": "mlflow_registry"
-        })
+        mock_log_params.assert_called_once_with(
+            {"model_name": "test_model", "model_version": "latest", "source": "mlflow_registry"}
+        )
 
     @patch("src.modules.baseline_loader.mlflow_run_context")
     @patch("src.modules.baseline_loader.log_step_metrics")
@@ -101,8 +105,9 @@ class TestBaselineModelLoader:
     @patch("src.modules.baseline_loader.log_step_parameters")
     @patch("src.modules.baseline_loader.log_step_metrics")
     @patch("src.modules.baseline_loader.log_model_artifact")
-    def test_load_from_path_json_success(self, mock_log_artifact, mock_log_metrics,
-                                        mock_log_params, mock_run_context, temp_dir):
+    def test_load_from_path_json_success(
+        self, mock_log_artifact, mock_log_metrics, mock_log_params, mock_run_context, temp_dir
+    ):
         """Test successful model loading from JSON file."""
         # Create test model file
         model_data = {"type": "test_model", "version": "1.0"}
@@ -136,8 +141,9 @@ class TestBaselineModelLoader:
     @patch("src.modules.baseline_loader.log_step_parameters")
     @patch("src.modules.baseline_loader.log_step_metrics")
     @patch("src.modules.baseline_loader.log_model_artifact")
-    def test_load_from_path_pickle_success(self, mock_log_artifact, mock_log_metrics,
-                                          mock_log_params, mock_run_context, temp_dir):
+    def test_load_from_path_pickle_success(
+        self, mock_log_artifact, mock_log_metrics, mock_log_params, mock_run_context, temp_dir
+    ):
         """Test successful model loading from pickle file."""
         # Create test model file
         model_data = {"type": "test_model", "version": "1.0"}
@@ -174,8 +180,9 @@ class TestBaselineModelLoader:
     @patch("src.modules.baseline_loader.mlflow_run_context")
     @patch("src.modules.baseline_loader.log_step_parameters")
     @patch("src.modules.baseline_loader.log_step_metrics")
-    def test_load_from_path_unsupported_format(self, mock_log_metrics, mock_log_params,
-                                              mock_run_context, temp_dir):
+    def test_load_from_path_unsupported_format(
+        self, mock_log_metrics, mock_log_params, mock_run_context, temp_dir
+    ):
         """Test handling of unsupported file format."""
         # Create file with unsupported extension
         model_path = temp_dir / "model.txt"
@@ -225,7 +232,7 @@ class TestBaselineModelLoader:
         mock_model = {
             "type": "mock_baseline_model",
             "version": "1.0.0",
-            "metrics": {"accuracy": 0.85}
+            "metrics": {"accuracy": 0.85},
         }
 
         loader = BaselineModelLoader()
@@ -270,8 +277,9 @@ class TestBaselineModelLoaderPerformance:
     @patch("src.modules.baseline_loader.log_step_parameters")
     @patch("src.modules.baseline_loader.log_step_metrics")
     @patch("src.modules.baseline_loader.log_model_artifact")
-    def test_load_time_tracking(self, mock_log_artifact, mock_log_metrics,
-                               mock_log_params, mock_run_context, temp_dir):
+    def test_load_time_tracking(
+        self, mock_log_artifact, mock_log_metrics, mock_log_params, mock_run_context, temp_dir
+    ):
         """Test that load time is properly tracked."""
         # Create test model file
         model_data = {"type": "test_model"}
@@ -325,7 +333,7 @@ class TestBaselineModelLoaderIntegration:
             "type": "integration_test_model",
             "version": "1.0.0",
             "algorithm": "test_algorithm",
-            "metrics": {"accuracy": 0.9}
+            "metrics": {"accuracy": 0.9},
         }
         model_path = temp_dir / "integration_model.json"
         with open(model_path, "w") as f:
@@ -348,11 +356,7 @@ class TestBaselineModelLoaderIntegration:
         loader = BaselineModelLoader()
 
         # Test valid mock model
-        mock_model = {
-            "type": "mock_test_model",
-            "version": "1.0",
-            "metrics": {"accuracy": 0.85}
-        }
+        mock_model = {"type": "mock_test_model", "version": "1.0", "metrics": {"accuracy": 0.85}}
         assert loader.validate_model(mock_model) is True
 
         # Test valid real model

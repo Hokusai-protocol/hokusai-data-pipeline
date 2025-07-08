@@ -1,12 +1,13 @@
 """Data loader module for preview pipeline."""
 
-import pandas as pd
-import numpy as np
+import json
+import logging
 from pathlib import Path
 from typing import Optional, Union
-import json
+
+import numpy as np
+import pandas as pd
 from sklearn.model_selection import train_test_split
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +20,10 @@ class PreviewDataLoader:
         max_samples: int = 10000,
         chunk_size: int = 1000,
         show_progress: bool = True,
-        random_seed: int = 42
-    ):
+        random_seed: int = 42,
+    ) -> None:
         """Initialize PreviewDataLoader.
-        
+
         Args:
             max_samples: Maximum number of samples to load
             chunk_size: Chunk size for memory-efficient loading
@@ -36,20 +37,16 @@ class PreviewDataLoader:
         self.random_seed = random_seed
         np.random.seed(random_seed)
 
-    def load_data(
-        self,
-        file_path: Union[str, Path],
-        sample: bool = True
-    ) -> pd.DataFrame:
+    def load_data(self, file_path: Union[str, Path], sample: bool = True) -> pd.DataFrame:
         """Load data from file with automatic format detection.
-        
+
         Args:
             file_path: Path to the data file
             sample: Whether to apply sampling for large datasets
-            
+
         Returns:
             Loaded DataFrame
-            
+
         Raises:
             FileNotFoundError: If file doesn't exist
             ValueError: If file format is unsupported or data is invalid
@@ -63,7 +60,7 @@ class PreviewDataLoader:
         format_type = self._detect_format(str(file_path))
 
         if self.show_progress:
-            print("Loading data...")
+            logging.info("Loading data...")
 
         try:
             if format_type == "csv":
@@ -76,7 +73,7 @@ class PreviewDataLoader:
                 raise ValueError(f"Unsupported file format: {format_type}")
 
         except Exception as e:
-            raise ValueError(f"Failed to load data: {str(e)}")
+            raise ValueError(f"Failed to load data: {str(e)}") from e
 
         if len(data) == 0:
             raise ValueError("Empty dataset")
@@ -86,19 +83,19 @@ class PreviewDataLoader:
             data = self._stratified_sample(data)
 
         if self.show_progress:
-            print(f"Complete. Loaded {len(data)} samples.")
+            logging.info(f"Complete. Loaded {len(data)} samples.")
 
         return data
 
     def _detect_format(self, file_path: str) -> str:
         """Detect file format from extension.
-        
+
         Args:
             file_path: Path to file
-            
+
         Returns:
             File format type
-            
+
         Raises:
             ValueError: If format is unsupported
 
@@ -121,6 +118,7 @@ class PreviewDataLoader:
         if "features" in data.columns:
             try:
                 import ast
+
                 data["features"] = data["features"].apply(ast.literal_eval)
             except (ValueError, SyntaxError):
                 # If conversion fails, keep as strings
@@ -137,13 +135,13 @@ class PreviewDataLoader:
         """Load Parquet file."""
         return pd.read_parquet(file_path)
 
-    def validate_schema(self, data: pd.DataFrame, required_columns: Optional[list] = None):
+    def validate_schema(self, data: pd.DataFrame, required_columns: Optional[list] = None) -> None:
         """Validate data schema.
-        
+
         Args:
             data: DataFrame to validate
             required_columns: List of required columns
-            
+
         Raises:
             ValueError: If schema validation fails
 
@@ -158,10 +156,10 @@ class PreviewDataLoader:
 
     def _stratified_sample(self, data: pd.DataFrame) -> pd.DataFrame:
         """Perform stratified sampling to reduce dataset size.
-        
+
         Args:
             data: Original DataFrame
-            
+
         Returns:
             Sampled DataFrame preserving label distribution
 
@@ -175,10 +173,7 @@ class PreviewDataLoader:
 
         # Perform stratified sampling
         _, sampled_data = train_test_split(
-            data,
-            test_size=sample_fraction,
-            stratify=data["label"],
-            random_state=self.random_seed
+            data, test_size=sample_fraction, stratify=data["label"], random_state=self.random_seed
         )
 
         return sampled_data

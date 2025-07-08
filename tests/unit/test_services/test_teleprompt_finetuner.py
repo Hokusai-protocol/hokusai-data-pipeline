@@ -1,15 +1,15 @@
 """Unit tests for Teleprompt Fine-tuning Service."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timedelta
-import mlflow
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from src.services.teleprompt_finetuner import (
-    TelepromptFinetuner,
     OptimizationConfig,
     OptimizationResult,
-    OptimizationStrategy
+    OptimizationStrategy,
+    TelepromptFinetuner,
 )
 
 
@@ -35,7 +35,7 @@ class TestOptimizationConfig:
             strategy=OptimizationStrategy.BOOTSTRAP_FEWSHOT_RANDOM,
             min_traces=500,
             optimization_rounds=5,
-            deltaone_threshold=0.02
+            deltaone_threshold=0.02,
         )
 
         assert config.strategy == OptimizationStrategy.BOOTSTRAP_FEWSHOT_RANDOM
@@ -95,7 +95,7 @@ class TestTelepromptFinetuner:
                 "outputs": {"response": "Hi there"},
                 "outcome_score": 0.9,
                 "contributor_id": "contributor1",
-                "contributor_address": "0x123..."
+                "contributor_address": "0x123...",
             }
         ] * 1000
 
@@ -114,7 +114,7 @@ class TestTelepromptFinetuner:
             result = finetuner.run_optimization(
                 program=mock_program,
                 start_date=datetime.now() - timedelta(days=7),
-                end_date=datetime.now()
+                end_date=datetime.now(),
             )
 
             assert result.success is True
@@ -134,7 +134,7 @@ class TestTelepromptFinetuner:
             finetuner.run_optimization(
                 program=Mock(),
                 start_date=datetime.now() - timedelta(days=7),
-                end_date=datetime.now()
+                end_date=datetime.now(),
             )
 
     def test_deltaone_evaluation(self, mock_deltaone_evaluator):
@@ -144,7 +144,7 @@ class TestTelepromptFinetuner:
             "delta": 0.015,  # 1.5% improvement
             "baseline_metrics": {"accuracy": 0.85},
             "optimized_metrics": {"accuracy": 0.865},
-            "deltaone_achieved": True
+            "deltaone_achieved": True,
         }
 
         config = OptimizationConfig(enable_deltaone_check=True)
@@ -157,7 +157,7 @@ class TestTelepromptFinetuner:
             baseline_program=Mock(),
             trace_count=1000,
             optimization_time=60.0,
-            strategy="bootstrap_fewshot"
+            strategy="bootstrap_fewshot",
         )
 
         # Evaluate DeltaOne
@@ -175,19 +175,22 @@ class TestTelepromptFinetuner:
                 "outputs": {"response": "Response"},
                 "outcome_score": 0.9,
                 "contributor_id": "contributor1",
-                "contributor_address": "0x111..."
+                "contributor_address": "0x111...",
             }
         ] * 600
 
-        mock_traces.extend([
-            {
-                "inputs": {"text": "Test2"},
-                "outputs": {"response": "Response2"},
-                "outcome_score": 0.85,
-                "contributor_id": "contributor2",
-                "contributor_address": "0x222..."
-            }
-        ] * 400)
+        mock_traces.extend(
+            [
+                {
+                    "inputs": {"text": "Test2"},
+                    "outputs": {"response": "Response2"},
+                    "outcome_score": 0.85,
+                    "contributor_id": "contributor2",
+                    "contributor_address": "0x222...",
+                }
+            ]
+            * 400
+        )
 
         mock_trace_loader.return_value.load_traces.return_value = mock_traces
 
@@ -215,17 +218,9 @@ class TestTelepromptFinetuner:
             optimization_time=60.0,
             strategy="bootstrap_fewshot",
             contributors={
-                "contributor1": {
-                    "address": "0x111...",
-                    "weight": 0.6,
-                    "trace_count": 600
-                },
-                "contributor2": {
-                    "address": "0x222...",
-                    "weight": 0.4,
-                    "trace_count": 400
-                }
-            }
+                "contributor1": {"address": "0x111...", "weight": 0.6, "trace_count": 600},
+                "contributor2": {"address": "0x222...", "weight": 0.4, "trace_count": 400},
+            },
         )
 
         # Create DeltaOne result
@@ -233,14 +228,11 @@ class TestTelepromptFinetuner:
             "deltaone_achieved": True,
             "delta": 0.02,
             "baseline_metrics": {"accuracy": 0.85, "f1": 0.83},
-            "optimized_metrics": {"accuracy": 0.87, "f1": 0.85}
+            "optimized_metrics": {"accuracy": 0.87, "f1": 0.85},
         }
 
         # Generate attestation
-        attestation = finetuner.generate_attestation(
-            optimization_result,
-            deltaone_result
-        )
+        attestation = finetuner.generate_attestation(optimization_result, deltaone_result)
 
         assert attestation["schema_version"] == "1.0"
         assert attestation["attestation_type"] == "teleprompt_optimization"
@@ -258,8 +250,10 @@ class TestTelepromptFinetuner:
 
         # Mock slow optimization
         with patch("src.services.teleprompt_finetuner.teleprompt") as mock_teleprompt:
+
             def slow_compile(*args, **kwargs):
                 import time
+
                 time.sleep(5)  # Simulate slow optimization
                 return Mock()
 
@@ -272,7 +266,7 @@ class TestTelepromptFinetuner:
                 finetuner.run_optimization(
                     program=Mock(),
                     start_date=datetime.now() - timedelta(days=7),
-                    end_date=datetime.now()
+                    end_date=datetime.now(),
                 )
 
     def test_save_optimized_model(self, mock_mlflow):
@@ -287,7 +281,7 @@ class TestTelepromptFinetuner:
             trace_count=1000,
             optimization_time=60.0,
             strategy="bootstrap_fewshot",
-            model_version="1.0.0-optimized"
+            model_version="1.0.0-optimized",
         )
 
         # Save model
@@ -295,10 +289,7 @@ class TestTelepromptFinetuner:
             mock_run_context = MagicMock()
             mock_run.return_value.__enter__.return_value = mock_run_context
 
-            model_info = finetuner.save_optimized_model(
-                optimization_result,
-                model_name="TestModel"
-            )
+            model_info = finetuner.save_optimized_model(optimization_result, model_name="TestModel")
 
             assert model_info["model_name"] == "TestModel"
             assert model_info["version"] == "1.0.0-optimized"

@@ -1,14 +1,15 @@
 """Integration tests for BaselineModelLoader with actual MLFlow and file system operations."""
 
-import pytest
-import tempfile
-import shutil
 import json
 import pickle
-from pathlib import Path
-from unittest.mock import patch, MagicMock
-import mlflow
+import shutil
+import tempfile
 import time
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import mlflow
+import pytest
 
 from src.modules.baseline_loader import BaselineModelLoader
 
@@ -46,25 +47,21 @@ class TestBaselineModelLoaderIntegration:
             "model_type": "logistic_regression",
             "version": "2.1.0",
             "training_date": "2024-01-15",
-            "parameters": {
-                "regularization": 0.01,
-                "max_iterations": 1000,
-                "learning_rate": 0.001
-            },
+            "parameters": {"regularization": 0.01, "max_iterations": 1000, "learning_rate": 0.001},
             "performance_metrics": {
                 "accuracy": 0.92,
                 "precision": 0.89,
                 "recall": 0.94,
                 "f1_score": 0.915,
-                "auroc": 0.96
+                "auroc": 0.96,
             },
             "feature_names": ["feature_1", "feature_2", "feature_3"],
             "model_weights": [0.45, -0.32, 0.78],
             "training_metadata": {
                 "samples_count": 75000,
                 "validation_split": 0.2,
-                "cross_validation_folds": 5
-            }
+                "cross_validation_folds": 5,
+            },
         }
 
         model_path = self.temp_path / "realistic_model.json"
@@ -95,11 +92,7 @@ class TestBaselineModelLoaderIntegration:
             "intercept_": 0.1,
             "classes_": [0, 1],
             "feature_names_in_": ["feature_1", "feature_2", "feature_3"],
-            "model_params": {
-                "max_iter": 1000,
-                "random_state": 42,
-                "solver": "liblinear"
-            }
+            "model_params": {"max_iter": 1000, "random_state": 42, "solver": "liblinear"},
         }
 
         model_path = self.temp_path / "sklearn_model.pkl"
@@ -131,7 +124,7 @@ class TestBaselineModelLoaderIntegration:
         mock_model = {
             "type": "mock_integration_test",
             "version": "1.0",
-            "metrics": {"accuracy": 0.85, "f1": 0.82}
+            "metrics": {"accuracy": 0.85, "f1": 0.82},
         }
         assert loader.validate_model(mock_model) is True
 
@@ -172,7 +165,7 @@ class TestBaselineModelLoaderIntegration:
         large_model = {
             "type": "large_model",
             "data": ["x"] * 10000,  # Large list
-            "weights": list(range(5000))  # Large weight matrix
+            "weights": list(range(5000)),  # Large weight matrix
         }
         large_json_path = self.temp_path / "large_model.json"
         with open(large_json_path, "w") as f:
@@ -201,7 +194,7 @@ class TestBaselineModelLoaderIntegration:
                 "model_id": f"model_{i}",
                 "type": "concurrent_test_model",
                 "version": f"1.{i}.0",
-                "weights": list(range(i * 100, (i + 1) * 100))
+                "weights": list(range(i * 100, (i + 1) * 100)),
             }
             model_path = self.temp_path / f"concurrent_model_{i}.json"
             with open(model_path, "w") as f:
@@ -246,7 +239,9 @@ class TestBaselineModelLoaderIntegration:
         except Exception as e:
             # If we get a different exception, that's also informative
             # The actual behavior may vary based on MLflow integration
-            assert "not found" in str(e).lower() or "no such file" in str(e).lower(), f"Unexpected error: {e}"
+            assert (
+                "not found" in str(e).lower() or "no such file" in str(e).lower()
+            ), f"Unexpected error: {e}"
 
         # Test 2: Verify error logging works with corrupted JSON
         corrupted_path = self.temp_path / "corrupted.json"
@@ -255,6 +250,7 @@ class TestBaselineModelLoaderIntegration:
 
         # Test that the error is properly logged (though exception may be caught)
         import logging
+
         with patch.object(logging.getLogger("src.modules.baseline_loader"), "error") as mock_logger:
             try:
                 loader.load_from_path(corrupted_path, "corrupt_test", "meta_corrupt")
@@ -270,8 +266,9 @@ class TestBaselineModelLoaderIntegration:
     @patch("mlflow.pyfunc.load_model")
     @patch("mlflow.models.get_model_info")
     @patch("mlflow.set_tag")
-    def test_mlflow_registry_integration_simulation(self, mock_set_tag, mock_get_model_info,
-                                                   mock_load_model, mock_context):
+    def test_mlflow_registry_integration_simulation(
+        self, mock_set_tag, mock_get_model_info, mock_load_model, mock_context
+    ):
         """Test MLFlow registry integration with realistic mocking."""
         # Setup realistic MLFlow mocks
         mock_model = MagicMock()
@@ -313,7 +310,7 @@ class TestBaselineModelLoaderIntegration:
             model_data = {
                 "type": "performance_test",
                 "data": list(range(size)),
-                "weights": [0.1] * size
+                "weights": [0.1] * size,
             }
 
             model_path = self.temp_path / f"perf_model_{size}.json"
@@ -346,7 +343,9 @@ class TestBaselineModelLoaderIntegration:
         # The largest file shouldn't take more than 10x the smallest
         max_time = max(load_times)
         min_time = min(load_times)
-        assert max_time / min_time < 10.0, f"Performance scaling too poor: {max_time}/{min_time} = {max_time/min_time}"
+        assert (
+            max_time / min_time < 10.0
+        ), f"Performance scaling too poor: {max_time}/{min_time} = {max_time / min_time}"
 
     def test_memory_usage_monitoring(self):
         """Test memory usage during model loading (basic simulation)."""
@@ -354,7 +353,7 @@ class TestBaselineModelLoaderIntegration:
         large_model_data = {
             "type": "memory_test",
             "large_matrix": [[i * j for j in range(100)] for i in range(100)],  # 10k elements
-            "metadata": {"description": "Memory usage test model"}
+            "metadata": {"description": "Memory usage test model"},
         }
 
         model_path = self.temp_path / "memory_test.json"
@@ -411,7 +410,7 @@ class TestBaselineModelLoaderReliability:
             "type": "consistency_test",
             "weights": [1.5, -2.3, 0.8, 4.1],
             "bias": 0.5,
-            "checksum": "test_checksum_12345"
+            "checksum": "test_checksum_12345",
         }
 
         model_path = self.temp_path / "consistent_model.json"

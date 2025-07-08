@@ -1,9 +1,9 @@
 """Integration tests for enhanced Metaflow pipeline with MLOps services."""
 
-import pytest
 from unittest.mock import Mock, patch
-import pandas as pd
 
+import pandas as pd
+import pytest
 
 
 class TestEnhancedPipelineIntegration:
@@ -14,13 +14,10 @@ class TestEnhancedPipelineIntegration:
         """Create mock model registry."""
         with patch("src.services.model_registry.HokusaiModelRegistry") as mock:
             registry = mock.return_value
-            registry.register_baseline.return_value = {
-                "model_id": "baseline/1",
-                "version": "1"
-            }
+            registry.register_baseline.return_value = {"model_id": "baseline/1", "version": "1"}
             registry.register_improved_model.return_value = {
                 "model_id": "improved/2",
-                "version": "2"
+                "version": "2",
             }
             yield registry
 
@@ -31,7 +28,7 @@ class TestEnhancedPipelineIntegration:
             tracker = mock.return_value
             tracker.track_improvement.return_value = (
                 {"accuracy": 0.03, "auroc": 0.02},
-                {"attestation_hash": "0xabc123"}
+                {"attestation_hash": "0xabc123"},
             )
             yield tracker
 
@@ -45,7 +42,7 @@ class TestEnhancedPipelineIntegration:
                 "baseline_metrics": {"accuracy": 0.85},
                 "candidate_metrics": {"accuracy": 0.88},
                 "improvements": {"accuracy": 0.03},
-                "recommendation": "ACCEPT"
+                "recommendation": "ACCEPT",
             }
             yield manager
 
@@ -81,7 +78,7 @@ class TestEnhancedPipelineIntegration:
         pipeline.contribution_metadata = {
             "contributor_id": "contrib_001",
             "contributor_address": "0x742d35Cc6634C0532925a3b844Bc9e7595f62341",
-            "dataset_hash": "0xdef456"
+            "dataset_hash": "0xdef456",
         }
 
         # Mock the step execution
@@ -103,11 +100,9 @@ class TestEnhancedPipelineIntegration:
 
         pipeline = HokusaiEvaluationPipeline()
         pipeline.baseline_id = "baseline/1"
-        pipeline.contributed_data = pd.DataFrame({
-            "feature1": [1, 2, 3],
-            "feature2": [4, 5, 6],
-            "label": [0, 1, 1]
-        })
+        pipeline.contributed_data = pd.DataFrame(
+            {"feature1": [1, 2, 3], "feature2": [4, 5, 6], "label": [0, 1, 1]}
+        )
 
         # Mock the experimental evaluation
         with patch.object(pipeline, "next"):
@@ -118,8 +113,9 @@ class TestEnhancedPipelineIntegration:
         call_args = mock_experiment_manager.create_improvement_experiment.call_args
         assert call_args[1]["baseline_model_id"] == "baseline/1"
 
-    def test_full_pipeline_flow_with_services(self, mock_registry, mock_tracker,
-                                            mock_experiment_manager):
+    def test_full_pipeline_flow_with_services(
+        self, mock_registry, mock_tracker, mock_experiment_manager
+    ):
         """Test complete pipeline flow with all services integrated."""
         from src.pipeline.hokusai_pipeline import HokusaiEvaluationPipeline
 
@@ -132,14 +128,14 @@ class TestEnhancedPipelineIntegration:
             ("register_baseline", {"baseline_id": "baseline/1"}),
             ("integrate_contributed_data", {"merged_data": pd.DataFrame()}),
             ("train_new_model", {"improved_model": Mock()}),
-            ("evaluate_on_benchmark", {
-                "baseline_metrics": {"accuracy": 0.85},
-                "improved_metrics": {"accuracy": 0.88}
-            }),
-            ("track_improvement", {
-                "delta": {"accuracy": 0.03},
-                "attestation": {"hash": "0xabc123"}
-            })
+            (
+                "evaluate_on_benchmark",
+                {"baseline_metrics": {"accuracy": 0.85}, "improved_metrics": {"accuracy": 0.88}},
+            ),
+            (
+                "track_improvement",
+                {"delta": {"accuracy": 0.03}, "attestation": {"hash": "0xabc123"}},
+            ),
         ]
 
         # Verify service integration at each stage
@@ -187,9 +183,9 @@ class TestEnhancedPipelineIntegration:
 
     @patch("mlflow.start_run")
     @patch("mlflow.log_metrics")
-    def test_metrics_aggregation_across_services(self, mock_log_metrics,
-                                                mock_start_run, mock_registry,
-                                                mock_tracker):
+    def test_metrics_aggregation_across_services(
+        self, mock_log_metrics, mock_start_run, mock_registry, mock_tracker
+    ):
         """Test that metrics are properly aggregated across all services."""
         from src.pipeline.hokusai_pipeline import HokusaiEvaluationPipeline
 
@@ -208,7 +204,7 @@ class TestEnhancedPipelineIntegration:
             "improved_accuracy": 0.88,
             "accuracy_improvement": 0.03,
             "deltaone_value": 3.0,
-            "attestation_generated": 1
+            "attestation_generated": 1,
         }
 
         # Log metrics

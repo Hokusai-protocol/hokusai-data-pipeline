@@ -1,20 +1,23 @@
 """Model-related API endpoints."""
 
-from fastapi import APIRouter, HTTPException, Depends, status, Request
 import logging
 import re
 
-from src.api.models import (
-    ModelRegistration, ModelRegistrationResponse,
-    ModelLineageResponse, ContributorImpactResponse,
-    ErrorResponse
-)
-from src.services.model_registry import HokusaiModelRegistry
-from src.services.performance_tracker import PerformanceTracker
-from src.api.middleware.auth import require_auth
-from src.api.utils.config import get_settings
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+
+from src.api.middleware.auth import require_auth
+from src.api.models import (
+    ContributorImpactResponse,
+    ErrorResponse,
+    ModelLineageResponse,
+    ModelRegistration,
+    ModelRegistrationResponse,
+)
+from src.api.utils.config import get_settings
+from src.services.model_registry import HokusaiModelRegistry
+from src.services.performance_tracker import PerformanceTracker
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -29,7 +32,7 @@ tracker = PerformanceTracker()
 @router.get(
     "/{model_id}/lineage",
     response_model=ModelLineageResponse,
-    responses={404: {"model": ErrorResponse}}
+    responses={404: {"model": ErrorResponse}},
 )
 @limiter.limit("100/minute")
 async def get_model_lineage(request: Request, model_id: str, _=Depends(require_auth)):
@@ -41,32 +44,27 @@ async def get_model_lineage(request: Request, model_id: str, _=Depends(require_a
             model_id=model_id,
             lineage=lineage,
             total_versions=len(lineage),
-            latest_version=lineage[-1]["version"] if lineage else "0"
+            latest_version=lineage[-1]["version"] if lineage else "0",
         )
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Error getting model lineage: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve model lineage"
-        )
+            detail="Failed to retrieve model lineage",
+        ) from e
 
 
 @router.post(
     "/register",
     response_model=ModelRegistrationResponse,
     status_code=status.HTTP_201_CREATED,
-    responses={422: {"model": ErrorResponse}}
+    responses={422: {"model": ErrorResponse}},
 )
 @limiter.limit("20/minute")
 async def register_model(
-    request: Request,
-    registration: ModelRegistration,
-    _=Depends(require_auth)
+    request: Request, registration: ModelRegistration, _=Depends(require_auth)
 ):
     """Register a new model from GTM-agent or other sources."""
     try:
@@ -75,32 +73,28 @@ async def register_model(
         result = registry.register_baseline(
             model=registration.model_data,  # This would be loaded from the reference
             model_type=registration.model_type,
-            metadata=registration.metadata
+            metadata=registration.metadata,
         )
 
         return ModelRegistrationResponse(
             model_id=result["model_id"],
             model_name=result["model_name"],
             version=result["version"],
-            registration_timestamp=result["registration_timestamp"]
+            registration_timestamp=result["registration_timestamp"],
         )
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
     except Exception as e:
         logger.error(f"Error registering model: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to register model"
-        )
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to register model"
+        ) from e
 
 
 @router.get(
     "/contributors/{address}/impact",
     response_model=ContributorImpactResponse,
-    responses={400: {"model": ErrorResponse}}
+    responses={400: {"model": ErrorResponse}},
 )
 @limiter.limit("100/minute")
 async def get_contributor_impact(request: Request, address: str, _=Depends(require_auth)):
@@ -109,8 +103,7 @@ async def get_contributor_impact(request: Request, address: str, _=Depends(requi
     pattern = r"^0x[a-fA-F0-9]{40}$"
     if not re.match(pattern, address):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid Ethereum address format"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Ethereum address format"
         )
 
     try:
@@ -124,11 +117,11 @@ async def get_contributor_impact(request: Request, address: str, _=Depends(requi
             total_improvement_score=impact_data.get("total_improvement_score", 0.0),
             contributions=impact_data.get("contributions", []),
             first_contribution=impact_data.get("first_contribution"),
-            last_contribution=impact_data.get("last_contribution")
+            last_contribution=impact_data.get("last_contribution"),
         )
     except Exception as e:
         logger.error(f"Error getting contributor impact: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve contributor impact"
-        )
+            detail="Failed to retrieve contributor impact",
+        ) from e

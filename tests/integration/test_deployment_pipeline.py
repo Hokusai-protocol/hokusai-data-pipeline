@@ -1,9 +1,10 @@
 """Tests for CI/CD deployment pipeline."""
 
-import yaml
+import subprocess
 from pathlib import Path
 from unittest.mock import Mock, patch
-import subprocess
+
+import yaml
 
 
 class TestDeploymentPipeline:
@@ -109,7 +110,9 @@ class TestDeploymentPipeline:
                 for step in job.get("steps", []):
                     if "aws-actions/configure-aws-credentials" in step.get("uses", ""):
                         assert "with" in step
-                        assert "role-to-assume" in step["with"] or "aws-access-key-id" in step["with"]
+                        assert (
+                            "role-to-assume" in step["with"] or "aws-access-key-id" in step["with"]
+                        )
                         assert "aws-region" in step["with"]
                         break
 
@@ -169,7 +172,7 @@ class TestDeploymentPipeline:
             task_def = generate_task_definition(
                 service_name="hokusai-api",
                 image_uri="123456789.dkr.ecr.us-east-1.amazonaws.com/hokusai-api:latest",
-                environment="production"
+                environment="production",
             )
 
             # Validate task definition structure
@@ -227,7 +230,7 @@ class TestDeploymentPipeline:
             ("docker build", "Image built"),
             ("docker push", "Image pushed"),
             ("terraform apply", "Infrastructure deployed"),
-            ("ecs update-service", "Service updated")
+            ("ecs update-service", "Service updated"),
         ]
 
         for command, expected_output in deployment_steps:
@@ -248,7 +251,7 @@ class TestInfrastructureSecrets:
             "secret=",
             "aws_access_key",
             "private_key=",
-            "token="
+            "token=",
         ]
 
         # Check Terraform files
@@ -263,8 +266,13 @@ class TestInfrastructureSecrets:
                         for i, line in enumerate(lines):
                             if pattern in line and "=" in line:
                                 value = line.split("=")[1].strip()
-                                assert value in ['""', "''", "var.", "data.", "aws_"], \
-                                    f"Potential hardcoded secret found in {tf_file} line {i+1}"
+                                assert value in [
+                                    '""',
+                                    "''",
+                                    "var.",
+                                    "data.",
+                                    "aws_",
+                                ], f"Potential hardcoded secret found in {tf_file} line {i + 1}"
 
     def test_terraform_tfvars_example(self):
         """Test that example tfvars doesn't contain real secrets."""

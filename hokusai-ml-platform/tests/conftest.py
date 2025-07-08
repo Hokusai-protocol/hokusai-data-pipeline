@@ -1,21 +1,22 @@
-"""Pytest configuration and shared fixtures"""
-import pytest
+"""Pytest configuration and shared fixtures."""
 import asyncio
-from unittest.mock import Mock, MagicMock
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
+from typing import Generator
+from unittest.mock import MagicMock, Mock
+
 import mlflow
+import pytest
 import redis
-from typing import Generator, Any
 
 # Configure pytest-asyncio
-pytest_plugins = ('pytest_asyncio',)
+pytest_plugins = ("pytest_asyncio",)
 
 
 @pytest.fixture(scope="session")
 def event_loop():
-    """Create event loop for async tests"""
+    """Create event loop for async tests."""
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
@@ -23,7 +24,7 @@ def event_loop():
 
 @pytest.fixture
 def temp_dir() -> Generator[Path, None, None]:
-    """Create temporary directory for test files"""
+    """Create temporary directory for test files."""
     temp_path = tempfile.mkdtemp()
     yield Path(temp_path)
     shutil.rmtree(temp_path)
@@ -31,7 +32,7 @@ def temp_dir() -> Generator[Path, None, None]:
 
 @pytest.fixture
 def mock_mlflow_client():
-    """Mock MLflow client for testing"""
+    """Mock MLflow client for testing."""
     client = MagicMock()
     client.create_registered_model = Mock(return_value=Mock(name="test_model"))
     client.create_model_version = Mock(return_value=Mock(version="1"))
@@ -44,7 +45,7 @@ def mock_mlflow_client():
 
 @pytest.fixture
 def mock_redis_client():
-    """Mock Redis client for testing"""
+    """Mock Redis client for testing."""
     client = MagicMock(spec=redis.Redis)
     client.get = Mock(return_value=None)
     client.set = Mock(return_value=True)
@@ -58,7 +59,7 @@ def mock_redis_client():
 
 @pytest.fixture
 def sample_model_metadata():
-    """Sample model metadata for testing"""
+    """Sample model metadata for testing."""
     return {
         "model_id": "test-model-001",
         "model_type": "classification",
@@ -82,7 +83,7 @@ def sample_model_metadata():
 
 @pytest.fixture
 def sample_inference_data():
-    """Sample data for inference testing"""
+    """Sample data for inference testing."""
     return {
         "features": [
             0.5, 0.3, 0.8, 0.1, 0.9,
@@ -100,22 +101,22 @@ def sample_inference_data():
 
 
 @pytest.fixture
-def mock_model_artifact(temp_dir):
-    """Create mock model artifact files"""
+def mock_model_artifact(temp_dir: str):
+    """Create mock model artifact files."""
     model_dir = temp_dir / "model"
     model_dir.mkdir()
-    
+
     # Create mock model files
     (model_dir / "model.pkl").write_text("mock model content")
     (model_dir / "config.json").write_text('{"version": "1.0.0"}')
     (model_dir / "requirements.txt").write_text("scikit-learn==1.3.0\nnumpy==1.24.0")
-    
+
     return model_dir
 
 
 @pytest.fixture(autouse=True)
 def reset_mlflow_tracking():
-    """Reset MLflow tracking URI for each test"""
+    """Reset MLflow tracking URI for each test."""
     mlflow.set_tracking_uri("file:///tmp/mlflow-test")
     yield
     # Clean up after test
@@ -124,7 +125,7 @@ def reset_mlflow_tracking():
 
 @pytest.fixture
 def mock_ab_test_config():
-    """Sample A/B test configuration"""
+    """Sample A/B test configuration."""
     return {
         "test_id": "test-001",
         "model_a": "model-v1",
@@ -142,7 +143,7 @@ def mock_ab_test_config():
 
 @pytest.fixture
 def mock_experiment_data():
-    """Sample experiment data for testing"""
+    """Sample experiment data for testing."""
     return {
         "experiment_id": "exp-001",
         "experiment_name": "lead_scoring_improvement",
@@ -163,8 +164,8 @@ def mock_experiment_data():
 
 
 # Markers for different test categories
-def pytest_configure(config):
-    """Configure custom pytest markers"""
+def pytest_configure(config: str) -> None:
+    """Configure custom pytest markers."""
     config.addinivalue_line(
         "markers", "unit: Unit tests that don't require external services"
     )

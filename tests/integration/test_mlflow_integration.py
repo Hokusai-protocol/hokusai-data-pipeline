@@ -1,11 +1,13 @@
 """Integration tests for MLFlow tracking in pipeline."""
 
-import pytest
-import tempfile
 import shutil
-import pandas as pd
+import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pandas as pd
+import pytest
+
 from src.modules.baseline_loader import BaselineModelLoader
 from src.modules.data_integration import DataIntegrator
 from src.utils.mlflow_config import MLFlowConfig
@@ -20,11 +22,13 @@ class TestMLFlowPipelineIntegration:
         self.tracking_uri = f"file://{self.temp_dir}/mlruns"
 
         # Create test data
-        self.test_data = pd.DataFrame({
-            "feature1": [1, 2, 3, 4, 5],
-            "feature2": ["a", "b", "c", "d", "e"],
-            "target": [0, 1, 0, 1, 0]
-        })
+        self.test_data = pd.DataFrame(
+            {
+                "feature1": [1, 2, 3, 4, 5],
+                "feature2": ["a", "b", "c", "d", "e"],
+                "target": [0, 1, 0, 1, 0],
+            }
+        )
 
         self.test_data_path = Path(self.temp_dir) / "test_data.csv"
         self.test_data.to_csv(self.test_data_path, index=False)
@@ -37,8 +41,7 @@ class TestMLFlowPipelineIntegration:
     @patch("mlflow.get_experiment_by_name")
     @patch("mlflow.create_experiment")
     @patch("mlflow.set_experiment")
-    def test_mlflow_config_setup(self, mock_set_exp, mock_create_exp,
-                                mock_get_exp, mock_set_uri):
+    def test_mlflow_config_setup(self, mock_set_exp, mock_create_exp, mock_get_exp, mock_set_uri):
         """Test MLFlow configuration setup."""
         mock_get_exp.return_value = None
         mock_create_exp.return_value = "test_id"
@@ -55,8 +58,9 @@ class TestMLFlowPipelineIntegration:
     @patch("mlflow.set_tag")
     @patch("mlflow.log_param")
     @patch("mlflow.log_metric")
-    def test_baseline_loader_tracking(self, mock_log_metric, mock_log_param,
-                                    mock_set_tag, mock_start_run):
+    def test_baseline_loader_tracking(
+        self, mock_log_metric, mock_log_param, mock_set_tag, mock_start_run
+    ):
         """Test baseline loader with MLFlow tracking."""
         # Setup mock run context
         mock_run = MagicMock()
@@ -79,8 +83,9 @@ class TestMLFlowPipelineIntegration:
     @patch("mlflow.set_tag")
     @patch("mlflow.log_param")
     @patch("mlflow.log_metric")
-    def test_data_integration_tracking(self, mock_log_metric, mock_log_param,
-                                     mock_set_tag, mock_start_run):
+    def test_data_integration_tracking(
+        self, mock_log_metric, mock_log_param, mock_set_tag, mock_start_run
+    ):
         """Test data integration with MLFlow tracking."""
         # Setup mock run context
         mock_run = MagicMock()
@@ -104,8 +109,9 @@ class TestMLFlowPipelineIntegration:
     @patch("mlflow.set_tag")
     @patch("mlflow.log_param")
     @patch("mlflow.log_metric")
-    def test_data_merge_tracking(self, mock_log_metric, mock_log_param,
-                               mock_set_tag, mock_start_run):
+    def test_data_merge_tracking(
+        self, mock_log_metric, mock_log_param, mock_set_tag, mock_start_run
+    ):
         """Test data merge with MLFlow tracking."""
         # Setup mock run context
         mock_run = MagicMock()
@@ -135,14 +141,16 @@ class TestMLFlowPipelineIntegration:
     @patch("mlflow.log_param")
     @patch("mlflow.log_metric")
     @patch("mlflow.log_artifact")
-    def test_baseline_loader_file_tracking(self, mock_log_artifact, mock_log_metric,
-                                         mock_log_param, mock_set_tag, mock_start_run):
+    def test_baseline_loader_file_tracking(
+        self, mock_log_artifact, mock_log_metric, mock_log_param, mock_set_tag, mock_start_run
+    ):
         """Test baseline loader from file with artifact logging."""
         # Create a mock model file
         model_data = {"type": "test_model", "version": "1.0"}
         model_path = Path(self.temp_dir) / "test_model.json"
 
         import json
+
         with open(model_path, "w") as f:
             json.dump(model_data, f)
 
@@ -171,13 +179,9 @@ class TestMLFlowPipelineIntegration:
             "parameters": {
                 "model_type": "mock_baseline_model",
                 "data_path": str(self.test_data_path),
-                "merge_strategy": "append"
+                "merge_strategy": "append",
             },
-            "metrics": {
-                "data_rows": 5,
-                "data_columns": 3,
-                "load_time": 0.1
-            }
+            "metrics": {"data_rows": 5, "data_columns": 3, "load_time": 0.1},
         }
 
         # Verify metadata contains required fields for reproduction

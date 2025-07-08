@@ -1,14 +1,15 @@
 """Unit tests for Ethereum address validator utility."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from src.utils.eth_address_validator import (
     ETHAddressValidationError,
-    validate_eth_address,
-    normalize_eth_address,
+    _to_checksum_address,
     is_valid_eth_checksum,
-    _to_checksum_address
+    normalize_eth_address,
+    validate_eth_address,
 )
 
 
@@ -166,7 +167,9 @@ class TestToChecksumAddress:
         with patch.dict("sys.modules", {"Crypto.Hash.keccak": mock_keccak}):
             # Need to reload to pick up the mocked import
             import importlib
+
             import src.utils.eth_address_validator
+
             importlib.reload(src.utils.eth_address_validator)
             from src.utils.eth_address_validator import _to_checksum_address
 

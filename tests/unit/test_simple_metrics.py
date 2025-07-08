@@ -1,21 +1,19 @@
 """Simple unit tests for metrics utilities."""
 
-import pytest
-from unittest.mock import Mock, patch
-from typing import Dict, Any
+from unittest.mock import patch
 
 from src.utils.metrics import (
-    MetricCategory,
-    STANDARD_METRICS,
     METRIC_NAME_PATTERN,
-    validate_metric_name,
-    parse_metric_name,
+    STANDARD_METRICS,
+    MetricCategory,
     format_metric_name,
-    validate_metric_value,
-    migrate_metric_name,
-    log_usage_metrics,
     log_model_metrics,
-    log_pipeline_metrics
+    log_pipeline_metrics,
+    log_usage_metrics,
+    migrate_metric_name,
+    parse_metric_name,
+    validate_metric_name,
+    validate_metric_value,
 )
 
 
@@ -43,7 +41,7 @@ class TestMetricValidation:
             "pipeline:duration_seconds",
             "model:latency_ms",
             "metric.with.dots",
-            "category:metric.with.dots"
+            "category:metric.with.dots",
         ]
 
         for name in valid_names:
@@ -61,7 +59,7 @@ class TestMetricValidation:
             ":missing_category",
             "category:",
             "special@chars",
-            "category:UPPERCASE"
+            "category:UPPERCASE",
         ]
 
         for name in invalid_names:
@@ -133,65 +131,41 @@ class TestCategorizedMetricLogging:
     @patch("mlflow.log_metrics")
     def test_log_usage_metrics(self, mock_log_metrics):
         """Test logging usage metrics."""
-        metrics = {
-            "reply_rate": 0.75,
-            "engagement_rate": 0.85
-        }
+        metrics = {"reply_rate": 0.75, "engagement_rate": 0.85}
 
         log_usage_metrics(metrics)
 
-        expected = {
-            "usage:reply_rate": 0.75,
-            "usage:engagement_rate": 0.85
-        }
+        expected = {"usage:reply_rate": 0.75, "usage:engagement_rate": 0.85}
         mock_log_metrics.assert_called_once_with(expected)
 
     @patch("mlflow.log_metrics")
     def test_log_model_metrics(self, mock_log_metrics):
         """Test logging model metrics."""
-        metrics = {
-            "accuracy": 0.95,
-            "latency_ms": 45.2
-        }
+        metrics = {"accuracy": 0.95, "latency_ms": 45.2}
 
         log_model_metrics(metrics)
 
-        expected = {
-            "model:accuracy": 0.95,
-            "model:latency_ms": 45.2
-        }
+        expected = {"model:accuracy": 0.95, "model:latency_ms": 45.2}
         mock_log_metrics.assert_called_once_with(expected)
 
     @patch("mlflow.log_metrics")
     def test_log_pipeline_metrics(self, mock_log_metrics):
         """Test logging pipeline metrics."""
-        metrics = {
-            "duration_seconds": 120.5,
-            "success_rate": 0.98
-        }
+        metrics = {"duration_seconds": 120.5, "success_rate": 0.98}
 
         log_pipeline_metrics(metrics)
 
-        expected = {
-            "pipeline:duration_seconds": 120.5,
-            "pipeline:success_rate": 0.98
-        }
+        expected = {"pipeline:duration_seconds": 120.5, "pipeline:success_rate": 0.98}
         mock_log_metrics.assert_called_once_with(expected)
 
     @patch("mlflow.log_metrics")
     def test_log_metrics_with_existing_prefix(self, mock_log_metrics):
         """Test that existing prefixes are preserved."""
-        metrics = {
-            "accuracy": 0.95,
-            "model:precision": 0.92  # Already has prefix
-        }
+        metrics = {"accuracy": 0.95, "model:precision": 0.92}  # Already has prefix
 
         log_model_metrics(metrics)
 
-        expected = {
-            "model:accuracy": 0.95,
-            "model:precision": 0.92  # Prefix not duplicated
-        }
+        expected = {"model:accuracy": 0.95, "model:precision": 0.92}  # Prefix not duplicated
         mock_log_metrics.assert_called_once_with(expected)
 
 

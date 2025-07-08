@@ -1,29 +1,33 @@
-"""Database connection management for Hokusai ML Platform
-"""
+"""Database connection management for Hokusai ML Platform."""
+
 import logging
-from typing import Optional, Any, Dict, List
 from contextlib import contextmanager
+from typing import Any, Optional
+
 from .config import DatabaseConfig
+
 # Models imported when needed
 
 logger = logging.getLogger(__name__)
 
 
 class DatabaseConnection:
-    """Manages database connections and provides a simple interface"""
+    """Manages database connections and provides a simple interface."""
 
-    def __init__(self, config: DatabaseConfig):
+    def __init__(self, config: DatabaseConfig) -> None:
         self.config = config
         self._connection = None
         self._engine = None
 
-    def connect(self):
-        """Establish database connection"""
+    def connect(self) -> None:
+        """Establish database connection."""
         try:
             if self.config.db_type in ["postgresql", "mysql"]:
                 # For production databases, we would use SQLAlchemy or psycopg2
                 # This is a simplified implementation
-                logger.info(f"Connecting to {self.config.db_type} database at {self.config.host}:{self.config.port}")
+                logger.info(
+                    f"Connecting to {self.config.db_type} database at {self.config.host}:{self.config.port}"
+                )
                 # In a real implementation:
                 # from sqlalchemy import create_engine
                 # self._engine = create_engine(self.config.get_connection_string())
@@ -42,8 +46,8 @@ class DatabaseConnection:
             logger.error(f"Failed to connect to database: {str(e)}")
             raise
 
-    def disconnect(self):
-        """Close database connection"""
+    def disconnect(self) -> None:
+        """Close database connection."""
         if self._connection:
             try:
                 self._connection.close()
@@ -53,15 +57,17 @@ class DatabaseConnection:
 
     @contextmanager
     def session(self):
-        """Context manager for database sessions"""
+        """Context manager for database sessions."""
         try:
             self.connect()
             yield self
         finally:
             self.disconnect()
 
-    def execute_query(self, query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        """Execute a query and return results"""
+    def execute_query(
+        self, query: str, params: Optional[dict[str, Any]] = None
+    ) -> list[dict[str, Any]]:
+        """Execute a query and return results."""
         # This is a simplified implementation
         # In production, we would use proper query execution with parameterized queries
         logger.debug(f"Executing query: {query}")
@@ -74,8 +80,8 @@ class DatabaseConnection:
 
         return []
 
-    def execute_update(self, query: str, params: Optional[Dict[str, Any]] = None) -> int:
-        """Execute an update query and return affected rows"""
+    def execute_update(self, query: str, params: Optional[dict[str, Any]] = None) -> int:
+        """Execute an update query and return affected rows."""
         logger.debug(f"Executing update: {query}")
 
         # Simulate update execution
@@ -87,26 +93,26 @@ class DatabaseConnection:
 
         return 0
 
-    def begin_transaction(self):
-        """Begin a database transaction"""
+    def begin_transaction(self) -> None:
+        """Begin a database transaction."""
         if self._connection:
             # self._connection.begin()
             logger.debug("Transaction started")
 
-    def commit_transaction(self):
-        """Commit the current transaction"""
+    def commit_transaction(self) -> None:
+        """Commit the current transaction."""
         if self._connection:
             # self._connection.commit()
             logger.debug("Transaction committed")
 
-    def rollback_transaction(self):
-        """Rollback the current transaction"""
+    def rollback_transaction(self) -> None:
+        """Rollback the current transaction."""
         if self._connection:
             # self._connection.rollback()
             logger.debug("Transaction rolled back")
 
     def check_connection(self) -> bool:
-        """Check if database connection is active"""
+        """Check if database connection is active."""
         try:
             # In real implementation, we would execute a simple query
             # self.execute_query("SELECT 1")

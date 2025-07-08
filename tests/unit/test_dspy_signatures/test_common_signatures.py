@@ -1,33 +1,20 @@
 """Unit tests for common DSPy signatures."""
 
-import pytest
-from unittest.mock import Mock, patch
-import dspy
 
-from src.dspy_signatures.text_generation import (
-    DraftText,
-    ReviseText,
-    ExpandText,
-    RefineText
-)
-from src.dspy_signatures.analysis import (
-    CritiqueText,
-    SummarizeText,
-    ExtractInfo,
-    ClassifyText
-)
+from src.dspy_signatures.analysis import ClassifyText, CritiqueText, ExtractInfo, SummarizeText
 from src.dspy_signatures.conversation import (
-    RespondToUser,
     ClarifyIntent,
     GenerateFollowUp,
-    ResolveQuery
+    ResolveQuery,
+    RespondToUser,
 )
 from src.dspy_signatures.task_specific import (
-    EmailDraft,
     CodeGeneration,
     DataAnalysis,
-    ReportGeneration
+    EmailDraft,
+    ReportGeneration,
 )
+from src.dspy_signatures.text_generation import DraftText, ExpandText, RefineText, ReviseText
 
 
 class TestTextGenerationSignatures:
@@ -51,12 +38,8 @@ class TestTextGenerationSignatures:
         assert "draft" in output_names
 
         # Test with sample inputs
-        inputs = {
-            "topic": "AI in healthcare",
-            "purpose": "blog post",
-            "style": "informative"
-        }
-        assert sig.validate_inputs(inputs) == True
+        inputs = {"topic": "AI in healthcare", "purpose": "blog post", "style": "informative"}
+        assert sig.validate_inputs(inputs)
 
     def test_revise_text_signature(self):
         """Test ReviseText signature."""
@@ -86,11 +69,8 @@ class TestTextGenerationSignatures:
         assert "expanded_text" in output_names
 
         # Test with optional field
-        inputs = {
-            "text": "Brief text",
-            "expansion_points": ["add examples", "provide details"]
-        }
-        assert sig.validate_inputs(inputs) == True
+        inputs = {"text": "Brief text", "expansion_points": ["add examples", "provide details"]}
+        assert sig.validate_inputs(inputs)
 
     def test_refine_text_signature(self):
         """Test RefineText signature."""
@@ -155,9 +135,9 @@ class TestAnalysisSignatures:
         inputs = {
             "text": "John Doe, CEO of TechCorp, announced...",
             "info_types": ["names", "titles", "organizations"],
-            "format": "json"
+            "format": "json",
         }
-        assert sig.validate_inputs(inputs) == True
+        assert sig.validate_inputs(inputs)
 
     def test_classify_text_signature(self):
         """Test ClassifyText signature."""
@@ -260,9 +240,9 @@ class TestTaskSpecificSignatures:
             "subject": "Project Update",
             "purpose": "inform about milestone completion",
             "key_points": ["Milestone 1 complete", "On schedule"],
-            "tone": "professional"
+            "tone": "professional",
         }
-        assert sig.validate_inputs(inputs) == True
+        assert sig.validate_inputs(inputs)
 
     def test_code_generation_signature(self):
         """Test CodeGeneration signature."""

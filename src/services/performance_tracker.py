@@ -4,7 +4,8 @@ import hashlib
 import json
 import logging
 from datetime import datetime
-from typing import Dict, Any, Tuple, List
+from typing import Any
+
 import mlflow
 
 logger = logging.getLogger(__name__)
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class PerformanceTracker:
     """Track and verify performance improvements with attestation generation.
-    
+
     This service provides:
     - Performance delta calculation
     - Attestation generation for improvements
@@ -20,20 +21,23 @@ class PerformanceTracker:
     - DeltaOne value computation
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the performance tracker."""
         logger.info("Initialized PerformanceTracker")
 
-    def track_improvement(self, baseline_metrics: Dict[str, float],
-                         improved_metrics: Dict[str, float],
-                         data_contribution: Dict[str, Any]) -> Tuple[Dict[str, float], Dict[str, Any]]:
+    def track_improvement(
+        self,
+        baseline_metrics: dict[str, float],
+        improved_metrics: dict[str, float],
+        data_contribution: dict[str, Any],
+    ) -> tuple[dict[str, float], dict[str, Any]]:
         """Track and verify performance improvements.
-        
+
         Args:
             baseline_metrics: Metrics from the baseline model
             improved_metrics: Metrics from the improved model
             data_contribution: Information about the data contribution
-            
+
         Returns:
             Tuple of (delta metrics, attestation)
 
@@ -55,16 +59,19 @@ class PerformanceTracker:
 
         return delta, attestation
 
-    def _calculate_delta(self, baseline_metrics: Dict[str, float],
-                        improved_metrics: Dict[str, float],
-                        percentage: bool = False) -> Dict[str, float]:
+    def _calculate_delta(
+        self,
+        baseline_metrics: dict[str, float],
+        improved_metrics: dict[str, float],
+        percentage: bool = False,
+    ) -> dict[str, float]:
         """Calculate the delta between baseline and improved metrics.
-        
+
         Args:
             baseline_metrics: Baseline model metrics
             improved_metrics: Improved model metrics
             percentage: Whether to include percentage improvements
-            
+
         Returns:
             Dictionary of metric improvements
 
@@ -86,14 +93,15 @@ class PerformanceTracker:
 
         return delta
 
-    def _generate_attestation(self, delta: Dict[str, float],
-                            data_contribution: Dict[str, Any]) -> Dict[str, Any]:
+    def _generate_attestation(
+        self, delta: dict[str, float], data_contribution: dict[str, Any]
+    ) -> dict[str, Any]:
         """Generate an attestation for the performance improvement.
-        
+
         Args:
             delta: Performance improvements
             data_contribution: Data contribution metadata
-            
+
         Returns:
             Attestation dictionary with hash and signature placeholder
 
@@ -109,9 +117,9 @@ class PerformanceTracker:
             "data_contribution": {
                 "dataset_hash": data_contribution.get("dataset_hash", ""),
                 "data_size": data_contribution.get("data_size", 0),
-                "quality_score": data_contribution.get("data_quality_score", 0)
+                "quality_score": data_contribution.get("data_quality_score", 0),
             },
-            "deltaone_value": self._generate_deltaone_value(delta)
+            "deltaone_value": self._generate_deltaone_value(delta),
         }
 
         # Generate attestation hash
@@ -123,11 +131,11 @@ class PerformanceTracker:
 
         return attestation
 
-    def log_contribution_impact(self, contributor_address: str,
-                              model_id: str,
-                              delta: Dict[str, float]) -> None:
+    def log_contribution_impact(
+        self, contributor_address: str, model_id: str, delta: dict[str, float]
+    ) -> None:
         """Log contributor's impact on model performance.
-        
+
         Args:
             contributor_address: Ethereum address of contributor
             model_id: ID of the improved model
@@ -138,17 +146,23 @@ class PerformanceTracker:
             impact_score = self._calculate_impact_score(delta)
 
             # Log to MLFlow
-            mlflow.log_params({
-                "contributor_address": contributor_address,
-                "model_id": model_id,
-                "impact_score": impact_score,
-                "contribution_timestamp": datetime.utcnow().isoformat()
-            })
+            mlflow.log_params(
+                {
+                    "contributor_address": contributor_address,
+                    "model_id": model_id,
+                    "impact_score": impact_score,
+                    "contribution_timestamp": datetime.utcnow().isoformat(),
+                }
+            )
 
-            mlflow.log_metrics({
-                "contributor_impact_score": impact_score,
-                "total_improvement": sum(abs(v) for v in delta.values() if isinstance(v, (int, float)))
-            })
+            mlflow.log_metrics(
+                {
+                    "contributor_impact_score": impact_score,
+                    "total_improvement": sum(
+                        abs(v) for v in delta.values() if isinstance(v, (int, float))
+                    ),
+                }
+            )
 
             logger.info(f"Logged contribution impact for {contributor_address}: {impact_score}")
 
@@ -156,12 +170,12 @@ class PerformanceTracker:
             logger.error(f"Failed to log contribution impact: {str(e)}")
             raise
 
-    def _calculate_impact_score(self, delta: Dict[str, float]) -> float:
+    def _calculate_impact_score(self, delta: dict[str, float]) -> float:
         """Calculate a unified impact score from delta metrics.
-        
+
         Args:
             delta: Performance improvements
-            
+
         Returns:
             Impact score (0-1 scale)
 
@@ -174,12 +188,12 @@ class PerformanceTracker:
 
         return sum(improvements) / len(improvements)
 
-    def _generate_deltaone_value(self, delta: Dict[str, float]) -> float:
+    def _generate_deltaone_value(self, delta: dict[str, float]) -> float:
         """Generate DeltaOne value based on improvements.
-        
+
         Args:
             delta: Performance improvements
-            
+
         Returns:
             DeltaOne value for reward calculation
 
@@ -187,13 +201,7 @@ class PerformanceTracker:
         # DeltaOne formula: weighted sum of improvements * 100
         # This is a simplified version - actual formula would be more complex
 
-        weights = {
-            "accuracy": 1.0,
-            "auroc": 0.8,
-            "f1_score": 0.9,
-            "precision": 0.7,
-            "recall": 0.7
-        }
+        weights = {"accuracy": 1.0, "auroc": 0.8, "f1_score": 0.9, "precision": 0.7, "recall": 0.7}
 
         deltaone = 0.0
         for metric, improvement in delta.items():
@@ -204,13 +212,13 @@ class PerformanceTracker:
 
     def _validate_metrics(self, metrics: Any) -> bool:
         """Validate metrics format and values.
-        
+
         Args:
             metrics: Metrics to validate
-            
+
         Returns:
             True if valid
-            
+
         Raises:
             ValueError: If metrics are invalid
 
@@ -227,11 +235,14 @@ class PerformanceTracker:
 
         return True
 
-    def _log_improvement_to_mlflow(self, delta: Dict[str, float],
-                                 attestation: Dict[str, Any],
-                                 data_contribution: Dict[str, Any]) -> None:
+    def _log_improvement_to_mlflow(
+        self,
+        delta: dict[str, float],
+        attestation: dict[str, Any],
+        data_contribution: dict[str, Any],
+    ) -> None:
         """Log improvement details to MLFlow.
-        
+
         Args:
             delta: Performance improvements
             attestation: Generated attestation
@@ -241,8 +252,7 @@ class PerformanceTracker:
         try:
             # Log delta metrics with _improvement suffix
             improvement_metrics = {
-                f"{k}_improvement": v for k, v in delta.items()
-                if not k.endswith("_pct")
+                f"{k}_improvement": v for k, v in delta.items() if not k.endswith("_pct")
             }
             mlflow.log_metrics(improvement_metrics)
 
@@ -250,22 +260,24 @@ class PerformanceTracker:
             mlflow.log_dict(attestation, artifact_file="attestation.json")
 
             # Log contribution metadata
-            mlflow.log_params({
-                "contributor_id": data_contribution.get("contributor_id", "unknown"),
-                "dataset_hash": data_contribution.get("dataset_hash", ""),
-                "deltaone_value": attestation["deltaone_value"]
-            })
+            mlflow.log_params(
+                {
+                    "contributor_id": data_contribution.get("contributor_id", "unknown"),
+                    "dataset_hash": data_contribution.get("dataset_hash", ""),
+                    "deltaone_value": attestation["deltaone_value"],
+                }
+            )
 
         except Exception as e:
             logger.error(f"Failed to log to MLFlow: {str(e)}")
             # Don't raise - logging failure shouldn't break the pipeline
 
-    def _aggregate_impacts(self, impacts: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _aggregate_impacts(self, impacts: list[dict[str, Any]]) -> dict[str, Any]:
         """Aggregate multiple contribution impacts by model.
-        
+
         Args:
             impacts: List of individual contribution impacts
-            
+
         Returns:
             Aggregated impacts by model
 
@@ -277,11 +289,7 @@ class PerformanceTracker:
             delta = impact["delta"]
 
             if model not in aggregated:
-                aggregated[model] = {
-                    "total_improvement": 0,
-                    "contribution_count": 0,
-                    "metrics": {}
-                }
+                aggregated[model] = {"total_improvement": 0, "contribution_count": 0, "metrics": {}}
 
             # Sum improvements
             for metric, value in delta.items():
@@ -296,12 +304,12 @@ class PerformanceTracker:
 
         return aggregated
 
-    def get_contributor_impact(self, contributor_address: str) -> Dict[str, Any]:
+    def get_contributor_impact(self, contributor_address: str) -> dict[str, Any]:
         """Get aggregated impact data for a contributor.
-        
+
         Args:
             contributor_address: Ethereum address of the contributor
-            
+
         Returns:
             Dictionary with contributor's total impact across all models
 
@@ -315,5 +323,5 @@ class PerformanceTracker:
             "total_improvement_score": 0.0,
             "contributions": [],
             "first_contribution": None,
-            "last_contribution": None
+            "last_contribution": None,
         }

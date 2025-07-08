@@ -1,30 +1,30 @@
 """Example usage of the standardized metric logging convention."""
 import mlflow
+
 from src.utils.metrics import (
+    STANDARD_METRICS,
     MetricLogger,
-    log_usage_metrics,
     log_model_metrics,
     log_pipeline_metrics,
-    STANDARD_METRICS,
-    MetricCategory
+    log_usage_metrics,
 )
 
 
-def basic_metric_logging():
+def basic_metric_logging() -> None:
     """Demonstrate basic metric logging."""
     print("Basic Metric Logging")
     print("-" * 50)
-    
+
     # Create logger instance
     logger = MetricLogger()
-    
+
     # Log individual metrics
     logger.log_metric("usage:reply_rate", 0.1523)
     logger.log_metric("model:accuracy", 0.8934)
     logger.log_metric("pipeline:duration_seconds", 45.2)
-    
+
     print("✓ Logged individual metrics with proper prefixes")
-    
+
     # Log batch of metrics
     metrics = {
         "usage:conversion_rate": 0.0821,
@@ -33,15 +33,15 @@ def basic_metric_logging():
         "model:latency_ms": 23.5
     }
     logger.log_metrics(metrics)
-    
+
     print("✓ Logged batch of metrics")
 
 
-def convenience_functions():
+def convenience_functions() -> None:
     """Demonstrate convenience functions for metric categories."""
     print("\nConvenience Functions")
     print("-" * 50)
-    
+
     # Log usage metrics (automatically prefixed)
     usage_metrics = {
         "reply_rate": 0.1523,
@@ -50,7 +50,7 @@ def convenience_functions():
     }
     log_usage_metrics(usage_metrics)
     print("✓ Logged usage metrics with automatic prefixing")
-    
+
     # Log model metrics
     model_metrics = {
         "accuracy": 0.8934,
@@ -60,7 +60,7 @@ def convenience_functions():
     }
     log_model_metrics(model_metrics)
     print("✓ Logged model metrics with automatic prefixing")
-    
+
     # Log pipeline metrics
     pipeline_metrics = {
         "data_processed": 10000,
@@ -72,13 +72,13 @@ def convenience_functions():
     print("✓ Logged pipeline metrics with automatic prefixing")
 
 
-def metadata_logging():
+def metadata_logging() -> None:
     """Demonstrate logging metrics with metadata."""
     print("\nMetric Logging with Metadata")
     print("-" * 50)
-    
+
     logger = MetricLogger()
-    
+
     # Log metric with additional context
     logger.log_metric_with_metadata(
         name="usage:reply_rate",
@@ -90,17 +90,17 @@ def metadata_logging():
             "environment": "production"
         }
     )
-    
+
     print("✓ Logged metric with metadata (stored as MLflow parameters)")
 
 
-def validation_examples():
+def validation_examples() -> None:
     """Demonstrate metric validation."""
     print("\nMetric Validation")
     print("-" * 50)
-    
+
     logger = MetricLogger()
-    
+
     # Valid metric names
     valid_names = [
         "usage:reply_rate",
@@ -108,7 +108,7 @@ def validation_examples():
         "custom:special_metric",
         "simple_metric"
     ]
-    
+
     print("Valid metric names:")
     for name in valid_names:
         try:
@@ -116,7 +116,7 @@ def validation_examples():
             print(f"  ✓ {name}")
         except Exception as e:
             print(f"  ✗ {name}: {e}")
-    
+
     # Invalid metric names
     invalid_names = [
         "metric with spaces",
@@ -124,7 +124,7 @@ def validation_examples():
         "metric-with-dashes",
         "123_starts_with_number"
     ]
-    
+
     print("\nInvalid metric names:")
     for name in invalid_names:
         try:
@@ -134,39 +134,39 @@ def validation_examples():
             print(f"  ✓ {name}: Correctly rejected - {e}")
 
 
-def legacy_support():
+def legacy_support() -> None:
     """Demonstrate backward compatibility with legacy metrics."""
     print("\nLegacy Metric Support")
     print("-" * 50)
-    
+
     # Create logger that allows legacy names
     logger = MetricLogger(allow_legacy_names=True)
-    
+
     # These would normally be invalid but are allowed in legacy mode
     legacy_metrics = {
         "my-old-metric": 0.75,
         "AnotherOldMetric": 0.82,
         "metric with spaces": 0.91
     }
-    
+
     for name, value in legacy_metrics.items():
         logger.log_metric(name, value, raise_on_error=False)
         print(f"✓ Logged legacy metric: {name}")
 
 
-def show_standard_metrics():
+def show_standard_metrics() -> None:
     """Display all standard metrics."""
     print("\nStandard Metrics Reference")
     print("-" * 50)
-    
+
     # Group metrics by category
     categories = {}
     for metric_name, description in STANDARD_METRICS.items():
-        category, _ = metric_name.split(':', 1) if ':' in metric_name else ('custom', metric_name)
+        category, _ = metric_name.split(":", 1) if ":" in metric_name else ("custom", metric_name)
         if category not in categories:
             categories[category] = []
         categories[category].append((metric_name, description))
-    
+
     # Display by category
     for category in sorted(categories.keys()):
         print(f"\n{category.upper()} Metrics:")
@@ -174,53 +174,53 @@ def show_standard_metrics():
             print(f"  • {metric_name}: {description}")
 
 
-def pipeline_integration_example():
+def pipeline_integration_example() -> None:
     """Show how to integrate with a pipeline."""
     print("\nPipeline Integration Example")
     print("-" * 50)
-    
+
     # Simulate a pipeline run
     with mlflow.start_run():
         # Pipeline start
         pipeline_start_time = 0
-        
+
         # Log pipeline metrics throughout execution
         log_pipeline_metrics({
             "data_processed": 5000,
             "memory_usage_mb": 256
         })
-        
+
         # Simulate model training
         log_model_metrics({
             "accuracy": 0.89,
             "f1_score": 0.87,
             "latency_ms": 15.2
         })
-        
+
         # Log usage metrics
         log_usage_metrics({
             "reply_rate": 0.152,
             "conversion_rate": 0.082
         })
-        
+
         # Final pipeline metrics
         log_pipeline_metrics({
             "duration_seconds": 120.5,
             "success_rate": 1.0
         })
-        
+
         print("✓ Logged all pipeline metrics with proper categorization")
 
 
-def main():
+def main() -> None:
     """Run all examples."""
     print("Hokusai Metric Logging Convention Examples")
     print("=" * 60)
-    
+
     # Set up MLflow tracking (use local directory for example)
     mlflow.set_tracking_uri("./mlruns")
     mlflow.set_experiment("metric_logging_examples")
-    
+
     # Run examples
     basic_metric_logging()
     convenience_functions()
@@ -229,7 +229,7 @@ def main():
     legacy_support()
     show_standard_metrics()
     pipeline_integration_example()
-    
+
     print("\n" + "=" * 60)
     print("All examples completed!")
     print("\nTo view metrics in MLflow UI, run:")

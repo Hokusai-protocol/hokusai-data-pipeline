@@ -1,10 +1,10 @@
 """Unit tests for compare_and_output_delta step functionality."""
 
-import unittest
-from unittest.mock import Mock, patch, MagicMock
 import json
 import tempfile
+import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
 
 
 class TestCompareAndOutputDelta(unittest.TestCase):
@@ -18,7 +18,10 @@ class TestCompareAndOutputDelta(unittest.TestCase):
 
         # Import the actual method to test
         from src.pipeline.hokusai_pipeline import HokusaiPipeline
-        self.pipeline._compute_model_delta = HokusaiPipeline._compute_model_delta.__get__(self.pipeline)
+
+        self.pipeline._compute_model_delta = HokusaiPipeline._compute_model_delta.__get__(
+            self.pipeline
+        )
 
         # Mock configuration
         self.mock_config = Mock()
@@ -31,7 +34,7 @@ class TestCompareAndOutputDelta(unittest.TestCase):
         self.pipeline.run_metadata = {
             "run_id": "test_run_123",
             "started_at": "2024-01-01T00:00:00",
-            "config": {"test": "config"}
+            "config": {"test": "config"},
         }
 
         # Mock output directory
@@ -46,35 +49,32 @@ class TestCompareAndOutputDelta(unittest.TestCase):
                 "precision": 0.83,
                 "recall": 0.87,
                 "f1_score": 0.85,
-                "auroc": 0.91
+                "auroc": 0.91,
             },
             "new_metrics": {
                 "accuracy": 0.88,
                 "precision": 0.86,
                 "recall": 0.89,
                 "f1_score": 0.87,
-                "auroc": 0.93
+                "auroc": 0.93,
             },
-            "benchmark_dataset": {
-                "size": 1000,
-                "type": "mock_benchmark"
-            },
+            "benchmark_dataset": {"size": 1000, "type": "mock_benchmark"},
             "evaluation_timestamp": "2024-01-01T00:00:00",
-            "evaluation_time_seconds": 30.5
+            "evaluation_time_seconds": 30.5,
         }
 
         # Set up mock data manifest
         self.pipeline.data_manifest = {
             "data_hash": "abc123def456",
             "file_path": "/test/path",
-            "size": 1000
+            "size": 1000,
         }
 
         # Set up mock baseline model
         self.pipeline.baseline_model = {
             "version": "1.0.0",
             "type": "mock_baseline",
-            "mlflow_run_id": "baseline_run_123"
+            "mlflow_run_id": "baseline_run_123",
         }
 
         # Set up mock new model
@@ -87,23 +87,15 @@ class TestCompareAndOutputDelta(unittest.TestCase):
             "integration_metadata": {
                 "contribution_ratio": 0.1,
                 "base_samples": 900,
-                "contributed_samples": 100
-            }
+                "contributed_samples": 100,
+            },
         }
 
     def test_compute_model_delta_success(self):
         """Test successful delta computation between models."""
-        baseline_metrics = {
-            "accuracy": 0.85,
-            "precision": 0.83,
-            "f1_score": 0.85
-        }
+        baseline_metrics = {"accuracy": 0.85, "precision": 0.83, "f1_score": 0.85}
 
-        new_metrics = {
-            "accuracy": 0.88,
-            "precision": 0.86,
-            "f1_score": 0.87
-        }
+        new_metrics = {"accuracy": 0.88, "precision": 0.86, "f1_score": 0.87}
 
         result = self.pipeline._compute_model_delta(baseline_metrics, new_metrics)
 
@@ -133,16 +125,12 @@ class TestCompareAndOutputDelta(unittest.TestCase):
 
     def test_compute_model_delta_mixed_results(self):
         """Test delta computation with mixed improvement/degradation."""
-        baseline_metrics = {
-            "accuracy": 0.85,
-            "precision": 0.83,
-            "recall": 0.90
-        }
+        baseline_metrics = {"accuracy": 0.85, "precision": 0.83, "recall": 0.90}
 
         new_metrics = {
             "accuracy": 0.88,  # improvement
             "precision": 0.80,  # degradation
-            "recall": 0.90     # no change
+            "recall": 0.90,  # no change
         }
 
         result = self.pipeline._compute_model_delta(baseline_metrics, new_metrics)
@@ -193,8 +181,9 @@ class TestCompareAndOutputDelta(unittest.TestCase):
     @patch("src.pipeline.hokusai_pipeline.log_step_parameters")
     @patch("src.pipeline.hokusai_pipeline.log_step_metrics")
     @patch("src.pipeline.hokusai_pipeline.current")
-    def test_compare_and_output_delta_success(self, mock_current, mock_log_metrics,
-                                             mock_log_params, mock_mlflow_context):
+    def test_compare_and_output_delta_success(
+        self, mock_current, mock_log_metrics, mock_log_params, mock_mlflow_context
+    ):
         """Test successful execution of compare_and_output_delta step."""
         # Mock current run
         mock_current.run_id = "test_run_123"
@@ -264,10 +253,7 @@ class TestCompareAndOutputDelta(unittest.TestCase):
         mock_current.run_id = "test_run_123"
 
         # Remove metrics from evaluation results
-        self.pipeline.evaluation_results = {
-            "baseline_metrics": {},
-            "new_metrics": {}
-        }
+        self.pipeline.evaluation_results = {"baseline_metrics": {}, "new_metrics": {}}
 
         with self.assertRaises(ValueError) as context:
             self.pipeline.compare_and_output_delta()
@@ -277,7 +263,9 @@ class TestCompareAndOutputDelta(unittest.TestCase):
     @patch("src.pipeline.hokusai_pipeline.mlflow_run_context")
     @patch("src.pipeline.hokusai_pipeline.current")
     @patch("builtins.open", create=True)
-    def test_compare_and_output_delta_json_output(self, mock_open, mock_current, mock_mlflow_context):
+    def test_compare_and_output_delta_json_output(
+        self, mock_open, mock_current, mock_mlflow_context
+    ):
         """Test that JSON output file is created correctly."""
         mock_current.run_id = "test_run_123"
         mock_mlflow_context.return_value.__enter__ = Mock()
@@ -313,7 +301,9 @@ class TestCompareAndOutputDelta(unittest.TestCase):
     @patch("src.pipeline.hokusai_pipeline.mlflow")
     @patch("src.pipeline.hokusai_pipeline.mlflow_run_context")
     @patch("src.pipeline.hokusai_pipeline.current")
-    def test_compare_and_output_delta_mlflow_artifact_logging(self, mock_current, mock_mlflow_context, mock_mlflow):
+    def test_compare_and_output_delta_mlflow_artifact_logging(
+        self, mock_current, mock_mlflow_context, mock_mlflow
+    ):
         """Test that delta output is logged as MLflow artifact."""
         mock_current.run_id = "test_run_123"
         mock_mlflow_context.return_value.__enter__ = Mock()
@@ -336,9 +326,10 @@ class TestCompareAndOutputDelta(unittest.TestCase):
     def test_delta_output_schema_compliance(self):
         """Test that delta output conforms to expected schema."""
         # Set up required attributes for the step
-        with patch("src.pipeline.hokusai_pipeline.mlflow_run_context"), \
-             patch("src.pipeline.hokusai_pipeline.current") as mock_current:
-
+        with (
+            patch("src.pipeline.hokusai_pipeline.mlflow_run_context"),
+            patch("src.pipeline.hokusai_pipeline.current") as mock_current,
+        ):
             mock_current.run_id = "test_run_123"
 
             # Execute the step
@@ -355,7 +346,7 @@ class TestCompareAndOutputDelta(unittest.TestCase):
                 "new_model",
                 "contributor_attribution",
                 "evaluation_metadata",
-                "pipeline_metadata"
+                "pipeline_metadata",
             ]
 
             for field in required_fields:

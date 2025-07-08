@@ -3,8 +3,9 @@ Integration tests for ZK schema with existing pipeline outputs.
 """
 
 import json
-import pytest
 from pathlib import Path
+
+import pytest
 
 from src.utils.schema_validator import SchemaValidator, validate_for_zk_proof
 
@@ -20,14 +21,18 @@ class TestZKSchemaIntegration:
     @pytest.fixture
     def valid_zk_example(self):
         """Load the valid ZK output example."""
-        example_path = Path(__file__).parent.parent.parent / "schema" / "examples" / "valid_zk_output.json"
+        example_path = (
+            Path(__file__).parent.parent.parent / "schema" / "examples" / "valid_zk_output.json"
+        )
         with open(example_path) as f:
             return json.load(f)
 
     @pytest.fixture
     def existing_delta_output(self):
         """Load existing pipeline delta output."""
-        output_path = Path(__file__).parent.parent.parent / "outputs" / "delta_output_1749778320931703.json"
+        output_path = (
+            Path(__file__).parent.parent.parent / "outputs" / "delta_output_1749778320931703.json"
+        )
         if output_path.exists():
             with open(output_path) as f:
                 return json.load(f)
@@ -37,7 +42,9 @@ class TestZKSchemaIntegration:
     @pytest.fixture
     def existing_attestation_output(self):
         """Load existing pipeline attestation output."""
-        output_path = Path(__file__).parent.parent.parent / "outputs" / "attestation_1749778320931703.json"
+        output_path = (
+            Path(__file__).parent.parent.parent / "outputs" / "attestation_1749778320931703.json"
+        )
         if output_path.exists():
             with open(output_path) as f:
                 return json.load(f)
@@ -89,9 +96,11 @@ class TestZKSchemaIntegration:
             json.dump(valid_zk_example, f)
 
         # Run CLI validation
-        result = subprocess.run([
-            sys.executable, "scripts/validate_schema.py", str(test_file)
-        ], capture_output=True, text=True)
+        result = subprocess.run(
+            [sys.executable, "scripts/validate_schema.py", str(test_file)],
+            capture_output=True,
+            text=True,
+        )
 
         assert result.returncode == 0, f"CLI validation failed: {result.stderr}"
         assert "✅ VALID" in result.stdout
@@ -107,9 +116,11 @@ class TestZKSchemaIntegration:
             json.dump(valid_zk_example, f)
 
         # Run CLI validation with ZK check
-        result = subprocess.run([
-            sys.executable, "scripts/validate_schema.py", str(test_file), "--zk-check"
-        ], capture_output=True, text=True)
+        result = subprocess.run(
+            [sys.executable, "scripts/validate_schema.py", str(test_file), "--zk-check"],
+            capture_output=True,
+            text=True,
+        )
 
         assert result.returncode == 0, f"CLI ZK check failed: {result.stderr}"
         assert "✅ ZK-READY" in result.stdout
@@ -126,9 +137,11 @@ class TestZKSchemaIntegration:
             json.dump(invalid_data, f)
 
         # Run CLI validation (should fail)
-        result = subprocess.run([
-            sys.executable, "scripts/validate_schema.py", str(test_file)
-        ], capture_output=True, text=True)
+        result = subprocess.run(
+            [sys.executable, "scripts/validate_schema.py", str(test_file)],
+            capture_output=True,
+            text=True,
+        )
 
         assert result.returncode != 0, "CLI validation should fail for invalid data"
         assert "❌ INVALID" in result.stdout
@@ -146,10 +159,11 @@ class TestZKSchemaIntegration:
 
     def test_deterministic_hash_order_independence(self, valid_zk_example):
         """Test that deterministic hash is independent of key order."""
-        from src.utils.schema_validator import compute_deterministic_hash
-
         # Create a copy with different key order
         import copy
+
+        from src.utils.schema_validator import compute_deterministic_hash
+
         reordered_data = copy.deepcopy(valid_zk_example)
 
         # The compute_deterministic_hash function should handle ordering internally
@@ -189,12 +203,19 @@ class TestZKSchemaIntegration:
                 missing_fields.append(field_name)
 
         # Document expected missing fields for migration
-        expected_missing = ["metadata", "evaluation_results", "models", "contributor_info", "attestation"]
+        expected_missing = [
+            "metadata",
+            "evaluation_results",
+            "models",
+            "contributor_info",
+            "attestation",
+        ]
 
         # Check that we found expected missing fields
         for expected_field in expected_missing:
-            assert any(expected_field in error for error in errors), \
-                f"Expected missing field '{expected_field}' not found in validation errors"
+            assert any(
+                expected_field in error for error in errors
+            ), f"Expected missing field '{expected_field}' not found in validation errors"
 
     def test_hash_format_validation(self, schema_validator):
         """Test that hash format validation works correctly."""
@@ -204,12 +225,12 @@ class TestZKSchemaIntegration:
             "metadata": {
                 "pipeline_run_id": "test",
                 "timestamp": "2025-06-16T10:30:00.000Z",
-                "pipeline_version": "abc123"
+                "pipeline_version": "abc123",
             },
             "evaluation_results": {
                 "baseline_metrics": {"accuracy": 0.85},
                 "new_metrics": {"accuracy": 0.88},
-                "benchmark_metadata": {"size": 100, "type": "test"}
+                "benchmark_metadata": {"size": 100, "type": "test"},
             },
             "delta_computation": {
                 "delta_one_score": 0.03,
@@ -217,26 +238,34 @@ class TestZKSchemaIntegration:
                 "computation_method": "weighted_average_delta",
                 "metrics_included": [],
                 "improved_metrics": [],
-                "degraded_metrics": []
+                "degraded_metrics": [],
             },
             "models": {
-                "baseline": {"model_id": "test", "model_type": "test", "metrics": {"accuracy": 0.85}},
-                "new": {"model_id": "test", "model_type": "test", "metrics": {"accuracy": 0.88}}
+                "baseline": {
+                    "model_id": "test",
+                    "model_type": "test",
+                    "metrics": {"accuracy": 0.85},
+                },
+                "new": {"model_id": "test", "model_type": "test", "metrics": {"accuracy": 0.88}},
             },
             "contributor_info": {
                 "data_hash": "invalid_hash",  # This should trigger validation error
-                "data_manifest": {"data_hash": "invalid_hash", "row_count": 100, "column_count": 5}
+                "data_manifest": {"data_hash": "invalid_hash", "row_count": 100, "column_count": 5},
             },
             "attestation": {
                 "hash_tree_root": "also_invalid",  # This should also trigger validation error
                 "proof_ready": False,
-                "public_inputs_hash": "still_invalid"  # And this one too
-            }
+                "public_inputs_hash": "still_invalid",  # And this one too
+            },
         }
 
         is_valid, errors = schema_validator.validate_output(invalid_hash_data)
         assert not is_valid, "Data with invalid hashes should not validate"
 
         # Should have multiple hash format errors
-        hash_errors = [error for error in errors if "does not match" in error and "[a-f0-9]{64}" in error]
-        assert len(hash_errors) >= 3, f"Expected at least 3 hash format errors, got {len(hash_errors)}"
+        hash_errors = [
+            error for error in errors if "does not match" in error and "[a-f0-9]{64}" in error
+        ]
+        assert (
+            len(hash_errors) >= 3
+        ), f"Expected at least 3 hash format errors, got {len(hash_errors)}"

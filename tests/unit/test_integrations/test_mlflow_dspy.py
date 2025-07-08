@@ -1,15 +1,15 @@
 """Unit tests for MLflow DSPy integration."""
 
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-import mlflow
 
 from src.integrations.mlflow_dspy import (
-    autolog,
     MLflowDSPyConfig,
     TracedModule,
+    autolog,
+    disable_autolog,
     get_autolog_client,
-    disable_autolog
 )
 
 
@@ -86,6 +86,7 @@ class TestAutolog:
 
         # Clear any existing client
         import src.integrations.mlflow_dspy
+
         src.integrations.mlflow_dspy._autolog_client = None
 
         with patch("src.integrations.mlflow_dspy.DSPY_AVAILABLE", False):
@@ -128,11 +129,9 @@ class TestTracedModule:
         self.mock_signature = Mock()
         self.mock_signature.input_fields = [
             Mock(name="input1", type=str),
-            Mock(name="input2", type=int)
+            Mock(name="input2", type=int),
         ]
-        self.mock_signature.output_fields = [
-            Mock(name="output", type=str)
-        ]
+        self.mock_signature.output_fields = [Mock(name="output", type=str)]
         self.mock_module.signature = self.mock_signature
 
     def test_traced_module_creation(self):
@@ -234,11 +233,10 @@ class TestTracedModule:
                 return span
 
             mock_start_span.side_effect = lambda name: MagicMock(
-                __enter__=lambda self: create_span(name),
-                __exit__=lambda self, *args: None
+                __enter__=lambda self: create_span(name), __exit__=lambda self, *args: None
             )
 
-            result = traced.forward(input1="test")
+            traced.forward(input1="test")
 
             # Should create spans for both modules
             assert len(spans) == 2
@@ -280,7 +278,7 @@ class TestMLflowDSPyIntegration:
     def test_trace_buffering(self):
         """Test trace buffering functionality."""
         config = MLflowDSPyConfig(trace_buffer_size=2)
-        client = autolog(config=config)
+        autolog(config=config)
 
         # Create traced modules
         module1 = Mock()

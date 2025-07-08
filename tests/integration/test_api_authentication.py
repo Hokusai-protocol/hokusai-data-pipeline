@@ -1,13 +1,14 @@
 """Tests for API authentication system."""
 
-import pytest
+from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
-from fastapi.testclient import TestClient
-from fastapi import HTTPException
+
 import jwt
+import pytest
 from eth_account import Account
 from eth_account.messages import encode_defunct
-from datetime import datetime, timedelta
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 
 class TestAPIAuthentication:
@@ -25,10 +26,7 @@ class TestAPIAuthentication:
     def test_eth_account(self):
         """Generate test Ethereum account."""
         account = Account.create()
-        return {
-            "address": account.address,
-            "private_key": account.key.hex()
-        }
+        return {"address": account.address, "private_key": account.key.hex()}
 
     def test_api_key_generation(self, mock_secrets_manager):
         """Test API key generation and storage."""
@@ -55,9 +53,7 @@ class TestAPIAuthentication:
 
         # Mock secret retrieval
         api_key = "test_api_key_123"
-        mock_secrets_manager.get_secret_value.return_value = {
-            "SecretString": api_key
-        }
+        mock_secrets_manager.get_secret_value.return_value = {"SecretString": api_key}
 
         # Test valid API key
         is_valid = validate_api_key(api_key)
@@ -83,15 +79,13 @@ class TestAPIAuthentication:
         is_valid = verify_eth_signature(
             address=test_eth_account["address"],
             message=message,
-            signature=signature.signature.hex()
+            signature=signature.signature.hex(),
         )
         assert is_valid is True
 
         # Test with wrong address
         is_valid = verify_eth_signature(
-            address="0x" + "0" * 40,
-            message=message,
-            signature=signature.signature.hex()
+            address="0x" + "0" * 40, message=message, signature=signature.signature.hex()
         )
         assert is_valid is False
 
@@ -99,7 +93,7 @@ class TestAPIAuthentication:
         is_valid = verify_eth_signature(
             address=test_eth_account["address"],
             message="Different message",
-            signature=signature.signature.hex()
+            signature=signature.signature.hex(),
         )
         assert is_valid is False
 
@@ -124,7 +118,7 @@ class TestAPIAuthentication:
         headers = {
             "X-ETH-Address": "0x" + "a" * 40,
             "X-ETH-Signature": "0x" + "b" * 130,
-            "X-ETH-Message": "test message"
+            "X-ETH-Message": "test message",
         }
         with patch("src.api.middleware.auth.verify_eth_signature", return_value=True):
             response = client.get("/api/v1/models", headers=headers)
@@ -158,9 +152,7 @@ class TestAPIAuthentication:
         old_key = "old_api_key"
 
         # Mock existing key
-        mock_secrets_manager.get_secret_value.return_value = {
-            "SecretString": old_key
-        }
+        mock_secrets_manager.get_secret_value.return_value = {"SecretString": old_key}
 
         # Rotate key
         new_key = rotate_api_key(user_id)
@@ -189,12 +181,12 @@ class TestAPIAuthentication:
 
     def test_jwt_token_generation(self):
         """Test JWT token generation for session management."""
-        from src.api.middleware.auth import generate_jwt_token, decode_jwt_token
+        from src.api.middleware.auth import decode_jwt_token, generate_jwt_token
 
         user_data = {
             "user_id": "test_user",
             "eth_address": "0x" + "a" * 40,
-            "permissions": ["read", "contribute"]
+            "permissions": ["read", "contribute"],
         }
 
         # Generate token
@@ -227,8 +219,7 @@ class TestAPIAuthentication:
         assert exc_info.value.status_code == 401
 
         # Test with valid auth (mocked)
-        with patch("src.api.middleware.auth.get_current_user",
-                   return_value={"user_id": "test"}):
+        with patch("src.api.middleware.auth.get_current_user", return_value={"user_id": "test"}):
             result = await protected_endpoint()
             assert result["message"] == "Success"
             assert result["user"]["user_id"] == "test"
@@ -250,9 +241,7 @@ class TestAuthenticationIntegration:
         store_api_key(user_id, api_key)
 
         # Mock secret retrieval
-        mock_secrets_manager.get_secret_value.return_value = {
-            "SecretString": api_key
-        }
+        mock_secrets_manager.get_secret_value.return_value = {"SecretString": api_key}
 
         # Test authenticated request
         headers = {"Authorization": f"Bearer {api_key}"}
@@ -261,8 +250,9 @@ class TestAuthenticationIntegration:
 
     def test_full_eth_signature_flow(self, test_eth_account):
         """Test complete ETH signature authentication flow."""
-        from src.api.main import app
         from eth_account.messages import encode_defunct
+
+        from src.api.main import app
 
         client = TestClient(app)
 
@@ -276,7 +266,7 @@ class TestAuthenticationIntegration:
         headers = {
             "X-ETH-Address": test_eth_account["address"],
             "X-ETH-Signature": signature.signature.hex(),
-            "X-ETH-Message": message
+            "X-ETH-Message": message,
         }
 
         response = client.get("/api/v1/models", headers=headers)

@@ -1,21 +1,19 @@
 """Unit tests for model versioning service."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock, call
-import redis
 import json
 from datetime import datetime, timedelta
-from packaging import version
-from typing import Dict, Any
+from unittest.mock import Mock, patch
 
+import redis
+
+from src.services.model_abstraction import ModelStatus
 from src.services.model_versioning import (
-    VersionTransitionType,
     Environment,
     ModelVersion,
+    ModelVersionManager,
     VersionTransition,
-    ModelVersionManager
+    VersionTransitionType,
 )
-from src.services.model_abstraction import ModelStatus
 
 
 class TestVersionTransitionType:
@@ -56,7 +54,7 @@ class TestModelVersion:
             metadata={"framework": "sklearn", "algorithm": "xgboost"},
             performance_metrics={"accuracy": 0.95, "f1": 0.93},
             mlflow_run_id="run_123",
-            parent_version="1.1.0"
+            parent_version="1.1.0",
         )
 
     def test_model_version_creation(self):
@@ -107,7 +105,7 @@ class TestVersionTransition:
             performed_by="admin@example.com",
             performed_at=datetime.now(),
             reason="Performance improvement",
-            success=True
+            success=True,
         )
 
         assert transition.transition_id == "trans_123"
@@ -125,7 +123,9 @@ class TestModelVersionManager:
         self.mock_redis = Mock(spec=redis.Redis)
         self.mock_registry = Mock()
 
-        with patch("src.services.model_versioning.HokusaiModelRegistry", return_value=self.mock_registry):
+        with patch(
+            "src.services.model_versioning.HokusaiModelRegistry", return_value=self.mock_registry
+        ):
             self.manager = ModelVersionManager(self.mock_redis)
 
     def test_manager_initialization(self):
@@ -145,7 +145,7 @@ class TestModelVersionManager:
             model=mock_model,
             created_by="user@example.com",
             metadata={"algorithm": "xgboost"},
-            parent_version="1.5.0"
+            parent_version="1.5.0",
         )
 
         assert model_version.model_family == "lead_scoring"
@@ -171,7 +171,7 @@ class TestModelVersionManager:
             "updated_at": datetime.now().isoformat(),
             "created_by": "user@example.com",
             "metadata": {},
-            "performance_metrics": {}
+            "performance_metrics": {},
         }
         self.mock_redis.get.return_value = json.dumps(stored_data)
 
@@ -195,7 +195,7 @@ class TestModelVersionManager:
         self.mock_redis.keys.return_value = [
             b"model_version:lead_scoring:1.0.0",
             b"model_version:lead_scoring:1.1.0",
-            b"model_version:lead_scoring:2.0.0"
+            b"model_version:lead_scoring:2.0.0",
         ]
 
         # Mock version data
@@ -203,7 +203,7 @@ class TestModelVersionManager:
             version_map = {
                 "model_version:lead_scoring:1.0.0": {"version": "1.0.0"},
                 "model_version:lead_scoring:1.1.0": {"version": "1.1.0"},
-                "model_version:lead_scoring:2.0.0": {"version": "2.0.0"}
+                "model_version:lead_scoring:2.0.0": {"version": "2.0.0"},
             }
             key_str = key.decode() if isinstance(key, bytes) else key
             return json.dumps(version_map.get(key_str, {}))
@@ -231,18 +231,14 @@ class TestModelVersionManager:
             updated_at=datetime.now(),
             created_by="user@example.com",
             metadata={},
-            performance_metrics={"accuracy": 0.95}
+            performance_metrics={"accuracy": 0.95},
         )
 
         self.mock_redis.get.return_value = json.dumps(current_version.to_dict())
 
         # Promote to production
         transition = self.manager.promote_version(
-            "lead_scoring",
-            "1.5.0",
-            Environment.PRODUCTION,
-            "admin@example.com",
-            "Passed all tests"
+            "lead_scoring", "1.5.0", Environment.PRODUCTION, "admin@example.com", "Passed all tests"
         )
 
         assert transition.transition_type == VersionTransitionType.PROMOTE
@@ -266,7 +262,7 @@ class TestModelVersionManager:
             updated_at=datetime.now(),
             created_by="user@example.com",
             metadata={},
-            performance_metrics={}
+            performance_metrics={},
         )
 
         previous_version = ModelVersion(
@@ -279,7 +275,7 @@ class TestModelVersionManager:
             updated_at=datetime.now() - timedelta(days=7),
             created_by="user@example.com",
             metadata={},
-            performance_metrics={}
+            performance_metrics={},
         )
 
         def mock_get(key):
@@ -297,7 +293,7 @@ class TestModelVersionManager:
             "1.5.0",
             Environment.PRODUCTION,
             "admin@example.com",
-            "Performance regression detected"
+            "Performance regression detected",
         )
 
         assert transition.transition_type == VersionTransitionType.ROLLBACK
@@ -309,7 +305,7 @@ class TestModelVersionManager:
         # Mock scan results
         self.mock_redis.scan_iter.return_value = [
             b"model_version:lead_scoring:1.0.0",
-            b"model_version:lead_scoring:2.0.0"
+            b"model_version:lead_scoring:2.0.0",
         ]
 
         # Mock version data
@@ -323,7 +319,7 @@ class TestModelVersionManager:
             updated_at=datetime.now(),
             created_by="user@example.com",
             metadata={},
-            performance_metrics={}
+            performance_metrics={},
         )
 
         v2 = ModelVersion(
@@ -336,7 +332,7 @@ class TestModelVersionManager:
             updated_at=datetime.now(),
             created_by="user@example.com",
             metadata={},
-            performance_metrics={}
+            performance_metrics={},
         )
 
         def mock_get(key):
@@ -368,17 +364,14 @@ class TestModelVersionManager:
             updated_at=datetime.now(),
             created_by="user@example.com",
             metadata={},
-            performance_metrics={}
+            performance_metrics={},
         )
 
         self.mock_redis.get.return_value = json.dumps(version_data.to_dict())
 
         # Deprecate version
         result = self.manager.deprecate_version(
-            "lead_scoring",
-            "1.0.0",
-            "admin@example.com",
-            "Superseded by version 2.0.0"
+            "lead_scoring", "1.0.0", "admin@example.com", "Superseded by version 2.0.0"
         )
 
         assert result is True
@@ -392,7 +385,7 @@ class TestModelVersionManager:
         # Mock transition keys
         self.mock_redis.keys.return_value = [
             b"version_transition:lead_scoring:trans_1",
-            b"version_transition:lead_scoring:trans_2"
+            b"version_transition:lead_scoring:trans_2",
         ]
 
         # Mock transition data
@@ -401,7 +394,7 @@ class TestModelVersionManager:
             "from_version": "1.0.0",
             "to_version": "1.1.0",
             "transition_type": "promote",
-            "performed_at": (datetime.now() - timedelta(days=7)).isoformat()
+            "performed_at": (datetime.now() - timedelta(days=7)).isoformat(),
         }
 
         trans2 = {
@@ -409,7 +402,7 @@ class TestModelVersionManager:
             "from_version": "1.1.0",
             "to_version": "2.0.0",
             "transition_type": "promote",
-            "performed_at": datetime.now().isoformat()
+            "performed_at": datetime.now().isoformat(),
         }
 
         def mock_get(key):

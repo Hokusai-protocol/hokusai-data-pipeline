@@ -1,12 +1,13 @@
 """Model manager module for preview pipeline."""
 
-import pickle
 import json
-from pathlib import Path
-from typing import Dict, Any, Optional, Union
-import numpy as np
 import logging
+import pickle
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Optional, Union
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,7 @@ class MockModel:
 
     model_type: str = "mock_baseline"
     version: str = "1.0.0"
-    metrics: Dict[str, float] = None
+    metrics: dict[str, float] = None
 
     def __post_init__(self):
         if self.metrics is None:
@@ -26,7 +27,7 @@ class MockModel:
                 "precision": 0.83,
                 "recall": 0.87,
                 "f1": 0.85,
-                "auroc": 0.91
+                "auroc": 0.91,
             }
 
     def predict(self, X):
@@ -51,9 +52,9 @@ class PreviewModelManager:
 
     DEFAULT_MODEL_PATH = "models/baseline.pkl"
 
-    def __init__(self, enable_cache: bool = True):
+    def __init__(self, enable_cache: bool = True) -> None:
         """Initialize PreviewModelManager.
-        
+
         Args:
             enable_cache: Whether to enable model caching
 
@@ -63,13 +64,13 @@ class PreviewModelManager:
 
     def load_baseline_model(self, model_path: Optional[Union[str, Path]] = None) -> Any:
         """Load baseline model from file.
-        
+
         Args:
             model_path: Path to model file. If None, uses default path.
-            
+
         Returns:
             Loaded model object
-            
+
         Raises:
             FileNotFoundError: If model file not found
             ValueError: If model loading fails
@@ -100,14 +101,14 @@ class PreviewModelManager:
             return model
 
         except Exception as e:
-            raise ValueError(f"Failed to load model: {str(e)}")
+            raise ValueError(f"Failed to load model: {str(e)}") from e
 
-    def load_model_metadata(self, metadata_path: Union[str, Path]) -> Dict[str, Any]:
+    def load_model_metadata(self, metadata_path: Union[str, Path]) -> dict[str, Any]:
         """Load model metadata from JSON file.
-        
+
         Args:
             metadata_path: Path to metadata file
-            
+
         Returns:
             Model metadata dictionary
 
@@ -121,7 +122,7 @@ class PreviewModelManager:
 
     def create_mock_baseline(self) -> MockModel:
         """Create a mock baseline model for test mode.
-        
+
         Returns:
             Mock model with predefined performance metrics
 
@@ -131,10 +132,10 @@ class PreviewModelManager:
 
     def check_compatibility(self, model: Any) -> bool:
         """Check if model has required methods.
-        
+
         Args:
             model: Model to check
-            
+
         Returns:
             True if compatible, False otherwise
 
@@ -148,12 +149,12 @@ class PreviewModelManager:
 
         return True
 
-    def get_model_metrics(self, model: Any) -> Dict[str, float]:
+    def get_model_metrics(self, model: Any) -> dict[str, float]:
         """Get metrics from model object.
-        
+
         Args:
             model: Model object
-            
+
         Returns:
             Dictionary of metrics
 
@@ -165,7 +166,7 @@ class PreviewModelManager:
         logger.warning("Model has no metrics attribute")
         return {}
 
-    def clear_cache(self):
+    def clear_cache(self) -> None:
         """Clear the model cache."""
         self._cache.clear()
         logger.info("Model cache cleared")

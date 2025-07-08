@@ -5,14 +5,14 @@ by the MLflow DSPy integration, filters them by quality and date range,
 and prepares them for teleprompt optimization.
 """
 
+import json
 import logging
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple
-import json
+from typing import Any, Optional
 
 import mlflow
-from mlflow.tracking import MlflowClient
 import pandas as pd
+from mlflow.tracking import MlflowClient
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 class TraceLoader:
     """Service for loading DSPy execution traces from MLflow."""
 
-    def __init__(self, tracking_uri: Optional[str] = None):
+    def __init__(self, tracking_uri: Optional[str] = None) -> None:
         """Initialize trace loader.
-        
+
         Args:
             tracking_uri: Optional MLflow tracking URI
 
@@ -39,10 +39,10 @@ class TraceLoader:
         min_score: float = 0.0,
         outcome_metric: str = "outcome_score",
         limit: int = 100000,
-        experiment_name: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        experiment_name: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
         """Load traces from MLflow with filtering.
-        
+
         Args:
             program_name: Optional filter by DSPy program name
             start_date: Start date for trace collection
@@ -51,7 +51,7 @@ class TraceLoader:
             outcome_metric: Name of the outcome metric to filter by
             limit: Maximum number of traces to return
             experiment_name: Optional experiment name to search in
-            
+
         Returns:
             List of trace dictionaries with inputs, outputs, and metadata
 
@@ -61,11 +61,7 @@ class TraceLoader:
         try:
             # Build search filter
             filter_string = self._build_filter_string(
-                program_name,
-                start_date,
-                end_date,
-                min_score,
-                outcome_metric
+                program_name, start_date, end_date, min_score, outcome_metric
             )
 
             # Get experiment IDs
@@ -76,7 +72,7 @@ class TraceLoader:
                 experiment_ids=experiment_ids,
                 filter_string=filter_string,
                 max_results=limit,
-                order_by=["metrics.outcome_score DESC"]
+                order_by=["metrics.outcome_score DESC"],
             )
 
             # Extract traces from runs
@@ -98,16 +94,16 @@ class TraceLoader:
         contributor_id: str,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
-        limit: int = 10000
-    ) -> List[Dict[str, Any]]:
+        limit: int = 10000,
+    ) -> list[dict[str, Any]]:
         """Load traces for a specific contributor.
-        
+
         Args:
             contributor_id: Contributor ID to filter by
             start_date: Optional start date
             end_date: Optional end date
             limit: Maximum number of traces
-            
+
         Returns:
             List of traces from the contributor
 
@@ -124,7 +120,7 @@ class TraceLoader:
         runs = self.client.search_runs(
             experiment_ids=self._get_experiment_ids(),
             filter_string=filter_string,
-            max_results=limit
+            max_results=limit,
         )
 
         traces = []
@@ -136,16 +132,14 @@ class TraceLoader:
         return traces
 
     def aggregate_traces_by_quality(
-        self,
-        traces: List[Dict[str, Any]],
-        buckets: int = 10
-    ) -> Dict[str, List[Dict[str, Any]]]:
+        self, traces: list[dict[str, Any]], buckets: int = 10
+    ) -> dict[str, list[dict[str, Any]]]:
         """Aggregate traces into quality buckets.
-        
+
         Args:
             traces: List of traces
             buckets: Number of quality buckets
-            
+
         Returns:
             Dictionary mapping quality ranges to traces
 
@@ -179,18 +173,15 @@ class TraceLoader:
         return bucketed_traces
 
     def sample_traces(
-        self,
-        traces: List[Dict[str, Any]],
-        sample_size: int,
-        strategy: str = "stratified"
-    ) -> List[Dict[str, Any]]:
+        self, traces: list[dict[str, Any]], sample_size: int, strategy: str = "stratified"
+    ) -> list[dict[str, Any]]:
         """Sample traces using specified strategy.
-        
+
         Args:
             traces: List of traces to sample from
             sample_size: Number of traces to sample
             strategy: Sampling strategy ('random', 'stratified', 'top')
-            
+
         Returns:
             Sampled list of traces
 
@@ -200,6 +191,7 @@ class TraceLoader:
 
         if strategy == "random":
             import random
+
             return random.sample(traces, sample_size)
 
         elif strategy == "stratified":
@@ -209,21 +201,14 @@ class TraceLoader:
 
             # Sample proportionally from each bucket
             sampled = df.groupby("score_bucket", group_keys=False).apply(
-                lambda x: x.sample(
-                    n=max(1, int(len(x) * sample_size / len(df))),
-                    random_state=42
-                )
+                lambda x: x.sample(n=max(1, int(len(x) * sample_size / len(df))), random_state=42)
             )
 
             return sampled.to_dict("records")
 
         elif strategy == "top":
             # Take top scoring traces
-            sorted_traces = sorted(
-                traces,
-                key=lambda x: x.get("outcome_score", 0),
-                reverse=True
-            )
+            sorted_traces = sorted(traces, key=lambda x: x.get("outcome_score", 0), reverse=True)
             return sorted_traces[:sample_size]
 
         else:
@@ -235,17 +220,17 @@ class TraceLoader:
         start_date: Optional[datetime],
         end_date: Optional[datetime],
         min_score: float,
-        outcome_metric: str
+        outcome_metric: str,
     ) -> str:
         """Build MLflow search filter string.
-        
+
         Args:
             program_name: Program name filter
             start_date: Start date filter
             end_date: End date filter
             min_score: Minimum score filter
             outcome_metric: Outcome metric name
-            
+
         Returns:
             MLflow filter string
 
@@ -271,15 +256,12 @@ class TraceLoader:
 
         return " and ".join(filter_parts) if filter_parts else ""
 
-    def _get_experiment_ids(
-        self,
-        experiment_name: Optional[str] = None
-    ) -> List[str]:
+    def _get_experiment_ids(self, experiment_name: Optional[str] = None) -> list[str]:
         """Get experiment IDs to search.
-        
+
         Args:
             experiment_name: Optional specific experiment name
-            
+
         Returns:
             List of experiment IDs
 
@@ -293,9 +275,7 @@ class TraceLoader:
                 return []
 
         # Get all DSPy-related experiments
-        experiments = self.client.search_experiments(
-            filter_string="tags.dspy_enabled = 'true'"
-        )
+        experiments = self.client.search_experiments(filter_string="tags.dspy_enabled = 'true'")
 
         exp_ids = [exp.experiment_id for exp in experiments]
 
@@ -306,12 +286,12 @@ class TraceLoader:
 
         return exp_ids
 
-    def _extract_trace_from_run(self, run) -> Optional[Dict[str, Any]]:
+    def _extract_trace_from_run(self, run) -> Optional[dict[str, Any]]:
         """Extract trace information from MLflow run.
-        
+
         Args:
             run: MLflow run object
-            
+
         Returns:
             Trace dictionary or None if no valid trace
 
@@ -329,16 +309,13 @@ class TraceLoader:
                 "timestamp": datetime.fromtimestamp(run.info.start_time / 1000),
                 "contributor_id": run.data.tags.get("contributor_id"),
                 "contributor_address": run.data.tags.get("contributor_address"),
-                "outcome_score": run.data.metrics.get("outcome_score", 0.0)
+                "outcome_score": run.data.metrics.get("outcome_score", 0.0),
             }
 
             # Try to load trace artifacts
             try:
                 # Download trace data
-                trace_path = self.client.download_artifacts(
-                    run.info.run_id,
-                    "dspy_trace.json"
-                )
+                trace_path = self.client.download_artifacts(run.info.run_id, "dspy_trace.json")
 
                 with open(trace_path) as f:
                     trace_data = json.load(f)
@@ -373,12 +350,14 @@ class TraceLoader:
             logger.error(f"Error extracting trace from run {run.info.run_id}: {e}")
             return None
 
-    def _parse_inputs_outputs(self, params: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def _parse_inputs_outputs(
+        self, params: dict[str, Any]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Parse inputs and outputs from MLflow params.
-        
+
         Args:
             params: MLflow run params
-            
+
         Returns:
             Tuple of (inputs, outputs) dictionaries
 

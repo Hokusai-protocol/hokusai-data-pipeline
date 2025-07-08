@@ -2,13 +2,14 @@
 
 import logging
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
-from rich.logging import RichHandler
-from rich.console import Console
 
-from src.utils.constants import LOG_FORMAT, LOG_DATE_FORMAT
+from rich.console import Console
+from rich.logging import RichHandler
+
+from src.utils.constants import LOG_DATE_FORMAT, LOG_FORMAT
 
 
 class PipelineLogger:
@@ -19,8 +20,8 @@ class PipelineLogger:
         name: str,
         log_level: str = "INFO",
         log_dir: Optional[Path] = None,
-        use_rich: bool = True
-    ):
+        use_rich: bool = True,
+    ) -> None:
         self.name = name
         self.log_level = getattr(logging, log_level.upper())
         self.log_dir = log_dir
@@ -38,15 +39,11 @@ class PipelineLogger:
         # Console handler with Rich formatting
         if self.use_rich:
             console_handler = RichHandler(
-                console=Console(stderr=True),
-                show_time=True,
-                show_path=False
+                console=Console(stderr=True), show_time=True, show_path=False
             )
         else:
             console_handler = logging.StreamHandler(sys.stdout)
-            console_handler.setFormatter(
-                logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
-            )
+            console_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
 
         console_handler.setLevel(self.log_level)
         logger.addHandler(console_handler)
@@ -59,9 +56,7 @@ class PipelineLogger:
 
             file_handler = logging.FileHandler(log_file)
             file_handler.setLevel(self.log_level)
-            file_handler.setFormatter(
-                logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
-            )
+            file_handler.setFormatter(logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
             logger.addHandler(file_handler)
 
         return logger
@@ -72,23 +67,22 @@ class PipelineLogger:
 
 
 def get_pipeline_logger(
-    name: str = "hokusai_pipeline",
-    log_level: Optional[str] = None,
-    log_dir: Optional[Path] = None
+    name: str = "hokusai_pipeline", log_level: Optional[str] = None, log_dir: Optional[Path] = None
 ) -> logging.Logger:
     """Get a pipeline logger instance.
-    
+
     Args:
         name: Logger name
         log_level: Logging level (defaults to env var or INFO)
         log_dir: Directory for log files
-        
+
     Returns:
         Configured logger
 
     """
     if log_level is None:
         import os
+
         log_level = os.getenv("PIPELINE_LOG_LEVEL", "INFO")
 
     pipeline_logger = PipelineLogger(name, log_level, log_dir)
@@ -98,7 +92,7 @@ def get_pipeline_logger(
 class LogContext:
     """Context manager for logging operations."""
 
-    def __init__(self, logger: logging.Logger, operation: str):
+    def __init__(self, logger: logging.Logger, operation: str) -> None:
         self.logger = logger
         self.operation = operation
         self.start_time = None
@@ -112,12 +106,8 @@ class LogContext:
         duration = (datetime.now() - self.start_time).total_seconds()
 
         if exc_type is None:
-            self.logger.info(
-                f"Completed {self.operation} in {duration:.2f} seconds"
-            )
+            self.logger.info(f"Completed {self.operation} in {duration:.2f} seconds")
         else:
-            self.logger.error(
-                f"Failed {self.operation} after {duration:.2f} seconds: {exc_val}"
-            )
+            self.logger.error(f"Failed {self.operation} after {duration:.2f} seconds: {exc_val}")
 
         return False  # Don't suppress exceptions

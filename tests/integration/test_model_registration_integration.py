@@ -1,21 +1,23 @@
 """
 Integration tests for the model registration feature
 """
-import pytest
-import tempfile
 import json
 import os
 import sys
+import tempfile
 from unittest.mock import Mock, patch
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
-from cli.model import model
-from database import DatabaseConfig, DatabaseConnection, TokenOperations, ModelStatus
-from database.models import TokenModel
-from validation import MetricValidator, BaselineComparator
-from events import EventPublisher, EventType
 from click.testing import CliRunner
+
+from cli.model import model
+from database import DatabaseConfig, ModelStatus
+from database.models import TokenModel
+from events import EventPublisher
+from validation import BaselineComparator, MetricValidator
 
 
 class TestModelRegistrationIntegration:
@@ -44,7 +46,7 @@ class TestModelRegistrationIntegration:
             "database": "hokusai_test",
             "username": "test_user",
             "password": "test_pass",
-            "db_type": "postgresql"
+            "db_type": "postgresql",
         }
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -65,14 +67,17 @@ class TestModelRegistrationIntegration:
 
     def test_database_config_from_env(self):
         """Test loading database configuration from environment"""
-        with patch.dict(os.environ, {
-            "HOKUSAI_DB_HOST": "env-host",
-            "HOKUSAI_DB_PORT": "3306",
-            "HOKUSAI_DB_NAME": "env-db",
-            "HOKUSAI_DB_USER": "env-user",
-            "HOKUSAI_DB_PASSWORD": "env-pass",
-            "HOKUSAI_DB_TYPE": "mysql"
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "HOKUSAI_DB_HOST": "env-host",
+                "HOKUSAI_DB_PORT": "3306",
+                "HOKUSAI_DB_NAME": "env-db",
+                "HOKUSAI_DB_USER": "env-user",
+                "HOKUSAI_DB_PASSWORD": "env-pass",
+                "HOKUSAI_DB_TYPE": "mysql",
+            },
+        ):
             config = DatabaseConfig.from_env()
 
             assert config.host == "env-host"
@@ -88,7 +93,7 @@ class TestModelRegistrationIntegration:
             token_id="XRAY",
             model_status=ModelStatus.DRAFT,
             metric_name="auroc",
-            baseline_value=0.82
+            baseline_value=0.82,
         )
 
         assert token.is_draft() is True
@@ -115,9 +120,7 @@ class TestModelRegistrationIntegration:
 
         # Compare performance
         result = comparator.validate_improvement(
-            current_value=0.85,
-            baseline_value=0.82,
-            metric_name="auroc"
+            current_value=0.85, baseline_value=0.82, metric_name="auroc"
         )
 
         assert result["meets_baseline"] is True
@@ -142,10 +145,9 @@ class TestModelRegistrationIntegration:
         publisher.register_handler(TestHandler())
 
         # Publish token ready event
-        success = publisher.publish_token_ready("XRAY", "run-123", {
-            "metric": "auroc",
-            "value": 0.85
-        })
+        success = publisher.publish_token_ready(
+            "XRAY", "run-123", {"metric": "auroc", "value": 0.85}
+        )
 
         assert success is True
         assert len(published_events) == 1
@@ -154,8 +156,9 @@ class TestModelRegistrationIntegration:
 
     @patch("cli.model.mlflow")
     @patch("cli.model.DatabaseConnection")
-    def test_end_to_end_registration_workflow(self, mock_db_conn, mock_mlflow,
-                                            runner, temp_model_file):
+    def test_end_to_end_registration_workflow(
+        self, mock_db_conn, mock_mlflow, runner, temp_model_file
+    ):
         """Test complete registration workflow"""
         # Mock MLflow
         mock_run = Mock()
@@ -172,13 +175,20 @@ class TestModelRegistrationIntegration:
 
         with patch("cli.model.TokenOperations", return_value=mock_token_ops):
             # Run registration command
-            result = runner.invoke(model, [
-                "register",
-                "--token-id", "XRAY",
-                "--model-path", temp_model_file,
-                "--metric", "auroc",
-                "--baseline", "0.82"
-            ])
+            result = runner.invoke(
+                model,
+                [
+                    "register",
+                    "--token-id",
+                    "XRAY",
+                    "--model-path",
+                    temp_model_file,
+                    "--metric",
+                    "auroc",
+                    "--baseline",
+                    "0.82",
+                ],
+            )
 
             # Verify success
             assert result.exit_code == 0
@@ -196,13 +206,20 @@ class TestModelRegistrationIntegration:
     def test_error_scenarios_integration(self, runner, temp_model_file):
         """Test various error scenarios"""
         # Test with invalid metric
-        result = runner.invoke(model, [
-            "register",
-            "--token-id", "XRAY",
-            "--model-path", temp_model_file,
-            "--metric", "invalid_metric",
-            "--baseline", "0.82"
-        ])
+        result = runner.invoke(
+            model,
+            [
+                "register",
+                "--token-id",
+                "XRAY",
+                "--model-path",
+                temp_model_file,
+                "--metric",
+                "invalid_metric",
+                "--baseline",
+                "0.82",
+            ],
+        )
 
         assert result.exit_code != 0
         assert "Unsupported metric" in result.output

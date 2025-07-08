@@ -1,18 +1,20 @@
 """
 Unit tests for the event system
 """
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+
 import json
-import sys
 import os
+import sys
 from datetime import datetime
+from unittest.mock import Mock, patch
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
-from events import EventPublisher, EventType, WebhookHandler, ConsoleHandler
+from events import ConsoleHandler, EventPublisher, EventType, WebhookHandler
+from events.handlers import CompositeHandler, DatabaseWatcherHandler
 from events.publisher import Event
-from events.handlers import PubSubHandler, DatabaseWatcherHandler, CompositeHandler
 
 
 class TestEvent:
@@ -156,7 +158,9 @@ class TestWebhookHandler:
 
         assert handler.can_handle(EventType.TOKEN_READY_FOR_DEPLOY) is True
         assert handler.can_handle(EventType.MODEL_REGISTERED) is True
-        assert handler.can_handle(EventType.DELTAONE_ACHIEVED) is False  # Not in default supported list
+        assert (
+            handler.can_handle(EventType.DELTAONE_ACHIEVED) is False
+        )  # Not in default supported list
 
 
 class TestConsoleHandler:
@@ -165,11 +169,9 @@ class TestConsoleHandler:
     def test_console_handler(self, caplog):
         """Test console handler logging"""
         handler = ConsoleHandler()
-        event = Event(EventType.MODEL_REGISTERED, {
-            "token_id": "XRAY",
-            "metric": "accuracy",
-            "value": 0.85
-        })
+        event = Event(
+            EventType.MODEL_REGISTERED, {"token_id": "XRAY", "metric": "accuracy", "value": 0.85}
+        )
 
         result = handler.handle(event)
         assert result is True

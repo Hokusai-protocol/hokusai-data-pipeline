@@ -1,15 +1,16 @@
 """A/B testing framework for model comparison and traffic routing."""
 
-import json
-import random
 import hashlib
-from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime
-from dataclasses import dataclass, asdict
-from enum import Enum
+import json
 import logging
-import redis
+import random
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Any, Optional
+
 import numpy as np
+import redis
 
 logger = logging.getLogger(__name__)
 
@@ -41,17 +42,17 @@ class ABTestConfig:
     test_name: str
     model_a: str  # Model ID/version (control)
     model_b: str  # Model ID/version (variant)
-    traffic_split: Dict[str, float]  # {"model_a": 0.5, "model_b": 0.5}
+    traffic_split: dict[str, float]  # {"model_a": 0.5, "model_b": 0.5}
     routing_strategy: RoutingStrategy
     start_time: datetime
     end_time: Optional[datetime]
-    success_metrics: List[str]
+    success_metrics: list[str]
     minimum_sample_size: int
     confidence_level: float = 0.95
-    user_segments: Optional[Dict[str, Any]] = None
+    user_segments: Optional[dict[str, Any]] = None
     status: ABTestStatus = ABTestStatus.DRAFT
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
         data = asdict(self)
         data["routing_strategy"] = self.routing_strategy.value
@@ -62,7 +63,7 @@ class ABTestConfig:
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ABTestConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "ABTestConfig":
         """Create from dictionary."""
         data["routing_strategy"] = RoutingStrategy(data["routing_strategy"])
         data["status"] = ABTestStatus(data["status"])
@@ -83,7 +84,7 @@ class ABTestMetrics:
     failed_predictions: int = 0
     total_latency_ms: float = 0.0
     cache_hits: int = 0
-    custom_metrics: Dict[str, float] = None
+    custom_metrics: dict[str, float] = None
 
     def __post_init__(self):
         if self.custom_metrics is None:
@@ -107,9 +108,9 @@ class ABTestMetrics:
 class ModelTrafficRouter:
     """Routes traffic between models for A/B testing."""
 
-    def __init__(self, redis_client: redis.Redis):
+    def __init__(self, redis_client: redis.Redis) -> None:
         """Initialize the traffic router.
-        
+
         Args:
             redis_client: Redis client for storing routing rules and assignments
 
@@ -120,10 +121,10 @@ class ModelTrafficRouter:
 
     def create_ab_test(self, test_config: ABTestConfig) -> str:
         """Create a new A/B test configuration.
-        
+
         Args:
             test_config: A/B test configuration
-            
+
         Returns:
             Test ID
 
@@ -145,18 +146,21 @@ class ModelTrafficRouter:
         logger.info(f"Created A/B test: {test_config.test_id}")
         return test_config.test_id
 
-    def route_request(self, request_id: str,
-                     model_family: str,
-                     user_id: Optional[str] = None,
-                     features: Optional[Dict[str, Any]] = None) -> Tuple[str, str]:
+    def route_request(
+        self,
+        request_id: str,
+        model_family: str,
+        user_id: Optional[str] = None,
+        features: Optional[dict[str, Any]] = None,
+    ) -> tuple[str, str]:
         """Determine which model to use for a request.
-        
+
         Args:
             request_id: Unique request identifier
             model_family: Model family to route for
             user_id: Optional user identifier for sticky routing
             features: Optional features for segment-based routing
-            
+
         Returns:
             Tuple of (selected_model_id, test_id)
 
@@ -187,14 +191,13 @@ class ModelTrafficRouter:
 
         return model_id, active_test.test_id
 
-    def update_traffic_split(self, test_id: str,
-                           splits: Dict[str, float]) -> bool:
+    def update_traffic_split(self, test_id: str, splits: dict[str, float]) -> bool:
         """Update traffic distribution between models.
-        
+
         Args:
             test_id: Test identifier
             splits: New traffic splits
-            
+
         Returns:
             True if successful
 
@@ -225,10 +228,10 @@ class ModelTrafficRouter:
 
     def pause_test(self, test_id: str) -> bool:
         """Pause an active A/B test.
-        
+
         Args:
             test_id: Test identifier
-            
+
         Returns:
             True if successful
 
@@ -250,10 +253,10 @@ class ModelTrafficRouter:
 
     def resume_test(self, test_id: str) -> bool:
         """Resume a paused A/B test.
-        
+
         Args:
             test_id: Test identifier
-            
+
         Returns:
             True if successful
 
@@ -274,11 +277,11 @@ class ModelTrafficRouter:
 
     def complete_test(self, test_id: str, winner: Optional[str] = None) -> bool:
         """Mark a test as completed.
-        
+
         Args:
             test_id: Test identifier
             winner: Optional winning variant
-            
+
         Returns:
             True if successful
 
@@ -303,12 +306,12 @@ class ModelTrafficRouter:
         logger.info(f"Completed A/B test: {test_id}, winner: {winner}")
         return True
 
-    def get_test_metrics(self, test_id: str) -> Dict[str, ABTestMetrics]:
+    def get_test_metrics(self, test_id: str) -> dict[str, ABTestMetrics]:
         """Get metrics for an A/B test.
-        
+
         Args:
             test_id: Test identifier
-            
+
         Returns:
             Dictionary mapping variant to metrics
 
@@ -327,12 +330,17 @@ class ModelTrafficRouter:
 
         return metrics
 
-    def record_prediction_result(self, test_id: str, variant: str,
-                               latency_ms: float, success: bool,
-                               cache_hit: bool = False,
-                               custom_metrics: Optional[Dict[str, float]] = None):
+    def record_prediction_result(
+        self,
+        test_id: str,
+        variant: str,
+        latency_ms: float,
+        success: bool,
+        cache_hit: bool = False,
+        custom_metrics: Optional[dict[str, float]] = None,
+    ) -> None:
         """Record the result of a prediction for metrics.
-        
+
         Args:
             test_id: Test identifier
             variant: Model variant used
@@ -366,8 +374,12 @@ class ModelTrafficRouter:
             for metric_name, value in custom_metrics.items():
                 if metric_name in metrics.custom_metrics:
                     # Assuming we want to average custom metrics
-                    current_total = metrics.custom_metrics[metric_name] * (metrics.total_requests - 1)
-                    metrics.custom_metrics[metric_name] = (current_total + value) / metrics.total_requests
+                    current_total = metrics.custom_metrics[metric_name] * (
+                        metrics.total_requests - 1
+                    )
+                    metrics.custom_metrics[metric_name] = (
+                        current_total + value
+                    ) / metrics.total_requests
                 else:
                     metrics.custom_metrics[metric_name] = value
 
@@ -388,9 +400,9 @@ class ModelTrafficRouter:
         """Find active test for a model family."""
         for test_config in self.routing_rules.values():
             # Check if this test is for the requested model family
-            if (test_config.status == ABTestStatus.ACTIVE and
-                (model_family in test_config.model_a or
-                 model_family in test_config.model_b)):
+            if test_config.status == ABTestStatus.ACTIVE and (
+                model_family in test_config.model_a or model_family in test_config.model_b
+            ):
                 # Check if test is still valid
                 if test_config.end_time and datetime.utcnow() > test_config.end_time:
                     # Test has expired, complete it
@@ -399,8 +411,7 @@ class ModelTrafficRouter:
                 return test_config
         return None
 
-    def _get_sticky_assignment(self, user_id: str,
-                             test_config: ABTestConfig) -> str:
+    def _get_sticky_assignment(self, user_id: str, test_config: ABTestConfig) -> str:
         """Get sticky assignment for a user."""
         assignment_key = f"ab_assignment:{test_config.test_id}:{user_id}"
         assignment = self.redis.get(assignment_key)
@@ -413,8 +424,7 @@ class ModelTrafficRouter:
         self.redis.set(assignment_key, variant, ex=86400 * 30)  # 30 days TTL
         return variant
 
-    def _get_deterministic_assignment(self, request_id: str,
-                                    test_config: ABTestConfig) -> str:
+    def _get_deterministic_assignment(self, request_id: str, test_config: ABTestConfig) -> str:
         """Get deterministic assignment based on request ID."""
         # Hash the request ID
         hash_value = int(hashlib.md5(request_id.encode()).hexdigest(), 16)
@@ -435,9 +445,12 @@ class ModelTrafficRouter:
             return "model_a"
         return "model_b"
 
-    def _is_in_segment(self, user_id: Optional[str],
-                      features: Optional[Dict[str, Any]],
-                      segments: Optional[Dict[str, Any]]) -> bool:
+    def _is_in_segment(
+        self,
+        user_id: Optional[str],
+        features: Optional[dict[str, Any]],
+        segments: Optional[dict[str, Any]],
+    ) -> bool:
         """Check if user/request is in target segment."""
         if not segments:
             return True
@@ -484,21 +497,21 @@ class ModelTrafficRouter:
 class ABTestAnalyzer:
     """Analyzes A/B test results and provides recommendations."""
 
-    def __init__(self, redis_client: redis.Redis):
+    def __init__(self, redis_client: redis.Redis) -> None:
         """Initialize the analyzer.
-        
+
         Args:
             redis_client: Redis client for accessing test data
 
         """
         self.redis = redis_client
 
-    def analyze_test(self, test_id: str) -> Dict[str, Any]:
+    def analyze_test(self, test_id: str) -> dict[str, Any]:
         """Analyze an A/B test and provide results.
-        
+
         Args:
             test_id: Test identifier
-            
+
         Returns:
             Analysis results including winner recommendation
 
@@ -514,9 +527,7 @@ class ABTestAnalyzer:
 
         # Calculate statistical significance
         significance = self._calculate_significance(
-            metrics["model_a"],
-            metrics["model_b"],
-            test_config.confidence_level
+            metrics["model_a"], metrics["model_b"], test_config.confidence_level
         )
 
         # Determine winner
@@ -531,18 +542,18 @@ class ABTestAnalyzer:
             "status": test_config.status.value,
             "metrics": {
                 "model_a": asdict(metrics["model_a"]),
-                "model_b": asdict(metrics["model_b"])
+                "model_b": asdict(metrics["model_b"]),
             },
             "statistical_significance": significance,
             "winner": winner,
             "lift": lift,
             "recommendation": self._generate_recommendation(winner, significance, lift),
-            "analysis_timestamp": datetime.utcnow().isoformat()
+            "analysis_timestamp": datetime.utcnow().isoformat(),
         }
 
-    def _calculate_significance(self, metrics_a: ABTestMetrics,
-                              metrics_b: ABTestMetrics,
-                              confidence_level: float) -> Dict[str, float]:
+    def _calculate_significance(
+        self, metrics_a: ABTestMetrics, metrics_b: ABTestMetrics, confidence_level: float
+    ) -> dict[str, float]:
         """Calculate statistical significance of results."""
         from scipy import stats
 
@@ -561,7 +572,7 @@ class ABTestAnalyzer:
         p_pool = (successes_a + successes_b) / (n_a + n_b)
 
         # Standard error
-        se = np.sqrt(p_pool * (1 - p_pool) * (1/n_a + 1/n_b))
+        se = np.sqrt(p_pool * (1 - p_pool) * (1 / n_a + 1 / n_b))
 
         if se == 0:
             return {"success_rate_pvalue": 1.0, "is_significant": False}
@@ -577,16 +588,21 @@ class ABTestAnalyzer:
             "is_significant": p_value < (1 - confidence_level),
             "z_score": z,
             "sample_size_a": n_a,
-            "sample_size_b": n_b
+            "sample_size_b": n_b,
         }
 
-    def _determine_winner(self, metrics: Dict[str, ABTestMetrics],
-                        significance: Dict[str, Any],
-                        test_config: ABTestConfig) -> Optional[str]:
+    def _determine_winner(
+        self,
+        metrics: dict[str, ABTestMetrics],
+        significance: dict[str, Any],
+        test_config: ABTestConfig,
+    ) -> Optional[str]:
         """Determine the winning variant."""
         # Check minimum sample size
-        if (metrics["model_a"].total_requests < test_config.minimum_sample_size or
-            metrics["model_b"].total_requests < test_config.minimum_sample_size):
+        if (
+            metrics["model_a"].total_requests < test_config.minimum_sample_size
+            or metrics["model_b"].total_requests < test_config.minimum_sample_size
+        ):
             return None
 
         # Check statistical significance
@@ -601,32 +617,34 @@ class ABTestAnalyzer:
 
         return None
 
-    def _calculate_lift(self, metrics: Dict[str, ABTestMetrics]) -> Dict[str, float]:
+    def _calculate_lift(self, metrics: dict[str, ABTestMetrics]) -> dict[str, float]:
         """Calculate lift metrics."""
         if metrics["model_a"].success_rate == 0:
             success_rate_lift = float("inf") if metrics["model_b"].success_rate > 0 else 0
         else:
             success_rate_lift = (
-                (metrics["model_b"].success_rate - metrics["model_a"].success_rate) /
-                metrics["model_a"].success_rate * 100
+                (metrics["model_b"].success_rate - metrics["model_a"].success_rate)
+                / metrics["model_a"].success_rate
+                * 100
             )
 
         if metrics["model_a"].average_latency_ms == 0:
             latency_lift = 0
         else:
             latency_lift = (
-                (metrics["model_b"].average_latency_ms - metrics["model_a"].average_latency_ms) /
-                metrics["model_a"].average_latency_ms * 100
+                (metrics["model_b"].average_latency_ms - metrics["model_a"].average_latency_ms)
+                / metrics["model_a"].average_latency_ms
+                * 100
             )
 
         return {
             "success_rate_lift_percent": success_rate_lift,
-            "latency_lift_percent": latency_lift
+            "latency_lift_percent": latency_lift,
         }
 
-    def _generate_recommendation(self, winner: Optional[str],
-                               significance: Dict[str, Any],
-                               lift: Dict[str, float]) -> str:
+    def _generate_recommendation(
+        self, winner: Optional[str], significance: dict[str, Any], lift: dict[str, float]
+    ) -> str:
         """Generate recommendation based on analysis."""
         if not winner:
             if not significance["is_significant"]:

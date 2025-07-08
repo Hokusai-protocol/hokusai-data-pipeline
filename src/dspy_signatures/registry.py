@@ -1,7 +1,7 @@
 """Registry for managing DSPy signatures."""
 
-from typing import Dict, List, Optional, Any, Type
 import threading
+from typing import Any, Optional
 
 from .base import BaseSignature
 from .metadata import SignatureMetadata
@@ -10,10 +10,10 @@ from .metadata import SignatureMetadata
 class SignatureRegistry:
     """Registry for managing DSPy signatures."""
 
-    def __init__(self):
-        self.signatures: Dict[str, BaseSignature] = {}
-        self.metadata: Dict[str, SignatureMetadata] = {}
-        self.aliases: Dict[str, str] = {}
+    def __init__(self) -> None:
+        self.signatures: dict[str, BaseSignature] = {}
+        self.metadata: dict[str, SignatureMetadata] = {}
+        self.aliases: dict[str, str] = {}
         self._lock = threading.Lock()
 
     def register(self, signature: BaseSignature, metadata: SignatureMetadata) -> None:
@@ -57,12 +57,12 @@ class SignatureRegistry:
 
             self.aliases[alias] = signature_name
 
-    def list_signatures(self) -> List[str]:
+    def list_signatures(self) -> list[str]:
         """List all registered signature names."""
         with self._lock:
             return list(self.signatures.keys())
 
-    def search(self, category: Optional[str] = None, tags: Optional[List[str]] = None) -> List[str]:
+    def search(self, category: Optional[str] = None, tags: Optional[list[str]] = None) -> list[str]:
         """Search for signatures by category or tags."""
         results = []
 
@@ -97,7 +97,7 @@ class SignatureRegistry:
         except KeyError:
             return False
 
-    def export_catalog(self) -> List[Dict[str, Any]]:
+    def export_catalog(self) -> list[dict[str, Any]]:
         """Export the signature catalog."""
         catalog = []
 
@@ -114,19 +114,15 @@ class SignatureRegistry:
                             "description": f.description,
                             "type": str(f.type_hint),
                             "required": f.required,
-                            "default": f.default
+                            "default": f.default,
                         }
                         for f in signature.input_fields
                     ],
                     "output_fields": [
-                        {
-                            "name": f.name,
-                            "description": f.description,
-                            "type": str(f.type_hint)
-                        }
+                        {"name": f.name, "description": f.description, "type": str(f.type_hint)}
                         for f in signature.output_fields
                     ],
-                    "aliases": [alias for alias, target in self.aliases.items() if target == name]
+                    "aliases": [alias for alias, target in self.aliases.items() if target == name],
                 }
 
                 catalog.append(entry)

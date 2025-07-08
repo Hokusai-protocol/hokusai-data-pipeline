@@ -1,17 +1,13 @@
 """Integration tests for DSPy signature library."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-import dspy
-import tempfile
-import yaml
 import json
+import tempfile
+from unittest.mock import MagicMock, Mock, patch
 
-from src.dspy_signatures.registry import SignatureRegistry, get_global_registry
+import yaml
+
 from src.dspy_signatures.loader import SignatureLoader
-from src.dspy_signatures.text_generation import DraftText, ReviseText
-from src.dspy_signatures.analysis import SummarizeText
-from src.dspy_signatures.task_specific import EmailDraft
+from src.dspy_signatures.registry import SignatureRegistry, get_global_registry
 from src.services.dspy_model_loader import DSPyModelLoader
 from src.services.dspy_pipeline_executor import DSPyPipelineExecutor
 
@@ -86,17 +82,10 @@ class TestSignatureLoaderIntegration:
         # Create temporary YAML config
         config = {
             "signature": "EmailDraft",
-            "parameters": {
-                "default_tone": "professional",
-                "include_greeting": True
-            },
+            "parameters": {"default_tone": "professional", "include_greeting": True},
             "examples": [
-                {
-                    "recipient": "test@example.com",
-                    "subject": "Test",
-                    "email_body": "Test email"
-                }
-            ]
+                {"recipient": "test@example.com", "subject": "Test", "email_body": "Test email"}
+            ],
         }
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
@@ -115,18 +104,15 @@ class TestSignatureLoaderIntegration:
         config = {
             "name": "CustomEmail",
             "base": "EmailDraft",
-            "overrides": {
-                "tone": "casual",
-                "max_length": 500
-            },
+            "overrides": {"tone": "casual", "max_length": 500},
             "additional_fields": {
                 "urgency": {
                     "type": "str",
                     "description": "Email urgency level",
                     "required": False,
-                    "default": "normal"
+                    "default": "normal",
                 }
-            }
+            },
         }
 
         custom_sig = loader.create_custom_signature(config)
@@ -159,18 +145,12 @@ class TestDSPyModelLoaderIntegration:
             "signatures": {
                 "generate_email": {
                     "library": "EmailDraft",
-                    "parameters": {
-                        "default_tone": "professional"
-                    }
+                    "parameters": {"default_tone": "professional"},
                 }
             },
             "modules": [
-                {
-                    "name": "email_generator",
-                    "type": "ChainOfThought",
-                    "signature": "generate_email"
-                }
-            ]
+                {"name": "email_generator", "type": "ChainOfThought", "signature": "generate_email"}
+            ],
         }
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
@@ -190,20 +170,12 @@ class TestDSPyModelLoaderIntegration:
         registry = get_global_registry()
 
         # Create a chain of compatible signatures
-        draft_sig = registry.get("DraftText")
-        revise_sig = registry.get("ReviseText")
+        registry.get("DraftText")
+        registry.get("ReviseText")
 
         # These should be compatible if DraftText outputs 'draft'
         # and ReviseText accepts 'original_text'
         # In practice, we'd need adapter logic, but test the concept
-
-        config = {
-            "name": "text-pipeline",
-            "modules": [
-                {"name": "drafter", "signature": "DraftText"},
-                {"name": "reviser", "signature": "ReviseText"}
-            ]
-        }
 
         # Loader should validate compatibility
         # This would require implementing compatibility checking
@@ -220,9 +192,9 @@ class TestDSPyPipelineExecutorIntegration:
 
         # Create mock program using library signature
         mock_program = MagicMock()
-        mock_program.forward = MagicMock(return_value=MagicMock(
-            email_body="Generated email content"
-        ))
+        mock_program.forward = MagicMock(
+            return_value=MagicMock(email_body="Generated email content")
+        )
 
         # Execute with inputs matching EmailDraft signature
         inputs = {
@@ -230,15 +202,12 @@ class TestDSPyPipelineExecutorIntegration:
             "subject": "Test Subject",
             "purpose": "Test purpose",
             "key_points": ["Point 1", "Point 2"],
-            "tone": "professional"
+            "tone": "professional",
         }
 
-        result = executor.execute(
-            program=mock_program,
-            inputs=inputs
-        )
+        result = executor.execute(program=mock_program, inputs=inputs)
 
-        assert result.success == True
+        assert result.success
         assert "email_body" in result.outputs
 
     def test_signature_validation_in_execution(self):
@@ -260,13 +229,10 @@ class TestDSPyPipelineExecutorIntegration:
             # Missing required fields
         }
 
-        result = executor.execute(
-            program=mock_program,
-            inputs=invalid_inputs
-        )
+        result = executor.execute(program=mock_program, inputs=invalid_inputs)
 
         # Should fail validation
-        assert result.success == False
+        assert not result.success
         assert "Missing required" in result.error or "validation" in result.error.lower()
 
 
@@ -355,11 +321,15 @@ class TestSignatureExport:
                 "name": sig_name,
                 "description": metadata.description,
                 "category": metadata.category,
-                "inputs": [{"name": f.name, "type": str(f.type_hint), "description": f.description}
-                          for f in sig.get_input_fields()],
-                "outputs": [{"name": f.name, "type": str(f.type_hint), "description": f.description}
-                           for f in sig.get_output_fields()],
-                "examples": sig.get_examples() if hasattr(sig, "get_examples") else []
+                "inputs": [
+                    {"name": f.name, "type": str(f.type_hint), "description": f.description}
+                    for f in sig.get_input_fields()
+                ],
+                "outputs": [
+                    {"name": f.name, "type": str(f.type_hint), "description": f.description}
+                    for f in sig.get_output_fields()
+                ],
+                "examples": sig.get_examples() if hasattr(sig, "get_examples") else [],
             }
             docs.append(doc_entry)
 

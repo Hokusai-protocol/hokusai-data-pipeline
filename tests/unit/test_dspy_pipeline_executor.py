@@ -1,16 +1,15 @@
 """Unit tests for DSPyPipelineExecutor."""
 
 import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import Mock, MagicMock, patch
-from typing import Dict, Any
 
 from src.services.dspy_pipeline_executor import (
     DSPyPipelineExecutor,
-    ExecutionResult,
     ExecutionMode,
-    DSPyExecutionError,
-    ValidationError
+    ExecutionResult,
+    ValidationError,
 )
 
 
@@ -28,8 +27,7 @@ class MockDSPyProgram:
     def __init__(self, name: str = "test_program"):
         self.name = name
         self.signature = MockDSPySignature(
-            input_fields=["input1", "input2"],
-            output_fields=["output"]
+            input_fields=["input1", "input2"], output_fields=["output"]
         )
         self._call_count = 0
         self._should_fail = False
@@ -65,11 +63,7 @@ class TestDSPyPipelineExecutor:
         assert executor.timeout == 300
 
         # Custom initialization
-        executor = DSPyPipelineExecutor(
-            cache_enabled=False,
-            mlflow_tracking=False,
-            timeout=60
-        )
+        executor = DSPyPipelineExecutor(cache_enabled=False, mlflow_tracking=False, timeout=60)
         assert executor.cache_enabled is False
         assert executor.mlflow_tracking is False
         assert executor.timeout == 60
@@ -93,11 +87,7 @@ class TestDSPyPipelineExecutor:
 
     def test_validate_inputs_extra_fields(self):
         """Test input validation with extra fields (should pass)."""
-        inputs = {
-            "input1": "value1",
-            "input2": "value2",
-            "extra_field": "extra_value"
-        }
+        inputs = {"input1": "value1", "input2": "value2", "extra_field": "extra_value"}
 
         # Should not raise exception - extra fields are allowed
         self.executor._validate_inputs(inputs, self.mock_program)
@@ -106,10 +96,7 @@ class TestDSPyPipelineExecutor:
         """Test successful single execution."""
         inputs = {"input1": "test", "input2": "data"}
 
-        result = self.executor.execute(
-            program=self.mock_program,
-            inputs=inputs
-        )
+        result = self.executor.execute(program=self.mock_program, inputs=inputs)
 
         assert isinstance(result, ExecutionResult)
         assert result.success is True
@@ -123,10 +110,7 @@ class TestDSPyPipelineExecutor:
         self.mock_program._should_fail = True
         inputs = {"input1": "test", "input2": "data"}
 
-        result = self.executor.execute(
-            program=self.mock_program,
-            inputs=inputs
-        )
+        result = self.executor.execute(program=self.mock_program, inputs=inputs)
 
         assert isinstance(result, ExecutionResult)
         assert result.success is False
@@ -140,10 +124,7 @@ class TestDSPyPipelineExecutor:
             mock_load.return_value = self.mock_program
 
             inputs = {"input1": "test", "input2": "data"}
-            result = self.executor.execute(
-                model_id="test-model-123",
-                inputs=inputs
-            )
+            result = self.executor.execute(model_id="test-model-123", inputs=inputs)
 
             mock_load.assert_called_once_with("test-model-123")
             assert result.success is True
@@ -154,13 +135,10 @@ class TestDSPyPipelineExecutor:
         batch_inputs = [
             {"input1": "test1", "input2": "data1"},
             {"input1": "test2", "input2": "data2"},
-            {"input1": "test3", "input2": "data3"}
+            {"input1": "test3", "input2": "data3"},
         ]
 
-        results = self.executor.execute_batch(
-            program=self.mock_program,
-            inputs_list=batch_inputs
-        )
+        results = self.executor.execute_batch(program=self.mock_program, inputs_list=batch_inputs)
 
         assert len(results) == 3
         assert all(isinstance(r, ExecutionResult) for r in results)
@@ -173,13 +151,10 @@ class TestDSPyPipelineExecutor:
         batch_inputs = [
             {"input1": "test1", "input2": "data1"},
             {"input1": "test2"},  # Missing required field
-            {"input1": "test3", "input2": "data3"}
+            {"input1": "test3", "input2": "data3"},
         ]
 
-        results = self.executor.execute_batch(
-            program=self.mock_program,
-            inputs_list=batch_inputs
-        )
+        results = self.executor.execute_batch(program=self.mock_program, inputs_list=batch_inputs)
 
         assert len(results) == 3
         assert results[0].success is True
@@ -192,9 +167,7 @@ class TestDSPyPipelineExecutor:
         inputs = {"input1": "test", "input2": "data"}
 
         result = self.executor.execute(
-            program=self.mock_program,
-            inputs=inputs,
-            mode=ExecutionMode.DRY_RUN
+            program=self.mock_program, inputs=inputs, mode=ExecutionMode.DRY_RUN
         )
 
         assert result.success is True
@@ -209,9 +182,7 @@ class TestDSPyPipelineExecutor:
 
         with patch("src.services.dspy_pipeline_executor.logger") as mock_logger:
             result = self.executor.execute(
-                program=self.mock_program,
-                inputs=inputs,
-                mode=ExecutionMode.DEBUG
+                program=self.mock_program, inputs=inputs, mode=ExecutionMode.DEBUG
             )
 
             assert result.success is True
@@ -225,17 +196,16 @@ class TestDSPyPipelineExecutor:
     @patch("mlflow.log_metrics")
     @patch("mlflow.set_experiment")
     @patch("mlflow.set_tracking_uri")
-    def test_mlflow_tracking(self, mock_set_uri, mock_set_exp, mock_log_metrics, mock_log_params, mock_start_run):
+    def test_mlflow_tracking(
+        self, mock_set_uri, mock_set_exp, mock_log_metrics, mock_log_params, mock_start_run
+    ):
         """Test MLflow tracking integration."""
         # Create executor with MLflow enabled (patched initialization will succeed)
         executor = DSPyPipelineExecutor(mlflow_tracking=True)
 
         inputs = {"input1": "test", "input2": "data"}
 
-        result = executor.execute(
-            program=self.mock_program,
-            inputs=inputs
-        )
+        executor.execute(program=self.mock_program, inputs=inputs)
 
         # Verify MLflow tracking was initialized
         mock_start_run.assert_called_once()
@@ -272,14 +242,12 @@ class TestDSPyPipelineExecutor:
 
                 # First execution - should load program
                 result1 = self.executor.execute(
-                    model_id=model_id,
-                    inputs={"input1": "test1", "input2": "data1"}
+                    model_id=model_id, inputs={"input1": "test1", "input2": "data1"}
                 )
 
                 # Second execution - should use cached program
                 result2 = self.executor.execute(
-                    model_id=model_id,
-                    inputs={"input1": "test2", "input2": "data2"}
+                    model_id=model_id, inputs={"input1": "test2", "input2": "data2"}
                 )
 
                 # Model loader should only be called once due to caching
@@ -294,6 +262,7 @@ class TestDSPyPipelineExecutor:
 
         def slow_forward(**kwargs):
             import time
+
             time.sleep(2)  # Sleep for 2 seconds
             return {"output": "done"}
 
@@ -302,10 +271,7 @@ class TestDSPyPipelineExecutor:
         # Set short timeout
         executor = DSPyPipelineExecutor(timeout=0.1)  # 100ms timeout
 
-        result = executor.execute(
-            program=slow_program,
-            inputs={"input1": "test", "input2": "data"}
-        )
+        result = executor.execute(program=slow_program, inputs={"input1": "test", "input2": "data"})
 
         assert result.success is False
         assert "timeout" in result.error.lower()
@@ -316,18 +282,12 @@ class TestDSPyPipelineExecutor:
         complex_program = MockDSPyProgram()
 
         def complex_forward(**kwargs):
-            return {
-                "output": "text",
-                "nested": {"key": "value"},
-                "list": [1, 2, 3],
-                "number": 42.5
-            }
+            return {"output": "text", "nested": {"key": "value"}, "list": [1, 2, 3], "number": 42.5}
 
         complex_program.forward = complex_forward
 
         result = self.executor.execute(
-            program=complex_program,
-            inputs={"input1": "test", "input2": "data"}
+            program=complex_program, inputs={"input1": "test", "input2": "data"}
         )
 
         assert result.success is True
@@ -354,8 +314,7 @@ class TestDSPyPipelineExecutor:
 
         executor = DSPyPipelineExecutor(max_retries=2)
         result = executor.execute(
-            program=flaky_program,
-            inputs={"input1": "test", "input2": "data"}
+            program=flaky_program, inputs={"input1": "test", "input2": "data"}
         )
 
         assert result.success is True
@@ -367,15 +326,13 @@ class TestDSPyPipelineExecutor:
         # Execute several times
         for i in range(5):
             self.executor.execute(
-                program=self.mock_program,
-                inputs={"input1": f"test{i}", "input2": "data"}
+                program=self.mock_program, inputs={"input1": f"test{i}", "input2": "data"}
             )
 
         # Make one fail
         self.mock_program._should_fail = True
         self.executor.execute(
-            program=self.mock_program,
-            inputs={"input1": "fail", "input2": "data"}
+            program=self.mock_program, inputs={"input1": "fail", "input2": "data"}
         )
 
         stats = self.executor.get_execution_stats()
@@ -383,7 +340,7 @@ class TestDSPyPipelineExecutor:
         assert stats["total_executions"] == 6
         assert stats["successful_executions"] == 5
         assert stats["failed_executions"] == 1
-        assert stats["success_rate"] == 5/6
+        assert stats["success_rate"] == 5 / 6
         assert "average_execution_time" in stats
         assert "p95_execution_time" in stats
 
@@ -399,7 +356,7 @@ class TestExecutionResult:
             error=None,
             execution_time=0.123,
             program_name="test_program",
-            metadata={"extra": "data"}
+            metadata={"extra": "data"},
         )
 
         result_dict = result.to_dict()
@@ -418,7 +375,7 @@ class TestExecutionResult:
             outputs={"key": "value", "number": 42},
             error=None,
             execution_time=0.123,
-            program_name="test_program"
+            program_name="test_program",
         )
 
         json_str = result.to_json()

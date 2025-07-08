@@ -1,18 +1,19 @@
 """Hokusai Model Registry Service for centralized model management."""
 
+import logging
+import re
+from datetime import datetime
+from typing import Any
+
 import mlflow
 import mlflow.pyfunc
-from typing import Dict, List, Any
-import logging
-from datetime import datetime
-import re
 
 logger = logging.getLogger(__name__)
 
 
 class HokusaiModelRegistry:
     """Centralized model registry for all Hokusai projects.
-    
+
     This service provides:
     - Unified model registration for baseline and improved models
     - Model lineage tracking across improvements
@@ -22,9 +23,9 @@ class HokusaiModelRegistry:
 
     VALID_MODEL_TYPES = ["lead_scoring", "classification", "regression", "ranking"]
 
-    def __init__(self, tracking_uri: str = "http://mlflow-server:5000"):
+    def __init__(self, tracking_uri: str = "http://mlflow-server:5000") -> None:
         """Initialize the model registry with MLFlow tracking.
-        
+
         Args:
             tracking_uri: MLFlow tracking server URI
 
@@ -33,15 +34,16 @@ class HokusaiModelRegistry:
         mlflow.set_tracking_uri(tracking_uri)
         logger.info(f"Initialized HokusaiModelRegistry with tracking URI: {tracking_uri}")
 
-    def register_baseline(self, model: Any, model_type: str,
-                         metadata: Dict[str, Any]) -> Dict[str, Any]:
+    def register_baseline(
+        self, model: Any, model_type: str, metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """Register a baseline model for future comparisons.
-        
+
         Args:
             model: The model object to register
             model_type: Type of model (lead_scoring, classification, etc.)
             metadata: Additional metadata about the model
-            
+
         Returns:
             Dictionary containing model ID, version, and registration details
 
@@ -50,18 +52,22 @@ class HokusaiModelRegistry:
             raise ValueError("Model cannot be None")
 
         if model_type not in self.VALID_MODEL_TYPES:
-            raise ValueError(f"Invalid model type: {model_type}. Must be one of {self.VALID_MODEL_TYPES}")
+            raise ValueError(
+                f"Invalid model type: {model_type}. Must be one of {self.VALID_MODEL_TYPES}"
+            )
 
         model_name = f"hokusai_{model_type}_baseline"
 
         try:
             with mlflow.start_run() as run:
                 # Log model metadata
-                mlflow.log_params({
-                    "model_type": model_type,
-                    "is_baseline": True,
-                    "registration_time": datetime.utcnow().isoformat()
-                })
+                mlflow.log_params(
+                    {
+                        "model_type": model_type,
+                        "is_baseline": True,
+                        "registration_time": datetime.utcnow().isoformat(),
+                    }
+                )
 
                 # Log additional metadata
                 for key, value in metadata.items():
@@ -69,16 +75,11 @@ class HokusaiModelRegistry:
 
                 # Log the model
                 mlflow.pyfunc.log_model(
-                    artifact_path="model",
-                    python_model=model,
-                    registered_model_name=model_name
+                    artifact_path="model", python_model=model, registered_model_name=model_name
                 )
 
                 # Register the model version
-                model_version = mlflow.register_model(
-                    f"runs:/{run.info.run_id}/model",
-                    model_name
-                )
+                model_version = mlflow.register_model(f"runs:/{run.info.run_id}/model", model_name)
 
                 result = {
                     "model_id": f"{model_version.name}/{model_version.version}",
@@ -86,7 +87,7 @@ class HokusaiModelRegistry:
                     "version": model_version.version,
                     "model_type": model_type,
                     "run_id": run.info.run_id,
-                    "registration_timestamp": datetime.utcnow().isoformat()
+                    "registration_timestamp": datetime.utcnow().isoformat(),
                 }
 
                 logger.info(f"Successfully registered baseline model: {result['model_id']}")
@@ -96,17 +97,17 @@ class HokusaiModelRegistry:
             logger.error(f"Failed to register baseline model: {str(e)}")
             raise
 
-    def register_improved_model(self, model: Any, baseline_id: str,
-                              delta_metrics: Dict[str, float],
-                              contributor: str) -> Dict[str, Any]:
+    def register_improved_model(
+        self, model: Any, baseline_id: str, delta_metrics: dict[str, float], contributor: str
+    ) -> dict[str, Any]:
         """Register an improved model with performance delta.
-        
+
         Args:
             model: The improved model object
             baseline_id: ID of the baseline model this improves upon
             delta_metrics: Performance improvements over baseline
             contributor: Ethereum address of the contributor
-            
+
         Returns:
             Dictionary containing model ID, version, and improvement details
 
@@ -124,39 +125,32 @@ class HokusaiModelRegistry:
                 mlflow.log_metrics(delta_metrics)
 
                 # Log model parameters
-                mlflow.log_params({
-                    "baseline_model_id": baseline_id,
-                    "contributor_address": contributor,
-                    "improvement_count": len(delta_metrics),
-                    "registration_time": datetime.utcnow().isoformat()
-                })
+                mlflow.log_params(
+                    {
+                        "baseline_model_id": baseline_id,
+                        "contributor_address": contributor,
+                        "improvement_count": len(delta_metrics),
+                        "registration_time": datetime.utcnow().isoformat(),
+                    }
+                )
 
                 # Log the improved model
                 mlflow.pyfunc.log_model(
-                    artifact_path="model",
-                    python_model=model,
-                    registered_model_name=improved_name
+                    artifact_path="model", python_model=model, registered_model_name=improved_name
                 )
 
                 # Register the model version with tags
                 model_version = mlflow.register_model(
-                    f"runs:/{run.info.run_id}/model",
-                    improved_name
+                    f"runs:/{run.info.run_id}/model", improved_name
                 )
 
                 # Set version tags
                 client = mlflow.tracking.MlflowClient()
                 client.set_model_version_tag(
-                    improved_name,
-                    model_version.version,
-                    "baseline_model_id",
-                    baseline_id
+                    improved_name, model_version.version, "baseline_model_id", baseline_id
                 )
                 client.set_model_version_tag(
-                    improved_name,
-                    model_version.version,
-                    "contributor",
-                    contributor
+                    improved_name, model_version.version, "contributor", contributor
                 )
 
                 result = {
@@ -167,7 +161,7 @@ class HokusaiModelRegistry:
                     "contributor": contributor,
                     "delta_metrics": delta_metrics,
                     "run_id": run.info.run_id,
-                    "registration_timestamp": datetime.utcnow().isoformat()
+                    "registration_timestamp": datetime.utcnow().isoformat(),
                 }
 
                 logger.info(f"Successfully registered improved model: {result['model_id']}")
@@ -177,12 +171,12 @@ class HokusaiModelRegistry:
             logger.error(f"Failed to register improved model: {str(e)}")
             raise
 
-    def get_model_lineage(self, model_id: str) -> List[Dict[str, Any]]:
+    def get_model_lineage(self, model_id: str) -> list[dict[str, Any]]:
         """Track model improvements over time.
-        
+
         Args:
             model_id: The model ID to get lineage for
-            
+
         Returns:
             List of model versions with their improvement history
 
@@ -204,7 +198,7 @@ class HokusaiModelRegistry:
                     "run_id": version.run_id,
                     "created_at": version.creation_timestamp,
                     "is_baseline": False,
-                    "metrics": {}
+                    "metrics": {},
                 }
 
                 # Get run details
@@ -236,10 +230,10 @@ class HokusaiModelRegistry:
 
     def _validate_eth_address(self, address: str) -> bool:
         """Validate Ethereum address format.
-        
+
         Args:
             address: Ethereum address to validate
-            
+
         Returns:
             True if valid, False otherwise
 
@@ -251,12 +245,12 @@ class HokusaiModelRegistry:
         pattern = r"^0x[a-fA-F0-9]{40}$"
         return bool(re.match(pattern, address))
 
-    def _calculate_cumulative_metrics(self, versions: List[Dict[str, Any]]) -> Dict[str, float]:
+    def _calculate_cumulative_metrics(self, versions: list[dict[str, Any]]) -> dict[str, float]:
         """Calculate cumulative improvements across versions.
-        
+
         Args:
             versions: List of model versions with metrics
-            
+
         Returns:
             Dictionary of cumulative metric improvements
 

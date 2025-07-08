@@ -1,11 +1,10 @@
 """Unit tests for the evaluation module."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Any
-import json
+import pytest
 
 from src.modules.evaluation import ModelEvaluator
 
@@ -20,13 +19,9 @@ class TestModelEvaluator:
         # Create mock model
         self.mock_model = Mock()
         self.mock_model.predict = Mock(return_value=np.array([0, 1, 1, 0, 1]))
-        self.mock_model.predict_proba = Mock(return_value=np.array([
-            [0.9, 0.1],
-            [0.2, 0.8],
-            [0.3, 0.7],
-            [0.8, 0.2],
-            [0.1, 0.9]
-        ]))
+        self.mock_model.predict_proba = Mock(
+            return_value=np.array([[0.9, 0.1], [0.2, 0.8], [0.3, 0.7], [0.8, 0.2], [0.1, 0.9]])
+        )
 
         # Create test data
         self.X_test = np.array([[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]])
@@ -46,11 +41,7 @@ class TestModelEvaluator:
         X_test_df = pd.DataFrame(self.X_test, columns=["feature1", "feature2"])
         y_test_series = pd.Series(self.y_test)
 
-        results = self.evaluator.evaluate_sklearn_model(
-            self.mock_model,
-            X_test_df,
-            y_test_series
-        )
+        results = self.evaluator.evaluate_sklearn_model(self.mock_model, X_test_df, y_test_series)
 
         assert "accuracy" in results
         assert "precision" in results
@@ -64,11 +55,7 @@ class TestModelEvaluator:
         X_test_df = pd.DataFrame(self.X_test, columns=["feature1", "feature2"])
         y_test_series = pd.Series(self.y_test)
 
-        results = self.evaluator.evaluate_sklearn_model(
-            self.mock_model,
-            X_test_df,
-            y_test_series
-        )
+        results = self.evaluator.evaluate_sklearn_model(self.mock_model, X_test_df, y_test_series)
 
         assert "auroc" in results
         assert 0 <= results["auroc"] <= 1
@@ -77,22 +64,13 @@ class TestModelEvaluator:
         """Test mock model evaluation."""
         mock_model = {
             "type": "mock_baseline_model",
-            "metrics": {
-                "accuracy": 0.85,
-                "precision": 0.83,
-                "recall": 0.87,
-                "f1": 0.85
-            }
+            "metrics": {"accuracy": 0.85, "precision": 0.83, "recall": 0.87, "f1": 0.85},
         }
 
         X_test_df = pd.DataFrame(self.X_test, columns=["feature1", "feature2"])
         y_test_series = pd.Series(self.y_test)
 
-        results = self.evaluator.evaluate_mock_model(
-            mock_model,
-            X_test_df,
-            y_test_series
-        )
+        results = self.evaluator.evaluate_mock_model(mock_model, X_test_df, y_test_series)
 
         # Results should be close to stored metrics with small variation
         assert 0.83 <= results["accuracy"] <= 0.87
@@ -106,11 +84,7 @@ class TestModelEvaluator:
         y_test_series = pd.Series(self.y_test)
 
         # Test with sklearn model
-        results = self.evaluator.evaluate_model(
-            self.mock_model,
-            X_test_df,
-            y_test_series
-        )
+        results = self.evaluator.evaluate_model(self.mock_model, X_test_df, y_test_series)
 
         assert "metrics" in results
         assert "test_samples" in results
@@ -120,19 +94,9 @@ class TestModelEvaluator:
 
     def test_compare_models(self):
         """Test model comparison."""
-        baseline_metrics = {
-            "accuracy": 0.85,
-            "precision": 0.83,
-            "recall": 0.87,
-            "f1": 0.85
-        }
+        baseline_metrics = {"accuracy": 0.85, "precision": 0.83, "recall": 0.87, "f1": 0.85}
 
-        new_metrics = {
-            "accuracy": 0.88,
-            "precision": 0.86,
-            "recall": 0.90,
-            "f1": 0.88
-        }
+        new_metrics = {"accuracy": 0.88, "precision": 0.86, "recall": 0.90, "f1": 0.88}
 
         comparison = self.evaluator.compare_models(baseline_metrics, new_metrics)
 
@@ -150,15 +114,15 @@ class TestModelEvaluator:
                 "new": 0.88,
                 "absolute_delta": 0.03,
                 "relative_delta": 3.53,
-                "improved": True
+                "improved": True,
             },
             "f1": {
                 "baseline": 0.85,
                 "new": 0.87,
                 "absolute_delta": 0.02,
                 "relative_delta": 2.35,
-                "improved": True
-            }
+                "improved": True,
+            },
         }
 
         # Test with equal weights
@@ -175,35 +139,22 @@ class TestModelEvaluator:
         baseline_results = {
             "metrics": {"accuracy": 0.85, "f1": 0.85},
             "model_type": "RandomForest",
-            "test_samples": 1000
+            "test_samples": 1000,
         }
 
         new_results = {
             "metrics": {"accuracy": 0.88, "f1": 0.87},
             "model_type": "XGBoost",
-            "test_samples": 1000
+            "test_samples": 1000,
         }
 
         comparison = {
-            "accuracy": {
-                "baseline": 0.85,
-                "new": 0.88,
-                "absolute_delta": 0.03,
-                "improved": True
-            },
-            "f1": {
-                "baseline": 0.85,
-                "new": 0.87,
-                "absolute_delta": 0.02,
-                "improved": True
-            }
+            "accuracy": {"baseline": 0.85, "new": 0.88, "absolute_delta": 0.03, "improved": True},
+            "f1": {"baseline": 0.85, "new": 0.87, "absolute_delta": 0.02, "improved": True},
         }
 
         report = self.evaluator.create_evaluation_report(
-            baseline_results,
-            new_results,
-            comparison,
-            0.025
+            baseline_results, new_results, comparison, 0.025
         )
 
         assert "baseline_model" in report
@@ -221,19 +172,11 @@ class TestModelEvaluator:
         X_test_df = pd.DataFrame(self.X_test, columns=["feature1", "feature2"])
         y_test_series = pd.Series(self.y_test)
 
-        results = self.evaluator.evaluate_model(
-            mock_model,
-            X_test_df,
-            y_test_series
-        )
+        results = self.evaluator.evaluate_model(mock_model, X_test_df, y_test_series)
 
         assert results["model_type"] == "mock_model"
 
         # Test with sklearn model
-        results = self.evaluator.evaluate_model(
-            self.mock_model,
-            X_test_df,
-            y_test_series
-        )
+        results = self.evaluator.evaluate_model(self.mock_model, X_test_df, y_test_series)
 
         assert results["model_type"] == "Mock"

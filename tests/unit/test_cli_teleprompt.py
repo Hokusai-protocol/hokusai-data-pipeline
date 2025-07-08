@@ -1,17 +1,20 @@
 """Unit tests for CLI teleprompt commands."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
+from datetime import datetime
+from unittest.mock import Mock, patch
+
 from click.testing import CliRunner
-import json
-from datetime import datetime, timedelta
 
 from src.cli.teleprompt import (
-    teleprompt, optimize, list_traces, list_attestations,
-    show_attestation, calculate_rewards
+    calculate_rewards,
+    list_attestations,
+    list_traces,
+    optimize,
+    show_attestation,
+    teleprompt,
 )
-from src.services.teleprompt_finetuner import OptimizationResult
 from src.services.optimization_attestation import OptimizationAttestation
+from src.services.teleprompt_finetuner import OptimizationResult
 
 
 class TestTelepromptCLI:
@@ -43,19 +46,14 @@ class TestTelepromptCLI:
             trace_count=5000,
             optimization_time=120.5,
             strategy="bootstrap_fewshot",
-            contributors={"user1": {"address": "0x123", "weight": 1.0, "trace_count": 5000}}
+            contributors={"user1": {"address": "0x123", "weight": 1.0, "trace_count": 5000}},
         )
 
         # Mock deltaone result
-        mock_deltaone = {
-            "deltaone_achieved": True,
-            "delta": 0.025
-        }
+        mock_deltaone = {"deltaone_achieved": True, "delta": 0.025}
 
         # Mock attestation
-        mock_attestation = {
-            "attestation_hash": "abcd1234567890"
-        }
+        mock_attestation = {"attestation_hash": "abcd1234567890"}
 
         # Mock finetuner
         mock_finetuner = Mock()
@@ -65,13 +63,21 @@ class TestTelepromptCLI:
         mock_finetuner_class.return_value = mock_finetuner
 
         # Run command
-        result = self.runner.invoke(optimize, [
-            "--program", "EmailDraft",
-            "--days", "7",
-            "--min-traces", "1000",
-            "--outcome-metric", "reply_rate",
-            "--deltaone-threshold", "0.01"
-        ])
+        result = self.runner.invoke(
+            optimize,
+            [
+                "--program",
+                "EmailDraft",
+                "--days",
+                "7",
+                "--min-traces",
+                "1000",
+                "--outcome-metric",
+                "reply_rate",
+                "--deltaone-threshold",
+                "0.01",
+            ],
+        )
 
         assert result.exit_code == 0
         assert "✓ Optimization successful!" in result.output
@@ -90,20 +96,14 @@ class TestTelepromptCLI:
         mock_loader_class.return_value = mock_loader
 
         # Mock failed result
-        mock_result = OptimizationResult(
-            success=False,
-            error_message="Insufficient traces"
-        )
+        mock_result = OptimizationResult(success=False, error_message="Insufficient traces")
 
         # Mock finetuner
         mock_finetuner = Mock()
         mock_finetuner.run_optimization.return_value = mock_result
         mock_finetuner_class.return_value = mock_finetuner
 
-        result = self.runner.invoke(optimize, [
-            "--program", "EmailDraft",
-            "--days", "7"
-        ])
+        result = self.runner.invoke(optimize, ["--program", "EmailDraft", "--days", "7"])
 
         assert result.exit_code == 0
         assert "Optimization failed: Insufficient traces" in result.output
@@ -125,17 +125,14 @@ class TestTelepromptCLI:
             trace_count=5000,
             optimization_time=120.5,
             strategy="bootstrap_fewshot",
-            contributors={}
+            contributors={},
         )
 
-        mock_deltaone = {
-            "deltaone_achieved": True,
-            "delta": 0.025
-        }
+        mock_deltaone = {"deltaone_achieved": True, "delta": 0.025}
 
         mock_model_info = {
             "model_name": "EmailDraft-Optimized",
-            "version": "1.0.0-opt-bfs-20240115120000"
+            "version": "1.0.0-opt-bfs-20240115120000",
         }
 
         # Mock finetuner
@@ -146,11 +143,10 @@ class TestTelepromptCLI:
         mock_finetuner.save_optimized_model.return_value = mock_model_info
         mock_finetuner_class.return_value = mock_finetuner
 
-        result = self.runner.invoke(optimize, [
-            "--program", "EmailDraft",
-            "--save-model",
-            "--model-name", "MyOptimizedModel"
-        ])
+        result = self.runner.invoke(
+            optimize,
+            ["--program", "EmailDraft", "--save-model", "--model-name", "MyOptimizedModel"],
+        )
 
         assert result.exit_code == 0
         assert "Model saved: MyOptimizedModel" in result.output
@@ -164,7 +160,7 @@ class TestTelepromptCLI:
                 "program_name": "EmailDraft",
                 "timestamp": datetime.now(),
                 "outcome_score": 0.85,
-                "contributor_id": "user123"
+                "contributor_id": "user123",
             }
         ]
 
@@ -172,10 +168,7 @@ class TestTelepromptCLI:
         mock_loader.load_traces.return_value = mock_traces
         mock_loader_class.return_value = mock_loader
 
-        result = self.runner.invoke(list_traces, [
-            "--program", "EmailDraft",
-            "--limit", "10"
-        ])
+        result = self.runner.invoke(list_traces, ["--program", "EmailDraft", "--limit", "10"])
 
         assert result.exit_code == 0
         assert "Found 1 traces" in result.output
@@ -190,9 +183,7 @@ class TestTelepromptCLI:
         mock_loader.load_traces.return_value = mock_traces
         mock_loader_class.return_value = mock_loader
 
-        result = self.runner.invoke(list_traces, [
-            "--format", "json"
-        ])
+        result = self.runner.invoke(list_traces, ["--format", "json"])
 
         assert result.exit_code == 0
         assert "program_name" in result.output
@@ -212,9 +203,7 @@ class TestTelepromptCLI:
         mock_service.list_attestations.return_value = [mock_attestation]
         mock_service_class.return_value = mock_service
 
-        result = self.runner.invoke(list_attestations, [
-            "--model-id", "EmailDraft"
-        ])
+        result = self.runner.invoke(list_attestations, ["--model-id", "EmailDraft"])
 
         assert result.exit_code == 0
         assert "Found 1 attestations" in result.output
@@ -237,13 +226,15 @@ class TestTelepromptCLI:
             trace_count=5000,
             optimization_time_seconds=120.5,
             outcome_metric="accuracy",
-            contributors=[{
-                "contributor_id": "user1",
-                "address": "0x123456789",
-                "weight": 1.0,
-                "trace_count": 5000
-            }],
-            attestation_hash="abcd1234"
+            contributors=[
+                {
+                    "contributor_id": "user1",
+                    "address": "0x123456789",
+                    "weight": 1.0,
+                    "trace_count": 5000,
+                }
+            ],
+            attestation_hash="abcd1234",
         )
 
         mock_service = Mock()
@@ -269,10 +260,7 @@ class TestTelepromptCLI:
         mock_service.list_attestations.return_value = [mock_attestation]
         mock_service_class.return_value = mock_service
 
-        result = self.runner.invoke(show_attestation, [
-            "att_123",
-            "--format", "json"
-        ])
+        result = self.runner.invoke(show_attestation, ["att_123", "--format", "json"])
 
         assert result.exit_code == 0
         assert "attestation_id" in result.output
@@ -289,31 +277,26 @@ class TestTelepromptCLI:
                 "contributor_id": "user1",
                 "address": "0x1234567890abcdef",
                 "weight": 0.7,
-                "trace_count": 3500
+                "trace_count": 3500,
             },
             {
                 "contributor_id": "user2",
                 "address": "0xabcdef1234567890",
                 "weight": 0.3,
-                "trace_count": 1500
-            }
+                "trace_count": 1500,
+            },
         ]
 
-        mock_rewards = {
-            "0x1234567890abcdef": 700.0,
-            "0xabcdef1234567890": 300.0
-        }
+        mock_rewards = {"0x1234567890abcdef": 700.0, "0xabcdef1234567890": 300.0}
 
         mock_service = Mock()
         mock_service.list_attestations.return_value = [mock_attestation]
         mock_service.calculate_rewards.return_value = mock_rewards
         mock_service_class.return_value = mock_service
 
-        result = self.runner.invoke(calculate_rewards, [
-            "att_123",
-            "--total-reward", "1000",
-            "--token", "HOKU"
-        ])
+        result = self.runner.invoke(
+            calculate_rewards, ["att_123", "--total-reward", "1000", "--token", "HOKU"]
+        )
 
         assert result.exit_code == 0
         assert "Reward Distribution (1000.0 HOKU)" in result.output
@@ -331,20 +314,16 @@ class TestTelepromptCLI:
         mock_service.list_attestations.return_value = [mock_attestation]
         mock_service_class.return_value = mock_service
 
-        result = self.runner.invoke(calculate_rewards, [
-            "att_123",
-            "--total-reward", "1000"
-        ])
+        result = self.runner.invoke(calculate_rewards, ["att_123", "--total-reward", "1000"])
 
         assert result.exit_code == 0
         assert "Attestation did not achieve DeltaOne - no rewards" in result.output
 
     def test_optimize_invalid_strategy(self):
         """Test optimize with invalid strategy."""
-        result = self.runner.invoke(optimize, [
-            "--program", "EmailDraft",
-            "--strategy", "invalid_strategy"
-        ])
+        result = self.runner.invoke(
+            optimize, ["--program", "EmailDraft", "--strategy", "invalid_strategy"]
+        )
 
         assert result.exit_code != 0
         assert "Invalid value" in result.output

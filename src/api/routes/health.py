@@ -1,10 +1,11 @@
 """Health check endpoints."""
 
-from fastapi import APIRouter
 from datetime import datetime
+
 import mlflow
-import redis
 import psycopg2
+import redis
+from fastapi import APIRouter
 
 from src.api.models import HealthCheckResponse
 from src.api.utils.config import get_settings
@@ -42,11 +43,13 @@ async def health_check():
         services_status["postgres"] = "unhealthy"
 
     # Overall status
-    overall_status = "healthy" if all(s == "healthy" for s in services_status.values()) else "degraded"
+    overall_status = (
+        "healthy" if all(s == "healthy" for s in services_status.values()) else "degraded"
+    )
 
     return HealthCheckResponse(
         status=overall_status,
         version="1.0.0",
         services=services_status,
-        timestamp=datetime.utcnow()
+        timestamp=datetime.utcnow(),
     )

@@ -3,14 +3,15 @@ Unit tests for the schema validation utilities.
 """
 
 import json
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 from src.utils.schema_validator import (
     SchemaValidator,
+    _sort_dict_recursively,
     compute_deterministic_hash,
     validate_for_zk_proof,
-    _sort_dict_recursively
 )
 
 
@@ -30,7 +31,7 @@ class TestSchemaValidator:
             "metadata": {
                 "pipeline_run_id": "test_run_123",
                 "timestamp": "2025-06-16T10:30:00.000Z",
-                "pipeline_version": "abc123def456"
+                "pipeline_version": "abc123def456",
             },
             "evaluation_results": {
                 "baseline_metrics": {
@@ -38,19 +39,16 @@ class TestSchemaValidator:
                     "precision": 0.82,
                     "recall": 0.88,
                     "f1": 0.84,
-                    "auroc": 0.90
+                    "auroc": 0.90,
                 },
                 "new_metrics": {
                     "accuracy": 0.88,
                     "precision": 0.85,
                     "recall": 0.91,
                     "f1": 0.89,
-                    "auroc": 0.93
+                    "auroc": 0.93,
                 },
-                "benchmark_metadata": {
-                    "size": 1000,
-                    "type": "test_benchmark"
-                }
+                "benchmark_metadata": {"size": 1000, "type": "test_benchmark"},
             },
             "delta_computation": {
                 "delta_one_score": 0.033,
@@ -60,43 +58,39 @@ class TestSchemaValidator:
                         "new_value": 0.88,
                         "absolute_delta": 0.03,
                         "relative_delta": 0.035,
-                        "improvement": True
+                        "improvement": True,
                     }
                 },
                 "computation_method": "weighted_average_delta",
                 "metrics_included": ["accuracy"],
                 "improved_metrics": ["accuracy"],
-                "degraded_metrics": []
+                "degraded_metrics": [],
             },
             "models": {
                 "baseline": {
                     "model_id": "baseline_v1",
                     "model_type": "classifier",
-                    "metrics": {
-                        "accuracy": 0.85
-                    }
+                    "metrics": {"accuracy": 0.85},
                 },
                 "new": {
                     "model_id": "new_v1",
                     "model_type": "classifier",
-                    "metrics": {
-                        "accuracy": 0.88
-                    }
-                }
+                    "metrics": {"accuracy": 0.88},
+                },
             },
             "contributor_info": {
                 "data_hash": "abcd567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
                 "data_manifest": {
                     "data_hash": "abcd567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
                     "row_count": 100,
-                    "column_count": 5
-                }
+                    "column_count": 5,
+                },
             },
             "attestation": {
                 "hash_tree_root": "bcde567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
                 "proof_ready": True,
-                "public_inputs_hash": "cdef567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-            }
+                "public_inputs_hash": "cdef567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+            },
         }
 
     def test_validator_initialization(self, validator):
@@ -198,11 +192,7 @@ class TestDeterministicHashing:
 
     def test_compute_deterministic_hash_consistency(self):
         """Test that the same data always produces the same hash."""
-        data = {
-            "b": 2,
-            "a": 1,
-            "c": {"nested_b": "value2", "nested_a": "value1"}
-        }
+        data = {"b": 2, "a": 1, "c": {"nested_b": "value2", "nested_a": "value1"}}
 
         hash1 = compute_deterministic_hash(data)
         hash2 = compute_deterministic_hash(data)
@@ -232,11 +222,7 @@ class TestDeterministicHashing:
 
     def test_sort_dict_recursively(self):
         """Test recursive dictionary sorting."""
-        data = {
-            "z": {"y": 1, "x": 2},
-            "a": [{"c": 3, "b": 4}],
-            "m": 5
-        }
+        data = {"z": {"y": 1, "x": 2}, "a": [{"c": 3, "b": 4}], "m": 5}
 
         sorted_data = _sort_dict_recursively(data)
 
@@ -337,19 +323,12 @@ def valid_output_data():
         "metadata": {
             "pipeline_run_id": "test_run_123",
             "timestamp": "2025-06-16T10:30:00.000Z",
-            "pipeline_version": "abc123def456"
+            "pipeline_version": "abc123def456",
         },
         "evaluation_results": {
-            "baseline_metrics": {
-                "accuracy": 0.85
-            },
-            "new_metrics": {
-                "accuracy": 0.88
-            },
-            "benchmark_metadata": {
-                "size": 1000,
-                "type": "test_benchmark"
-            }
+            "baseline_metrics": {"accuracy": 0.85},
+            "new_metrics": {"accuracy": 0.88},
+            "benchmark_metadata": {"size": 1000, "type": "test_benchmark"},
         },
         "delta_computation": {
             "delta_one_score": 0.033,
@@ -359,41 +338,37 @@ def valid_output_data():
                     "new_value": 0.88,
                     "absolute_delta": 0.03,
                     "relative_delta": 0.035,
-                    "improvement": True
+                    "improvement": True,
                 }
             },
             "computation_method": "weighted_average_delta",
             "metrics_included": ["accuracy"],
             "improved_metrics": ["accuracy"],
-            "degraded_metrics": []
+            "degraded_metrics": [],
         },
         "models": {
             "baseline": {
                 "model_id": "baseline_v1",
                 "model_type": "classifier",
-                "metrics": {
-                    "accuracy": 0.85
-                }
+                "metrics": {"accuracy": 0.85},
             },
             "new": {
                 "model_id": "new_v1",
                 "model_type": "classifier",
-                "metrics": {
-                    "accuracy": 0.88
-                }
-            }
+                "metrics": {"accuracy": 0.88},
+            },
         },
         "contributor_info": {
             "data_hash": "abcd567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
             "data_manifest": {
                 "data_hash": "abcd567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
                 "row_count": 100,
-                "column_count": 5
-            }
+                "column_count": 5,
+            },
         },
         "attestation": {
             "hash_tree_root": "bcde567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
             "proof_ready": True,
-            "public_inputs_hash": "cdef567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
-        }
+            "public_inputs_hash": "cdef567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+        },
     }

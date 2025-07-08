@@ -1,12 +1,11 @@
 """Unit tests for performance tracker service."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock, call
-import mlflow
-from datetime import datetime
 import hashlib
 import json
-from typing import Dict, Any
+from datetime import datetime
+from unittest.mock import patch
+
+import pytest
 
 from src.services.performance_tracker import PerformanceTracker
 
@@ -25,28 +24,18 @@ class TestPerformanceTracker:
         """Test tracking performance improvement."""
         tracker = PerformanceTracker()
 
-        baseline_metrics = {
-            "accuracy": 0.85,
-            "f1_score": 0.83,
-            "auroc": 0.87
-        }
+        baseline_metrics = {"accuracy": 0.85, "f1_score": 0.83, "auroc": 0.87}
 
-        improved_metrics = {
-            "accuracy": 0.88,
-            "f1_score": 0.86,
-            "auroc": 0.90
-        }
+        improved_metrics = {"accuracy": 0.88, "f1_score": 0.86, "auroc": 0.90}
 
         data_contribution = {
             "contributor_id": "contributor_001",
             "data_hash": "abc123",
-            "num_samples": 1000
+            "num_samples": 1000,
         }
 
         delta, attestation = tracker.track_improvement(
-            baseline_metrics,
-            improved_metrics,
-            data_contribution
+            baseline_metrics, improved_metrics, data_contribution
         )
 
         # Check delta calculation
@@ -128,7 +117,7 @@ class TestPerformanceTracker:
         data_contribution = {
             "contributor_id": "contributor_001",
             "data_hash": "abc123",
-            "num_samples": 1000
+            "num_samples": 1000,
         }
 
         attestation = tracker._generate_attestation(delta, data_contribution)
@@ -141,12 +130,15 @@ class TestPerformanceTracker:
         assert "verification_hash" in attestation
 
         # Verify hash is deterministic
-        expected_content = json.dumps({
-            "contributor_id": "contributor_001",
-            "data_hash": "abc123",
-            "performance_delta": delta,
-            "timestamp": attestation["timestamp"]
-        }, sort_keys=True)
+        expected_content = json.dumps(
+            {
+                "contributor_id": "contributor_001",
+                "data_hash": "abc123",
+                "performance_delta": delta,
+                "timestamp": attestation["timestamp"],
+            },
+            sort_keys=True,
+        )
         expected_hash = hashlib.sha256(expected_content.encode()).hexdigest()
         assert attestation["verification_hash"] == expected_hash
 
@@ -177,7 +169,7 @@ class TestPerformanceTracker:
             "contributor_id": "contributor_001",
             "performance_delta": {"accuracy": 0.03, "f1": 0.02},
             "num_samples": 1000,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
         impact = tracker.get_contributor_impact(attestation)
@@ -195,19 +187,13 @@ class TestPerformanceTracker:
         tracker = PerformanceTracker()
 
         delta = {"accuracy": 0.03, "f1": 0.02}
-        attestation = {
-            "contributor_id": "contributor_001",
-            "verification_hash": "hash123"
-        }
+        attestation = {"contributor_id": "contributor_001", "verification_hash": "hash123"}
         data_contribution = {"num_samples": 1000}
 
         tracker._log_improvement_to_mlflow(delta, attestation, data_contribution)
 
         # Check metrics logged
-        expected_metrics = {
-            "delta_accuracy": 0.03,
-            "delta_f1": 0.02
-        }
+        expected_metrics = {"delta_accuracy": 0.03, "delta_f1": 0.02}
         mock_log_metrics.assert_called_with(expected_metrics)
 
         # Check attestation logged
@@ -246,18 +232,18 @@ class TestPerformanceTracker:
             {
                 "contributor_id": "contributor_001",
                 "performance_delta": {"accuracy": 0.02, "f1": 0.01},
-                "num_samples": 500
+                "num_samples": 500,
             },
             {
                 "contributor_id": "contributor_001",
                 "performance_delta": {"accuracy": 0.01, "f1": 0.02},
-                "num_samples": 300
+                "num_samples": 300,
             },
             {
                 "contributor_id": "contributor_002",
                 "performance_delta": {"accuracy": 0.03, "f1": 0.03},
-                "num_samples": 1000
-            }
+                "num_samples": 1000,
+            },
         ]
 
         aggregated = tracker.aggregate_contributor_performance(attestations)

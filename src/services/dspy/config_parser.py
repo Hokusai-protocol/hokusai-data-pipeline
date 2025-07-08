@@ -1,9 +1,10 @@
 """Configuration parser for DSPy models."""
 
-import yaml
-from pathlib import Path
-from typing import Any, Dict, Union
 import json
+from pathlib import Path
+from typing import Any, Union
+
+import yaml
 
 from ...utils.logging_utils import get_pipeline_logger
 
@@ -12,7 +13,7 @@ logger = get_pipeline_logger(__name__)
 
 class DSPyConfigParser:
     """Parser for DSPy configuration files.
-    
+
     Supports parsing YAML configurations that define DSPy programs,
     including their signatures, chains, and source locations.
     """
@@ -20,18 +21,18 @@ class DSPyConfigParser:
     # Schema for DSPy configuration
     CONFIG_SCHEMA = {
         "required": ["name", "version", "source"],
-        "optional": ["description", "author", "signatures", "chains", "dependencies"]
+        "optional": ["description", "author", "signatures", "chains", "dependencies"],
     }
 
-    def parse_yaml(self, config_path: Union[str, Path]) -> Dict[str, Any]:
+    def parse_yaml(self, config_path: Union[str, Path]) -> dict[str, Any]:
         """Parse a YAML configuration file.
-        
+
         Args:
             config_path: Path to the YAML configuration file
-            
+
         Returns:
             Parsed configuration dictionary
-            
+
         Raises:
             FileNotFoundError: If configuration file doesn't exist
             ValueError: If YAML is invalid or missing required fields
@@ -46,7 +47,7 @@ class DSPyConfigParser:
             with open(config_path) as f:
                 config = yaml.safe_load(f)
         except yaml.YAMLError as e:
-            raise ValueError(f"Invalid YAML in configuration file: {e}")
+            raise ValueError(f"Invalid YAML in configuration file: {e}") from e
 
         # Validate required fields
         self._validate_config(config)
@@ -54,18 +55,20 @@ class DSPyConfigParser:
         # Process nested structures
         config = self._process_config(config)
 
-        logger.info(f"Successfully parsed DSPy configuration: {config['name']} v{config['version']}")
+        logger.info(
+            f"Successfully parsed DSPy configuration: {config['name']} v{config['version']}"
+        )
         return config
 
-    def parse_json(self, config_path: Union[str, Path]) -> Dict[str, Any]:
+    def parse_json(self, config_path: Union[str, Path]) -> dict[str, Any]:
         """Parse a JSON configuration file.
-        
+
         Args:
             config_path: Path to the JSON configuration file
-            
+
         Returns:
             Parsed configuration dictionary
-            
+
         Raises:
             FileNotFoundError: If configuration file doesn't exist
             ValueError: If JSON is invalid or missing required fields
@@ -80,7 +83,7 @@ class DSPyConfigParser:
             with open(config_path) as f:
                 config = json.load(f)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in configuration file: {e}")
+            raise ValueError(f"Invalid JSON in configuration file: {e}") from e
 
         # Validate required fields
         self._validate_config(config)
@@ -88,18 +91,20 @@ class DSPyConfigParser:
         # Process nested structures
         config = self._process_config(config)
 
-        logger.info(f"Successfully parsed DSPy configuration: {config['name']} v{config['version']}")
+        logger.info(
+            f"Successfully parsed DSPy configuration: {config['name']} v{config['version']}"
+        )
         return config
 
-    def parse_python_config(self, config_dict: Dict[str, Any]) -> Dict[str, Any]:
+    def parse_python_config(self, config_dict: dict[str, Any]) -> dict[str, Any]:
         """Parse a Python dictionary configuration.
-        
+
         Args:
             config_dict: Configuration dictionary
-            
+
         Returns:
             Validated and processed configuration dictionary
-            
+
         Raises:
             ValueError: If configuration is invalid
 
@@ -110,15 +115,17 @@ class DSPyConfigParser:
         # Process nested structures
         config = self._process_config(config_dict)
 
-        logger.info(f"Successfully parsed DSPy configuration: {config['name']} v{config['version']}")
+        logger.info(
+            f"Successfully parsed DSPy configuration: {config['name']} v{config['version']}"
+        )
         return config
 
-    def _validate_config(self, config: Dict[str, Any]) -> None:
+    def _validate_config(self, config: dict[str, Any]) -> None:
         """Validate configuration has required fields.
-        
+
         Args:
             config: Configuration dictionary to validate
-            
+
         Raises:
             ValueError: If required fields are missing
 
@@ -132,7 +139,9 @@ class DSPyConfigParser:
                 missing_fields.append(field)
 
         if missing_fields:
-            raise ValueError(f"Missing required fields in configuration: {', '.join(missing_fields)}")
+            raise ValueError(
+                f"Missing required fields in configuration: {', '.join(missing_fields)}"
+            )
 
         # Validate source structure
         if not isinstance(config["source"], dict):
@@ -144,15 +153,17 @@ class DSPyConfigParser:
         # Validate source type
         valid_source_types = ["local", "huggingface", "github"]
         if config["source"]["type"] not in valid_source_types:
-            raise ValueError(f"Invalid source type: {config['source']['type']}. "
-                           f"Must be one of: {', '.join(valid_source_types)}")
+            raise ValueError(
+                f"Invalid source type: {config['source']['type']}. "
+                f"Must be one of: {', '.join(valid_source_types)}"
+            )
 
-    def _process_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def _process_config(self, config: dict[str, Any]) -> dict[str, Any]:
         """Process and normalize configuration.
-        
+
         Args:
             config: Raw configuration dictionary
-            
+
         Returns:
             Processed configuration dictionary
 
@@ -175,12 +186,12 @@ class DSPyConfigParser:
 
         return config
 
-    def _process_signatures(self, signatures: Any) -> Dict[str, Dict[str, Any]]:
+    def _process_signatures(self, signatures: Any) -> dict[str, dict[str, Any]]:
         """Process signature definitions.
-        
+
         Args:
             signatures: Raw signature definitions
-            
+
         Returns:
             Processed signature dictionary
 
@@ -201,17 +212,17 @@ class DSPyConfigParser:
                 "inputs": sig_def["inputs"],
                 "outputs": sig_def["outputs"],
                 "description": sig_def.get("description", ""),
-                "examples": sig_def.get("examples", [])
+                "examples": sig_def.get("examples", []),
             }
 
         return processed
 
-    def _process_chains(self, chains: Any) -> Dict[str, Dict[str, Any]]:
+    def _process_chains(self, chains: Any) -> dict[str, dict[str, Any]]:
         """Process chain definitions.
-        
+
         Args:
             chains: Raw chain definitions
-            
+
         Returns:
             Processed chain dictionary
 
@@ -232,17 +243,17 @@ class DSPyConfigParser:
                 "steps": chain_def["steps"],
                 "description": chain_def.get("description", ""),
                 "input_signature": chain_def.get("input_signature"),
-                "output_signature": chain_def.get("output_signature")
+                "output_signature": chain_def.get("output_signature"),
             }
 
         return processed
 
     def _get_default_value(self, field: str) -> Any:
         """Get default value for optional field.
-        
+
         Args:
             field: Field name
-            
+
         Returns:
             Default value for the field
 
@@ -252,13 +263,13 @@ class DSPyConfigParser:
             "author": "unknown",
             "signatures": {},
             "chains": {},
-            "dependencies": []
+            "dependencies": [],
         }
         return defaults.get(field, None)
 
     def create_example_config(self, output_path: Union[str, Path]) -> None:
         """Create an example DSPy configuration file.
-        
+
         Args:
             output_path: Path where to save the example configuration
 
@@ -272,29 +283,29 @@ class DSPyConfigParser:
                 "type": "local",
                 "path": "./models/my_dspy_program.py",
                 "class_name": "MyDSPyProgram",
-                "format": "python"
+                "format": "python",
             },
             "signatures": {
                 "text_generation": {
                     "inputs": ["prompt", "context"],
                     "outputs": ["generated_text"],
-                    "description": "Generate text based on prompt and context"
+                    "description": "Generate text based on prompt and context",
                 },
                 "text_classification": {
                     "inputs": ["text"],
                     "outputs": ["label", "confidence"],
-                    "description": "Classify text into categories"
-                }
+                    "description": "Classify text into categories",
+                },
             },
             "chains": {
                 "main_chain": {
                     "description": "Main processing chain",
                     "steps": ["text_generation", "text_classification"],
                     "input_signature": "text_generation",
-                    "output_signature": "text_classification"
+                    "output_signature": "text_classification",
                 }
             },
-            "dependencies": ["transformers>=4.0.0", "torch>=2.0.0"]
+            "dependencies": ["transformers>=4.0.0", "torch>=2.0.0"],
         }
 
         output_path = Path(output_path)

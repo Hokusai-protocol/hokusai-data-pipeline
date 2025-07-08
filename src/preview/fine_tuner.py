@@ -1,15 +1,16 @@
 """Fine-tuning module for preview pipeline."""
 
-import time
+import copy
+import logging
 import pickle
+import time
 from pathlib import Path
-from typing import Dict, Tuple, Any, Optional
-import pandas as pd
+from typing import Any, Optional
+
 import numpy as np
+import pandas as pd
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
-import logging
-import copy
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +29,10 @@ class PreviewFineTuner:
         show_progress: bool = True,
         memory_efficient: bool = False,
         checkpoint_dir: Optional[str] = None,
-        save_checkpoints: bool = False
-    ):
+        save_checkpoints: bool = False,
+    ) -> None:
         """Initialize PreviewFineTuner.
-        
+
         Args:
             epochs: Number of training epochs (reduced for preview)
             batch_size: Batch size for training
@@ -58,12 +59,12 @@ class PreviewFineTuner:
 
         np.random.seed(random_seed)
 
-    def prepare_data_splits(self, data: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def prepare_data_splits(self, data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Split data into training and validation sets.
-        
+
         Args:
             data: Full dataset
-            
+
         Returns:
             Tuple of (train_data, val_data)
 
@@ -75,22 +76,18 @@ class PreviewFineTuner:
             data,
             test_size=self.validation_split,
             stratify=data["label"],
-            random_state=self.random_seed
+            random_state=self.random_seed,
         )
 
         return train_data, val_data
 
-    def fine_tune(
-        self,
-        base_model: Any,
-        data: pd.DataFrame
-    ) -> Tuple[Any, Dict[str, list]]:
+    def fine_tune(self, base_model: Any, data: pd.DataFrame) -> tuple[Any, dict[str, list]]:
         """Fine-tune the model on contributed data.
-        
+
         Args:
             base_model: Base model to fine-tune
             data: Training data
-            
+
         Returns:
             Tuple of (fine_tuned_model, training_history)
 
@@ -106,11 +103,7 @@ class PreviewFineTuner:
         model = copy.deepcopy(base_model)
 
         # Initialize training history
-        history = {
-            "train_loss": [],
-            "val_loss": [],
-            "epoch_times": []
-        }
+        history = {"train_loss": [], "val_loss": [], "epoch_times": []}
 
         # Early stopping variables
         best_val_loss = float("inf")
@@ -121,12 +114,10 @@ class PreviewFineTuner:
             epoch_start = time.time()
 
             if self.show_progress:
-                print(f"\nEpoch {epoch + 1}/{self.epochs}")
+                logging.info(f"\nEpoch {epoch + 1}/{self.epochs}")
 
             # Train one epoch
-            epoch_metrics = self._train_epoch(
-                model, train_data, val_data, epoch
-            )
+            epoch_metrics = self._train_epoch(model, train_data, val_data, epoch)
 
             history["train_loss"].append(epoch_metrics["loss"])
             history["val_loss"].append(epoch_metrics["val_loss"])
@@ -147,7 +138,7 @@ class PreviewFineTuner:
 
             if patience_counter >= self.early_stopping_patience:
                 if self.show_progress:
-                    print(f"Early stopping triggered at epoch {epoch + 1}")
+                    logging.info(f"Early stopping triggered at epoch {epoch + 1}")
                 break
 
             # Save checkpoint if requested
@@ -157,20 +148,16 @@ class PreviewFineTuner:
         return model, history
 
     def _train_epoch(
-        self,
-        model: Any,
-        train_data: pd.DataFrame,
-        val_data: pd.DataFrame,
-        epoch: int
-    ) -> Dict[str, float]:
+        self, model: Any, train_data: pd.DataFrame, val_data: pd.DataFrame, epoch: int
+    ) -> dict[str, float]:
         """Train model for one epoch.
-        
+
         Args:
             model: Model to train
             train_data: Training data
             val_data: Validation data
             epoch: Current epoch number
-            
+
         Returns:
             Dictionary with epoch metrics
 
@@ -185,8 +172,7 @@ class PreviewFineTuner:
             for metric in model.metrics:
                 if metric != "loss":
                     model.metrics[metric] = min(
-                        model.metrics[metric] * improvement_factor,
-                        0.99  # Cap at 99%
+                        model.metrics[metric] * improvement_factor, 0.99  # Cap at 99%
                     )
 
         # Calculate mock losses (decreasing over epochs)
@@ -204,10 +190,7 @@ class PreviewFineTuner:
         for batch_idx in batch_iterator:
             self._process_batch(model, train_data, batch_idx)
 
-        return {
-            "loss": max(0.1, train_loss),
-            "val_loss": max(0.15, val_loss)
-        }
+        return {"loss": max(0.1, train_loss), "val_loss": max(0.15, val_loss)}
 
     def _process_batch(self, model: Any, data: pd.DataFrame, batch_idx: int):
         """Process a single batch of data."""
@@ -222,11 +205,13 @@ class PreviewFineTuner:
         if not self.memory_efficient:
             time.sleep(0.001)  # Simulate computation
 
-    def _display_progress(self, metrics: Dict[str, float], epoch_time: float):
+    def _display_progress(self, metrics: dict[str, float], epoch_time: float):
         """Display training progress."""
         eta = epoch_time * (self.epochs - len(metrics))
-        print(f"loss: {metrics['loss']:.4f} - val_loss: {metrics['val_loss']:.4f} - "
-              f"ETA: {eta:.1f}s")
+        logging.info(
+            f"loss: {metrics['loss']:.4f} - val_loss: {metrics['val_loss']:.4f} - "
+            f"ETA: {eta:.1f}s"
+        )
 
     def _save_checkpoint(self, model: Any, epoch: int):
         """Save model checkpoint."""

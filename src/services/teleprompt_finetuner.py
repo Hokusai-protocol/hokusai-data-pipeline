@@ -6,14 +6,12 @@ It includes DeltaOne evaluation and attestation generation for improvements.
 """
 
 import logging
+import threading
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass, field
-import threading
-import json
-import hashlib
+from typing import Any, Optional
 
 import mlflow
 from mlflow.tracking import MlflowClient
@@ -21,13 +19,13 @@ from mlflow.tracking import MlflowClient
 try:
     import dspy
     from dspy.teleprompt import BootstrapFewShot, BootstrapFewShotWithRandomSearch
+
     DSPY_AVAILABLE = True
 except ImportError:
     DSPY_AVAILABLE = False
     dspy = None
 
 from src.services.trace_loader import TraceLoader
-from src.evaluation.deltaone_evaluator import detect_delta_one
 from src.utils.attestation import generate_attestation_hash
 
 logger = logging.getLogger(__name__)
@@ -79,16 +77,16 @@ class OptimizationResult:
     strategy: str = ""
     error_message: Optional[str] = None
     model_version: Optional[str] = None
-    contributors: Dict[str, Dict[str, Any]] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    contributors: dict[str, dict[str, Any]] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class TelepromptFinetuner:
     """Service for fine-tuning DSPy programs using teleprompt."""
 
-    def __init__(self, config: OptimizationConfig):
+    def __init__(self, config: OptimizationConfig) -> None:
         """Initialize the fine-tuner service.
-        
+
         Args:
             config: Optimization configuration
 
@@ -107,16 +105,16 @@ class TelepromptFinetuner:
         program: Any,
         start_date: datetime,
         end_date: datetime,
-        outcome_metric: str = "engagement_score"
+        outcome_metric: str = "engagement_score",
     ) -> OptimizationResult:
         """Run teleprompt optimization on a DSPy program.
-        
+
         Args:
             program: DSPy program to optimize
             start_date: Start date for trace collection
             end_date: End date for trace collection
             outcome_metric: Metric to optimize for
-            
+
         Returns:
             OptimizationResult with optimized program and metadata
 
@@ -126,17 +124,10 @@ class TelepromptFinetuner:
 
         try:
             # Load traces from MLflow
-            traces = self._load_and_filter_traces(
-                program,
-                start_date,
-                end_date,
-                outcome_metric
-            )
+            traces = self._load_and_filter_traces(program, start_date, end_date, outcome_metric)
 
             if len(traces) < self.config.min_traces:
-                raise ValueError(
-                    f"Insufficient traces: {len(traces)} < {self.config.min_traces}"
-                )
+                raise ValueError(f"Insufficient traces: {len(traces)} < {self.config.min_traces}")
 
             # Calculate contributor weights
             contributors = self._calculate_contributor_weights(traces)
@@ -145,10 +136,7 @@ class TelepromptFinetuner:
             prepared_traces = self._prepare_traces_for_optimization(traces)
 
             # Run optimization
-            optimized_program = self._run_teleprompt_compilation(
-                program,
-                prepared_traces
-            )
+            optimized_program = self._run_teleprompt_compilation(program, prepared_traces)
 
             # Create result
             result = OptimizationResult(
@@ -161,11 +149,8 @@ class TelepromptFinetuner:
                 contributors=contributors,
                 metadata={
                     "outcome_metric": outcome_metric,
-                    "date_range": {
-                        "start": start_date.isoformat(),
-                        "end": end_date.isoformat()
-                    }
-                }
+                    "date_range": {"start": start_date.isoformat(), "end": end_date.isoformat()},
+                },
             )
 
             # Generate version
@@ -177,22 +162,18 @@ class TelepromptFinetuner:
         except Exception as e:
             logger.error(f"Optimization failed: {str(e)}")
             return OptimizationResult(
-                success=False,
-                error_message=str(e),
-                optimization_time=time.time() - start_time
+                success=False, error_message=str(e), optimization_time=time.time() - start_time
             )
 
     def evaluate_deltaone(
-        self,
-        optimization_result: OptimizationResult,
-        test_data: Optional[List[Dict]] = None
-    ) -> Dict[str, Any]:
+        self, optimization_result: OptimizationResult, test_data: Optional[list[dict]] = None
+    ) -> dict[str, Any]:
         """Evaluate if optimization achieved DeltaOne improvement.
-        
+
         Args:
             optimization_result: Result from optimization
             test_data: Optional test data for evaluation
-            
+
         Returns:
             Dictionary with DeltaOne evaluation results
 
@@ -221,14 +202,8 @@ class TelepromptFinetuner:
             "deltaone_achieved": deltaone_achieved,
             "delta": delta,
             "threshold": self.config.deltaone_threshold,
-            "baseline_metrics": {
-                "performance": baseline_perf,
-                "accuracy": baseline_perf
-            },
-            "optimized_metrics": {
-                "performance": optimized_perf,
-                "accuracy": optimized_perf
-            }
+            "baseline_metrics": {"performance": baseline_perf, "accuracy": baseline_perf},
+            "optimized_metrics": {"performance": optimized_perf, "accuracy": optimized_perf},
         }
 
         if deltaone_achieved:
@@ -239,16 +214,14 @@ class TelepromptFinetuner:
         return evaluation
 
     def generate_attestation(
-        self,
-        optimization_result: OptimizationResult,
-        deltaone_result: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, optimization_result: OptimizationResult, deltaone_result: dict[str, Any]
+    ) -> dict[str, Any]:
         """Generate attestation for DeltaOne achievement.
-        
+
         Args:
             optimization_result: Optimization result
             deltaone_result: DeltaOne evaluation result
-            
+
         Returns:
             Attestation data structure
 
@@ -265,34 +238,32 @@ class TelepromptFinetuner:
             "timestamp": datetime.utcnow().isoformat(),
             "model_info": {
                 "baseline_version": getattr(
-                    optimization_result.baseline_program,
-                    "version",
-                    "unknown"
+                    optimization_result.baseline_program, "version", "unknown"
                 ),
                 "optimized_version": optimization_result.model_version,
-                "optimization_strategy": optimization_result.strategy
+                "optimization_strategy": optimization_result.strategy,
             },
             "performance": {
                 "deltaone_achieved": True,
                 "performance_delta": deltaone_result["delta"],
                 "baseline_metrics": deltaone_result["baseline_metrics"],
-                "optimized_metrics": deltaone_result["optimized_metrics"]
+                "optimized_metrics": deltaone_result["optimized_metrics"],
             },
             "optimization_metadata": {
                 "trace_count": optimization_result.trace_count,
                 "optimization_time_seconds": optimization_result.optimization_time,
                 "outcome_metric": optimization_result.metadata.get("outcome_metric"),
-                "date_range": optimization_result.metadata.get("date_range")
+                "date_range": optimization_result.metadata.get("date_range"),
             },
             "contributors": [
                 {
                     "contributor_id": contrib_id,
                     "address": info["address"],
                     "weight": info["weight"],
-                    "trace_count": info["trace_count"]
+                    "trace_count": info["trace_count"],
                 }
                 for contrib_id, info in optimization_result.contributors.items()
-            ]
+            ],
         }
 
         # Generate attestation hash
@@ -304,15 +275,15 @@ class TelepromptFinetuner:
         self,
         optimization_result: OptimizationResult,
         model_name: str,
-        tags: Optional[Dict[str, str]] = None
-    ) -> Dict[str, Any]:
+        tags: Optional[dict[str, str]] = None,
+    ) -> dict[str, Any]:
         """Save optimized model to MLflow registry.
-        
+
         Args:
             optimization_result: Optimization result
             model_name: Name for the model in registry
             tags: Optional tags to add
-            
+
         Returns:
             Dictionary with model registration info
 
@@ -321,25 +292,24 @@ class TelepromptFinetuner:
 
         with mlflow.start_run() as run:
             # Log optimization metadata
-            mlflow.log_params({
-                "optimization_strategy": optimization_result.strategy,
-                "trace_count": optimization_result.trace_count,
-                "optimization_time": optimization_result.optimization_time
-            })
+            mlflow.log_params(
+                {
+                    "optimization_strategy": optimization_result.strategy,
+                    "trace_count": optimization_result.trace_count,
+                    "optimization_time": optimization_result.optimization_time,
+                }
+            )
 
             # Log contributor information
-            mlflow.log_dict(
-                optimization_result.contributors,
-                "contributors.json"
-            )
+            mlflow.log_dict(optimization_result.contributors, "contributors.json")
 
             # Log the optimized program (simplified for now)
             mlflow.log_dict(
                 {
                     "program_type": type(optimization_result.optimized_program).__name__,
-                    "version": optimization_result.model_version
+                    "version": optimization_result.model_version,
                 },
-                "program_metadata.json"
+                "program_metadata.json",
             )
 
             # Register model
@@ -349,40 +319,32 @@ class TelepromptFinetuner:
             model_tags = {
                 "optimization_strategy": optimization_result.strategy,
                 "trace_count": str(optimization_result.trace_count),
-                "optimized": "true"
+                "optimized": "true",
             }
             if tags:
                 model_tags.update(tags)
 
             # Register in MLflow
-            mlflow.register_model(
-                model_uri=model_uri,
-                name=model_name,
-                tags=model_tags
-            )
+            mlflow.register_model(model_uri=model_uri, name=model_name, tags=model_tags)
 
             return {
                 "model_name": model_name,
                 "version": optimization_result.model_version,
                 "run_id": run.info.run_id,
-                "tags": model_tags
+                "tags": model_tags,
             }
 
     def _load_and_filter_traces(
-        self,
-        program: Any,
-        start_date: datetime,
-        end_date: datetime,
-        outcome_metric: str
-    ) -> List[Dict[str, Any]]:
+        self, program: Any, start_date: datetime, end_date: datetime, outcome_metric: str
+    ) -> list[dict[str, Any]]:
         """Load and filter traces from MLflow.
-        
+
         Args:
             program: DSPy program
             start_date: Start date
             end_date: End date
             outcome_metric: Outcome metric to filter by
-            
+
         Returns:
             List of filtered traces
 
@@ -394,7 +356,7 @@ class TelepromptFinetuner:
             end_date=end_date,
             min_score=self.config.min_quality_score,
             outcome_metric=outcome_metric,
-            limit=self.config.max_traces
+            limit=self.config.max_traces,
         )
 
         # Additional filtering can be added here
@@ -403,14 +365,13 @@ class TelepromptFinetuner:
         return traces
 
     def _calculate_contributor_weights(
-        self,
-        traces: List[Dict[str, Any]]
-    ) -> Dict[str, Dict[str, Any]]:
+        self, traces: list[dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
         """Calculate contributor weights based on trace contributions.
-        
+
         Args:
             traces: List of traces with contributor info
-            
+
         Returns:
             Dictionary mapping contributor IDs to their info and weights
 
@@ -426,7 +387,7 @@ class TelepromptFinetuner:
                 contributor_stats[contrib_id] = {
                     "address": trace.get("contributor_address", ""),
                     "trace_count": 0,
-                    "total_score": 0.0
+                    "total_score": 0.0,
                 }
 
             contributor_stats[contrib_id]["trace_count"] += 1
@@ -442,20 +403,19 @@ class TelepromptFinetuner:
                 "address": stats["address"],
                 "weight": round(weight, 4),
                 "trace_count": stats["trace_count"],
-                "avg_score": stats["total_score"] / stats["trace_count"]
+                "avg_score": stats["total_score"] / stats["trace_count"],
             }
 
         return contributors
 
     def _prepare_traces_for_optimization(
-        self,
-        traces: List[Dict[str, Any]]
-    ) -> List[Tuple[Dict, Dict]]:
+        self, traces: list[dict[str, Any]]
+    ) -> list[tuple[dict, dict]]:
         """Prepare traces for teleprompt optimization.
-        
+
         Args:
             traces: Raw traces from MLflow
-            
+
         Returns:
             List of (input, output) tuples for teleprompt
 
@@ -475,17 +435,13 @@ class TelepromptFinetuner:
         logger.info(f"Prepared {len(prepared)} traces for optimization")
         return prepared
 
-    def _run_teleprompt_compilation(
-        self,
-        program: Any,
-        traces: List[Tuple[Dict, Dict]]
-    ) -> Any:
+    def _run_teleprompt_compilation(self, program: Any, traces: list[tuple[dict, dict]]) -> Any:
         """Run teleprompt compilation with timeout.
-        
+
         Args:
             program: DSPy program to optimize
             traces: Prepared traces
-            
+
         Returns:
             Optimized program
 
@@ -497,13 +453,13 @@ class TelepromptFinetuner:
         if self.config.strategy == OptimizationStrategy.BOOTSTRAP_FEWSHOT:
             optimizer = BootstrapFewShot(
                 max_bootstrapped_demos=self.config.optimization_rounds,
-                max_labeled_demos=len(traces)
+                max_labeled_demos=len(traces),
             )
         elif self.config.strategy == OptimizationStrategy.BOOTSTRAP_FEWSHOT_RANDOM:
             optimizer = BootstrapFewShotWithRandomSearch(
                 max_bootstrapped_demos=self.config.optimization_rounds,
                 max_labeled_demos=len(traces),
-                num_candidate_programs=self.config.num_candidates
+                num_candidate_programs=self.config.num_candidates,
             )
         else:
             raise ValueError(f"Unsupported strategy: {self.config.strategy}")
@@ -520,28 +476,21 @@ class TelepromptFinetuner:
 
         try:
             # Compile program
-            optimized = optimizer.compile(
-                program,
-                trainset=traces
-            )
+            optimized = optimizer.compile(program, trainset=traces)
             signal.alarm(0)  # Cancel timeout
             return optimized
 
-        except Exception as e:
+        except Exception:
             signal.alarm(0)  # Cancel timeout
             raise
 
-    def _generate_version(
-        self,
-        program: Any,
-        result: OptimizationResult
-    ) -> str:
+    def _generate_version(self, program: Any, result: OptimizationResult) -> str:
         """Generate version string for optimized model.
-        
+
         Args:
             program: Original program
             result: Optimization result
-            
+
         Returns:
             Version string
 

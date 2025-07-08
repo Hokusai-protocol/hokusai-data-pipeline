@@ -1,16 +1,18 @@
 """Output formatter module for preview pipeline."""
 
 import json
-from pathlib import Path
-from typing import Dict, Any, Union
+import logging
 import sys
+from pathlib import Path
+from typing import Any, Union
+
 
 class PreviewOutputFormatter:
     """Formats preview results for display and export."""
 
-    def __init__(self, use_colors: bool = False):
+    def __init__(self, use_colors: bool = False) -> None:
         """Initialize PreviewOutputFormatter.
-        
+
         Args:
             use_colors: Whether to use ANSI colors in output
 
@@ -18,21 +20,25 @@ class PreviewOutputFormatter:
         self.use_colors = use_colors and sys.stdout.isatty()
 
         # ANSI color codes
-        self.colors = {
-            "green": "\033[92m",
-            "red": "\033[91m",
-            "yellow": "\033[93m",
-            "blue": "\033[94m",
-            "bold": "\033[1m",
-            "reset": "\033[0m"
-        } if self.use_colors else dict.fromkeys(["green", "red", "yellow", "blue", "bold", "reset"], "")
+        self.colors = (
+            {
+                "green": "\033[92m",
+                "red": "\033[91m",
+                "yellow": "\033[93m",
+                "blue": "\033[94m",
+                "bold": "\033[1m",
+                "reset": "\033[0m",
+            }
+            if self.use_colors
+            else dict.fromkeys(["green", "red", "yellow", "blue", "bold", "reset"], "")
+        )
 
-    def format_json(self, data: Dict[str, Any]) -> str:
+    def format_json(self, data: dict[str, Any]) -> str:
         """Format output as JSON string.
-        
+
         Args:
             data: Output data dictionary
-            
+
         Returns:
             Formatted JSON string
 
@@ -43,22 +49,24 @@ class PreviewOutputFormatter:
         # Format with indentation
         return json.dumps(data_with_disclaimer, indent=2, default=str)
 
-    def format_pretty(self, data: Dict[str, Any]) -> None:
+    def format_pretty(self, data: dict[str, Any]) -> None:
         """Format and print pretty console output.
-        
+
         Args:
             data: Output data dictionary
 
         """
-        print(f"\n{self.colors['bold']}{'=' * 60}{self.colors['reset']}")
-        print(f"{self.colors['yellow']}PREVIEW - NON-BINDING ESTIMATE{self.colors['reset']}")
-        print(f"{self.colors['bold']}{'=' * 60}{self.colors['reset']}\n")
+        logging.info(f"\n{self.colors['bold']}{'=' * 60}{self.colors['reset']}")
+        logging.info(f"{self.colors['yellow']}PREVIEW - NON-BINDING ESTIMATE{self.colors['reset']}")
+        logging.info(f"{self.colors['bold']}{'=' * 60}{self.colors['reset']}\n")
 
         # DeltaOne Score
         delta_score = data.get("delta_computation", {}).get("delta_one_score", 0)
         score_color = self.colors["green"] if delta_score > 0 else self.colors["red"]
-        print(f"{self.colors['bold']}DeltaOne Score:{self.colors['reset']} "
-              f"{score_color}{delta_score:.4f}{self.colors['reset']}")
+        logging.info(
+            f"{self.colors['bold']}DeltaOne Score:{self.colors['reset']} "
+            f"{score_color}{delta_score:.4f}{self.colors['reset']}"
+        )
 
         # Preview metadata
         preview_meta = data.get("preview_metadata", {})
@@ -67,13 +75,13 @@ class PreviewOutputFormatter:
             sample_size = preview_meta.get("sample_size_used", 0)
             time_elapsed = preview_meta.get("time_elapsed", 0)
 
-            print(f"\n{self.colors['bold']}Preview Details:{self.colors['reset']}")
-            print(f"  Confidence: {self.format_percentage(confidence)}")
-            print(f"  Sample Size: {sample_size:,}")
-            print(f"  Time Elapsed: {self.format_time(time_elapsed)}")
+            logging.info(f"\n{self.colors['bold']}Preview Details:{self.colors['reset']}")
+            logging.info(f"  Confidence: {self.format_percentage(confidence)}")
+            logging.info(f"  Sample Size: {sample_size:,}")
+            logging.info(f"  Time Elapsed: {self.format_time(time_elapsed)}")
 
         # Metrics comparison
-        print(f"\n{self.colors['bold']}Metrics Comparison:{self.colors['reset']}")
+        logging.info(f"\n{self.colors['bold']}Metrics Comparison:{self.colors['reset']}")
         metric_deltas = data.get("delta_computation", {}).get("metric_deltas", {})
 
         for metric_name, delta_info in metric_deltas.items():
@@ -95,17 +103,19 @@ class PreviewOutputFormatter:
                 color = self.colors["red"]
                 symbol = "✗"
 
-            print(f"  {metric_name:<12} {baseline_str} → {new_str} "
-                  f"{color}{delta_str} {symbol}{self.colors['reset']}")
+            logging.info(
+                f"  {metric_name:<12} {baseline_str} → {new_str} "
+                f"{color}{delta_str} {symbol}{self.colors['reset']}"
+            )
 
-        print(f"\n{self.colors['bold']}{'=' * 60}{self.colors['reset']}\n")
+        logging.info(f"\n{self.colors['bold']}{'=' * 60}{self.colors['reset']}\n")
 
-    def format_pretty_with_colors(self, data: Dict[str, Any]) -> str:
+    def format_pretty_with_colors(self, data: dict[str, Any]) -> str:
         """Format output with ANSI colors for terminal display.
-        
+
         Args:
             data: Output data dictionary
-            
+
         Returns:
             Formatted string with color codes
 
@@ -130,12 +140,12 @@ class PreviewOutputFormatter:
 
         return output
 
-    def add_disclaimer(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def add_disclaimer(self, data: dict[str, Any]) -> dict[str, Any]:
         """Add preview disclaimer to output data.
-        
+
         Args:
             data: Original output data
-            
+
         Returns:
             Data with disclaimer added
 
@@ -149,9 +159,9 @@ class PreviewOutputFormatter:
         )
         return data_copy
 
-    def save_to_file(self, data: Dict[str, Any], file_path: Union[str, Path]) -> None:
+    def save_to_file(self, data: dict[str, Any], file_path: Union[str, Path]) -> None:
         """Save formatted output to file.
-        
+
         Args:
             data: Output data
             file_path: Path to save file
@@ -168,10 +178,10 @@ class PreviewOutputFormatter:
 
     def format_time(self, seconds: float) -> str:
         """Format time duration in human-readable format.
-        
+
         Args:
             seconds: Time in seconds
-            
+
         Returns:
             Formatted time string
 
@@ -190,10 +200,10 @@ class PreviewOutputFormatter:
 
     def format_percentage(self, value: float) -> str:
         """Format value as percentage.
-        
+
         Args:
             value: Value between 0 and 1
-            
+
         Returns:
             Formatted percentage string
 
@@ -202,10 +212,10 @@ class PreviewOutputFormatter:
 
     def format_delta(self, value: float) -> str:
         """Format delta value with sign.
-        
+
         Args:
             value: Delta value
-            
+
         Returns:
             Formatted delta string
 
@@ -213,12 +223,12 @@ class PreviewOutputFormatter:
         sign = "+" if value >= 0 else ""
         return f"{sign}{value * 100:.1f}%"
 
-    def validate_output(self, data: Dict[str, Any]) -> bool:
+    def validate_output(self, data: dict[str, Any]) -> bool:
         """Validate output data against expected schema.
-        
+
         Args:
             data: Output data to validate
-            
+
         Returns:
             True if valid, False otherwise
 
@@ -246,7 +256,7 @@ class PreviewOutputFormatter:
                 "yellow": "\033[93m",
                 "blue": "\033[94m",
                 "bold": "\033[1m",
-                "reset": "\033[0m"
+                "reset": "\033[0m",
             }
         else:
             self.colors = dict.fromkeys(["green", "red", "yellow", "blue", "bold", "reset"], "")

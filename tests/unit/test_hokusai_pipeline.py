@@ -1,19 +1,12 @@
 """Unit tests for the main Hokusai pipeline."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock, call
-import json
 from datetime import datetime
-import numpy as np
-from pathlib import Path
-import tempfile
-import os
+from unittest.mock import Mock, patch
+
+import pytest
 
 from src.pipeline.hokusai_pipeline import HokusaiPipeline
-from src.utils.constants import (
-    STATUS_SUCCESS, STATUS_FAILED, STATUS_PARTIAL,
-    ATTESTATION_VERSION, ATTESTATION_SCHEMA_VERSION
-)
+from src.utils.constants import ATTESTATION_SCHEMA_VERSION, ATTESTATION_VERSION, STATUS_SUCCESS
 
 
 class TestHokusaiPipeline:
@@ -58,7 +51,9 @@ class TestHokusaiPipeline:
     @patch("src.pipeline.hokusai_pipeline.current")
     @patch("src.pipeline.hokusai_pipeline.random")
     @patch("src.pipeline.hokusai_pipeline.np.random")
-    def test_start_step_production(self, mock_np_random, mock_random, mock_current, mock_get_config):
+    def test_start_step_production(
+        self, mock_np_random, mock_random, mock_current, mock_get_config
+    ):
         """Test start step in production mode."""
         self.pipeline.dry_run = False
 
@@ -138,7 +133,7 @@ class TestHokusaiPipeline:
         mock_integrated_data = {
             "data_hash": "abc123",
             "num_samples": 5000,
-            "contributor_weights": {"contrib1": 0.6, "contrib2": 0.4}
+            "contributor_weights": {"contrib1": 0.6, "contrib2": 0.4},
         }
         mock_integrator.integrate_from_path.return_value = mock_integrated_data
         mock_integrator_class.return_value = mock_integrator
@@ -182,8 +177,7 @@ class TestHokusaiPipeline:
         self.pipeline.train_new_model()
 
         mock_trainer.train_from_baseline.assert_called_once_with(
-            baseline_model=self.pipeline.baseline_model,
-            training_data=self.pipeline.integrated_data
+            baseline_model=self.pipeline.baseline_model, training_data=self.pipeline.integrated_data
         )
         assert self.pipeline.new_model == mock_new_model
 
@@ -231,14 +225,14 @@ class TestHokusaiPipeline:
             "precision": 0.83,
             "recall": 0.87,
             "f1_score": 0.85,
-            "overall_score": 0.85
+            "overall_score": 0.85,
         }
         self.pipeline.new_evaluation = {
             "accuracy": 0.88,
             "precision": 0.86,
             "recall": 0.90,
             "f1_score": 0.88,
-            "overall_score": 0.88
+            "overall_score": 0.88,
         }
         self.pipeline.next = Mock()
 
@@ -246,7 +240,9 @@ class TestHokusaiPipeline:
 
         assert self.pipeline.delta_results is not None
         assert self.pipeline.delta_results["accuracy"]["delta"] == 0.03
-        assert self.pipeline.delta_results["accuracy"]["relative_change"] == pytest.approx(0.0353, rel=1e-3)
+        assert self.pipeline.delta_results["accuracy"]["relative_change"] == pytest.approx(
+            0.0353, rel=1e-3
+        )
         assert self.pipeline.delta_score == 0.03
         self.pipeline.next.assert_called_once_with(self.pipeline.generate_attestation_output)
 
@@ -258,7 +254,7 @@ class TestHokusaiPipeline:
         self.pipeline.new_model = {"version": "1.1.0"}
         self.pipeline.integrated_data = {
             "data_hash": "abc123",
-            "contributor_weights": {"contrib1": 0.6}
+            "contributor_weights": {"contrib1": 0.6},
         }
         self.pipeline.baseline_evaluation = {"overall_score": 0.85}
         self.pipeline.new_evaluation = {"overall_score": 0.88}
@@ -314,7 +310,7 @@ class TestHokusaiPipeline:
         # Set up data
         self.pipeline.run_metadata = {
             "run_id": "test_123",
-            "started_at": datetime.utcnow().isoformat()
+            "started_at": datetime.utcnow().isoformat(),
         }
         self.pipeline.delta_score = 0.03
         self.pipeline.attestation = {"attestation_hash": "abc123"}
@@ -386,7 +382,7 @@ class TestHokusaiPipeline:
             "baseline_model": {"version": "1.0.0"},
             "new_model": {"version": "1.1.0"},
             "integrated_data": {"data_hash": "abc123"},
-            "delta_score": 0.03
+            "delta_score": 0.03,
         }
 
         self.pipeline.run_metadata = {"run_id": data["run_id"]}

@@ -1,8 +1,9 @@
 """Unit tests for the PerformanceTracker service."""
 
-import pytest
-from unittest.mock import patch
 from datetime import datetime
+from unittest.mock import patch
+
+import pytest
 
 from src.services.performance_tracker import PerformanceTracker
 
@@ -23,7 +24,7 @@ class TestPerformanceTracker:
             "auroc": 0.82,
             "f1_score": 0.83,
             "precision": 0.84,
-            "recall": 0.82
+            "recall": 0.82,
         }
 
     @pytest.fixture
@@ -34,7 +35,7 @@ class TestPerformanceTracker:
             "auroc": 0.86,
             "f1_score": 0.87,
             "precision": 0.88,
-            "recall": 0.86
+            "recall": 0.86,
         }
 
     @pytest.fixture
@@ -46,7 +47,7 @@ class TestPerformanceTracker:
             "dataset_hash": "0xdeadbeef123456789",
             "data_size": 10000,
             "data_quality_score": 0.95,
-            "contribution_timestamp": "2024-01-01T00:00:00Z"
+            "contribution_timestamp": "2024-01-01T00:00:00Z",
         }
 
     def test_calculate_delta_basic(self, tracker, baseline_metrics, improved_metrics):
@@ -84,7 +85,9 @@ class TestPerformanceTracker:
         assert attestation["version"] == "1.0"
         assert attestation["timestamp"] is not None
         assert attestation["delta_metrics"] == delta
-        assert attestation["contributor_info"]["address"] == data_contribution["contributor_address"]
+        assert (
+            attestation["contributor_info"]["address"] == data_contribution["contributor_address"]
+        )
         assert attestation["data_contribution"]["dataset_hash"] == data_contribution["dataset_hash"]
         assert "attestation_hash" in attestation
         assert "signature" in attestation  # Placeholder for now
@@ -92,6 +95,7 @@ class TestPerformanceTracker:
     def test_generate_attestation_hash_consistency(self, tracker, data_contribution):
         """Test that attestation hash is deterministic for same inputs."""
         import time
+
         delta = {"accuracy": 0.04}
 
         # Generate two attestations
@@ -111,14 +115,21 @@ class TestPerformanceTracker:
     @patch("mlflow.log_metrics")
     @patch("mlflow.log_params")
     @patch("mlflow.log_dict")
-    def test_track_improvement_success(self, mock_log_dict, mock_log_params,
-                                     mock_log_metrics, tracker, baseline_metrics,
-                                     improved_metrics, data_contribution):
+    def test_track_improvement_success(
+        self,
+        mock_log_dict,
+        mock_log_params,
+        mock_log_metrics,
+        tracker,
+        baseline_metrics,
+        improved_metrics,
+        data_contribution,
+    ):
         """Test successful improvement tracking."""
         delta, attestation = tracker.track_improvement(
             baseline_metrics=baseline_metrics,
             improved_metrics=improved_metrics,
-            data_contribution=data_contribution
+            data_contribution=data_contribution,
         )
 
         # Verify delta calculation
@@ -126,7 +137,9 @@ class TestPerformanceTracker:
 
         # Verify attestation structure
         assert attestation["version"] == "1.0"
-        assert attestation["contributor_info"]["address"] == data_contribution["contributor_address"]
+        assert (
+            attestation["contributor_info"]["address"] == data_contribution["contributor_address"]
+        )
 
         # Verify MLflow logging
         mock_log_metrics.assert_called()
@@ -162,11 +175,7 @@ class TestPerformanceTracker:
 
     def test_calculate_impact_score(self, tracker):
         """Test impact score calculation."""
-        delta = {
-            "accuracy": 0.04,
-            "auroc": 0.03,
-            "f1_score": 0.035
-        }
+        delta = {"accuracy": 0.04, "auroc": 0.03, "f1_score": 0.035}
 
         score = tracker._calculate_impact_score(delta)
 
@@ -231,7 +240,7 @@ class TestPerformanceTracker:
         impacts = [
             {"model": "model1", "delta": {"accuracy": 0.02}},
             {"model": "model2", "delta": {"accuracy": 0.03}},
-            {"model": "model1", "delta": {"accuracy": 0.01}}  # Second contribution to model1
+            {"model": "model1", "delta": {"accuracy": 0.01}},  # Second contribution to model1
         ]
 
         aggregated = tracker._aggregate_impacts(impacts)

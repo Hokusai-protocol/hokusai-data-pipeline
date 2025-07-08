@@ -1,12 +1,10 @@
 """Unit tests for experiment manager service."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock, call
-import mlflow
-import pandas as pd
+from unittest.mock import MagicMock, Mock, patch
+
 import numpy as np
-from datetime import datetime
-from typing import Dict, Any
+import pandas as pd
+import pytest
 
 from src.services.experiment_manager import ExperimentManager
 
@@ -36,8 +34,9 @@ class TestExperimentManager:
     @patch("mlflow.start_run")
     @patch("mlflow.log_params")
     @patch("mlflow.set_tag")
-    def test_create_improvement_experiment(self, mock_set_tag, mock_log_params,
-                                         mock_start_run, mock_set_experiment):
+    def test_create_improvement_experiment(
+        self, mock_set_tag, mock_log_params, mock_start_run, mock_set_experiment
+    ):
         """Test creating improvement experiment."""
         # Mock run context
         mock_run = MagicMock()
@@ -51,16 +50,12 @@ class TestExperimentManager:
         # Test data
         contributed_data = {
             "features": [1, 2, 3, 4, 5],
-            "metadata": {
-                "dataset_hash": "abc123",
-                "contributor_id": "contributor_001"
-            }
+            "metadata": {"dataset_hash": "abc123", "contributor_id": "contributor_001"},
         }
 
         # Create experiment
         experiment_id = manager.create_improvement_experiment(
-            "baseline_model_001",
-            contributed_data
+            "baseline_model_001", contributed_data
         )
 
         assert experiment_id == "test_run_123"
@@ -114,17 +109,10 @@ class TestExperimentManager:
             manager = ExperimentManager()
 
         # Test data
-        test_data = {
-            "features": np.random.randn(10, 5),
-            "labels": y_true
-        }
+        test_data = {"features": np.random.randn(10, 5), "labels": y_true}
 
         # Compare models
-        result = manager.compare_models(
-            "baseline_model_001",
-            "candidate_model_002",
-            test_data
-        )
+        result = manager.compare_models("baseline_model_001", "candidate_model_002", test_data)
 
         assert result["baseline_id"] == "baseline_model_001"
         assert result["candidate_id"] == "candidate_model_002"
@@ -145,22 +133,24 @@ class TestExperimentManager:
             manager = ExperimentManager()
 
         # Mock search runs
-        mock_runs = pd.DataFrame([
-            {
-                "run_id": "run1",
-                "params.baseline_model_id": "model1",
-                "metrics.accuracy": 0.85,
-                "tags.experiment_type": "model_improvement",
-                "status": "FINISHED"
-            },
-            {
-                "run_id": "run2",
-                "params.baseline_model_id": "model1",
-                "metrics.accuracy": 0.87,
-                "tags.experiment_type": "model_improvement",
-                "status": "FINISHED"
-            }
-        ])
+        mock_runs = pd.DataFrame(
+            [
+                {
+                    "run_id": "run1",
+                    "params.baseline_model_id": "model1",
+                    "metrics.accuracy": 0.85,
+                    "tags.experiment_type": "model_improvement",
+                    "status": "FINISHED",
+                },
+                {
+                    "run_id": "run2",
+                    "params.baseline_model_id": "model1",
+                    "metrics.accuracy": 0.87,
+                    "tags.experiment_type": "model_improvement",
+                    "status": "FINISHED",
+                },
+            ]
+        )
 
         with patch("mlflow.search_runs", return_value=mock_runs):
             history = manager.get_experiment_history("model1", limit=10)
@@ -178,21 +168,13 @@ class TestExperimentManager:
 
         # Test data - candidate is better
         comparison_results = {
-            "baseline_metrics": {
-                "accuracy": 0.85,
-                "f1_score": 0.83,
-                "auroc": 0.87
-            },
-            "candidate_metrics": {
-                "accuracy": 0.88,
-                "f1_score": 0.86,
-                "auroc": 0.90
-            },
+            "baseline_metrics": {"accuracy": 0.85, "f1_score": 0.83, "auroc": 0.87},
+            "candidate_metrics": {"accuracy": 0.88, "f1_score": 0.86, "auroc": 0.90},
             "comparison": {
                 "accuracy": {"delta": 0.03, "improved": True},
                 "f1_score": {"delta": 0.03, "improved": True},
-                "auroc": {"delta": 0.03, "improved": True}
-            }
+                "auroc": {"delta": 0.03, "improved": True},
+            },
         }
 
         rec = manager.generate_recommendation(comparison_results)
@@ -209,18 +191,12 @@ class TestExperimentManager:
 
         # Test data - candidate is worse
         comparison_results = {
-            "baseline_metrics": {
-                "accuracy": 0.88,
-                "f1_score": 0.86
-            },
-            "candidate_metrics": {
-                "accuracy": 0.85,
-                "f1_score": 0.83
-            },
+            "baseline_metrics": {"accuracy": 0.88, "f1_score": 0.86},
+            "candidate_metrics": {"accuracy": 0.85, "f1_score": 0.83},
             "comparison": {
                 "accuracy": {"delta": -0.03, "improved": False},
-                "f1_score": {"delta": -0.03, "improved": False}
-            }
+                "f1_score": {"delta": -0.03, "improved": False},
+            },
         }
 
         rec = manager.generate_recommendation(comparison_results)
@@ -237,21 +213,17 @@ class TestExperimentManager:
 
         # Test data - mixed results
         comparison_results = {
-            "baseline_metrics": {
-                "accuracy": 0.85,
-                "f1_score": 0.86,
-                "auroc": 0.87
-            },
+            "baseline_metrics": {"accuracy": 0.85, "f1_score": 0.86, "auroc": 0.87},
             "candidate_metrics": {
                 "accuracy": 0.88,  # Better
                 "f1_score": 0.84,  # Worse
-                "auroc": 0.87      # Same
+                "auroc": 0.87,  # Same
             },
             "comparison": {
                 "accuracy": {"delta": 0.03, "improved": True},
                 "f1_score": {"delta": -0.02, "improved": False},
-                "auroc": {"delta": 0.0, "improved": False}
-            }
+                "auroc": {"delta": 0.0, "improved": False},
+            },
         }
 
         rec = manager.generate_recommendation(comparison_results)
@@ -270,7 +242,7 @@ class TestExperimentManager:
         mock_client.get_experiment_by_name.return_value = None
         mock_client.create_experiment.return_value = "exp_123"
 
-        manager = ExperimentManager("new_experiment")
+        ExperimentManager("new_experiment")
 
         mock_client.get_experiment_by_name.assert_called_with("new_experiment")
         mock_client.create_experiment.assert_called_once()
@@ -286,7 +258,7 @@ class TestExperimentManager:
         mock_experiment.experiment_id = "existing_123"
         mock_client.get_experiment_by_name.return_value = mock_experiment
 
-        manager = ExperimentManager("existing_experiment")
+        ExperimentManager("existing_experiment")
 
         mock_client.get_experiment_by_name.assert_called_with("existing_experiment")
         mock_client.create_experiment.assert_not_called()

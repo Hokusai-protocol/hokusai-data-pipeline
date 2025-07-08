@@ -1,12 +1,11 @@
 """Unit tests for API DSPy endpoints."""
 
-import pytest
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
-from fastapi.testclient import TestClient
-import json
-from datetime import datetime
-import tempfile
 import os
+import tempfile
+from unittest.mock import Mock, patch
+
+import pytest
+from fastapi.testclient import TestClient
 
 from src.api.routes.dspy import router
 
@@ -17,6 +16,7 @@ class TestDSPyAPI:
     def setup_method(self):
         """Set up test fixtures."""
         from fastapi import FastAPI
+
         self.app = FastAPI()
         self.app.include_router(router)
         self.client = TestClient(self.app)
@@ -55,7 +55,7 @@ class TestDSPyAPI:
             "name": "EmailDraft",
             "category": "text_generation",
             "description": "Generate email drafts",
-            "version": "1.0.0"
+            "version": "1.0.0",
         }
 
         mock_registry = Mock()
@@ -75,18 +75,13 @@ class TestDSPyAPI:
         """Test execute signature endpoint."""
         # Mock executor
         mock_executor = Mock()
-        mock_result = {
-            "email_body": "Dear John, Thank you for your message..."
-        }
+        mock_result = {"email_body": "Dear John, Thank you for your message..."}
         mock_executor.execute_signature.return_value = mock_result
         mock_executor_class.return_value = mock_executor
 
         request_data = {
             "signature_name": "EmailDraft",
-            "inputs": {
-                "recipient": "John Doe",
-                "subject": "Meeting Tomorrow"
-            }
+            "inputs": {"recipient": "John Doe", "subject": "Meeting Tomorrow"},
         }
 
         response = self.client.post("/dspy/execute", json=request_data)
@@ -106,11 +101,7 @@ class TestDSPyAPI:
         request_data = {
             "signature_name": "SummarizeText",
             "inputs": {"text": "Long text..."},
-            "config": {
-                "model": "gpt-4",
-                "temperature": 0.7,
-                "max_tokens": 150
-            }
+            "config": {"model": "gpt-4", "temperature": 0.7, "max_tokens": 150},
         }
 
         response = self.client.post("/dspy/execute", json=request_data)
@@ -130,12 +121,8 @@ class TestDSPyAPI:
         config_data = {
             "name": "CustomSignature",
             "type": "signature",
-            "inputs": {
-                "text": {"type": "str", "description": "Input text"}
-            },
-            "outputs": {
-                "result": {"type": "str", "description": "Result"}
-            }
+            "inputs": {"text": {"type": "str", "description": "Input text"}},
+            "outputs": {"result": {"type": "str", "description": "Result"}},
         }
 
         response = self.client.post("/dspy/validate", json=config_data)
@@ -164,7 +151,8 @@ class TestDSPyAPI:
     def test_upload_signature_config(self):
         """Test upload signature configuration file."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("""
+            f.write(
+                """
 name: CustomSignature
 type: signature
 version: 1.0.0
@@ -176,7 +164,8 @@ outputs:
   result:
     type: str
     description: Result
-""")
+"""
+            )
             config_path = f.name
 
         try:
@@ -203,7 +192,7 @@ outputs:
         mock_executor = Mock()
         mock_executor.execute_signature.side_effect = [
             {"email_body": "Email 1"},
-            {"email_body": "Email 2"}
+            {"email_body": "Email 2"},
         ]
         mock_executor_class.return_value = mock_executor
 
@@ -211,12 +200,12 @@ outputs:
             "requests": [
                 {
                     "signature_name": "EmailDraft",
-                    "inputs": {"recipient": "John", "subject": "Meeting"}
+                    "inputs": {"recipient": "John", "subject": "Meeting"},
                 },
                 {
                     "signature_name": "EmailDraft",
-                    "inputs": {"recipient": "Jane", "subject": "Update"}
-                }
+                    "inputs": {"recipient": "Jane", "subject": "Update"},
+                },
             ]
         }
 
@@ -231,11 +220,7 @@ outputs:
     def test_optimize_signature_endpoint(self, mock_optimizer_class):
         """Test optimize signature endpoint."""
         mock_optimizer = Mock()
-        mock_result = {
-            "optimized": True,
-            "improvement": 0.05,
-            "metrics": {"accuracy": 0.95}
-        }
+        mock_result = {"optimized": True, "improvement": 0.05, "metrics": {"accuracy": 0.95}}
         mock_optimizer.optimize.return_value = mock_result
         mock_optimizer_class.return_value = mock_optimizer
 
@@ -244,13 +229,10 @@ outputs:
             "training_data": [
                 {
                     "inputs": {"recipient": "John", "subject": "Test"},
-                    "outputs": {"email_body": "Dear John..."}
+                    "outputs": {"email_body": "Dear John..."},
                 }
             ],
-            "optimization_config": {
-                "strategy": "bootstrap_fewshot",
-                "rounds": 3
-            }
+            "optimization_config": {"strategy": "bootstrap_fewshot", "rounds": 3},
         }
 
         response = self.client.post("/dspy/optimize", json=optimize_request)
@@ -267,9 +249,7 @@ outputs:
             "total_executions": 1000,
             "average_latency_ms": 25.5,
             "success_rate": 0.98,
-            "daily_usage": [
-                {"date": "2024-01-01", "count": 50}
-            ]
+            "daily_usage": [{"date": "2024-01-01", "count": 50}],
         }
         mock_get_metrics.return_value = mock_metrics
 
@@ -286,7 +266,7 @@ outputs:
         mock_examples = [
             {
                 "inputs": {"recipient": "John", "subject": "Meeting"},
-                "outputs": {"email_body": "Dear John..."}
+                "outputs": {"email_body": "Dear John..."},
             }
         ]
         mock_get_examples.return_value = mock_examples
@@ -315,10 +295,7 @@ outputs:
             mock_executor.execute_signature.side_effect = Exception("Execution failed")
             mock_executor_class.return_value = mock_executor
 
-            request_data = {
-                "signature_name": "EmailDraft",
-                "inputs": {"recipient": "John"}
-            }
+            request_data = {"signature_name": "EmailDraft", "inputs": {"recipient": "John"}}
 
             response = self.client.post("/dspy/execute", json=request_data)
 
@@ -332,7 +309,7 @@ outputs:
             "name": "EmailDraft",
             "type": "signature",
             "version": "1.0.0",
-            "inputs": {"recipient": {"type": "str"}}
+            "inputs": {"recipient": {"type": "str"}},
         }
         mock_export.return_value = mock_config
 

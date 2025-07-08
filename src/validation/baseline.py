@@ -1,14 +1,14 @@
-"""Baseline comparison module for Hokusai ML Platform
-"""
+"""Baseline comparison module for Hokusai ML Platform."""
+
 import logging
-from typing import Optional, Dict, Any
 from enum import Enum
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class ComparisonResult(Enum):
-    """Result of baseline comparison"""
+    """Result of baseline comparison."""
 
     IMPROVED = "improved"
     NO_CHANGE = "no_change"
@@ -16,26 +16,27 @@ class ComparisonResult(Enum):
 
 
 class BaselineComparator:
-    """Compares model performance against baseline"""
+    """Compares model performance against baseline."""
 
-    def __init__(self, tolerance: float = 1e-6):
-        """Initialize comparator with optional tolerance for floating point comparison
-        
+    def __init__(self, tolerance: float = 1e-6) -> None:
+        """Initialize comparator with optional tolerance for floating point comparison.
+
         Args:
             tolerance: Small value to handle floating point comparison
 
         """
         self.tolerance = tolerance
 
-    def compare(self, current_value: float, baseline_value: float,
-                metric_type: str = "higher_better") -> ComparisonResult:
-        """Compare current metric value against baseline
-        
+    def compare(
+        self, current_value: float, baseline_value: float, metric_type: str = "higher_better"
+    ) -> ComparisonResult:
+        """Compare current metric value against baseline.
+
         Args:
             current_value: Current model's metric value
             baseline_value: Baseline metric value to compare against
             metric_type: Either "higher_better" (accuracy, AUC) or "lower_better" (MSE, MAE)
-            
+
         Returns:
             ComparisonResult indicating if model improved, degraded, or stayed same
 
@@ -56,16 +57,21 @@ class BaselineComparator:
         else:
             raise ValueError(f"Unknown metric type: {metric_type}")
 
-    def meets_threshold(self, current_value: float, baseline_value: float,
-                       threshold: float, metric_type: str = "higher_better") -> bool:
-        """Check if current value meets or exceeds threshold requirement
-        
+    def meets_threshold(
+        self,
+        current_value: float,
+        baseline_value: float,
+        threshold: float,
+        metric_type: str = "higher_better",
+    ) -> bool:
+        """Check if current value meets or exceeds threshold requirement.
+
         Args:
             current_value: Current model's metric value
             baseline_value: Baseline metric value
             threshold: Minimum improvement required (absolute or percentage)
             metric_type: Either "higher_better" or "lower_better"
-            
+
         Returns:
             True if threshold is met, False otherwise
 
@@ -77,15 +83,16 @@ class BaselineComparator:
         else:
             raise ValueError(f"Unknown metric type: {metric_type}")
 
-    def calculate_improvement(self, current_value: float, baseline_value: float,
-                            as_percentage: bool = False) -> float:
-        """Calculate improvement over baseline
-        
+    def calculate_improvement(
+        self, current_value: float, baseline_value: float, as_percentage: bool = False
+    ) -> float:
+        """Calculate improvement over baseline.
+
         Args:
             current_value: Current model's metric value
             baseline_value: Baseline metric value
             as_percentage: If True, return as percentage improvement
-            
+
         Returns:
             Improvement value (positive means better, negative means worse)
 
@@ -98,11 +105,11 @@ class BaselineComparator:
         return improvement
 
     def get_metric_type(self, metric_name: str) -> str:
-        """Determine if metric is "higher_better" or "lower_better"
-        
+        """Determine if metric is "higher_better" or "lower_better".
+
         Args:
             metric_name: Name of the metric
-            
+
         Returns:
             "higher_better" or "lower_better"
 
@@ -114,16 +121,21 @@ class BaselineComparator:
         else:
             return "higher_better"
 
-    def validate_improvement(self, current_value: float, baseline_value: float,
-                           metric_name: str, required_improvement: Optional[float] = None) -> Dict[str, Any]:
-        """Comprehensive validation of model improvement
-        
+    def validate_improvement(
+        self,
+        current_value: float,
+        baseline_value: float,
+        metric_name: str,
+        required_improvement: Optional[float] = None,
+    ) -> dict[str, Any]:
+        """Comprehensive validation of model improvement.
+
         Args:
             current_value: Current model's metric value
             baseline_value: Baseline metric value
             metric_name: Name of the metric being compared
             required_improvement: Optional minimum improvement required
-            
+
         Returns:
             Dictionary with validation results
 
@@ -131,7 +143,9 @@ class BaselineComparator:
         metric_type = self.get_metric_type(metric_name)
         comparison = self.compare(current_value, baseline_value, metric_type)
         improvement = self.calculate_improvement(current_value, baseline_value)
-        improvement_pct = self.calculate_improvement(current_value, baseline_value, as_percentage=True)
+        improvement_pct = self.calculate_improvement(
+            current_value, baseline_value, as_percentage=True
+        )
 
         result = {
             "metric_name": metric_name,
@@ -140,7 +154,7 @@ class BaselineComparator:
             "comparison": comparison.value,
             "improvement": improvement,
             "improvement_percentage": improvement_pct,
-            "meets_baseline": comparison != ComparisonResult.DEGRADED
+            "meets_baseline": comparison != ComparisonResult.DEGRADED,
         }
 
         if required_improvement is not None:

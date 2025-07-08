@@ -1,41 +1,41 @@
 """Example of integrating standardized metric logging with the Hokusai pipeline."""
 import time
 from datetime import datetime
+
 import mlflow
 
 from src.utils.metrics import (
+    MetricLogger,
     log_model_metrics,
     log_pipeline_metrics,
     log_usage_metrics,
-    MetricLogger,
-    STANDARD_METRICS
 )
 
 
-def simulate_pipeline_step(step_name: str):
+def simulate_pipeline_step(step_name: str) -> None:
     """Simulate a pipeline step with proper metric logging."""
     print(f"\n{step_name}")
     print("-" * 50)
-    
+
     start_time = time.time()
-    
+
     # Simulate some work
     time.sleep(0.1)
-    
+
     # Log pipeline execution metrics
     log_pipeline_metrics({
         "duration_seconds": time.time() - start_time,
         "memory_usage_mb": 256.5,
         "success_rate": 1.0
     })
-    
+
     print(f"✓ Logged pipeline metrics for {step_name}")
 
 
 def train_model_with_metrics():
     """Simulate model training with standardized metric logging."""
     simulate_pipeline_step("Model Training")
-    
+
     # Simulate training
     training_metrics = {
         "accuracy": 0.8934,
@@ -44,53 +44,53 @@ def train_model_with_metrics():
         "f1_score": 0.8915,
         "auroc": 0.9234
     }
-    
+
     # Log model performance metrics
     log_model_metrics(training_metrics)
-    
+
     # Log additional model-specific metrics
     logger = MetricLogger()
     logger.log_metric("model:latency_ms", 15.3)
     logger.log_metric("model:throughput_qps", 1000)
-    
+
     # Log pipeline-specific training metrics
     log_pipeline_metrics({
         "training_samples": 10000,
         "feature_count": 50,
         "data_processed": 10000
     })
-    
+
     print("✓ Logged model training metrics")
     return training_metrics
 
 
-def evaluate_models_with_metrics(baseline_metrics: dict, new_metrics: dict):
+def evaluate_models_with_metrics(baseline_metrics: dict, new_metrics: dict) -> None:
     """Simulate model evaluation with proper metric logging."""
     simulate_pipeline_step("Model Evaluation")
-    
+
     logger = MetricLogger()
-    
+
     # Log baseline model metrics
     for metric_name, value in baseline_metrics.items():
         logger.log_metric(f"model:baseline_{metric_name}", value)
-    
+
     # Log new model metrics
     for metric_name, value in new_metrics.items():
         logger.log_metric(f"model:new_{metric_name}", value)
-    
+
     # Calculate and log deltas
     for metric_name in baseline_metrics:
         if metric_name in new_metrics:
             delta = new_metrics[metric_name] - baseline_metrics[metric_name]
             logger.log_metric(f"model:delta_{metric_name}", delta)
-    
+
     print("✓ Logged model evaluation metrics with deltas")
 
 
-def track_usage_metrics():
+def track_usage_metrics() -> None:
     """Simulate tracking usage metrics."""
     simulate_pipeline_step("Usage Tracking")
-    
+
     # Simulate usage data collection
     usage_data = {
         "reply_rate": 0.1523,
@@ -99,19 +99,19 @@ def track_usage_metrics():
         "click_through_rate": 0.0456,
         "retention_rate": 0.7823
     }
-    
+
     # Log usage metrics
     log_usage_metrics(usage_data)
-    
+
     print("✓ Logged usage metrics")
 
 
-def compute_delta_with_metrics():
+def compute_delta_with_metrics() -> None:
     """Simulate delta computation with standardized metrics."""
     simulate_pipeline_step("Delta Computation")
-    
+
     logger = MetricLogger()
-    
+
     # Log custom delta metrics
     logger.log_metrics({
         "custom:delta_one_score": 0.0234,
@@ -120,7 +120,7 @@ def compute_delta_with_metrics():
         "custom:degraded_metrics": 1,
         "custom:confidence_score": 0.95
     })
-    
+
     # Log metadata about the comparison
     logger.log_metric_with_metadata(
         name="custom:delta_one_score",
@@ -132,27 +132,27 @@ def compute_delta_with_metrics():
             "contributor": "0xABC123..."
         }
     )
-    
+
     print("✓ Logged delta computation metrics with metadata")
 
 
-def aggregate_metrics_example():
+def aggregate_metrics_example() -> None:
     """Show how to aggregate metrics across multiple runs."""
     print("\nMetric Aggregation")
     print("-" * 50)
-    
+
     logger = MetricLogger()
-    
+
     # Simulate metrics from multiple runs
     run_metrics = [
         {"model:accuracy": 0.89, "model:f1_score": 0.87, "pipeline:duration_seconds": 120},
         {"model:accuracy": 0.91, "model:f1_score": 0.89, "pipeline:duration_seconds": 115},
         {"model:accuracy": 0.90, "model:f1_score": 0.88, "pipeline:duration_seconds": 118}
     ]
-    
+
     # Aggregate metrics
     aggregated = logger.aggregate_metrics(run_metrics)
-    
+
     print("Aggregated metrics across 3 runs:")
     for metric_name, stats in aggregated.items():
         print(f"  {metric_name}:")
@@ -161,13 +161,13 @@ def aggregate_metrics_example():
         print(f"    - Max: {stats['max']:.4f}")
 
 
-def migration_example():
+def migration_example() -> None:
     """Show how to migrate from old metric names to new convention."""
     print("\nMetric Name Migration")
     print("-" * 50)
-    
+
     from src.utils.metrics import migrate_metric_name
-    
+
     # Old metric names from the pipeline
     old_metrics = {
         "accuracy": 0.89,
@@ -176,12 +176,12 @@ def migration_example():
         "evaluation_time_seconds": 45.2,
         "delta_accuracy": 0.03
     }
-    
+
     # Migrate to new naming convention
     logger = MetricLogger()
     for old_name, value in old_metrics.items():
         new_name = migrate_metric_name(old_name)
-        
+
         # If name didn't change, add appropriate prefix
         if new_name == old_name:
             if "time" in old_name or "seconds" in old_name:
@@ -190,20 +190,20 @@ def migration_example():
                 new_name = f"custom:{old_name}"
             else:
                 new_name = f"model:{old_name}"
-        
+
         logger.log_metric(new_name, value, raise_on_error=False)
         print(f"  Migrated: {old_name} → {new_name}")
 
 
-def main():
+def main() -> None:
     """Run pipeline simulation with standardized metrics."""
     print("Hokusai Pipeline with Standardized Metric Logging")
     print("=" * 60)
-    
+
     # Set up MLflow
     mlflow.set_tracking_uri("./mlruns")
     mlflow.set_experiment("pipeline_metrics_example")
-    
+
     with mlflow.start_run():
         # Simulate pipeline execution
         baseline_metrics = {
@@ -213,31 +213,31 @@ def main():
             "f1_score": 0.85,
             "auroc": 0.89
         }
-        
+
         # Train new model
         new_metrics = train_model_with_metrics()
-        
+
         # Evaluate models
         evaluate_models_with_metrics(baseline_metrics, new_metrics)
-        
+
         # Track usage
         track_usage_metrics()
-        
+
         # Compute delta
         compute_delta_with_metrics()
-        
+
         # Show aggregation
         aggregate_metrics_example()
-        
+
         # Show migration
         migration_example()
-        
+
         # Final pipeline metrics
         log_pipeline_metrics({
             "success_rate": 1.0,
             "error_rate": 0.0
         })
-    
+
     print("\n" + "=" * 60)
     print("Pipeline simulation completed!")
     print("\nAll metrics logged with proper categorization:")

@@ -1,9 +1,9 @@
 """Integration tests for DeltaOne Detector with MLflow."""
-import unittest
-import tempfile
 import shutil
-import os
-from unittest.mock import patch, Mock
+import tempfile
+import unittest
+from unittest.mock import Mock, patch
+
 import mlflow
 from mlflow.tracking import MlflowClient
 
@@ -31,55 +31,37 @@ class TestDeltaOneIntegration(unittest.TestCase):
     def test_full_deltaone_workflow(self):
         """Test complete DeltaOne detection workflow."""
         # Create and register baseline model
-        with mlflow.start_run() as baseline_run:
+        with mlflow.start_run():
             mlflow.log_metric("accuracy", 0.850)
             mlflow.sklearn.log_model(
-                Mock(spec=["predict"]),  # Mock model
-                "model",
-                registered_model_name=self.model_name
+                Mock(spec=["predict"]), "model", registered_model_name=self.model_name  # Mock model
             )
 
         # Add baseline tags to first version
-        baseline_version = self.client.get_latest_versions(
-            self.model_name,
-            stages=["None"]
-        )[0]
+        baseline_version = self.client.get_latest_versions(self.model_name, stages=["None"])[0]
         self.client.set_model_version_tag(
-            self.model_name,
-            baseline_version.version,
-            "benchmark_metric",
-            "accuracy"
+            self.model_name, baseline_version.version, "benchmark_metric", "accuracy"
         )
         self.client.set_model_version_tag(
-            self.model_name,
-            baseline_version.version,
-            "benchmark_value",
-            "0.850"
+            self.model_name, baseline_version.version, "benchmark_value", "0.850"
         )
 
         # Create improved model
-        with mlflow.start_run() as improved_run:
+        with mlflow.start_run():
             mlflow.log_metric("accuracy", 0.872)  # 2.2pp improvement
             mlflow.sklearn.log_model(
-                Mock(spec=["predict"]),
-                "model",
-                registered_model_name=self.model_name
+                Mock(spec=["predict"]), "model", registered_model_name=self.model_name
             )
 
         # Add metric tag to new version
-        latest_version = self.client.get_latest_versions(
-            self.model_name,
-            stages=["None"]
-        )[0]
+        latest_version = self.client.get_latest_versions(self.model_name, stages=["None"])[0]
         self.client.set_model_version_tag(
-            self.model_name,
-            latest_version.version,
-            "benchmark_metric",
-            "accuracy"
+            self.model_name, latest_version.version, "benchmark_metric", "accuracy"
         )
 
         # Test DeltaOne detection
         from src.evaluation.deltaone_evaluator import detect_delta_one
+
         result = detect_delta_one(self.model_name)
 
         self.assertTrue(result)
@@ -89,7 +71,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
         metrics_to_test = [
             ("reply_rate", 0.152, 0.168),  # 1.6pp improvement
             ("conversion_rate", 0.045, 0.058),  # 1.3pp improvement
-            ("f1_score", 0.910, 0.922)  # 1.2pp improvement
+            ("f1_score", 0.910, 0.922),  # 1.2pp improvement
         ]
 
         for metric_name, baseline_value, improved_value in metrics_to_test:
@@ -99,9 +81,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
             with mlflow.start_run():
                 mlflow.log_metric(metric_name, baseline_value)
                 mlflow.sklearn.log_model(
-                    Mock(spec=["predict"]),
-                    "model",
-                    registered_model_name=model_name
+                    Mock(spec=["predict"]), "model", registered_model_name=model_name
                 )
 
             # Tag baseline
@@ -117,9 +97,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
             with mlflow.start_run():
                 mlflow.log_metric(metric_name, improved_value)
                 mlflow.sklearn.log_model(
-                    Mock(spec=["predict"]),
-                    "model",
-                    registered_model_name=model_name
+                    Mock(spec=["predict"]), "model", registered_model_name=model_name
                 )
 
             # Tag new version
@@ -130,6 +108,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
 
             # Test detection
             from src.evaluation.deltaone_evaluator import detect_delta_one
+
             result = detect_delta_one(model_name)
             self.assertTrue(result, f"Failed for metric {metric_name}")
 
@@ -139,9 +118,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
         with mlflow.start_run():
             mlflow.log_metric("accuracy", 0.850)
             mlflow.sklearn.log_model(
-                Mock(spec=["predict"]),
-                "model",
-                registered_model_name="test_no_improvement"
+                Mock(spec=["predict"]), "model", registered_model_name="test_no_improvement"
             )
 
         # Tag baseline
@@ -157,9 +134,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
         with mlflow.start_run():
             mlflow.log_metric("accuracy", 0.857)  # Only 0.7pp improvement
             mlflow.sklearn.log_model(
-                Mock(spec=["predict"]),
-                "model",
-                registered_model_name="test_no_improvement"
+                Mock(spec=["predict"]), "model", registered_model_name="test_no_improvement"
             )
 
         # Tag new version
@@ -170,6 +145,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
 
         # Test detection
         from src.evaluation.deltaone_evaluator import detect_delta_one
+
         result = detect_delta_one("test_no_improvement")
         self.assertFalse(result)
 
@@ -182,9 +158,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
         with mlflow.start_run():
             mlflow.log_metric("accuracy", 0.800)
             mlflow.sklearn.log_model(
-                Mock(spec=["predict"]),
-                "model",
-                registered_model_name="test_webhook_model"
+                Mock(spec=["predict"]), "model", registered_model_name="test_webhook_model"
             )
 
         # Tag baseline
@@ -200,9 +174,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
         with mlflow.start_run():
             mlflow.log_metric("accuracy", 0.815)  # 1.5pp improvement
             mlflow.sklearn.log_model(
-                Mock(spec=["predict"]),
-                "model",
-                registered_model_name="test_webhook_model"
+                Mock(spec=["predict"]), "model", registered_model_name="test_webhook_model"
             )
 
         # Tag new version
@@ -213,6 +185,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
 
         # Test with webhook URL
         from src.evaluation.deltaone_evaluator import detect_delta_one
+
         webhook_url = "https://example.com/deltaone-webhook"
         result = detect_delta_one("test_webhook_model", webhook_url=webhook_url)
 
@@ -238,9 +211,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
         with mlflow.start_run():
             mlflow.log_metric("accuracy", 0.700)
             mlflow.sklearn.log_model(
-                Mock(spec=["predict"]),
-                "model",
-                registered_model_name=model_name
+                Mock(spec=["predict"]), "model", registered_model_name=model_name
             )
 
         # Tag baseline
@@ -248,9 +219,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
         self.client.set_model_version_tag(
             model_name, version.version, "benchmark_metric", "accuracy"
         )
-        self.client.set_model_version_tag(
-            model_name, version.version, "benchmark_value", "0.700"
-        )
+        self.client.set_model_version_tag(model_name, version.version, "benchmark_value", "0.700")
 
         # Create many intermediate versions
         for i in range(2, num_versions):
@@ -258,18 +227,14 @@ class TestDeltaOneIntegration(unittest.TestCase):
                 # Gradual improvement
                 mlflow.log_metric("accuracy", 0.700 + (i * 0.001))
                 mlflow.sklearn.log_model(
-                    Mock(spec=["predict"]),
-                    "model",
-                    registered_model_name=model_name
+                    Mock(spec=["predict"]), "model", registered_model_name=model_name
                 )
 
         # Create final version with DeltaOne improvement
         with mlflow.start_run():
             mlflow.log_metric("accuracy", 0.715)  # 1.5pp improvement
             mlflow.sklearn.log_model(
-                Mock(spec=["predict"]),
-                "model",
-                registered_model_name=model_name
+                Mock(spec=["predict"]), "model", registered_model_name=model_name
             )
 
         # Tag latest version
@@ -280,6 +245,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
 
         # Measure detection time
         from src.evaluation.deltaone_evaluator import detect_delta_one
+
         start_time = time.time()
         result = detect_delta_one(model_name)
         detection_time = time.time() - start_time

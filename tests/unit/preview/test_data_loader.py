@@ -1,10 +1,11 @@
 """Unit tests for preview data loader module."""
 
-import pytest
-import pandas as pd
-import numpy as np
-from pathlib import Path
 import json
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
 
 from src.preview.data_loader import PreviewDataLoader
 
@@ -15,12 +16,14 @@ class TestPreviewDataLoader:
     @pytest.fixture
     def sample_csv_data(self, tmp_path):
         """Create sample CSV data for testing."""
-        data = pd.DataFrame({
-            "query_id": range(100),
-            "query": [f"query_{i}" for i in range(100)],
-            "label": np.random.randint(0, 2, 100),
-            "features": [f"feature_{i}" for i in range(100)]
-        })
+        data = pd.DataFrame(
+            {
+                "query_id": range(100),
+                "query": [f"query_{i}" for i in range(100)],
+                "label": np.random.randint(0, 2, 100),
+                "features": [f"feature_{i}" for i in range(100)],
+            }
+        )
         csv_path = tmp_path / "sample_data.csv"
         data.to_csv(csv_path, index=False)
         return csv_path, data
@@ -40,12 +43,14 @@ class TestPreviewDataLoader:
     @pytest.fixture
     def sample_parquet_data(self, tmp_path):
         """Create sample Parquet data for testing."""
-        data = pd.DataFrame({
-            "query_id": range(100),
-            "query": [f"query_{i}" for i in range(100)],
-            "label": np.random.randint(0, 2, 100),
-            "features": [f"feature_{i}" for i in range(100)]
-        })
+        data = pd.DataFrame(
+            {
+                "query_id": range(100),
+                "query": [f"query_{i}" for i in range(100)],
+                "label": np.random.randint(0, 2, 100),
+                "features": [f"feature_{i}" for i in range(100)],
+            }
+        )
         parquet_path = tmp_path / "sample_data.parquet"
         data.to_parquet(parquet_path, index=False)
         return parquet_path, data
@@ -53,12 +58,14 @@ class TestPreviewDataLoader:
     @pytest.fixture
     def large_dataset(self, tmp_path):
         """Create large dataset for sampling tests."""
-        data = pd.DataFrame({
-            "query_id": range(20000),
-            "query": [f"query_{i}" for i in range(20000)],
-            "label": np.random.randint(0, 2, 20000),
-            "features": [f"feature_{i}" for i in range(20000)]
-        })
+        data = pd.DataFrame(
+            {
+                "query_id": range(20000),
+                "query": [f"query_{i}" for i in range(20000)],
+                "label": np.random.randint(0, 2, 20000),
+                "features": [f"feature_{i}" for i in range(20000)],
+            }
+        )
         csv_path = tmp_path / "large_data.csv"
         data.to_csv(csv_path, index=False)
         return csv_path, data

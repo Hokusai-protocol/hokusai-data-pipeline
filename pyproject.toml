@@ -31,7 +31,40 @@ select = [
     "ANN", # flake8-annotations
 ]
 
+ignore = [
+    # Documentation - these are often self-explanatory
+    "D102",  # Missing docstring in public method
+    "D107",  # Missing docstring in __init__
+    "D105",  # Missing docstring in magic method
+    "D104",  # Missing docstring in public package
+    "D106",  # Missing docstring in public nested class
+    
+    # Type annotations - sometimes Any is necessary
+    "ANN401",  # Dynamically typed expressions (Any) are disallowed
+    
+    # Naming conventions - often from external libraries or mathematical conventions
+    "N806",  # Variable in function should be lowercase (e.g., DataFrame)
+    "N803",  # Argument name should be lowercase
+    
+    # Security - these need case-by-case review
+    "S105",  # Possible hardcoded password (often false positives)
+    "S106",  # Possible hardcoded password in function arg
+    "S301",  # Pickle usage (needed for ML models)
+    "S311",  # Standard pseudo-random generators (ok for non-crypto)
+    
+    # Other reasonable exceptions
+    "B008",  # Do not perform function calls in argument defaults (FastAPI uses this pattern)
+]
+
 # Only allow E402 in specific files
 [tool.ruff.lint.per-file-ignores]
 "src/cli/signatures.py" = ["E402"]
-"tests/*" = ["D", "ANN", "S101"]  # Don't require docstrings/types in tests, allow assert
+"tests/*" = ["D", "ANN", "S101", "S105", "S108", "N806", "N803"]  # Don't require docstrings/types in tests, allow assert
+"cli/tests/*" = ["D", "ANN", "S101", "S105", "S108", "N806", "N803"]  # Same for CLI tests
+"hokusai-ml-platform/tests/*" = ["D", "ANN", "S101", "S105", "S108", "N806", "N803"]  # Same for platform tests
+# Allow try-except-pass only in specific files where it's used for optional features
+"src/integrations/mlflow_dspy.py" = ["S110"]  # Optional signature extraction
+"src/services/dspy/validators.py" = ["S110"]  # Optional validation
+"src/services/inference_pipeline.py" = ["S110"]  # Optional confidence calculation
+"src/utils/zk_output_formatter.py" = ["S110"]  # Optional formatting
+"tests/integration/test_baseline_loader_integration.py" = ["S110"]  # Test cleanup

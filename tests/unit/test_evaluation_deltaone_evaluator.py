@@ -1,18 +1,17 @@
 """Unit tests for DeltaOne evaluator."""
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock, call
-import requests
-from typing import Dict, Any, List
 from mlflow.entities.model_registry import ModelVersion
 
 from src.evaluation.deltaone_evaluator import (
-    detect_delta_one,
-    _get_sorted_model_versions,
+    _calculate_percentage_point_difference,
     _find_baseline_version,
     _get_metric_value,
-    _calculate_percentage_point_difference,
-    send_deltaone_webhook
+    _get_sorted_model_versions,
+    detect_delta_one,
+    send_deltaone_webhook,
 )
 
 
@@ -24,9 +23,14 @@ class TestDetectDeltaOne:
     @patch("src.evaluation.deltaone_evaluator._find_baseline_version")
     @patch("src.evaluation.deltaone_evaluator._get_metric_value")
     @patch("src.evaluation.deltaone_evaluator._calculate_percentage_point_difference")
-    def test_detect_delta_one_with_improvement(self, mock_calc_diff, mock_get_metric,
-                                              mock_find_baseline, mock_get_versions,
-                                              mock_client_class):
+    def test_detect_delta_one_with_improvement(
+        self,
+        mock_calc_diff,
+        mock_get_metric,
+        mock_find_baseline,
+        mock_get_versions,
+        mock_client_class,
+    ):
         """Test detection with improvement >= 1pp."""
         # Setup mocks
         mock_client = Mock()
@@ -68,8 +72,9 @@ class TestDetectDeltaOne:
     @patch("src.evaluation.deltaone_evaluator.MlflowClient")
     @patch("src.evaluation.deltaone_evaluator._get_sorted_model_versions")
     @patch("src.evaluation.deltaone_evaluator._find_baseline_version")
-    def test_detect_delta_one_no_baseline(self, mock_find_baseline, mock_get_versions,
-                                         mock_client_class):
+    def test_detect_delta_one_no_baseline(
+        self, mock_find_baseline, mock_get_versions, mock_client_class
+    ):
         """Test detection when no baseline version found."""
         mock_client = Mock()
         mock_client_class.return_value = mock_client
@@ -242,11 +247,8 @@ class TestSendDeltaoneWebhook:
         mock_post.assert_called_once_with(
             "https://example.com/hook",
             json=payload,
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": "Hokusai-DeltaOne/1.0"
-            },
-            timeout=10
+            headers={"Content-Type": "application/json", "User-Agent": "Hokusai-DeltaOne/1.0"},
+            timeout=10,
         )
 
     @patch("requests.post")

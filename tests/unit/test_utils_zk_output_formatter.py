@@ -1,11 +1,8 @@
 """Unit tests for ZK output formatter utility."""
 
+from unittest.mock import Mock, patch
+
 import pytest
-import json
-import hashlib
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime
-from typing import Dict, Any
 
 from src.utils.zk_output_formatter import ZKCompatibleOutputFormatter
 
@@ -21,32 +18,26 @@ class TestZKCompatibleOutputFormatter:
                 "run_id": "test_run_123",
                 "timestamp": "2024-01-15T12:00:00Z",
                 "config": {"environment": "production"},
-                "dry_run": False
+                "dry_run": False,
             },
             "baseline_model": {
                 "model_id": "baseline_v1",
                 "model_type": "classification",
-                "metrics": {
-                    "accuracy": 0.90,
-                    "f1_score": 0.88
-                }
+                "metrics": {"accuracy": 0.90, "f1_score": 0.88},
             },
             "new_model": {
                 "model_id": "improved_v2",
                 "model_type": "classification",
-                "metrics": {
-                    "accuracy": 0.93,
-                    "f1_score": 0.91
-                }
+                "metrics": {"accuracy": 0.93, "f1_score": 0.91},
             },
             "evaluation_metadata": {
                 "benchmark_dataset": {
                     "size": 10000,
                     "type": "tabular",
-                    "features": ["feature1", "feature2"]
+                    "features": ["feature1", "feature2"],
                 },
                 "evaluation_timestamp": "2024-01-15T13:00:00Z",
-                "evaluation_time_seconds": 120.5
+                "evaluation_time_seconds": 120.5,
             },
             "delta_computation": {
                 "delta_one_score": 0.035,
@@ -56,18 +47,15 @@ class TestZKCompatibleOutputFormatter:
                         "new_value": 0.93,
                         "absolute_delta": 0.03,
                         "relative_delta": 0.033,
-                        "improvement": True
+                        "improvement": True,
                     }
                 },
                 "computation_method": "weighted_average_delta",
                 "metrics_included": ["accuracy", "f1_score"],
                 "improved_metrics": ["accuracy", "f1_score"],
-                "degraded_metrics": []
+                "degraded_metrics": [],
             },
-            "contributors": [{
-                "address": "0x123abc",
-                "data_hash": "hash123"
-            }]
+            "contributors": [{"address": "0x123abc", "data_hash": "hash123"}],
         }
 
     def test_initialization(self):
@@ -101,7 +89,7 @@ class TestZKCompatibleOutputFormatter:
         # Add multiple contributors
         self.mock_pipeline_results["contributors"] = [
             {"address": "0x123abc", "data_hash": "hash123"},
-            {"address": "0x456def", "data_hash": "hash456"}
+            {"address": "0x456def", "data_hash": "hash456"},
         ]
 
         result = self.formatter.format_output(self.mock_pipeline_results)
@@ -214,7 +202,7 @@ class TestZKCompatibleOutputFormatter:
             "model_id": "test_model",
             "model_type": "classification",
             "version": "1.0",
-            "metadata": {"framework": "sklearn"}
+            "metadata": {"framework": "sklearn"},
         }
 
         formatted = self.formatter._format_single_model(model_info, "baseline")
@@ -238,11 +226,7 @@ class TestZKCompatibleOutputFormatter:
 
     def test_compute_benchmark_hash(self):
         """Test benchmark hash computation."""
-        benchmark_data = {
-            "size": 10000,
-            "type": "tabular",
-            "features": ["f1", "f2"]
-        }
+        benchmark_data = {"size": 10000, "type": "tabular", "features": ["f1", "f2"]}
 
         hash1 = self.formatter._compute_benchmark_hash(benchmark_data)
         hash2 = self.formatter._compute_benchmark_hash(benchmark_data)
@@ -260,7 +244,7 @@ class TestZKCompatibleOutputFormatter:
             "contributor_weights": 1.0,
             "contributed_samples": 100,
             "total_samples": 10000,
-            "data_manifest": {"files": ["data.csv"]}
+            "data_manifest": {"files": ["data.csv"]},
         }
 
         contrib_info = self.formatter._format_contributor_info(self.mock_pipeline_results)
@@ -292,7 +276,7 @@ class TestZKCompatibleOutputFormatter:
             "pipeline_metadata": {},
             "baseline_model": {},
             "new_model": {},
-            "contributors": []
+            "contributors": [],
         }
 
         result = self.formatter.format_output(empty_results)

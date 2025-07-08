@@ -1,8 +1,9 @@
 """Tests for data integration module."""
 
-import pytest
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
+import pytest
 
 from src.modules.data_integration import DataIntegrator
 
@@ -54,26 +55,22 @@ class TestDataIntegrator:
     def test_validate_schema(self, integrator, sample_data):
         """Test schema validation."""
         # Valid schema
-        assert integrator.validate_schema(
-            sample_data,
-            ["query_id", "label"]
-        )
+        assert integrator.validate_schema(sample_data, ["query_id", "label"])
 
         # Missing columns
         with pytest.raises(ValueError, match="Missing required columns"):
-            integrator.validate_schema(
-                sample_data,
-                ["query_id", "nonexistent_column"]
-            )
+            integrator.validate_schema(sample_data, ["query_id", "nonexistent_column"])
 
     def test_remove_pii(self, integrator):
         """Test PII removal."""
-        df = pd.DataFrame({
-            "id": [1, 2, 3],
-            "email": ["user1@test.com", "user2@test.com", "user3@test.com"],
-            "phone": ["123-456-7890", "234-567-8901", "345-678-9012"],
-            "feature": [0.1, 0.2, 0.3]
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "email": ["user1@test.com", "user2@test.com", "user3@test.com"],
+                "phone": ["123-456-7890", "234-567-8901", "345-678-9012"],
+                "feature": [0.1, 0.2, 0.3],
+            }
+        )
 
         df_clean = integrator.remove_pii(df)
 
@@ -84,10 +81,7 @@ class TestDataIntegrator:
 
     def test_deduplicate(self, integrator):
         """Test deduplication."""
-        df = pd.DataFrame({
-            "id": [1, 2, 2, 3],
-            "value": ["a", "b", "b", "c"]
-        })
+        df = pd.DataFrame({"id": [1, 2, 2, 3], "value": ["a", "b", "b", "c"]})
 
         df_dedup = integrator.deduplicate(df)
 
@@ -98,9 +92,7 @@ class TestDataIntegrator:
         """Test stratified sampling."""
         sample_size = 100
         sampled_df = integrator.stratified_sample(
-            sample_data,
-            sample_size=sample_size,
-            stratify_column="label"
+            sample_data, sample_size=sample_size, stratify_column="label"
         )
 
         assert len(sampled_df) == sample_size
@@ -114,15 +106,9 @@ class TestDataIntegrator:
 
     def test_merge_datasets(self, integrator):
         """Test dataset merging strategies."""
-        base_df = pd.DataFrame({
-            "id": [1, 2, 3],
-            "value": ["a", "b", "c"]
-        })
+        base_df = pd.DataFrame({"id": [1, 2, 3], "value": ["a", "b", "c"]})
 
-        contrib_df = pd.DataFrame({
-            "id": [4, 5],
-            "value": ["d", "e"]
-        })
+        contrib_df = pd.DataFrame({"id": [4, 5], "value": ["d", "e"]})
 
         # Test append
         merged = integrator.merge_datasets(base_df, contrib_df, "append")
@@ -155,10 +141,7 @@ class TestDataIntegrator:
     def test_create_data_manifest(self, integrator, sample_contributed_data):
         """Test data manifest creation."""
         df = sample_contributed_data["data"]
-        manifest = integrator.create_data_manifest(
-            df,
-            sample_contributed_data["csv_path"]
-        )
+        manifest = integrator.create_data_manifest(df, sample_contributed_data["csv_path"])
 
         assert "source_path" in manifest
         assert manifest["row_count"] == 100

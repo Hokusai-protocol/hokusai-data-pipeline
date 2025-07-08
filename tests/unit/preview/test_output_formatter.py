@@ -1,7 +1,8 @@
 """Unit tests for preview output formatter module."""
 
-import pytest
 import json
+
+import pytest
 
 # Import will be added once module is implemented
 from src.preview.output_formatter import PreviewOutputFormatter
@@ -21,39 +22,39 @@ class TestPreviewOutputFormatter:
                     "new_value": 0.88,
                     "absolute_delta": 0.03,
                     "relative_delta": 0.0353,
-                    "improvement": True
+                    "improvement": True,
                 },
                 "precision": {
                     "baseline_value": 0.83,
                     "new_value": 0.86,
                     "absolute_delta": 0.03,
                     "relative_delta": 0.0361,
-                    "improvement": True
+                    "improvement": True,
                 },
                 "recall": {
                     "baseline_value": 0.87,
                     "new_value": 0.89,
                     "absolute_delta": 0.02,
                     "relative_delta": 0.0230,
-                    "improvement": True
+                    "improvement": True,
                 },
                 "f1": {
                     "baseline_value": 0.85,
                     "new_value": 0.87,
                     "absolute_delta": 0.02,
                     "relative_delta": 0.0235,
-                    "improvement": True
+                    "improvement": True,
                 },
                 "auroc": {
                     "baseline_value": 0.91,
                     "new_value": 0.93,
                     "absolute_delta": 0.02,
                     "relative_delta": 0.0220,
-                    "improvement": True
-                }
+                    "improvement": True,
+                },
             },
             "improved_metrics": ["accuracy", "precision", "recall", "f1", "auroc"],
-            "degraded_metrics": []
+            "degraded_metrics": [],
         }
 
     @pytest.fixture
@@ -66,7 +67,7 @@ class TestPreviewOutputFormatter:
             "time_elapsed": 245.67,
             "data_path": "/path/to/contributed_data.csv",
             "baseline_model_path": "default",
-            "timestamp": "2024-01-15T10:30:45.123456"
+            "timestamp": "2024-01-15T10:30:45.123456",
         }
 
     @pytest.fixture
@@ -84,8 +85,8 @@ class TestPreviewOutputFormatter:
                     "precision": 0.83,
                     "recall": 0.87,
                     "f1": 0.85,
-                    "auroc": 0.91
-                }
+                    "auroc": 0.91,
+                },
             },
             "new_model": {
                 "model_id": "preview_2.0.0",
@@ -95,9 +96,9 @@ class TestPreviewOutputFormatter:
                     "precision": 0.86,
                     "recall": 0.89,
                     "f1": 0.87,
-                    "auroc": 0.93
-                }
-            }
+                    "auroc": 0.93,
+                },
+            },
         }
 
     @pytest.mark.skip(reason="PreviewOutputFormatter not yet implemented")
@@ -225,9 +226,9 @@ class TestPreviewOutputFormatter:
                         "new_value": 0.86,
                         "absolute_delta": 0.01,
                         "relative_delta": 0.0118,
-                        "improvement": True
+                        "improvement": True,
                     }
-                }
+                },
             }
         }
 

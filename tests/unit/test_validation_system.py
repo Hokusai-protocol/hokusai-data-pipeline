@@ -1,13 +1,15 @@
 """
 Unit tests for the validation system
 """
-import pytest
-import sys
+
 import os
+import sys
+
+import pytest
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
-from validation import MetricValidator, SupportedMetrics, BaselineComparator
+from validation import BaselineComparator, MetricValidator, SupportedMetrics
 from validation.baseline import ComparisonResult
 
 
@@ -20,8 +22,17 @@ class TestMetricValidator:
 
     def test_validate_metric_name_valid(self, validator):
         """Test validation of valid metric names"""
-        valid_metrics = ["accuracy", "auroc", "f1", "precision", "recall",
-                        "mse", "rmse", "mae", "reply_rate"]
+        valid_metrics = [
+            "accuracy",
+            "auroc",
+            "f1",
+            "precision",
+            "recall",
+            "mse",
+            "rmse",
+            "mae",
+            "reply_rate",
+        ]
 
         for metric in valid_metrics:
             assert validator.validate_metric_name(metric) is True
@@ -126,8 +137,12 @@ class TestBaselineComparator:
         assert comparator.calculate_improvement(0.75, 0.80) == pytest.approx(-0.05)
 
         # Percentage improvement
-        assert comparator.calculate_improvement(0.85, 0.80, as_percentage=True) == pytest.approx(6.25)
-        assert comparator.calculate_improvement(0.75, 0.80, as_percentage=True) == pytest.approx(-6.25)
+        assert comparator.calculate_improvement(0.85, 0.80, as_percentage=True) == pytest.approx(
+            6.25
+        )
+        assert comparator.calculate_improvement(0.75, 0.80, as_percentage=True) == pytest.approx(
+            -6.25
+        )
 
     def test_get_metric_type(self, comparator):
         """Test automatic metric type detection"""
@@ -142,7 +157,7 @@ class TestBaselineComparator:
             current_value=0.85,
             baseline_value=0.80,
             metric_name="accuracy",
-            required_improvement=0.03
+            required_improvement=0.03,
         )
 
         assert result["metric_name"] == "accuracy"

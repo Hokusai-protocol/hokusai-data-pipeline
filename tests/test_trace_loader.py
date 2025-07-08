@@ -1,8 +1,9 @@
 """Tests for Trace Loader Service."""
 
-import pytest
-from unittest.mock import Mock, patch, call
 from datetime import datetime, timedelta
+from unittest.mock import Mock, patch
+
+import pytest
 
 from src.services.trace_loader import TraceLoader
 
@@ -21,13 +22,13 @@ def sample_runs():
             "contributor_id": f"contrib_{i % 3}",
             "contributor_address": f"0x{i % 3:040x}",
             "dspy_program_name": "TestProgram" if i % 2 == 0 else "OtherProgram",
-            "has_dspy_traces": "true"
+            "has_dspy_traces": "true",
         }
 
         # Set metrics
         run.data.metrics = {
             "outcome_score": 0.7 + (i % 5) * 0.05,
-            "reply_rate": 0.1 + (i % 4) * 0.02
+            "reply_rate": 0.1 + (i % 4) * 0.02,
         }
 
         # Set params (inputs/outputs)
@@ -35,7 +36,7 @@ def sample_runs():
             "input.text": f"Input text {i}",
             "input.prompt": f"Prompt {i}",
             "output.result": f"Result {i}",
-            "output.score": str(0.8 + (i % 3) * 0.05)
+            "output.score": str(0.8 + (i % 3) * 0.05),
         }
 
         runs.append(run)
@@ -79,13 +80,13 @@ class TestTraceLoader:
         start_date = datetime.now() - timedelta(days=7)
         end_date = datetime.now()
 
-        traces = loader.load_traces(
+        loader.load_traces(
             program_name="TestProgram",
             start_date=start_date,
             end_date=end_date,
             min_score=0.75,
             outcome_metric="reply_rate",
-            limit=100
+            limit=100,
         )
 
         # Check that search was called with filters
@@ -140,7 +141,7 @@ class TestTraceLoader:
         mock_client_class.return_value = mock_client
 
         loader = TraceLoader()
-        traces = loader.load_traces(experiment_name="test_experiment")
+        loader.load_traces(experiment_name="test_experiment")
 
         # Check experiment lookup
         mock_client.get_experiment_by_name.assert_called_once_with("test_experiment")
@@ -170,10 +171,7 @@ class TestTraceLoader:
         run = Mock()
         run.info.run_id = "run_missing"
         run.info.start_time = int(datetime.now().timestamp() * 1000)
-        run.data.tags = {
-            "contributor_id": "contrib_1",
-            "has_dspy_traces": "true"
-        }
+        run.data.tags = {"contributor_id": "contrib_1", "has_dspy_traces": "true"}
         run.data.metrics = {"other_metric": 0.5}  # No outcome_score
         run.data.params = {}
 
@@ -202,10 +200,7 @@ class TestTraceLoader:
         start_date = datetime.now() - timedelta(days=10)
         end_date = datetime.now() - timedelta(days=5)
 
-        traces = loader.load_traces(
-            start_date=start_date,
-            end_date=end_date
-        )
+        loader.load_traces(start_date=start_date, end_date=end_date)
 
         # Check date filter in search
         call_args = mock_client.search_runs.call_args
@@ -225,7 +220,7 @@ class TestTraceLoader:
         mock_client_class.return_value = mock_client
 
         loader = TraceLoader()
-        traces = loader.load_traces(limit=5)
+        loader.load_traces(limit=5)
 
         # Check max_results parameter
         call_args = mock_client.search_runs.call_args
@@ -259,7 +254,7 @@ class TestTraceLoader:
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 1, 15),
             min_score=0.8,
-            outcome_metric="engagement_score"
+            outcome_metric="engagement_score",
         )
 
         assert "tags.has_dspy_traces = 'true'" in filter_string
@@ -277,17 +272,11 @@ class TestTraceLoader:
             "input.prompt": "Write a greeting",
             "output.response": "Hi there!",
             "output.confidence": "0.95",
-            "other_param": "ignored"
+            "other_param": "ignored",
         }
 
         inputs, outputs = loader._parse_inputs_outputs(params)
 
-        assert inputs == {
-            "text": "Hello",
-            "prompt": "Write a greeting"
-        }
+        assert inputs == {"text": "Hello", "prompt": "Write a greeting"}
 
-        assert outputs == {
-            "response": "Hi there!",
-            "confidence": "0.95"
-        }
+        assert outputs == {"response": "Hi there!", "confidence": "0.95"}

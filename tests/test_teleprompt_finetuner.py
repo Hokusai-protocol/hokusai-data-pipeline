@@ -1,15 +1,15 @@
 """Tests for Teleprompt Fine-tuning Service."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime, timedelta
-from dataclasses import dataclass
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from src.services.teleprompt_finetuner import (
-    TelepromptFinetuner,
     OptimizationConfig,
+    OptimizationResult,
     OptimizationStrategy,
-    OptimizationResult
+    TelepromptFinetuner,
 )
 
 
@@ -31,7 +31,7 @@ def optimization_config():
         max_traces=1000,
         min_quality_score=0.7,
         optimization_rounds=2,
-        deltaone_threshold=0.01
+        deltaone_threshold=0.01,
     )
 
 
@@ -46,7 +46,7 @@ def sample_traces():
             "outcome_score": 0.8 + (i % 3) * 0.05,
             "contributor_id": f"contributor_{i % 3}",
             "contributor_address": f"0x{i % 3:040x}",
-            "timestamp": datetime.now() - timedelta(hours=i)
+            "timestamp": datetime.now() - timedelta(hours=i),
         }
         for i in range(150)
     ]
@@ -64,7 +64,9 @@ class TestTelepromptFinetuner:
         assert hasattr(finetuner, "trace_loader")
 
     @patch("src.services.teleprompt_finetuner.TraceLoader")
-    def test_load_and_filter_traces(self, mock_trace_loader, optimization_config, mock_dspy_program, sample_traces):
+    def test_load_and_filter_traces(
+        self, mock_trace_loader, optimization_config, mock_dspy_program, sample_traces
+    ):
         """Test trace loading and filtering."""
         # Setup mock
         mock_loader_instance = Mock()
@@ -78,10 +80,7 @@ class TestTelepromptFinetuner:
         end_date = datetime.now()
 
         traces = finetuner._load_and_filter_traces(
-            mock_dspy_program,
-            start_date,
-            end_date,
-            "outcome_score"
+            mock_dspy_program, start_date, end_date, "outcome_score"
         )
 
         assert len(traces) == 150
@@ -127,10 +126,7 @@ class TestTelepromptFinetuner:
         """Test version generation."""
         finetuner = TelepromptFinetuner(optimization_config)
 
-        result = OptimizationResult(
-            success=True,
-            strategy="bootstrap_fewshot"
-        )
+        result = OptimizationResult(success=True, strategy="bootstrap_fewshot")
 
         version = finetuner._generate_version(mock_dspy_program, result)
 
@@ -143,9 +139,7 @@ class TestTelepromptFinetuner:
         finetuner = TelepromptFinetuner(optimization_config)
 
         result = OptimizationResult(
-            success=True,
-            optimized_program=Mock(),
-            baseline_program=mock_dspy_program
+            success=True, optimized_program=Mock(), baseline_program=mock_dspy_program
         )
 
         deltaone_result = finetuner.evaluate_deltaone(result)
@@ -159,10 +153,7 @@ class TestTelepromptFinetuner:
         """Test DeltaOne evaluation with failed optimization."""
         finetuner = TelepromptFinetuner(optimization_config)
 
-        result = OptimizationResult(
-            success=False,
-            error_message="Optimization failed"
-        )
+        result = OptimizationResult(success=False, error_message="Optimization failed")
 
         deltaone_result = finetuner.evaluate_deltaone(result)
 
@@ -182,31 +173,20 @@ class TestTelepromptFinetuner:
             strategy="bootstrap_fewshot",
             model_version="1.0.0-opt-bfs-20240115120000",
             contributors={
-                "contrib1": {
-                    "address": "0x1234567890abcdef",
-                    "weight": 0.6,
-                    "trace_count": 600
-                },
-                "contrib2": {
-                    "address": "0xfedcba0987654321",
-                    "weight": 0.4,
-                    "trace_count": 400
-                }
+                "contrib1": {"address": "0x1234567890abcdef", "weight": 0.6, "trace_count": 600},
+                "contrib2": {"address": "0xfedcba0987654321", "weight": 0.4, "trace_count": 400},
             },
             metadata={
                 "outcome_metric": "engagement_score",
-                "date_range": {
-                    "start": "2024-01-01T00:00:00",
-                    "end": "2024-01-15T00:00:00"
-                }
-            }
+                "date_range": {"start": "2024-01-01T00:00:00", "end": "2024-01-15T00:00:00"},
+            },
         )
 
         deltaone_result = {
             "deltaone_achieved": True,
             "delta": 0.023,
             "baseline_metrics": {"accuracy": 0.85},
-            "optimized_metrics": {"accuracy": 0.873}
+            "optimized_metrics": {"accuracy": 0.873},
         }
 
         attestation = finetuner.generate_attestation(result, deltaone_result)
@@ -234,8 +214,13 @@ class TestTelepromptFinetuner:
     @patch("mlflow.log_dict")
     @patch("mlflow.register_model")
     def test_save_optimized_model(
-        self, mock_register, mock_log_dict, mock_log_params, mock_start_run,
-        optimization_config, mock_dspy_program
+        self,
+        mock_register,
+        mock_log_dict,
+        mock_log_params,
+        mock_start_run,
+        optimization_config,
+        mock_dspy_program,
     ):
         """Test saving optimized model to MLflow."""
         # Setup mocks
@@ -252,13 +237,11 @@ class TestTelepromptFinetuner:
             trace_count=1000,
             optimization_time=120.0,
             model_version="1.0.0-opt-bfs-20240115120000",
-            contributors={"contrib1": {"weight": 1.0}}
+            contributors={"contrib1": {"weight": 1.0}},
         )
 
         model_info = finetuner.save_optimized_model(
-            result,
-            "TestModel-Optimized",
-            tags={"deltaone": "true"}
+            result, "TestModel-Optimized", tags={"deltaone": "true"}
         )
 
         assert model_info["model_name"] == "TestModel-Optimized"
@@ -284,9 +267,7 @@ class TestTelepromptFinetuner:
         finetuner = TelepromptFinetuner(optimization_config)
 
         result = finetuner.run_optimization(
-            mock_dspy_program,
-            datetime.now() - timedelta(days=7),
-            datetime.now()
+            mock_dspy_program, datetime.now() - timedelta(days=7), datetime.now()
         )
 
         assert result.success is False

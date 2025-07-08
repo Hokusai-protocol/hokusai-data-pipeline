@@ -1,14 +1,12 @@
 """Unit tests for base signature classes."""
 
 import pytest
-from unittest.mock import Mock, patch
-import dspy
 
 from src.dspy_signatures.base import (
     BaseSignature,
+    SignatureComposer,
     SignatureField,
     SignatureValidator,
-    SignatureComposer
 )
 
 
@@ -22,13 +20,13 @@ class TestSignatureField:
             description="Input text to process",
             type_hint=str,
             required=True,
-            default=None
+            default=None,
         )
 
         assert field.name == "text"
         assert field.description == "Input text to process"
         assert field.type_hint == str
-        assert field.required == True
+        assert field.required
         assert field.default is None
 
     def test_field_with_default(self):
@@ -38,29 +36,26 @@ class TestSignatureField:
             description="Maximum length of output",
             type_hint=int,
             required=False,
-            default=100
+            default=100,
         )
 
-        assert field.required == False
+        assert not field.required
         assert field.default == 100
 
     def test_field_validation(self):
         """Test field validates type hints."""
         field = SignatureField(
-            name="count",
-            description="Number of items",
-            type_hint=int,
-            required=True
+            name="count", description="Number of items", type_hint=int, required=True
         )
 
         # Valid value
-        assert field.validate(5) == True
+        assert field.validate(5)
 
         # Invalid type
-        assert field.validate("five") == False
+        assert not field.validate("five")
 
         # None for required field
-        assert field.validate(None) == False
+        assert not field.validate(None)
 
     def test_field_with_optional(self):
         """Test optional field validation."""
@@ -69,12 +64,12 @@ class TestSignatureField:
             description="Optional context",
             type_hint=str,
             required=False,
-            default=""
+            default="",
         )
 
-        assert field.validate(None) == True
-        assert field.validate("some context") == True
-        assert field.validate(123) == False
+        assert field.validate(None)
+        assert field.validate("some context")
+        assert not field.validate(123)
 
 
 class TestBaseSignature:
@@ -82,6 +77,7 @@ class TestBaseSignature:
 
     def test_base_signature_creation(self):
         """Test creating a base signature."""
+
         class TestSignature(BaseSignature):
             """Test signature for unit tests."""
 
@@ -89,14 +85,12 @@ class TestBaseSignature:
             def get_input_fields(cls):
                 return [
                     SignatureField("text", "Input text", str, True),
-                    SignatureField("context", "Context", str, False, "")
+                    SignatureField("context", "Context", str, False, ""),
                 ]
 
             @classmethod
             def get_output_fields(cls):
-                return [
-                    SignatureField("result", "Result", str, True)
-                ]
+                return [SignatureField("result", "Result", str, True)]
 
         sig = TestSignature()
 
@@ -107,6 +101,7 @@ class TestBaseSignature:
 
     def test_signature_to_dspy(self):
         """Test converting to DSPy signature."""
+
         class EmailSignature(BaseSignature):
             """Generate email content."""
 
@@ -115,14 +110,12 @@ class TestBaseSignature:
                 return [
                     SignatureField("recipient", "Email recipient", str, True),
                     SignatureField("subject", "Email subject", str, True),
-                    SignatureField("context", "Email context", str, False, "")
+                    SignatureField("context", "Email context", str, False, ""),
                 ]
 
             @classmethod
             def get_output_fields(cls):
-                return [
-                    SignatureField("email_body", "Generated email body", str, True)
-                ]
+                return [SignatureField("email_body", "Generated email body", str, True)]
 
         sig = EmailSignature()
         dspy_sig = sig.to_dspy_signature()
@@ -135,6 +128,7 @@ class TestBaseSignature:
 
     def test_signature_validation(self):
         """Test signature input validation."""
+
         class ValidatedSignature(BaseSignature):
             """Signature with validation."""
 
@@ -142,20 +136,18 @@ class TestBaseSignature:
             def get_input_fields(cls):
                 return [
                     SignatureField("number", "A number", int, True),
-                    SignatureField("text", "Some text", str, True)
+                    SignatureField("text", "Some text", str, True),
                 ]
 
             @classmethod
             def get_output_fields(cls):
-                return [
-                    SignatureField("result", "Result", str, True)
-                ]
+                return [SignatureField("result", "Result", str, True)]
 
         sig = ValidatedSignature()
 
         # Valid inputs
         valid_inputs = {"number": 42, "text": "hello"}
-        assert sig.validate_inputs(valid_inputs) == True
+        assert sig.validate_inputs(valid_inputs)
 
         # Missing required field
         invalid_inputs = {"number": 42}
@@ -169,26 +161,23 @@ class TestBaseSignature:
 
     def test_signature_with_examples(self):
         """Test signature with example inputs/outputs."""
+
         class ExampleSignature(BaseSignature):
             """Signature with examples."""
 
             @classmethod
             def get_input_fields(cls):
-                return [
-                    SignatureField("query", "User query", str, True)
-                ]
+                return [SignatureField("query", "User query", str, True)]
 
             @classmethod
             def get_output_fields(cls):
-                return [
-                    SignatureField("answer", "Answer", str, True)
-                ]
+                return [SignatureField("answer", "Answer", str, True)]
 
             @classmethod
             def get_examples(cls):
                 return [
                     {"query": "What is 2+2?", "answer": "4"},
-                    {"query": "Capital of France?", "answer": "Paris"}
+                    {"query": "Capital of France?", "answer": "Paris"},
                 ]
 
         sig = ExampleSignature()
@@ -248,15 +237,15 @@ class TestSignatureValidator:
         validator = SignatureValidator()
 
         # Valid field names
-        assert validator.validate_field_name("text_input") == True
-        assert validator.validate_field_name("query") == True
-        assert validator.validate_field_name("user_id") == True
+        assert validator.validate_field_name("text_input")
+        assert validator.validate_field_name("query")
+        assert validator.validate_field_name("user_id")
 
         # Invalid field names
-        assert validator.validate_field_name("123start") == False
-        assert validator.validate_field_name("has-dash") == False
-        assert validator.validate_field_name("has space") == False
-        assert validator.validate_field_name("") == False
+        assert not validator.validate_field_name("123start")
+        assert not validator.validate_field_name("has-dash")
+        assert not validator.validate_field_name("has space")
+        assert not validator.validate_field_name("")
 
 
 class TestSignatureComposer:
@@ -337,7 +326,7 @@ class TestSignatureComposer:
             def get_input_fields(cls):
                 return [
                     SignatureField("text", "Text", str, True),
-                    SignatureField("lang", "Language", str, True)
+                    SignatureField("lang", "Language", str, True),
                 ]
 
             @classmethod
@@ -351,7 +340,7 @@ class TestSignatureComposer:
             def get_input_fields(cls):
                 return [
                     SignatureField("text", "Text", str, True),
-                    SignatureField("format", "Format", str, False, "json")
+                    SignatureField("format", "Format", str, False, "json"),
                 ]
 
             @classmethod

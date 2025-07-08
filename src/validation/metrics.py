@@ -1,14 +1,14 @@
-"""Metric validation module for Hokusai ML Platform
+"""Metric validation module for Hokusai ML Platform.
 """
-from enum import Enum
-from typing import Dict, Set, Optional, Any
 import logging
+from enum import Enum
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class SupportedMetrics(Enum):
-    """Enumeration of supported metrics"""
+    """Enumeration of supported metrics."""
 
     # Classification metrics
     ACCURACY = "accuracy"
@@ -30,25 +30,27 @@ class SupportedMetrics(Enum):
     ENGAGEMENT_SCORE = "engagement_score"
 
     @classmethod
-    def get_all_names(cls) -> Set[str]:
-        """Get all metric names as a set"""
+    def get_all_names(cls) -> set[str]:
+        """Get all metric names as a set."""
         return {metric.value for metric in cls}
 
     @classmethod
     def is_valid(cls, metric_name: str) -> bool:
-        """Check if a metric name is valid"""
+        """Check if a metric name is valid."""
         return metric_name.lower() in cls.get_all_names()
 
     @classmethod
     def get_metric_type(cls, metric_name: str) -> str:
-        """Get the type of metric (classification, regression, custom)"""
+        """Get the type of metric (classification, regression, custom)."""
         classification_metrics = {
-            cls.ACCURACY.value, cls.AUROC.value, cls.AUC.value,
-            cls.F1.value, cls.PRECISION.value, cls.RECALL.value
+            cls.ACCURACY.value,
+            cls.AUROC.value,
+            cls.AUC.value,
+            cls.F1.value,
+            cls.PRECISION.value,
+            cls.RECALL.value,
         }
-        regression_metrics = {
-            cls.MSE.value, cls.RMSE.value, cls.MAE.value, cls.R2.value
-        }
+        regression_metrics = {cls.MSE.value, cls.RMSE.value, cls.MAE.value, cls.R2.value}
 
         metric_lower = metric_name.lower()
         if metric_lower in classification_metrics:
@@ -60,13 +62,13 @@ class SupportedMetrics(Enum):
 
 
 class MetricValidator:
-    """Validates metrics and their values"""
+    """Validates metrics and their values."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.metric_ranges = self._get_metric_ranges()
 
-    def _get_metric_ranges(self) -> Dict[str, Dict[str, Any]]:
-        """Define valid ranges for each metric"""
+    def _get_metric_ranges(self) -> dict[str, dict[str, Any]]:
+        """Define valid ranges for each metric."""
         return {
             # Classification metrics (0-1 range)
             SupportedMetrics.ACCURACY.value: {"min": 0.0, "max": 1.0},
@@ -75,13 +77,11 @@ class MetricValidator:
             SupportedMetrics.F1.value: {"min": 0.0, "max": 1.0},
             SupportedMetrics.PRECISION.value: {"min": 0.0, "max": 1.0},
             SupportedMetrics.RECALL.value: {"min": 0.0, "max": 1.0},
-
             # Regression metrics (no upper bound)
             SupportedMetrics.MSE.value: {"min": 0.0, "max": None},
             SupportedMetrics.RMSE.value: {"min": 0.0, "max": None},
             SupportedMetrics.MAE.value: {"min": 0.0, "max": None},
             SupportedMetrics.R2.value: {"min": None, "max": 1.0},  # Can be negative
-
             # Custom metrics
             SupportedMetrics.REPLY_RATE.value: {"min": 0.0, "max": 1.0},
             SupportedMetrics.CONVERSION_RATE.value: {"min": 0.0, "max": 1.0},
@@ -89,7 +89,7 @@ class MetricValidator:
         }
 
     def validate_metric_name(self, metric_name: str) -> bool:
-        """Validate if a metric name is supported"""
+        """Validate if a metric name is supported."""
         is_valid = SupportedMetrics.is_valid(metric_name)
         if not is_valid:
             logger.warning(f"Unsupported metric: {metric_name}")
@@ -97,7 +97,7 @@ class MetricValidator:
         return is_valid
 
     def validate_metric_value(self, metric_name: str, value: float) -> bool:
-        """Validate if a metric value is within expected range"""
+        """Validate if a metric value is within expected range."""
         if not self.validate_metric_name(metric_name):
             return False
 
@@ -120,7 +120,7 @@ class MetricValidator:
         return True
 
     def validate_baseline(self, metric_name: str, baseline: float) -> bool:
-        """Validate if a baseline value is reasonable for the metric"""
+        """Validate if a baseline value is reasonable for the metric."""
         if not self.validate_metric_value(metric_name, baseline):
             return False
 
@@ -143,7 +143,7 @@ class MetricValidator:
         return True
 
     def calculate_metric(self, metric_name: str, predictions: Any, targets: Any) -> Optional[float]:
-        """Calculate actual metric value from predictions and targets"""
+        """Calculate actual metric value from predictions and targets."""
         # This would integrate with actual ML libraries like scikit-learn
         # For now, it's a placeholder that would be implemented based on requirements
         logger.info(f"Calculating {metric_name} metric")

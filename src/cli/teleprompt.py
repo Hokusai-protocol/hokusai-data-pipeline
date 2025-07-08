@@ -1,40 +1,53 @@
 """CLI commands for Teleprompt fine-tuning pipeline."""
 
-import click
 import json
 from datetime import datetime, timedelta
 from typing import Optional
 
-from src.services.teleprompt_finetuner import (
-    TelepromptFinetuner,
-    OptimizationConfig,
-    OptimizationStrategy
-)
-from src.services.optimization_attestation import OptimizationAttestationService
+import click
+
 from src.services.dspy_model_loader import DSPyModelLoader
+from src.services.optimization_attestation import OptimizationAttestationService
+from src.services.teleprompt_finetuner import (
+    OptimizationConfig,
+    OptimizationStrategy,
+    TelepromptFinetuner,
+)
 
 
 @click.group()
-def teleprompt():
+def teleprompt() -> None:
     """Manage teleprompt fine-tuning pipeline."""
     pass
 
 
 @teleprompt.command()
 @click.option("--program", "-p", required=True, help="DSPy program name or path")
-@click.option("--strategy", "-s",
-              type=click.Choice(["bootstrap_fewshot", "bootstrap_fewshot_random"]),
-              default="bootstrap_fewshot",
-              help="Optimization strategy")
+@click.option(
+    "--strategy",
+    "-s",
+    type=click.Choice(["bootstrap_fewshot", "bootstrap_fewshot_random"]),
+    default="bootstrap_fewshot",
+    help="Optimization strategy",
+)
 @click.option("--days", "-d", type=int, default=7, help="Days of traces to use")
 @click.option("--min-traces", type=int, default=1000, help="Minimum traces required")
 @click.option("--outcome-metric", "-m", default="outcome_score", help="Outcome metric to optimize")
-@click.option("--deltaone-threshold", type=float, default=0.01, help="DeltaOne threshold (default 1%)")
+@click.option(
+    "--deltaone-threshold", type=float, default=0.01, help="DeltaOne threshold (default 1%)"
+)
 @click.option("--save-model", is_flag=True, help="Save optimized model to MLflow")
 @click.option("--model-name", help="Name for saved model")
-def optimize(program: str, strategy: str, days: int, min_traces: int,
-             outcome_metric: str, deltaone_threshold: float, save_model: bool,
-             model_name: Optional[str]):
+def optimize(
+    program: str,
+    strategy: str,
+    days: int,
+    min_traces: int,
+    outcome_metric: str,
+    deltaone_threshold: float,
+    save_model: bool,
+    model_name: Optional[str],
+) -> None:
     """Run teleprompt optimization on a DSPy program."""
     click.echo(f"Starting teleprompt optimization for {program}")
 
@@ -54,7 +67,7 @@ def optimize(program: str, strategy: str, days: int, min_traces: int,
     config = OptimizationConfig(
         strategy=OptimizationStrategy(strategy),
         min_traces=min_traces,
-        deltaone_threshold=deltaone_threshold
+        deltaone_threshold=deltaone_threshold,
     )
 
     # Run optimization
@@ -63,7 +76,7 @@ def optimize(program: str, strategy: str, days: int, min_traces: int,
         program=dspy_program,
         start_date=datetime.now() - timedelta(days=days),
         end_date=datetime.now(),
-        outcome_metric=outcome_metric
+        outcome_metric=outcome_metric,
     )
 
     if not result.success:
@@ -95,25 +108,31 @@ def optimize(program: str, strategy: str, days: int, min_traces: int,
                 model_name = f"{program}-Optimized"
 
             model_info = finetuner.save_optimized_model(
-                result,
-                model_name=model_name,
-                tags={"deltaone": "true", "cli_optimized": "true"}
+                result, model_name=model_name, tags={"deltaone": "true", "cli_optimized": "true"}
             )
             click.echo(f"  Model saved: {model_info['model_name']} v{model_info['version']}")
 
 
 @teleprompt.command()
-@click.option("--start-date", "-s", type=click.DateTime(),
-              default=(datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"),
-              help="Start date for trace collection")
-@click.option("--end-date", "-e", type=click.DateTime(),
-              default=datetime.now().strftime("%Y-%m-%d"),
-              help="End date for trace collection")
+@click.option(
+    "--start-date",
+    "-s",
+    type=click.DateTime(),
+    default=(datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"),
+    help="Start date for trace collection",
+)
+@click.option(
+    "--end-date",
+    "-e",
+    type=click.DateTime(),
+    default=datetime.now().strftime("%Y-%m-%d"),
+    help="End date for trace collection",
+)
 @click.option("--program", "-p", help="Filter by program name")
 @click.option("--min-score", type=float, default=0.0, help="Minimum outcome score")
 @click.option("--limit", type=int, default=1000, help="Maximum traces to show")
 @click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table")
-def list_traces(start_date, end_date, program, min_score, limit, format):
+def list_traces(start_date, end_date, program, min_score, limit: int, format) -> None:
     """List available traces for optimization."""
     from src.services.trace_loader import TraceLoader
 
@@ -123,7 +142,7 @@ def list_traces(start_date, end_date, program, min_score, limit, format):
         start_date=start_date,
         end_date=end_date,
         min_score=min_score,
-        limit=limit
+        limit=limit,
     )
 
     click.echo(f"Found {len(traces)} traces")
@@ -154,13 +173,11 @@ def list_traces(start_date, end_date, program, min_score, limit, format):
 @click.option("--contributor", "-c", help="Contributor address")
 @click.option("--deltaone-only", is_flag=True, default=True, help="Only show DeltaOne achievements")
 @click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table")
-def list_attestations(model_id, contributor, deltaone_only, format):
+def list_attestations(model_id: str, contributor, deltaone_only, format) -> None:
     """List optimization attestations."""
     service = OptimizationAttestationService()
     attestations = service.list_attestations(
-        model_id=model_id,
-        contributor_address=contributor,
-        deltaone_only=deltaone_only
+        model_id=model_id, contributor_address=contributor, deltaone_only=deltaone_only
     )
 
     click.echo(f"Found {len(attestations)} attestations")
@@ -186,9 +203,10 @@ def list_attestations(model_id, contributor, deltaone_only, format):
 
 @teleprompt.command()
 @click.argument("attestation_id")
-@click.option("--format", "-f", type=click.Choice(["summary", "json", "blockchain"]),
-              default="summary")
-def show_attestation(attestation_id: str, format: str):
+@click.option(
+    "--format", "-f", type=click.Choice(["summary", "json", "blockchain"]), default="summary"
+)
+def show_attestation(attestation_id: str, format: str) -> None:
     """Show detailed attestation information."""
     service = OptimizationAttestationService()
 
@@ -237,7 +255,9 @@ def show_attestation(attestation_id: str, format: str):
 
         click.echo(f"\nContributors ({len(attestation.contributors)}):")
         for contrib in attestation.contributors:
-            click.echo(f"  - {contrib['address'][:16]}... ({contrib['weight']:.2%}, {contrib['trace_count']} traces)")
+            click.echo(
+                f"  - {contrib['address'][:16]}... ({contrib['weight']:.2%}, {contrib['trace_count']} traces)"
+            )
 
         click.echo("\nVerification:")
         click.echo(f"  Hash: {attestation.attestation_hash[:32]}...")
@@ -248,7 +268,7 @@ def show_attestation(attestation_id: str, format: str):
 @click.argument("attestation_id")
 @click.option("--total-reward", "-r", type=float, required=True, help="Total reward amount")
 @click.option("--token", "-t", default="HOKU", help="Token symbol")
-def calculate_rewards(attestation_id: str, total_reward: float, token: str):
+def calculate_rewards(attestation_id: str, total_reward: float, token: str) -> None:
     """Calculate reward distribution for an attestation."""
     service = OptimizationAttestationService()
 
@@ -275,10 +295,7 @@ def calculate_rewards(attestation_id: str, total_reward: float, token: str):
     total_distributed = 0
     for address, amount in rewards.items():
         # Find contributor info
-        contrib = next(
-            (c for c in attestation.contributors if c["address"] == address),
-            None
-        )
+        contrib = next((c for c in attestation.contributors if c["address"] == address), None)
 
         weight = contrib["weight"] if contrib else 0
         traces = contrib["trace_count"] if contrib else 0

@@ -1,11 +1,12 @@
 """Unit tests for DSPy loaders."""
 
-import pytest
-import tempfile
-import pickle
 import json
+import pickle
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from src.services.dspy.loaders import LocalDSPyLoader, RemoteDSPyLoader
 
@@ -29,6 +30,7 @@ class TestLocalDSPyLoader:
     def teardown_method(self):
         """Clean up test fixtures."""
         import shutil
+
         shutil.rmtree(self.temp_dir)
 
     def test_load_pickle_file(self):
@@ -48,10 +50,7 @@ class TestLocalDSPyLoader:
 
     def test_load_json_file(self):
         """Test loading configuration from JSON file."""
-        config = {
-            "name": "test-program",
-            "signatures": ["sig1", "sig2"]
-        }
+        config = {"name": "test-program", "signatures": ["sig1", "sig2"]}
 
         json_path = Path(self.temp_dir) / "config.json"
         with open(json_path, "w") as f:
@@ -70,7 +69,7 @@ class TestLocalDSPyLoader:
 class TestDSPyProgram:
     def __init__(self):
         self.name = "TestProgram"
-        
+
     def forward(self, x):
         return x * 2
 """
@@ -102,7 +101,7 @@ class TestDSPyProgram:
         # Mock the import process
         mock_module = MagicMock()
         mock_class = MockDSPyProgram
-        setattr(mock_module, "TestClass", mock_class)
+        mock_module.TestClass = mock_class
 
         with patch("importlib.import_module", return_value=mock_module):
             loaded = self.loader.load_python_class("test_module", "TestClass")
@@ -121,12 +120,12 @@ class TestDSPyProgram:
         """Test that loaded modules are cached."""
         mock_module = MagicMock()
         mock_class = MockDSPyProgram
-        setattr(mock_module, "TestClass", mock_class)
+        mock_module.TestClass = mock_class
 
         with patch("importlib.import_module", return_value=mock_module) as mock_import:
             # Load twice
-            loaded1 = self.loader.load_python_class("test_module", "TestClass")
-            loaded2 = self.loader.load_python_class("test_module", "TestClass")
+            self.loader.load_python_class("test_module", "TestClass")
+            self.loader.load_python_class("test_module", "TestClass")
 
             # Should only import once due to caching
             mock_import.assert_called_once()
@@ -143,6 +142,7 @@ class TestRemoteDSPyLoader:
     def teardown_method(self):
         """Clean up test fixtures."""
         import shutil
+
         shutil.rmtree(self.temp_dir)
 
     @patch("src.services.dspy.loaders.HF_HUB_AVAILABLE", False)
@@ -173,7 +173,7 @@ class TestRemoteDSPyLoader:
             filename="model.pkl",
             token=None,
             cache_dir=self.loader.cache_dir,
-            force_download=False
+            force_download=False,
         )
 
     @patch("src.services.dspy.loaders.HF_HUB_AVAILABLE", True)

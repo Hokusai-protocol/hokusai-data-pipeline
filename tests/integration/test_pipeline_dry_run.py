@@ -1,7 +1,9 @@
 """Integration test for pipeline dry run mode."""
 
-import pytest
 import json
+
+import pytest
+
 # import sys  # Will be used when cmd is implemented
 
 
@@ -47,18 +49,9 @@ class TestPipelineDryRun:
             contributor_data_hash="hash123",
             baseline_model_id="model_v1",
             new_model_id="model_v2",
-            evaluation_results={
-                "baseline": {"accuracy": 0.85},
-                "new": {"accuracy": 0.88}
-            },
-            delta_results={
-                "accuracy": {
-                    "baseline": 0.85,
-                    "new": 0.88,
-                    "delta": 0.03
-                }
-            },
-            delta_score=0.03
+            evaluation_results={"baseline": {"accuracy": 0.85}, "new": {"accuracy": 0.88}},
+            delta_results={"accuracy": {"baseline": 0.85, "new": 0.88, "delta": 0.03}},
+            delta_score=0.03,
         )
 
         # Validate attestation structure

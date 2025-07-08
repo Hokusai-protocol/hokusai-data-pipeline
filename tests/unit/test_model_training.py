@@ -1,9 +1,10 @@
 """Unit tests for model_training module."""
 
-import pytest
-import pandas as pd
-import numpy as np
 from unittest.mock import Mock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 
@@ -26,16 +27,12 @@ class TestModelTrainer:
 
     @patch("mlflow.set_tracking_uri")
     @patch("mlflow.set_experiment")
-    def test_init_with_mlflow_config(self, mock_set_experiment,
-                                     mock_set_tracking_uri):
+    def test_init_with_mlflow_config(self, mock_set_experiment, mock_set_tracking_uri):
         """Test ModelTrainer initialization with MLflow configuration."""
         tracking_uri = "http://localhost:5000"
         experiment_name = "test_experiment"
 
-        ModelTrainer(
-            mlflow_tracking_uri=tracking_uri,
-            experiment_name=experiment_name
-        )
+        ModelTrainer(mlflow_tracking_uri=tracking_uri, experiment_name=experiment_name)
 
         mock_set_tracking_uri.assert_called_once_with(tracking_uri)
         mock_set_experiment.assert_called_once_with(experiment_name)
@@ -45,11 +42,13 @@ class TestModelTrainer:
         trainer = ModelTrainer()
 
         # Create sample dataframe
-        df = pd.DataFrame({
-            "feature1": [1, 2, 3, 4, 5],
-            "feature2": [10, 20, 30, 40, 50],
-            "target": [0, 1, 0, 1, 0]
-        })
+        df = pd.DataFrame(
+            {
+                "feature1": [1, 2, 3, 4, 5],
+                "feature2": [10, 20, 30, 40, 50],
+                "target": [0, 1, 0, 1, 0],
+            }
+        )
 
         X_train, X_test, y_train, y_test = trainer.prepare_training_data(
             df, target_column="target", test_size=0.4
@@ -57,7 +56,7 @@ class TestModelTrainer:
 
         # Check shapes
         assert len(X_train) == 3  # 60% of 5 samples
-        assert len(X_test) == 2   # 40% of 5 samples
+        assert len(X_test) == 2  # 40% of 5 samples
         assert len(y_train) == 3
         assert len(y_test) == 2
 
@@ -70,19 +69,18 @@ class TestModelTrainer:
         """Test prepare_training_data with custom feature selection."""
         trainer = ModelTrainer()
 
-        df = pd.DataFrame({
-            "feature1": [1, 2, 3, 4, 5],
-            "feature2": [10, 20, 30, 40, 50],
-            "feature3": [100, 200, 300, 400, 500],
-            "target": [0, 1, 0, 1, 0]
-        })
+        df = pd.DataFrame(
+            {
+                "feature1": [1, 2, 3, 4, 5],
+                "feature2": [10, 20, 30, 40, 50],
+                "feature3": [100, 200, 300, 400, 500],
+                "target": [0, 1, 0, 1, 0],
+            }
+        )
 
         feature_columns = ["feature1", "feature3"]
         X_train, X_test, y_train, y_test = trainer.prepare_training_data(
-            df,
-            target_column="target",
-            feature_columns=feature_columns,
-            test_size=0.4
+            df, target_column="target", feature_columns=feature_columns, test_size=0.4
         )
 
         assert list(X_train.columns) == feature_columns
@@ -92,10 +90,7 @@ class TestModelTrainer:
         """Test training a mock model."""
         trainer = ModelTrainer(random_seed=42)
 
-        X_train = pd.DataFrame({
-            "feature1": [1, 2, 3],
-            "feature2": [10, 20, 30]
-        })
+        X_train = pd.DataFrame({"feature1": [1, 2, 3], "feature2": [10, 20, 30]})
         y_train = pd.Series([0, 1, 0])
 
         model = trainer.train_mock_model(X_train, y_train, "test_classifier")
@@ -127,16 +122,11 @@ class TestModelTrainer:
         """Test training a sklearn model that supports random_state."""
         trainer = ModelTrainer(random_seed=42)
 
-        X_train = pd.DataFrame({
-            "feature1": [1, 2, 3, 4, 5],
-            "feature2": [10, 20, 30, 40, 50]
-        })
+        X_train = pd.DataFrame({"feature1": [1, 2, 3, 4, 5], "feature2": [10, 20, 30, 40, 50]})
         y_train = pd.Series([0, 1, 0, 1, 0])
 
         model = trainer.train_sklearn_model(
-            X_train, y_train,
-            RandomForestClassifier,
-            {"n_estimators": 10}
+            X_train, y_train, RandomForestClassifier, {"n_estimators": 10}
         )
 
         assert isinstance(model, RandomForestClassifier)
@@ -147,10 +137,7 @@ class TestModelTrainer:
         """Test training a sklearn model that doesn't support random_state."""
         trainer = ModelTrainer(random_seed=42)
 
-        X_train = pd.DataFrame({
-            "feature1": [1, 2, 3, 4, 5],
-            "feature2": [10, 20, 30, 40, 50]
-        })
+        X_train = pd.DataFrame({"feature1": [1, 2, 3, 4, 5], "feature2": [10, 20, 30, 40, 50]})
         y_train = pd.Series([0, 1, 0, 1, 0])
 
         # Use a model class that doesn't have random_state
@@ -161,11 +148,7 @@ class TestModelTrainer:
             def fit(self, X, y):
                 pass
 
-        model = trainer.train_sklearn_model(
-            X_train, y_train,
-            MockModel,
-            {"param1": "test_value"}
-        )
+        model = trainer.train_sklearn_model(X_train, y_train, MockModel, {"param1": "test_value"})
 
         assert isinstance(model, MockModel)
         assert model.param1 == "test_value"
@@ -175,8 +158,9 @@ class TestModelTrainer:
     @patch("mlflow.log_param")
     @patch("mlflow.log_metric")
     @patch("mlflow.sklearn.log_model")
-    def test_log_model_to_mlflow_sklearn(self, mock_log_model, mock_log_metric,
-                                         mock_log_param, mock_start_run, mock_active_run):
+    def test_log_model_to_mlflow_sklearn(
+        self, mock_log_model, mock_log_metric, mock_log_param, mock_start_run, mock_active_run
+    ):
         """Test logging sklearn model to MLflow."""
         # Setup mocks
         mock_active_run.return_value = None  # No active run
@@ -196,9 +180,7 @@ class TestModelTrainer:
         metrics = {"accuracy": 0.85, "f1_score": 0.80}
         params = {"n_estimators": 10, "random_state": 42}
 
-        run_id = trainer.log_model_to_mlflow(
-            model, "test_model", metrics, params
-        )
+        run_id = trainer.log_model_to_mlflow(model, "test_model", metrics, params)
 
         assert run_id == "test_run_id"
 
@@ -219,9 +201,15 @@ class TestModelTrainer:
     @patch("mlflow.log_metric")
     @patch("mlflow.log_artifact")
     @patch("tempfile.NamedTemporaryFile")
-    def test_log_model_to_mlflow_mock(self, mock_temp_file, mock_log_artifact,
-                                      mock_log_metric, mock_log_param,
-                                      mock_start_run, mock_active_run):
+    def test_log_model_to_mlflow_mock(
+        self,
+        mock_temp_file,
+        mock_log_artifact,
+        mock_log_metric,
+        mock_log_param,
+        mock_start_run,
+        mock_active_run,
+    ):
         """Test logging mock model to MLflow."""
         # Setup mocks
         mock_active_run.return_value = None  # No active run
@@ -238,22 +226,15 @@ class TestModelTrainer:
         trainer = ModelTrainer()
 
         # Create a mock model
-        mock_model = {
-            "type": "mock_classifier",
-            "version": "2.0.0",
-            "metrics": {"accuracy": 0.85}
-        }
+        mock_model = {"type": "mock_classifier", "version": "2.0.0", "metrics": {"accuracy": 0.85}}
 
         metrics = {"accuracy": 0.85}
         params = {"random_seed": 42}
 
-        run_id = trainer.log_model_to_mlflow(
-            mock_model, "test_model", metrics, params
-        )
+        run_id = trainer.log_model_to_mlflow(mock_model, "test_model", metrics, params)
 
         assert run_id == "test_run_id"
-        mock_log_artifact.assert_called_once_with(
-            "/tmp/test_model.json", artifact_path="model")
+        mock_log_artifact.assert_called_once_with("/tmp/test_model.json", artifact_path="model")
 
     def test_create_training_report_sklearn(self):
         """Test creating training report for sklearn model."""
@@ -261,16 +242,11 @@ class TestModelTrainer:
 
         # Create sklearn model
         model = RandomForestClassifier()
-        X_train = pd.DataFrame({
-            "feature1": [1, 2, 3, 4, 5],
-            "feature2": [10, 20, 30, 40, 50]
-        })
+        X_train = pd.DataFrame({"feature1": [1, 2, 3, 4, 5], "feature2": [10, 20, 30, 40, 50]})
         y_train = pd.Series([0, 1, 0, 1, 0])
         training_time = 45.5
 
-        report = trainer.create_training_report(
-            model, X_train, y_train, training_time
-        )
+        report = trainer.create_training_report(model, X_train, y_train, training_time)
 
         assert report["model_type"] == "RandomForestClassifier"
         assert report["training_samples"] == 5
@@ -284,21 +260,13 @@ class TestModelTrainer:
         trainer = ModelTrainer()
 
         # Create mock model
-        mock_model = {
-            "type": "mock_classifier",
-            "version": "2.0.0"
-        }
+        mock_model = {"type": "mock_classifier", "version": "2.0.0"}
 
-        X_train = pd.DataFrame({
-            "feature1": [1, 2, 3],
-            "feature2": [10, 20, 30]
-        })
+        X_train = pd.DataFrame({"feature1": [1, 2, 3], "feature2": [10, 20, 30]})
         y_train = pd.Series([0, 1, 0])
         training_time = 30.0
 
-        report = trainer.create_training_report(
-            mock_model, X_train, y_train, training_time
-        )
+        report = trainer.create_training_report(mock_model, X_train, y_train, training_time)
 
         assert report["model_type"] == "mock_classifier"
         assert report["training_samples"] == 3
@@ -310,10 +278,7 @@ class TestModelTrainer:
         trainer1 = ModelTrainer(random_seed=42)
         trainer2 = ModelTrainer(random_seed=42)
 
-        X_train = pd.DataFrame({
-            "feature1": [1, 2, 3, 4, 5],
-            "feature2": [10, 20, 30, 40, 50]
-        })
+        X_train = pd.DataFrame({"feature1": [1, 2, 3, 4, 5], "feature2": [10, 20, 30, 40, 50]})
         y_train = pd.Series([0, 1, 0, 1, 0])
 
         model1 = trainer1.train_mock_model(X_train, y_train)
@@ -332,12 +297,14 @@ class TestModelTrainerIntegration:
         trainer = ModelTrainer(random_seed=42)
 
         # Create sample dataset
-        df = pd.DataFrame({
-            "feature1": np.random.rand(100),
-            "feature2": np.random.rand(100),
-            "feature3": np.random.rand(100),
-            "target": np.random.randint(0, 2, 100)
-        })
+        df = pd.DataFrame(
+            {
+                "feature1": np.random.rand(100),
+                "feature2": np.random.rand(100),
+                "feature3": np.random.rand(100),
+                "target": np.random.randint(0, 2, 100),
+            }
+        )
 
         # Prepare data
         X_train, X_test, y_train, y_test = trainer.prepare_training_data(
@@ -363,8 +330,9 @@ class TestModelTrainerIntegration:
     @patch("mlflow.log_param")
     @patch("mlflow.log_metric")
     @patch("mlflow.sklearn.log_model")
-    def test_full_training_workflow_sklearn(self, mock_log_model, mock_log_metric,
-                                          mock_log_param, mock_start_run, mock_active_run):
+    def test_full_training_workflow_sklearn(
+        self, mock_log_model, mock_log_metric, mock_log_param, mock_start_run, mock_active_run
+    ):
         """Test complete training workflow with sklearn model."""
         # Setup MLflow mocks
         mock_active_run.return_value = None  # No active run
@@ -376,11 +344,13 @@ class TestModelTrainerIntegration:
         trainer = ModelTrainer(random_seed=42)
 
         # Create sample dataset
-        df = pd.DataFrame({
-            "feature1": np.random.rand(50),
-            "feature2": np.random.rand(50),
-            "target": np.random.randint(0, 2, 50)
-        })
+        df = pd.DataFrame(
+            {
+                "feature1": np.random.rand(50),
+                "feature2": np.random.rand(50),
+                "target": np.random.randint(0, 2, 50),
+            }
+        )
 
         # Prepare data
         X_train, X_test, y_train, y_test = trainer.prepare_training_data(
@@ -388,22 +358,17 @@ class TestModelTrainerIntegration:
         )
 
         # Train sklearn model
-        model = trainer.train_sklearn_model(
-            X_train, y_train,
-            LogisticRegression,
-            {"max_iter": 100}
-        )
+        model = trainer.train_sklearn_model(X_train, y_train, LogisticRegression, {"max_iter": 100})
 
         # Calculate some dummy metrics for testing
         from sklearn.metrics import accuracy_score
+
         y_pred = model.predict(X_test)
         metrics = {"accuracy": accuracy_score(y_test, y_pred)}
         params = {"max_iter": 100, "random_state": 42}
 
         # Log to MLflow
-        run_id = trainer.log_model_to_mlflow(
-            model, "integration_test_model", metrics, params
-        )
+        run_id = trainer.log_model_to_mlflow(model, "integration_test_model", metrics, params)
 
         # Create training report
         training_report = trainer.create_training_report(
@@ -420,12 +385,14 @@ class TestModelTrainerIntegration:
 def sample_dataframe():
     """Fixture providing a sample dataframe for testing."""
     np.random.seed(42)
-    return pd.DataFrame({
-        "feature1": np.random.rand(20),
-        "feature2": np.random.rand(20),
-        "feature3": np.random.rand(20),
-        "target": np.random.randint(0, 2, 20)
-    })
+    return pd.DataFrame(
+        {
+            "feature1": np.random.rand(20),
+            "feature2": np.random.rand(20),
+            "feature3": np.random.rand(20),
+            "target": np.random.randint(0, 2, 20),
+        }
+    )
 
 
 @pytest.fixture

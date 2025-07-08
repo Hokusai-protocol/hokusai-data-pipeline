@@ -1,18 +1,13 @@
 """Unit tests for attestation utilities."""
 
-import pytest
 import json
-import hashlib
-from unittest.mock import Mock, patch, mock_open, MagicMock
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any
+from unittest.mock import mock_open, patch
 
-from src.utils.attestation import (
-    generate_attestation_hash,
-    AttestationGenerator
-)
-from src.utils.constants import ATTESTATION_VERSION, ATTESTATION_SCHEMA_VERSION
+import pytest
+
+from src.utils.attestation import AttestationGenerator, generate_attestation_hash
+from src.utils.constants import ATTESTATION_SCHEMA_VERSION, ATTESTATION_VERSION
 
 
 class TestGenerateAttestationHash:
@@ -20,11 +15,7 @@ class TestGenerateAttestationHash:
 
     def test_generate_attestation_hash_basic(self):
         """Test basic attestation hash generation."""
-        attestation = {
-            "model_id": "test_model",
-            "score": 0.95,
-            "data": {"key": "value"}
-        }
+        attestation = {"model_id": "test_model", "score": 0.95, "data": {"key": "value"}}
 
         hash1 = generate_attestation_hash(attestation)
         hash2 = generate_attestation_hash(attestation)
@@ -35,10 +26,7 @@ class TestGenerateAttestationHash:
 
     def test_generate_attestation_hash_ignores_mutable_fields(self):
         """Test that mutable fields are ignored."""
-        base_attestation = {
-            "model_id": "test_model",
-            "score": 0.95
-        }
+        base_attestation = {"model_id": "test_model", "score": 0.95}
 
         attestation_with_mutable = base_attestation.copy()
         attestation_with_mutable["attestation_hash"] = "some_hash"
@@ -52,17 +40,9 @@ class TestGenerateAttestationHash:
 
     def test_generate_attestation_hash_order_independent(self):
         """Test that field order doesn't affect hash."""
-        attestation1 = {
-            "a": 1,
-            "b": 2,
-            "c": 3
-        }
+        attestation1 = {"a": 1, "b": 2, "c": 3}
 
-        attestation2 = {
-            "c": 3,
-            "a": 1,
-            "b": 2
-        }
+        attestation2 = {"c": 3, "a": 1, "b": 2}
 
         hash1 = generate_attestation_hash(attestation1)
         hash2 = generate_attestation_hash(attestation2)
@@ -81,15 +61,9 @@ class TestAttestationGenerator:
             "contributor_data_hash": "data_hash_abc",
             "baseline_model_id": "baseline_model_v1",
             "new_model_id": "improved_model_v2",
-            "evaluation_results": {
-                "accuracy": 0.95,
-                "f1_score": 0.93
-            },
-            "delta_results": {
-                "accuracy": 0.03,
-                "f1_score": 0.02
-            },
-            "delta_score": 0.025
+            "evaluation_results": {"accuracy": 0.95, "f1_score": 0.93},
+            "delta_results": {"accuracy": 0.03, "f1_score": 0.02},
+            "delta_score": 0.025,
         }
 
     def test_initialization(self):
@@ -132,10 +106,7 @@ class TestAttestationGenerator:
     def test_create_attestation_with_metadata(self):
         """Test attestation creation with metadata."""
         metadata = {"experiment": "test_exp", "version": "1.0"}
-        attestation = self.generator.create_attestation(
-            **self.test_data,
-            metadata=metadata
-        )
+        attestation = self.generator.create_attestation(**self.test_data, metadata=metadata)
 
         assert attestation["metadata"] == metadata
 
@@ -171,10 +142,7 @@ class TestAttestationGenerator:
     def test_generate_proof_data(self):
         """Test proof data generation."""
         proof_data = self.generator._generate_proof_data(
-            "data_hash_long_string_for_testing",
-            "baseline_id",
-            "new_id",
-            0.025
+            "data_hash_long_string_for_testing", "baseline_id", "new_id", 0.025
         )
 
         assert "commitment" in proof_data
@@ -195,7 +163,7 @@ class TestAttestationGenerator:
             "field1": "value1",
             "field2": "value2",
             "signature_placeholder": "0x000",
-            "content_hash": "old_hash"
+            "content_hash": "old_hash",
         }
 
         hash_result = self.generator._calculate_content_hash(attestation)

@@ -1,10 +1,8 @@
 """Unit tests for Hokusai Model Registry service."""
 
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock, call
-import mlflow
-from datetime import datetime
-from typing import Dict, Any
 
 from src.services.model_registry import HokusaiModelRegistry
 
@@ -40,9 +38,15 @@ class TestHokusaiModelRegistry:
     @patch("mlflow.log_param")
     @patch("mlflow.pyfunc.log_model")
     @patch("mlflow.register_model")
-    def test_register_baseline(self, mock_register_model, mock_log_model,
-                              mock_log_param, mock_log_params, mock_start_run,
-                              mock_set_tracking):
+    def test_register_baseline(
+        self,
+        mock_register_model,
+        mock_log_model,
+        mock_log_param,
+        mock_log_params,
+        mock_start_run,
+        mock_set_tracking,
+    ):
         """Test registering a baseline model."""
         # Setup mocks
         mock_run = MagicMock()
@@ -57,17 +61,10 @@ class TestHokusaiModelRegistry:
         registry = HokusaiModelRegistry()
         mock_model = Mock()
 
-        metadata = {
-            "dataset": "test_dataset",
-            "accuracy": 0.85
-        }
+        metadata = {"dataset": "test_dataset", "accuracy": 0.85}
 
         # Register baseline
-        result = registry.register_baseline(
-            mock_model,
-            "classification",
-            metadata
-        )
+        result = registry.register_baseline(mock_model, "classification", metadata)
 
         # Verify result
         assert result["model_id"] == "hokusai_classification_baseline"
@@ -90,7 +87,7 @@ class TestHokusaiModelRegistry:
         mock_log_model.assert_called_once_with(
             artifact_path="model",
             python_model=mock_model,
-            registered_model_name="hokusai_classification_baseline"
+            registered_model_name="hokusai_classification_baseline",
         )
 
     @patch("mlflow.set_tracking_uri")
@@ -117,9 +114,16 @@ class TestHokusaiModelRegistry:
     @patch("mlflow.pyfunc.log_model")
     @patch("mlflow.register_model")
     @patch("mlflow.set_tag")
-    def test_register_improved_model(self, mock_set_tag, mock_register_model,
-                                   mock_log_model, mock_log_param, mock_log_params,
-                                   mock_start_run, mock_set_tracking):
+    def test_register_improved_model(
+        self,
+        mock_set_tag,
+        mock_register_model,
+        mock_log_model,
+        mock_log_param,
+        mock_log_params,
+        mock_start_run,
+        mock_set_tracking,
+    ):
         """Test registering an improved model."""
         # Setup mocks
         mock_run = MagicMock()
@@ -138,15 +142,11 @@ class TestHokusaiModelRegistry:
             "baseline_model_id": "hokusai_classification_baseline",
             "baseline_version": "1",
             "contributor_address": "0x123abc",
-            "delta_metrics": {"accuracy": 0.03}
+            "delta_metrics": {"accuracy": 0.03},
         }
 
         # Register improved model
-        result = registry.register_improved_model(
-            mock_model,
-            "classification",
-            improvement_data
-        )
+        result = registry.register_improved_model(mock_model, "classification", improvement_data)
 
         # Verify result
         assert result["model_id"] == "hokusai_classification_improved"
@@ -168,7 +168,7 @@ class TestHokusaiModelRegistry:
         mock_model.latest_versions = [
             Mock(version="3", tags={"baseline_version": "2"}),
             Mock(version="2", tags={"baseline_version": "1"}),
-            Mock(version="1", tags={})
+            Mock(version="1", tags={}),
         ]
         mock_search_models.return_value = [mock_model]
 
@@ -190,22 +190,24 @@ class TestHokusaiModelRegistry:
         import pandas as pd
 
         # Mock search results
-        mock_runs = pd.DataFrame([
-            {
-                "run_id": "run1",
-                "tags.contributor_address": "0x123abc",
-                "tags.mlflow.parentRunId": None,
-                "params.model_type": "classification",
-                "status": "FINISHED"
-            },
-            {
-                "run_id": "run2",
-                "tags.contributor_address": "0x123abc",
-                "tags.mlflow.parentRunId": None,
-                "params.model_type": "regression",
-                "status": "FINISHED"
-            }
-        ])
+        mock_runs = pd.DataFrame(
+            [
+                {
+                    "run_id": "run1",
+                    "tags.contributor_address": "0x123abc",
+                    "tags.mlflow.parentRunId": None,
+                    "params.model_type": "classification",
+                    "status": "FINISHED",
+                },
+                {
+                    "run_id": "run2",
+                    "tags.contributor_address": "0x123abc",
+                    "tags.mlflow.parentRunId": None,
+                    "params.model_type": "regression",
+                    "status": "FINISHED",
+                },
+            ]
+        )
         mock_search_runs.return_value = mock_runs
 
         registry = HokusaiModelRegistry()
@@ -223,16 +225,13 @@ class TestHokusaiModelRegistry:
         mock_client_class.return_value = mock_client
 
         registry = HokusaiModelRegistry()
-        result = registry.promote_model_to_production(
-            "hokusai_classification_improved",
-            "2"
-        )
+        result = registry.promote_model_to_production("hokusai_classification_improved", "2")
 
         mock_client.transition_model_version_stage.assert_called_once_with(
             name="hokusai_classification_improved",
             version="2",
             stage="Production",
-            archive_existing_versions=True
+            archive_existing_versions=True,
         )
 
         assert result["model_id"] == "hokusai_classification_improved"
@@ -252,14 +251,14 @@ class TestHokusaiModelRegistry:
                 name="hokusai_classification_baseline",
                 version="1",
                 current_stage="Production",
-                tags={"model_type": "classification"}
+                tags={"model_type": "classification"},
             ),
             Mock(
                 name="hokusai_regression_improved",
                 version="3",
                 current_stage="Production",
-                tags={"model_type": "regression"}
-            )
+                tags={"model_type": "regression"},
+            ),
         ]
         mock_client.search_model_versions.return_value = mock_versions
 

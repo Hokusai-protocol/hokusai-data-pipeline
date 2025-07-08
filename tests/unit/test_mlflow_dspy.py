@@ -1,21 +1,18 @@
 """Unit tests for MLflow DSPy integration."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock, call
 import os
-import json
 import time
-import threading
-from typing import Dict, Any
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from src.integrations.mlflow_dspy import (
+    MLflowDSPyClient,
     MLflowDSPyConfig,
     TracedModule,
-    MLflowDSPyClient,
     autolog,
-    get_autolog_client,
     disable_autolog,
-    DSPY_AVAILABLE
+    get_autolog_client,
 )
 
 
@@ -45,7 +42,7 @@ class TestMLflowDSPyConfig:
             sampling_rate=0.5,
             trace_buffer_size=50,
             experiment_name="custom-experiment",
-            custom_tags=custom_tags
+            custom_tags=custom_tags,
         )
 
         assert config.enabled is False
@@ -68,13 +65,16 @@ class TestMLflowDSPyConfig:
         with pytest.raises(ValueError, match="Buffer size must be positive"):
             MLflowDSPyConfig(trace_buffer_size=0)
 
-    @patch.dict(os.environ, {
-        "MLFLOW_DSPY_ENABLED": "false",
-        "MLFLOW_DSPY_LOG_INPUTS": "false",
-        "MLFLOW_DSPY_SAMPLING_RATE": "0.8",
-        "MLFLOW_DSPY_BUFFER_SIZE": "200",
-        "MLFLOW_DSPY_EXPERIMENT": "env-experiment"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "MLFLOW_DSPY_ENABLED": "false",
+            "MLFLOW_DSPY_LOG_INPUTS": "false",
+            "MLFLOW_DSPY_SAMPLING_RATE": "0.8",
+            "MLFLOW_DSPY_BUFFER_SIZE": "200",
+            "MLFLOW_DSPY_EXPERIMENT": "env-experiment",
+        },
+    )
     def test_config_from_env(self):
         """Test creating configuration from environment variables."""
         config = MLflowDSPyConfig.from_env()
@@ -119,7 +119,7 @@ class TestTracedModule:
         assert self.traced_module._metadata == {
             "user_id": "123",
             "session": "abc",
-            "extra": "value"
+            "extra": "value",
         }
 
     @patch("mlflow.start_span")
@@ -170,7 +170,7 @@ class TestTracedModule:
         mock_span = MagicMock()
         mock_start_span.return_value.__enter__.return_value = mock_span
 
-        result = self.traced_module.forward("input1")
+        self.traced_module.forward("input1")
 
         # Should log signature attributes
         mock_span.set_attributes.assert_called()
@@ -224,7 +224,7 @@ class TestMLflowDSPyClient:
             "module": "TestModule",
             "inputs": {"x": 1},
             "outputs": {"y": 2},
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
 
         self.client.add_trace(trace_data)
@@ -314,6 +314,7 @@ class TestAutologFunctions:
         autolog(config)
 
         from src.integrations.mlflow_dspy import _autolog_client
+
         assert _autolog_client is not None
         assert _autolog_client.config == config
 
@@ -321,6 +322,7 @@ class TestAutologFunctions:
         """Test getting autolog client."""
         # First, client should be None
         from src.integrations import mlflow_dspy
+
         mlflow_dspy._autolog_client = None
 
         client = get_autolog_client()
@@ -337,6 +339,7 @@ class TestAutologFunctions:
         autolog(MLflowDSPyConfig())
 
         from src.integrations import mlflow_dspy
+
         assert mlflow_dspy._autolog_client is not None
 
         # Now disable
@@ -349,7 +352,6 @@ class TestAutologFunctions:
             # Should not raise but won't create client
             autolog(MLflowDSPyConfig())
 
-            from src.integrations import mlflow_dspy
             # Client might still be created but won't work without DSPy
 
 

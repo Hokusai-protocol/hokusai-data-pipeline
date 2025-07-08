@@ -1,12 +1,11 @@
 """Unit tests for API models endpoints."""
 
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch
+
 from fastapi.testclient import TestClient
-import json
-from datetime import datetime
 
 from src.api.routes.models import router
+
 # Remove unused imports that don't exist
 
 
@@ -16,6 +15,7 @@ class TestModelsAPI:
     def setup_method(self):
         """Set up test fixtures."""
         from fastapi import FastAPI
+
         self.app = FastAPI()
         self.app.include_router(router)
         self.client = TestClient(self.app)
@@ -107,9 +107,7 @@ class TestModelsAPI:
             mock_client = Mock()
             mock_client.create_registered_model.return_value = Mock(name="NewModel")
             mock_client.create_model_version.return_value = Mock(
-                name="NewModel",
-                version="1",
-                status="READY"
+                name="NewModel", version="1", status="READY"
             )
             mock_mlflow.tracking.MlflowClient.return_value = mock_client
 
@@ -117,7 +115,7 @@ class TestModelsAPI:
                 "name": "NewModel",
                 "description": "A new model",
                 "tags": {"type": "classification"},
-                "model_uri": "runs:/abc123/model"
+                "model_uri": "runs:/abc123/model",
             }
 
             response = self.client.post("/models/register", json=request_data)
@@ -129,9 +127,7 @@ class TestModelsAPI:
 
     def test_register_model_validation_error(self):
         """Test register model with validation error."""
-        request_data = {
-            "description": "Missing name field"
-        }
+        request_data = {"description": "Missing name field"}
 
         response = self.client.post("/models/register", json=request_data)
 
@@ -145,7 +141,7 @@ class TestModelsAPI:
 
             update_data = {
                 "description": "Updated description",
-                "tags": {"accuracy": "0.97", "updated": "true"}
+                "tags": {"accuracy": "0.97", "updated": "true"},
             }
 
             response = self.client.patch("/models/EmailDraft/1", json=update_data)
@@ -170,15 +166,9 @@ class TestModelsAPI:
             mock_client = Mock()
             mock_mlflow.tracking.MlflowClient.return_value = mock_client
 
-            transition_data = {
-                "stage": "Production",
-                "archive_existing": True
-            }
+            transition_data = {"stage": "Production", "archive_existing": True}
 
-            response = self.client.post(
-                "/models/EmailDraft/1/transition",
-                json=transition_data
-            )
+            response = self.client.post("/models/EmailDraft/1/transition", json=transition_data)
 
             assert response.status_code == 200
             assert "transitioned to Production" in response.json()["message"]
@@ -191,7 +181,7 @@ class TestModelsAPI:
                 "model1": {"name": "EmailDraft", "version": "1", "accuracy": 0.95},
                 "model2": {"name": "EmailDraft", "version": "2", "accuracy": 0.97},
                 "delta": {"accuracy": 0.02},
-                "recommendation": "Use version 2"
+                "recommendation": "Use version 2",
             }
             mock_comparator.compare.return_value = mock_comparison
             mock_comparator_class.return_value = mock_comparator
@@ -207,12 +197,7 @@ class TestModelsAPI:
         """Test evaluate model endpoint."""
         with patch("src.api.routes.models.ModelEvaluator") as mock_evaluator_class:
             mock_evaluator = Mock()
-            mock_results = {
-                "accuracy": 0.95,
-                "precision": 0.93,
-                "recall": 0.97,
-                "f1_score": 0.95
-            }
+            mock_results = {"accuracy": 0.95, "precision": 0.93, "recall": 0.97, "f1_score": 0.95}
             mock_evaluator.evaluate.return_value = mock_results
             mock_evaluator_class.return_value = mock_evaluator
 
@@ -220,7 +205,7 @@ class TestModelsAPI:
                 "model_name": "EmailDraft",
                 "model_version": "1",
                 "dataset_path": "/path/to/test/data",
-                "metrics": ["accuracy", "precision", "recall", "f1_score"]
+                "metrics": ["accuracy", "precision", "recall", "f1_score"],
             }
 
             response = self.client.post("/models/evaluate", json=eval_request)
@@ -236,7 +221,7 @@ class TestModelsAPI:
                 "model": "EmailDraft:1",
                 "parents": ["EmailDraft:0"],
                 "training_data": ["dataset_v1"],
-                "experiments": ["exp_001"]
+                "experiments": ["exp_001"],
             }
 
             response = self.client.get("/models/EmailDraft/1/lineage")
@@ -252,7 +237,7 @@ class TestModelsAPI:
             mock_metrics.return_value = {
                 "training_metrics": {"loss": 0.05, "accuracy": 0.95},
                 "validation_metrics": {"loss": 0.07, "accuracy": 0.93},
-                "production_metrics": {"latency_ms": 25, "throughput_rps": 100}
+                "production_metrics": {"latency_ms": 25, "throughput_rps": 100},
             }
 
             response = self.client.get("/models/EmailDraft/1/metrics")
@@ -280,7 +265,7 @@ class TestModelsAPI:
             mock_history.return_value = {
                 "total_predictions": 10000,
                 "date_range": {"start": "2024-01-01", "end": "2024-01-31"},
-                "daily_counts": [{"date": "2024-01-01", "count": 350}]
+                "daily_counts": [{"date": "2024-01-01", "count": 350}],
             }
 
             response = self.client.get("/models/EmailDraft/1/predictions")
@@ -298,7 +283,7 @@ class TestModelsAPI:
             batch_request = {
                 "operations": [
                     {"action": "tag", "model": "EmailDraft:1", "tags": {"tested": "true"}},
-                    {"action": "transition", "model": "EmailDraft:2", "stage": "Staging"}
+                    {"action": "transition", "model": "EmailDraft:2", "stage": "Staging"},
                 ]
             }
 

@@ -1,12 +1,14 @@
 """
 Tests for ETH address validation utilities.
 """
+
 import pytest
+
 from src.utils.eth_address_validator import (
-    validate_eth_address,
-    normalize_eth_address,
+    ETHAddressValidationError,
     is_valid_eth_checksum,
-    ETHAddressValidationError
+    normalize_eth_address,
+    validate_eth_address,
 )
 
 
@@ -21,7 +23,7 @@ class TestETHAddressValidation:
             "0xdbF03B407c01E7cD3CBea99509d93f8DDDC8C6FB",
             "0xD1220A0cf47c7B9Be7A2E6BA89F429762e7b9aDb",
             "0x0000000000000000000000000000000000000000",
-            "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+            "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
         ]
 
         for address in valid_addresses:
@@ -32,11 +34,11 @@ class TestETHAddressValidation:
         invalid_addresses = [
             "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAe",  # Too short
             "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAedd",  # Too long
-            "5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",   # Missing 0x prefix
+            "5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",  # Missing 0x prefix
             "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAeG",  # Invalid hex character
-            "0x",                                           # Only prefix
-            "",                                             # Empty string
-            "not_an_address",                               # Invalid format
+            "0x",  # Only prefix
+            "",  # Empty string
+            "not_an_address",  # Invalid format
             "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1Be ed",  # Contains space
         ]
 
@@ -47,10 +49,22 @@ class TestETHAddressValidation:
     def test_address_normalization(self):
         """Test ETH address normalization."""
         test_cases = [
-            ("0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed", "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"),
-            ("0x5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED", "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"),
-            ("0X5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED", "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"),
-            ("0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359", "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359"),
+            (
+                "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed",
+                "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+            ),
+            (
+                "0x5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED",
+                "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+            ),
+            (
+                "0X5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED",
+                "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed",
+            ),
+            (
+                "0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359",
+                "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359",
+            ),
         ]
 
         for input_address, expected_output in test_cases:
@@ -81,7 +95,10 @@ class TestETHAddressValidation:
     def test_validation_with_strict_checksum(self):
         """Test validation with strict checksum enforcement."""
         # Should pass with correct checksum
-        assert validate_eth_address("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", strict_checksum=True) is True
+        assert (
+            validate_eth_address("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", strict_checksum=True)
+            is True
+        )
 
         # Should fail with incorrect checksum
         with pytest.raises(ETHAddressValidationError, match="Invalid checksum"):
@@ -90,8 +107,18 @@ class TestETHAddressValidation:
     def test_validation_without_strict_checksum(self):
         """Test validation without strict checksum enforcement."""
         # Should pass even with incorrect checksum
-        assert validate_eth_address("0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed", strict_checksum=False) is True
-        assert validate_eth_address("0x5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED", strict_checksum=False) is True
+        assert (
+            validate_eth_address(
+                "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed", strict_checksum=False
+            )
+            is True
+        )
+        assert (
+            validate_eth_address(
+                "0x5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED", strict_checksum=False
+            )
+            is True
+        )
 
     def test_error_messages(self):
         """Test that validation errors contain helpful messages."""

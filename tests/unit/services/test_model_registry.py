@@ -1,7 +1,8 @@
 """Unit tests for the HokusaiModelRegistry service."""
 
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
 
 from src.services.model_registry import HokusaiModelRegistry
 
@@ -40,8 +41,9 @@ class TestHokusaiModelRegistry:
     @patch("mlflow.register_model")
     @patch("mlflow.pyfunc.log_model")
     @patch("mlflow.start_run")
-    def test_register_baseline_success(self, mock_start_run, mock_log_model,
-                                     mock_register_model, registry, mock_model):
+    def test_register_baseline_success(
+        self, mock_start_run, mock_log_model, mock_register_model, registry, mock_model
+    ):
         """Test successful baseline model registration."""
         # Setup mocks
         mock_run = Mock()
@@ -58,14 +60,12 @@ class TestHokusaiModelRegistry:
         metadata = {
             "dataset": "initial_training",
             "version": "1.0.0",
-            "description": "Initial baseline model"
+            "description": "Initial baseline model",
         }
 
         # Execute
         result = registry.register_baseline(
-            model=mock_model,
-            model_type="lead_scoring",
-            metadata=metadata
+            model=mock_model, model_type="lead_scoring", metadata=metadata
         )
 
         # Verify
@@ -86,10 +86,17 @@ class TestHokusaiModelRegistry:
     @patch("mlflow.log_metrics")
     @patch("mlflow.log_params")
     @patch("mlflow.start_run")
-    def test_register_improved_model_success(self, mock_start_run, mock_log_params,
-                                           mock_log_metrics, mock_log_model,
-                                           mock_register_model, mock_client_class,
-                                           registry, mock_model):
+    def test_register_improved_model_success(
+        self,
+        mock_start_run,
+        mock_log_params,
+        mock_log_metrics,
+        mock_log_model,
+        mock_register_model,
+        mock_client_class,
+        registry,
+        mock_model,
+    ):
         """Test successful improved model registration with delta metrics."""
         # Setup mocks
         mock_run = Mock()
@@ -111,7 +118,7 @@ class TestHokusaiModelRegistry:
         delta_metrics = {
             "accuracy_improvement": 0.05,
             "auroc_improvement": 0.03,
-            "f1_improvement": 0.04
+            "f1_improvement": 0.04,
         }
         contributor = "0x742d35Cc6634C0532925a3b844Bc9e7595f62341"
 
@@ -120,7 +127,7 @@ class TestHokusaiModelRegistry:
             model=mock_model,
             baseline_id=baseline_id,
             delta_metrics=delta_metrics,
-            contributor=contributor
+            contributor=contributor,
         )
 
         # Verify
@@ -149,25 +156,22 @@ class TestHokusaiModelRegistry:
         mock_versions = [
             Mock(version="1", run_id="run1", creation_timestamp=1000),
             Mock(version="2", run_id="run2", creation_timestamp=2000),
-            Mock(version="3", run_id="run3", creation_timestamp=3000)
+            Mock(version="3", run_id="run3", creation_timestamp=3000),
         ]
         mock_client.search_model_versions.return_value = mock_versions
 
         # Setup mock run data
         def get_run_side_effect(run_id):
             run_data = {
-                "run1": {
-                    "params": {"is_baseline": "True"},
-                    "metrics": {"accuracy": 0.85}
-                },
+                "run1": {"params": {"is_baseline": "True"}, "metrics": {"accuracy": 0.85}},
                 "run2": {
                     "params": {"contributor_address": "0xABC123", "baseline_model_id": "model/1"},
-                    "metrics": {"accuracy": 0.87, "accuracy_improvement": 0.02}
+                    "metrics": {"accuracy": 0.87, "accuracy_improvement": 0.02},
                 },
                 "run3": {
                     "params": {"contributor_address": "0xDEF456", "baseline_model_id": "model/2"},
-                    "metrics": {"accuracy": 0.89, "accuracy_improvement": 0.02}
-                }
+                    "metrics": {"accuracy": 0.89, "accuracy_improvement": 0.02},
+                },
             }
             mock_run = Mock()
             mock_run.data.params = run_data[run_id]["params"]
@@ -190,20 +194,12 @@ class TestHokusaiModelRegistry:
     def test_register_baseline_missing_model(self, registry):
         """Test baseline registration with missing model."""
         with pytest.raises(ValueError, match="Model cannot be None"):
-            registry.register_baseline(
-                model=None,
-                model_type="lead_scoring",
-                metadata={}
-            )
+            registry.register_baseline(model=None, model_type="lead_scoring", metadata={})
 
     def test_register_baseline_invalid_model_type(self, registry, mock_model):
         """Test baseline registration with invalid model type."""
         with pytest.raises(ValueError, match="Invalid model type"):
-            registry.register_baseline(
-                model=mock_model,
-                model_type="invalid_type",
-                metadata={}
-            )
+            registry.register_baseline(model=mock_model, model_type="invalid_type", metadata={})
 
     def test_register_improved_invalid_contributor_address(self, registry, mock_model):
         """Test improved model registration with invalid ETH address."""
@@ -212,7 +208,7 @@ class TestHokusaiModelRegistry:
                 model=mock_model,
                 baseline_id="baseline/1",
                 delta_metrics={"accuracy_improvement": 0.02},
-                contributor="invalid_address"
+                contributor="invalid_address",
             )
 
     @patch("mlflow.tracking.MlflowClient")
@@ -230,7 +226,7 @@ class TestHokusaiModelRegistry:
         versions = [
             {"is_baseline": True, "metrics": {"accuracy": 0.85}},
             {"is_baseline": False, "metrics": {"accuracy": 0.87, "accuracy_improvement": 0.02}},
-            {"is_baseline": False, "metrics": {"accuracy": 0.89, "accuracy_improvement": 0.02}}
+            {"is_baseline": False, "metrics": {"accuracy": 0.89, "accuracy_improvement": 0.02}},
         ]
 
         result = registry._calculate_cumulative_metrics(versions)

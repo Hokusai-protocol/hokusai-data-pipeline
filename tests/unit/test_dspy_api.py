@@ -1,12 +1,12 @@
 """Unit tests for DSPy API endpoints."""
 
-import json
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 
 from src.api.main import app
-from src.services.dspy_pipeline_executor import ExecutionResult, ExecutionMode
+from src.services.dspy_pipeline_executor import ExecutionMode, ExecutionResult
 
 
 # Mock authentication for tests
@@ -36,7 +36,7 @@ class TestDSPyAPI:
             error=None,
             execution_time=0.5,
             program_name="email-assistant",
-            metadata={"mode": "normal"}
+            metadata={"mode": "normal"},
         )
 
         with patch("src.api.routes.dspy.get_executor") as mock_get_executor:
@@ -48,12 +48,9 @@ class TestDSPyAPI:
                 "/api/v1/dspy/execute",
                 json={
                     "program_id": "email-assistant-v1",
-                    "inputs": {
-                        "recipient": "john@example.com",
-                        "subject": "Test"
-                    }
+                    "inputs": {"recipient": "john@example.com", "subject": "Test"},
                 },
-                headers={"Authorization": "Bearer test-token"}
+                headers={"Authorization": "Bearer test-token"},
             )
 
             assert response.status_code == 200
@@ -77,7 +74,7 @@ class TestDSPyAPI:
             error="Model not found",
             execution_time=0.1,
             program_name="unknown",
-            metadata={}
+            metadata={},
         )
 
         with patch("src.api.routes.dspy.get_executor") as mock_get_executor:
@@ -87,11 +84,8 @@ class TestDSPyAPI:
 
             response = client.post(
                 "/api/v1/dspy/execute",
-                json={
-                    "program_id": "non-existent",
-                    "inputs": {"test": "data"}
-                },
-                headers={"Authorization": "Bearer test-token"}
+                json={"program_id": "non-existent", "inputs": {"test": "data"}},
+                headers={"Authorization": "Bearer test-token"},
             )
 
             assert response.status_code == 200
@@ -110,7 +104,7 @@ class TestDSPyAPI:
                 error=None,
                 execution_time=0.3,
                 program_name="email-assistant",
-                metadata={}
+                metadata={},
             ),
             ExecutionResult(
                 success=True,
@@ -118,8 +112,8 @@ class TestDSPyAPI:
                 error=None,
                 execution_time=0.4,
                 program_name="email-assistant",
-                metadata={}
-            )
+                metadata={},
+            ),
         ]
 
         with patch("src.api.routes.dspy.get_executor") as mock_get_executor:
@@ -133,10 +127,10 @@ class TestDSPyAPI:
                     "program_id": "email-assistant-v1",
                     "inputs_list": [
                         {"recipient": "john@example.com", "subject": "Test 1"},
-                        {"recipient": "jane@example.com", "subject": "Test 2"}
-                    ]
+                        {"recipient": "jane@example.com", "subject": "Test 2"},
+                    ],
                 },
-                headers={"Authorization": "Bearer test-token"}
+                headers={"Authorization": "Bearer test-token"},
             )
 
             assert response.status_code == 200
@@ -157,7 +151,7 @@ class TestDSPyAPI:
                 error=None,
                 execution_time=0.3,
                 program_name="email-assistant",
-                metadata={}
+                metadata={},
             ),
             ExecutionResult(
                 success=False,
@@ -165,8 +159,8 @@ class TestDSPyAPI:
                 error="Invalid input",
                 execution_time=0.1,
                 program_name="email-assistant",
-                metadata={}
-            )
+                metadata={},
+            ),
         ]
 
         with patch("src.api.routes.dspy.get_executor") as mock_get_executor:
@@ -178,12 +172,9 @@ class TestDSPyAPI:
                 "/api/v1/dspy/execute/batch",
                 json={
                     "program_id": "email-assistant-v1",
-                    "inputs_list": [
-                        {"recipient": "john@example.com"},
-                        {"invalid": "data"}
-                    ]
+                    "inputs_list": [{"recipient": "john@example.com"}, {"invalid": "data"}],
                 },
-                headers={"Authorization": "Bearer test-token"}
+                headers={"Authorization": "Bearer test-token"},
             )
 
             assert response.status_code == 200
@@ -201,15 +192,15 @@ class TestDSPyAPI:
                 "name": "Email Assistant",
                 "version": "1.0.0",
                 "signatures": [{"name": "generate_email"}],
-                "description": "Generate professional emails"
+                "description": "Generate professional emails",
             },
             {
                 "id": "summarizer-v2",
                 "name": "Text Summarizer",
                 "version": "2.0.0",
                 "signatures": [{"name": "summarize"}],
-                "description": "Summarize long texts"
-            }
+                "description": "Summarize long texts",
+            },
         ]
 
         with patch("src.api.routes.dspy.HokusaiModelRegistry") as mock_registry_class:
@@ -218,8 +209,7 @@ class TestDSPyAPI:
             mock_registry_class.return_value = mock_registry
 
             response = client.get(
-                "/api/v1/dspy/programs",
-                headers={"Authorization": "Bearer test-token"}
+                "/api/v1/dspy/programs", headers={"Authorization": "Bearer test-token"}
             )
 
             assert response.status_code == 200
@@ -237,7 +227,7 @@ class TestDSPyAPI:
             "failed_executions": 5,
             "success_rate": 0.95,
             "average_execution_time": 0.45,
-            "p95_execution_time": 0.89
+            "p95_execution_time": 0.89,
         }
 
         with patch("src.api.routes.dspy.get_executor") as mock_get_executor:
@@ -248,8 +238,7 @@ class TestDSPyAPI:
             mock_get_executor.return_value = mock_executor
 
             response = client.get(
-                "/api/v1/dspy/stats",
-                headers={"Authorization": "Bearer test-token"}
+                "/api/v1/dspy/stats", headers={"Authorization": "Bearer test-token"}
             )
 
             assert response.status_code == 200
@@ -266,8 +255,7 @@ class TestDSPyAPI:
             mock_get_executor.return_value = mock_executor
 
             response = client.post(
-                "/api/v1/dspy/cache/clear",
-                headers={"Authorization": "Bearer test-token"}
+                "/api/v1/dspy/cache/clear", headers={"Authorization": "Bearer test-token"}
             )
 
             assert response.status_code == 200
@@ -279,10 +267,7 @@ class TestDSPyAPI:
 
     def test_dspy_health_check(self, client):
         """Test DSPy health check endpoint."""
-        mock_stats = {
-            "total_executions": 50,
-            "success_rate": 0.98
-        }
+        mock_stats = {"total_executions": 50, "success_rate": 0.98}
 
         with patch("src.api.routes.dspy.get_executor") as mock_get_executor:
             mock_executor = MagicMock()
@@ -305,7 +290,7 @@ class TestDSPyAPI:
             error=None,
             execution_time=0.6,
             program_name="test-program",
-            metadata={"mode": "debug", "debug_trace": {"steps": 3}}
+            metadata={"mode": "debug", "debug_trace": {"steps": 3}},
         )
 
         with patch("src.api.routes.dspy.get_executor") as mock_get_executor:
@@ -315,12 +300,8 @@ class TestDSPyAPI:
 
             response = client.post(
                 "/api/v1/dspy/execute",
-                json={
-                    "program_id": "test-program",
-                    "inputs": {"data": "test"},
-                    "mode": "debug"
-                },
-                headers={"Authorization": "Bearer test-token"}
+                json={"program_id": "test-program", "inputs": {"data": "test"}, "mode": "debug"},
+                headers={"Authorization": "Bearer test-token"},
             )
 
             assert response.status_code == 200
@@ -338,11 +319,7 @@ class TestDSPyAPI:
         # Remove the mock auth for this test
         with patch("src.api.middleware.auth.require_auth", side_effect=Exception("No token")):
             response = client.post(
-                "/api/v1/dspy/execute",
-                json={
-                    "program_id": "test",
-                    "inputs": {"data": "test"}
-                }
+                "/api/v1/dspy/execute", json={"program_id": "test", "inputs": {"data": "test"}}
             )
 
             # Should fail due to auth middleware
@@ -352,12 +329,8 @@ class TestDSPyAPI:
         """Test execution with invalid mode."""
         response = client.post(
             "/api/v1/dspy/execute",
-            json={
-                "program_id": "test",
-                "inputs": {"data": "test"},
-                "mode": "invalid_mode"
-            },
-            headers={"Authorization": "Bearer test-token"}
+            json={"program_id": "test", "inputs": {"data": "test"}, "mode": "invalid_mode"},
+            headers={"Authorization": "Bearer test-token"},
         )
 
         # Should fail with 500 due to invalid enum value

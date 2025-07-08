@@ -1,8 +1,9 @@
 """Tests for ETH address in schema examples."""
 
 import json
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 class TestSchemaEthAddress:
@@ -27,7 +28,9 @@ class TestSchemaEthAddress:
         contributor_info = valid_example_data["contributor_info"]
 
         # Check that wallet_address field exists
-        assert "wallet_address" in contributor_info, "contributor_info should include wallet_address"
+        assert (
+            "wallet_address" in contributor_info
+        ), "contributor_info should include wallet_address"
 
         # Validate ETH address format (0x + 40 hex chars)
         wallet_address = contributor_info["wallet_address"]
@@ -48,15 +51,25 @@ class TestSchemaEthAddress:
             if wallet_address:
                 # Should match pattern ^0[xX][a-fA-F0-9]{40}$
                 import re
+
                 pattern = r"^0[xX][a-fA-F0-9]{40}$"
-                assert re.match(pattern, wallet_address), f"ETH address {wallet_address} doesn't match required pattern"
+                assert re.match(
+                    pattern, wallet_address
+                ), f"ETH address {wallet_address} doesn't match required pattern"
 
     def test_multiple_contributors_example(self):
         """Test for multiple contributors with wallet addresses."""
         # Load the multiple contributors example
-        multi_example_path = Path(__file__).parent.parent.parent / "schema" / "examples" / "valid_zk_output_multiple_contributors.json"
+        multi_example_path = (
+            Path(__file__).parent.parent.parent
+            / "schema"
+            / "examples"
+            / "valid_zk_output_multiple_contributors.json"
+        )
 
-        assert multi_example_path.exists(), f"Multiple contributors example should exist at {multi_example_path}"
+        assert (
+            multi_example_path.exists()
+        ), f"Multiple contributors example should exist at {multi_example_path}"
 
         with open(multi_example_path) as f:
             example_data = json.load(f)
@@ -71,26 +84,37 @@ class TestSchemaEthAddress:
 
         # Check all contributors have wallet_address
         for contributor in contributors:
-            assert "wallet_address" in contributor, f"Contributor {contributor.get('id')} missing wallet_address"
+            assert (
+                "wallet_address" in contributor
+            ), f"Contributor {contributor.get('id')} missing wallet_address"
             assert contributor["wallet_address"].startswith("0x")
             assert len(contributor["wallet_address"]) == 42
 
             # Validate ETH address format
             import re
+
             pattern = r"^0[xX][a-fA-F0-9]{40}$"
-            assert re.match(pattern, contributor["wallet_address"]), f"Invalid ETH address: {contributor['wallet_address']}"
+            assert re.match(
+                pattern, contributor["wallet_address"]
+            ), f"Invalid ETH address: {contributor['wallet_address']}"
 
         # Verify weights sum to 1.0
         total_weight = sum(c.get("weight", 0) for c in contributors)
-        assert abs(total_weight - 1.0) < 0.001, f"Contributor weights should sum to 1.0, got {total_weight}"
+        assert (
+            abs(total_weight - 1.0) < 0.001
+        ), f"Contributor weights should sum to 1.0, got {total_weight}"
 
         # Verify each contributor has different ETH addresses
         addresses = [c["wallet_address"] for c in contributors]
-        assert len(addresses) == len(set(addresses)), "Each contributor should have a unique ETH address"
+        assert len(addresses) == len(
+            set(addresses)
+        ), "Each contributor should have a unique ETH address"
 
     def test_example_file_exists(self, valid_example_path):
         """Test that the valid example file exists."""
-        assert valid_example_path.exists(), f"Valid example file should exist at {valid_example_path}"
+        assert (
+            valid_example_path.exists()
+        ), f"Valid example file should exist at {valid_example_path}"
 
     def test_example_is_valid_json(self, valid_example_path):
         """Test that the example file contains valid JSON."""

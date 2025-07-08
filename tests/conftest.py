@@ -1,12 +1,13 @@
 """Pytest configuration and fixtures."""
 
-import pytest
-import pandas as pd
-import numpy as np
-from pathlib import Path
-import tempfile
-import shutil
 import json
+import shutil
+import tempfile
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
 
 from src.utils.config import get_test_config
 
@@ -31,14 +32,16 @@ def sample_data():
     np.random.seed(42)
     n_samples = 1000
 
-    data = pd.DataFrame({
-        "query_id": [f"q_{i}" for i in range(n_samples)],
-        "query_text": [f"sample query {i}" for i in range(n_samples)],
-        "feature_1": np.random.randn(n_samples),
-        "feature_2": np.random.randn(n_samples),
-        "feature_3": np.random.randn(n_samples),
-        "label": np.random.randint(0, 2, n_samples)
-    })
+    data = pd.DataFrame(
+        {
+            "query_id": [f"q_{i}" for i in range(n_samples)],
+            "query_text": [f"sample query {i}" for i in range(n_samples)],
+            "feature_1": np.random.randn(n_samples),
+            "feature_2": np.random.randn(n_samples),
+            "feature_3": np.random.randn(n_samples),
+            "label": np.random.randint(0, 2, n_samples),
+        }
+    )
 
     return data
 
@@ -49,17 +52,8 @@ def mock_baseline_model():
     return {
         "type": "mock_baseline_model",
         "version": "1.0.0",
-        "metrics": {
-            "accuracy": 0.85,
-            "precision": 0.83,
-            "recall": 0.87,
-            "f1": 0.85,
-            "auroc": 0.91
-        },
-        "metadata": {
-            "training_samples": 50000,
-            "features": 3
-        }
+        "metrics": {"accuracy": 0.85, "precision": 0.83, "recall": 0.87, "f1": 0.85, "auroc": 0.91},
+        "metadata": {"training_samples": 50000, "features": 3},
     }
 
 
@@ -69,31 +63,24 @@ def mock_new_model():
     return {
         "type": "mock_new_model",
         "version": "2.0.0",
-        "metrics": {
-            "accuracy": 0.88,
-            "precision": 0.86,
-            "recall": 0.89,
-            "f1": 0.87,
-            "auroc": 0.93
-        },
-        "metadata": {
-            "training_samples": 60000,
-            "features": 3
-        }
+        "metrics": {"accuracy": 0.88, "precision": 0.86, "recall": 0.89, "f1": 0.87, "auroc": 0.93},
+        "metadata": {"training_samples": 60000, "features": 3},
     }
 
 
 @pytest.fixture
 def sample_contributed_data(temp_dir):
     """Create sample contributed data file."""
-    data = pd.DataFrame({
-        "query_id": [f"contrib_q_{i}" for i in range(100)],
-        "query_text": [f"contributed query {i}" for i in range(100)],
-        "feature_1": np.random.randn(100),
-        "feature_2": np.random.randn(100),
-        "feature_3": np.random.randn(100),
-        "label": np.random.randint(0, 2, 100)
-    })
+    data = pd.DataFrame(
+        {
+            "query_id": [f"contrib_q_{i}" for i in range(100)],
+            "query_text": [f"contributed query {i}" for i in range(100)],
+            "feature_1": np.random.randn(100),
+            "feature_2": np.random.randn(100),
+            "feature_3": np.random.randn(100),
+            "label": np.random.randint(0, 2, 100),
+        }
+    )
 
     # Save as CSV
     csv_path = temp_dir / "contributed_data.csv"
@@ -111,18 +98,14 @@ def sample_contributed_data(temp_dir):
         "data": data,
         "csv_path": csv_path,
         "json_path": json_path,
-        "parquet_path": parquet_path
+        "parquet_path": parquet_path,
     }
 
 
 @pytest.fixture
 def sample_model_path(temp_dir):
     """Create sample model file."""
-    model_data = {
-        "type": "test_model",
-        "version": "1.0.0",
-        "weights": [0.1, 0.2, 0.3]
-    }
+    model_data = {"type": "test_model", "version": "1.0.0", "weights": [0.1, 0.2, 0.3]}
 
     model_path = temp_dir / "model.json"
     with open(model_path, "w") as f:

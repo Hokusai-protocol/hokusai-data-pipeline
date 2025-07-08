@@ -4,16 +4,14 @@ This service generates verifiable attestations when DSPy programs
 achieve DeltaOne improvements through teleprompt optimization.
 """
 
-import logging
 import hashlib
 import json
-from datetime import datetime
-from typing import Dict, Any, List, Optional
-from dataclasses import dataclass, asdict
-
+import logging
 import threading
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from typing import Any, Optional
 
-from src.utils.attestation import generate_attestation_hash
 from src.utils.eth_address_validator import validate_eth_address
 
 logger = logging.getLogger(__name__)
@@ -37,17 +35,17 @@ class OptimizationAttestation:
     # Performance metrics
     deltaone_achieved: bool = False
     performance_delta: float = 0.0
-    baseline_metrics: Dict[str, float] = None
-    optimized_metrics: Dict[str, float] = None
+    baseline_metrics: dict[str, float] = None
+    optimized_metrics: dict[str, float] = None
 
     # Optimization details
     trace_count: int = 0
     optimization_time_seconds: float = 0.0
     outcome_metric: str = ""
-    date_range: Dict[str, str] = None
+    date_range: dict[str, str] = None
 
     # Contributors
-    contributors: List[Dict[str, Any]] = None
+    contributors: list[dict[str, Any]] = None
     total_contribution_weight: float = 1.0
 
     # Verification
@@ -72,11 +70,12 @@ class OptimizationAttestation:
     def _generate_attestation_id(self) -> str:
         """Generate unique attestation ID."""
         import uuid
+
         # Include a random component to ensure uniqueness
         data = f"{self.model_id}-{self.optimized_version}-{self.timestamp}-{uuid.uuid4()}"
         return hashlib.sha256(data.encode()).hexdigest()[:16]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary format."""
         return asdict(self)
 
@@ -88,26 +87,26 @@ class OptimizationAttestation:
 class OptimizationAttestationService:
     """Service for generating and managing optimization attestations."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize attestation service."""
-        self._storage: Dict[str, OptimizationAttestation] = {}
+        self._storage: dict[str, OptimizationAttestation] = {}
         self._lock = threading.Lock()
 
     def create_attestation(
         self,
-        model_info: Dict[str, str],
-        performance_data: Dict[str, Any],
-        optimization_metadata: Dict[str, Any],
-        contributors: List[Dict[str, Any]]
+        model_info: dict[str, str],
+        performance_data: dict[str, Any],
+        optimization_metadata: dict[str, Any],
+        contributors: list[dict[str, Any]],
     ) -> OptimizationAttestation:
         """Create a new optimization attestation.
-        
+
         Args:
             model_info: Model identification and version info
             performance_data: Performance metrics and delta
             optimization_metadata: Optimization process metadata
             contributors: List of contributor information
-            
+
         Returns:
             OptimizationAttestation object
 
@@ -132,7 +131,7 @@ class OptimizationAttestationService:
             outcome_metric=optimization_metadata.get("outcome_metric", ""),
             date_range=optimization_metadata.get("date_range", {}),
             contributors=validated_contributors,
-            total_contribution_weight=sum(c["weight"] for c in validated_contributors)
+            total_contribution_weight=sum(c["weight"] for c in validated_contributors),
         )
 
         # Generate attestation hash
@@ -147,7 +146,7 @@ class OptimizationAttestationService:
 
     def store_attestation(self, attestation: OptimizationAttestation) -> None:
         """Store attestation in the service.
-        
+
         Args:
             attestation: Attestation to store
 
@@ -156,15 +155,12 @@ class OptimizationAttestationService:
             self._storage[attestation.attestation_id] = attestation
             logger.info(f"Stored attestation: {attestation.attestation_id}")
 
-    def verify_attestation(
-        self,
-        attestation: OptimizationAttestation
-    ) -> bool:
+    def verify_attestation(self, attestation: OptimizationAttestation) -> bool:
         """Verify attestation integrity.
-        
+
         Args:
             attestation: Attestation to verify
-            
+
         Returns:
             True if attestation is valid
 
@@ -182,10 +178,10 @@ class OptimizationAttestationService:
 
     def get_attestation(self, attestation_id: str) -> Optional[OptimizationAttestation]:
         """Retrieve attestation by ID.
-        
+
         Args:
             attestation_id: Attestation ID
-            
+
         Returns:
             Attestation object or None
 
@@ -197,15 +193,15 @@ class OptimizationAttestationService:
         self,
         model_id: Optional[str] = None,
         contributor_address: Optional[str] = None,
-        deltaone_only: bool = True
-    ) -> List[OptimizationAttestation]:
+        deltaone_only: bool = True,
+    ) -> list[OptimizationAttestation]:
         """List attestations with optional filtering.
-        
+
         Args:
             model_id: Filter by model ID
             contributor_address: Filter by contributor
             deltaone_only: Only return DeltaOne achievements
-            
+
         Returns:
             List of matching attestations
 
@@ -214,34 +210,26 @@ class OptimizationAttestationService:
             attestations = list(self._storage.values())
 
         if model_id:
-            attestations = [
-                a for a in attestations
-                if a.model_id == model_id
-            ]
+            attestations = [a for a in attestations if a.model_id == model_id]
 
         if contributor_address:
             attestations = [
-                a for a in attestations
+                a
+                for a in attestations
                 if any(c["address"] == contributor_address for c in a.contributors)
             ]
 
         if deltaone_only:
-            attestations = [
-                a for a in attestations
-                if a.deltaone_achieved
-            ]
+            attestations = [a for a in attestations if a.deltaone_achieved]
 
         return attestations
 
-    def prepare_for_blockchain(
-        self,
-        attestation: OptimizationAttestation
-    ) -> Dict[str, Any]:
+    def prepare_for_blockchain(self, attestation: OptimizationAttestation) -> dict[str, Any]:
         """Prepare attestation for blockchain submission.
-        
+
         Args:
             attestation: Attestation to prepare
-            
+
         Returns:
             Blockchain-ready attestation data
 
@@ -252,32 +240,32 @@ class OptimizationAttestationService:
             "model_id": attestation.model_id,
             "optimized_version": attestation.optimized_version,
             "deltaone_achieved": attestation.deltaone_achieved,
-            "performance_delta": int(attestation.performance_delta * 10000),  # Store as basis points
+            "performance_delta": int(
+                attestation.performance_delta * 10000
+            ),  # Store as basis points
             "trace_count": attestation.trace_count,
             "timestamp": int(datetime.fromisoformat(attestation.timestamp).timestamp()),
             "contributors": [
                 {
                     "address": c["address"],
-                    "weight": int(c["weight"] * 10000)  # Store as basis points
+                    "weight": int(c["weight"] * 10000),  # Store as basis points
                 }
                 for c in attestation.contributors
             ],
-            "attestation_hash": attestation.attestation_hash
+            "attestation_hash": attestation.attestation_hash,
         }
 
         return blockchain_data
 
     def calculate_rewards(
-        self,
-        attestation: OptimizationAttestation,
-        total_reward: float
-    ) -> Dict[str, float]:
+        self, attestation: OptimizationAttestation, total_reward: float
+    ) -> dict[str, float]:
         """Calculate reward distribution for contributors.
-        
+
         Args:
             attestation: Attestation with contributor info
             total_reward: Total reward amount
-            
+
         Returns:
             Dictionary mapping addresses to reward amounts
 
@@ -298,19 +286,16 @@ class OptimizationAttestationService:
         if total_allocated != total_reward:
             # Adjust largest contributor's reward
             largest_contributor = max(rewards, key=rewards.get)
-            rewards[largest_contributor] += (total_reward - total_allocated)
+            rewards[largest_contributor] += total_reward - total_allocated
 
         return rewards
 
-    def _validate_contributors(
-        self,
-        contributors: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+    def _validate_contributors(self, contributors: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Validate and normalize contributor information.
-        
+
         Args:
             contributors: Raw contributor data
-            
+
         Returns:
             Validated contributor list
 
@@ -329,12 +314,14 @@ class OptimizationAttestationService:
                 logger.warning(f"Invalid ETH address {address}: {e}")
                 continue
 
-            validated.append({
-                "contributor_id": contrib.get("contributor_id", ""),
-                "address": address,
-                "weight": float(contrib.get("weight", 0)),
-                "trace_count": int(contrib.get("trace_count", 0))
-            })
+            validated.append(
+                {
+                    "contributor_id": contrib.get("contributor_id", ""),
+                    "address": address,
+                    "weight": float(contrib.get("weight", 0)),
+                    "trace_count": int(contrib.get("trace_count", 0)),
+                }
+            )
 
         # Normalize weights
         total_weight = sum(c["weight"] for c in validated)
@@ -346,10 +333,10 @@ class OptimizationAttestationService:
 
     def _generate_hash(self, attestation: OptimizationAttestation) -> str:
         """Generate hash for attestation.
-        
+
         Args:
             attestation: Attestation object
-            
+
         Returns:
             Hash string
 
@@ -366,12 +353,8 @@ class OptimizationAttestationService:
             "optimized_metrics": attestation.optimized_metrics,
             "trace_count": attestation.trace_count,
             "contributors": [
-                {
-                    "address": c["address"],
-                    "weight": c["weight"]
-                }
-                for c in attestation.contributors
-            ]
+                {"address": c["address"], "weight": c["weight"]} for c in attestation.contributors
+            ],
         }
 
         # Generate hash

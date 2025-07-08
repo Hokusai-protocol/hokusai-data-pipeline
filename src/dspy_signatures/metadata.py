@@ -1,7 +1,7 @@
 """Metadata structures for DSPy signatures."""
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import Any, Optional
 
 
 @dataclass
@@ -11,14 +11,14 @@ class SignatureMetadata:
     name: str
     description: str
     category: str
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
     version: str = "1.0.0"
     author: Optional[str] = None
-    examples: List[Dict[str, Any]] = field(default_factory=list)
+    examples: list[dict[str, Any]] = field(default_factory=list)
     deprecated: bool = False
     replacement: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert metadata to dictionary."""
         return {
             "name": self.name,
@@ -29,11 +29,11 @@ class SignatureMetadata:
             "author": self.author,
             "examples": self.examples,
             "deprecated": self.deprecated,
-            "replacement": self.replacement
+            "replacement": self.replacement,
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SignatureMetadata":
+    def from_dict(cls, data: dict[str, Any]) -> "SignatureMetadata":
         """Create metadata from dictionary."""
         return cls(
             name=data["name"],
@@ -44,5 +44,5 @@ class SignatureMetadata:
             author=data.get("author"),
             examples=data.get("examples", []),
             deprecated=data.get("deprecated", False),
-            replacement=data.get("replacement")
+            replacement=data.get("replacement"),
         )

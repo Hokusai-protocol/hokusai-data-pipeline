@@ -1,10 +1,9 @@
 """Unit tests for baseline loader module."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
-import mlflow
-from mlflow.entities.model_registry import ModelVersion
+from unittest.mock import Mock, patch
+
+import pytest
 from mlflow.exceptions import MlflowException
 
 from src.modules.baseline_loader import BaselineModelLoader
@@ -53,7 +52,7 @@ class TestBaselineModelLoader:
         assert version_info["version"] == "3"
         assert version_info["stage"] == "Production"
         assert version_info["run_id"] == "run_123"
-        mock_load.assert_called_once_with(f"models:/test_model/3")
+        mock_load.assert_called_once_with("models:/test_model/3")
 
     @patch.object(BaselineModelLoader, "_get_latest_production_version")
     @patch.object(BaselineModelLoader, "_get_previous_version")
@@ -118,7 +117,7 @@ class TestBaselineModelLoader:
             result = self.loader._get_latest_production_version("test_model")
 
         assert result == mock_v3
-        mock_search.assert_called_once_with(f"name='test_model'")
+        mock_search.assert_called_once_with("name='test_model'")
 
     def test_get_latest_production_version_none_found(self):
         """Test getting production version when none exist."""

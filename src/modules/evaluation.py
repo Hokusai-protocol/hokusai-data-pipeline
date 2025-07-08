@@ -1,33 +1,28 @@
 """Module for model evaluation."""
 
-from typing import Dict, Any, List, Optional
-import pandas as pd
+from typing import Any, Optional
+
 import numpy as np
-from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, f1_score,
-    roc_auc_score
-)
+import pandas as pd
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 
 
 class ModelEvaluator:
     """Handles model evaluation on benchmark datasets."""
 
-    def __init__(self, metrics: Optional[List[str]] = None):
+    def __init__(self, metrics: Optional[list[str]] = None) -> None:
         self.metrics = metrics or ["accuracy", "precision", "recall", "f1", "auroc"]
 
     def evaluate_mock_model(
-        self,
-        model: Dict[str, Any],
-        X_test: pd.DataFrame,
-        y_test: pd.Series
-    ) -> Dict[str, float]:
+        self, model: dict[str, Any], X_test: pd.DataFrame, y_test: pd.Series
+    ) -> dict[str, float]:
         """Evaluate a mock model.
-        
+
         Args:
             model: Mock model dictionary
             X_test: Test features
             y_test: Test labels
-            
+
         Returns:
             Evaluation metrics
 
@@ -48,20 +43,16 @@ class ModelEvaluator:
         return evaluated_metrics
 
     def evaluate_sklearn_model(
-        self,
-        model: Any,
-        X_test: pd.DataFrame,
-        y_test: pd.Series,
-        threshold: float = 0.5
-    ) -> Dict[str, float]:
+        self, model: Any, X_test: pd.DataFrame, y_test: pd.Series, threshold: float = 0.5
+    ) -> dict[str, float]:
         """Evaluate a scikit-learn model.
-        
+
         Args:
             model: Trained sklearn model
             X_test: Test features
             y_test: Test labels
             threshold: Classification threshold
-            
+
         Returns:
             Evaluation metrics
 
@@ -89,14 +80,10 @@ class ModelEvaluator:
             )
 
         if "recall" in self.metrics:
-            metrics["recall"] = recall_score(
-                y_test, y_pred, average="weighted", zero_division=0
-            )
+            metrics["recall"] = recall_score(y_test, y_pred, average="weighted", zero_division=0)
 
         if "f1" in self.metrics:
-            metrics["f1"] = f1_score(
-                y_test, y_pred, average="weighted", zero_division=0
-            )
+            metrics["f1"] = f1_score(y_test, y_pred, average="weighted", zero_division=0)
 
         if "auroc" in self.metrics and y_proba is not None:
             try:
@@ -109,19 +96,14 @@ class ModelEvaluator:
 
         return metrics
 
-    def evaluate_model(
-        self,
-        model: Any,
-        X_test: pd.DataFrame,
-        y_test: pd.Series
-    ) -> Dict[str, Any]:
+    def evaluate_model(self, model: Any, X_test: pd.DataFrame, y_test: pd.Series) -> dict[str, Any]:
         """Evaluate any model type.
-        
+
         Args:
             model: Model to evaluate
             X_test: Test features
             y_test: Test labels
-            
+
         Returns:
             Evaluation results
 
@@ -135,20 +117,20 @@ class ModelEvaluator:
         return {
             "metrics": metrics,
             "test_samples": len(X_test),
-            "model_type": type(model).__name__ if not isinstance(model, dict) else model.get("type")
+            "model_type": type(model).__name__
+            if not isinstance(model, dict)
+            else model.get("type"),
         }
 
     def compare_models(
-        self,
-        baseline_metrics: Dict[str, float],
-        new_metrics: Dict[str, float]
-    ) -> Dict[str, Dict[str, float]]:
+        self, baseline_metrics: dict[str, float], new_metrics: dict[str, float]
+    ) -> dict[str, dict[str, float]]:
         """Compare two models' metrics.
-        
+
         Args:
             baseline_metrics: Baseline model metrics
             new_metrics: New model metrics
-            
+
         Returns:
             Comparison results
 
@@ -165,23 +147,22 @@ class ModelEvaluator:
                     "new": new_val,
                     "absolute_delta": new_val - baseline_val,
                     "relative_delta": ((new_val - baseline_val) / baseline_val * 100)
-                                     if baseline_val > 0 else 0,
-                    "improved": new_val > baseline_val
+                    if baseline_val > 0
+                    else 0,
+                    "improved": new_val > baseline_val,
                 }
 
         return comparison
 
     def calculate_delta_score(
-        self,
-        comparison: Dict[str, Dict[str, float]],
-        weights: Optional[Dict[str, float]] = None
+        self, comparison: dict[str, dict[str, float]], weights: Optional[dict[str, float]] = None
     ) -> float:
         """Calculate overall delta score.
-        
+
         Args:
             comparison: Model comparison results
             weights: Metric weights (defaults to equal weights)
-            
+
         Returns:
             Delta score
 
@@ -192,7 +173,7 @@ class ModelEvaluator:
 
         # Normalize weights
         total_weight = sum(weights.values())
-        weights = {k: v/total_weight for k, v in weights.items()}
+        weights = {k: v / total_weight for k, v in weights.items()}
 
         # Calculate weighted delta
         delta_score = 0
@@ -204,19 +185,19 @@ class ModelEvaluator:
 
     def create_evaluation_report(
         self,
-        baseline_results: Dict[str, Any],
-        new_results: Dict[str, Any],
-        comparison: Dict[str, Dict[str, float]],
-        delta_score: float
-    ) -> Dict[str, Any]:
+        baseline_results: dict[str, Any],
+        new_results: dict[str, Any],
+        comparison: dict[str, dict[str, float]],
+        delta_score: float,
+    ) -> dict[str, Any]:
         """Create comprehensive evaluation report.
-        
+
         Args:
             baseline_results: Baseline evaluation results
             new_results: New model evaluation results
             comparison: Comparison results
             delta_score: Overall delta score
-            
+
         Returns:
             Evaluation report
 
@@ -225,22 +206,20 @@ class ModelEvaluator:
             "baseline_model": {
                 "metrics": baseline_results["metrics"],
                 "model_type": baseline_results["model_type"],
-                "test_samples": baseline_results["test_samples"]
+                "test_samples": baseline_results["test_samples"],
             },
             "new_model": {
                 "metrics": new_results["metrics"],
                 "model_type": new_results["model_type"],
-                "test_samples": new_results["test_samples"]
+                "test_samples": new_results["test_samples"],
             },
             "comparison": comparison,
             "delta_score": delta_score,
             "summary": {
-                "improved_metrics": [
-                    m for m, v in comparison.items() if v.get("improved", False)
-                ],
+                "improved_metrics": [m for m, v in comparison.items() if v.get("improved", False)],
                 "degraded_metrics": [
                     m for m, v in comparison.items() if not v.get("improved", True)
                 ],
-                "overall_improvement": delta_score > 0
-            }
+                "overall_improvement": delta_score > 0,
+            },
         }

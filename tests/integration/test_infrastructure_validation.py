@@ -1,7 +1,8 @@
 """Tests for infrastructure configuration validation."""
 
-import yaml
 from pathlib import Path
+
+import yaml
 
 
 class TestInfrastructureValidation:
@@ -11,12 +12,7 @@ class TestInfrastructureValidation:
         """Test that required Terraform files exist."""
         terraform_dir = Path("infrastructure/terraform")
 
-        required_files = [
-            "main.tf",
-            "variables.tf",
-            "outputs.tf",
-            "terraform.tfvars.example"
-        ]
+        required_files = ["main.tf", "variables.tf", "outputs.tf", "terraform.tfvars.example"]
 
         for file_name in required_files:
             file_path = terraform_dir / file_name
@@ -28,7 +24,7 @@ class TestInfrastructureValidation:
 
         if main_tf.exists():
             content = main_tf.read_text()
-            assert "provider \"aws\"" in content, "AWS provider not configured"
+            assert 'provider "aws"' in content, "AWS provider not configured"
             assert "region" in content, "AWS region not specified"
 
     def test_s3_bucket_configuration(self):
@@ -39,17 +35,20 @@ class TestInfrastructureValidation:
             content = main_tf.read_text()
 
             # Check for MLFlow artifacts bucket
-            assert "hokusai-mlflow-artifacts" in content or "mlflow_artifacts_bucket" in content, \
-                "MLFlow artifacts bucket not configured"
+            assert (
+                "hokusai-mlflow-artifacts" in content or "mlflow_artifacts_bucket" in content
+            ), "MLFlow artifacts bucket not configured"
 
             # Check for pipeline data bucket
-            assert "hokusai-pipeline-data" in content or "pipeline_data_bucket" in content, \
-                "Pipeline data bucket not configured"
+            assert (
+                "hokusai-pipeline-data" in content or "pipeline_data_bucket" in content
+            ), "Pipeline data bucket not configured"
 
             # Check for versioning and encryption
             assert "versioning" in content, "S3 versioning not configured"
-            assert "server_side_encryption" in content or "encryption" in content, \
-                "S3 encryption not configured"
+            assert (
+                "server_side_encryption" in content or "encryption" in content
+            ), "S3 encryption not configured"
 
     def test_rds_configuration(self):
         """Test RDS PostgreSQL configuration."""
@@ -99,8 +98,9 @@ class TestInfrastructureValidation:
 
             # Check for ALB resources
             assert "aws_lb" in content or "aws_alb" in content, "Load balancer not configured"
-            assert "aws_lb_target_group" in content or "aws_alb_target_group" in content, \
-                "Target groups not configured"
+            assert (
+                "aws_lb_target_group" in content or "aws_alb_target_group" in content
+            ), "Target groups not configured"
             assert "health_check" in content, "Health checks not configured"
 
     def test_iam_roles_configuration(self):
@@ -112,8 +112,9 @@ class TestInfrastructureValidation:
 
             # Check for IAM resources
             assert "aws_iam_role" in content, "IAM roles not configured"
-            assert "aws_iam_policy" in content or "aws_iam_role_policy" in content, \
-                "IAM policies not configured"
+            assert (
+                "aws_iam_policy" in content or "aws_iam_role_policy" in content
+            ), "IAM policies not configured"
 
     def test_cloudwatch_configuration(self):
         """Test CloudWatch monitoring configuration."""
@@ -149,11 +150,11 @@ class TestInfrastructureValidation:
                 "project_name",
                 "vpc_cidr",
                 "database_password",
-                "api_secret_key"
+                "api_secret_key",
             ]
 
             for var in required_vars:
-                assert f"variable \"{var}\"" in content, f"Required variable {var} not defined"
+                assert f'variable "{var}"' in content, f"Required variable {var} not defined"
 
     def test_terraform_outputs(self):
         """Test that necessary outputs are defined."""
@@ -166,11 +167,11 @@ class TestInfrastructureValidation:
                 "api_endpoint",
                 "mlflow_endpoint",
                 "s3_artifacts_bucket",
-                "database_endpoint"
+                "database_endpoint",
             ]
 
             for output in required_outputs:
-                assert f"output \"{output}\"" in content, f"Required output {output} not defined"
+                assert f'output "{output}"' in content, f"Required output {output} not defined"
 
     def test_terraform_example_vars(self):
         """Test that example variables file exists and is valid."""
@@ -194,11 +195,7 @@ class TestDeploymentScripts:
         """Test that required deployment scripts exist."""
         scripts_dir = Path("infrastructure/scripts")
 
-        required_scripts = [
-            "deploy.sh",
-            "validate.sh",
-            "destroy.sh"
-        ]
+        required_scripts = ["deploy.sh", "validate.sh", "destroy.sh"]
 
         for script_name in required_scripts:
             script_path = scripts_dir / script_name
@@ -232,6 +229,12 @@ class TestDeploymentScripts:
             # Check for required steps
             step_names = [step.get("name", "") for step in deploy_job["steps"]]
             assert any("checkout" in name.lower() for name in step_names), "Checkout step not found"
-            assert any("aws" in name.lower() for name in step_names), "AWS configuration step not found"
-            assert any("terraform" in name.lower() for name in step_names), "Terraform step not found"
-            assert any("docker" in name.lower() for name in step_names), "Docker build step not found"
+            assert any(
+                "aws" in name.lower() for name in step_names
+            ), "AWS configuration step not found"
+            assert any(
+                "terraform" in name.lower() for name in step_names
+            ), "Terraform step not found"
+            assert any(
+                "docker" in name.lower() for name in step_names
+            ), "Docker build step not found"

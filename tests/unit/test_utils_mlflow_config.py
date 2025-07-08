@@ -1,21 +1,19 @@
 """Unit tests for MLFlow configuration utilities."""
 
-import pytest
 import os
-import logging
-from unittest.mock import Mock, patch, MagicMock, call
-from datetime import datetime
-from contextlib import contextmanager
+from unittest.mock import Mock, call, patch
+
+import pytest
 
 from src.utils.mlflow_config import (
     MLFlowConfig,
     generate_run_name,
-    log_pipeline_metadata,
-    mlflow_run_context,
-    log_step_parameters,
-    log_step_metrics,
+    log_dataset_info,
     log_model_artifact,
-    log_dataset_info
+    log_pipeline_metadata,
+    log_step_metrics,
+    log_step_parameters,
+    mlflow_run_context,
 )
 
 
@@ -30,11 +28,14 @@ class TestMLFlowConfig:
         assert config.experiment_name == "hokusai-pipeline"
         assert config.artifact_root is None
 
-    @patch.dict(os.environ, {
-        "MLFLOW_TRACKING_URI": "http://mlflow:5000",
-        "MLFLOW_EXPERIMENT_NAME": "test-experiment",
-        "MLFLOW_ARTIFACT_ROOT": "s3://bucket/artifacts"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            "MLFLOW_TRACKING_URI": "http://mlflow:5000",
+            "MLFLOW_EXPERIMENT_NAME": "test-experiment",
+            "MLFLOW_ARTIFACT_ROOT": "s3://bucket/artifacts",
+        },
+    )
     def test_initialization_from_env(self):
         """Test initialization from environment variables."""
         config = MLFlowConfig()
@@ -63,8 +64,9 @@ class TestMLFlowConfig:
     @patch("mlflow.get_experiment_by_name")
     @patch("mlflow.create_experiment")
     @patch("mlflow.set_experiment")
-    def test_setup_tracking_new_experiment(self, mock_set_exp, mock_create_exp,
-                                          mock_get_exp, mock_set_uri):
+    def test_setup_tracking_new_experiment(
+        self, mock_set_exp, mock_create_exp, mock_get_exp, mock_set_uri
+    ):
         """Test setup with new experiment creation."""
         mock_get_exp.return_value = None
         mock_create_exp.return_value = "456"
@@ -74,10 +76,7 @@ class TestMLFlowConfig:
 
         mock_set_uri.assert_called_once_with("file:./mlruns")
         mock_get_exp.assert_called_once_with("hokusai-pipeline")
-        mock_create_exp.assert_called_once_with(
-            name="hokusai-pipeline",
-            artifact_location=None
-        )
+        mock_create_exp.assert_called_once_with(name="hokusai-pipeline", artifact_location=None)
         mock_set_exp.assert_called_once_with("hokusai-pipeline")
 
     @patch("mlflow.set_tracking_uri")
@@ -159,7 +158,7 @@ class TestLogPipelineMetadata:
             call("pipeline.step", "evaluation"),
             call("pipeline.run_id", "run_123"),
             call("metaflow.run_id", "metaflow_456"),
-            call("pipeline.timestamp", "2024-01-15T12:00:00")
+            call("pipeline.timestamp", "2024-01-15T12:00:00"),
         ]
         mock_set_tag.assert_has_calls(expected_calls)
 
@@ -187,7 +186,7 @@ class TestMLFlowRunContext:
         mock_run = Mock()
         mock_start_run.return_value.__enter__.return_value = mock_run
 
-        with mlflow_run_context(experiment_name="custom_exp") as run:
+        with mlflow_run_context(experiment_name="custom_exp"):
             pass
 
         mock_set_exp.assert_called_once_with("custom_exp")
@@ -215,18 +214,14 @@ class TestLogStepParameters:
     @patch("mlflow.log_param")
     def test_log_step_parameters_success(self, mock_log_param):
         """Test logging parameters successfully."""
-        params = {
-            "learning_rate": 0.01,
-            "batch_size": 32,
-            "model_type": "xgboost"
-        }
+        params = {"learning_rate": 0.01, "batch_size": 32, "model_type": "xgboost"}
 
         log_step_parameters(params)
 
         expected_calls = [
             call("learning_rate", 0.01),
             call("batch_size", 32),
-            call("model_type", "xgboost")
+            call("model_type", "xgboost"),
         ]
         mock_log_param.assert_has_calls(expected_calls, any_order=True)
 
@@ -250,19 +245,11 @@ class TestLogStepMetrics:
     @patch("mlflow.log_metric")
     def test_log_step_metrics_success(self, mock_log_metric):
         """Test logging metrics successfully."""
-        metrics = {
-            "accuracy": 0.95,
-            "loss": 0.05,
-            "f1_score": 0.93
-        }
+        metrics = {"accuracy": 0.95, "loss": 0.05, "f1_score": 0.93}
 
         log_step_metrics(metrics)
 
-        expected_calls = [
-            call("accuracy", 0.95),
-            call("loss", 0.05),
-            call("f1_score", 0.93)
-        ]
+        expected_calls = [call("accuracy", 0.95), call("loss", 0.05), call("f1_score", 0.93)]
         mock_log_metric.assert_has_calls(expected_calls, any_order=True)
 
     @patch("mlflow.log_metric")
@@ -305,22 +292,13 @@ class TestLogDatasetInfo:
     def test_log_dataset_info_success(self, mock_log_metric, mock_log_param):
         """Test logging dataset info successfully."""
         log_dataset_info(
-            dataset_path="/data/train.csv",
-            dataset_hash="abc123",
-            row_count=10000,
-            feature_count=50
+            dataset_path="/data/train.csv", dataset_hash="abc123", row_count=10000, feature_count=50
         )
 
-        param_calls = [
-            call("dataset.path", "/data/train.csv"),
-            call("dataset.hash", "abc123")
-        ]
+        param_calls = [call("dataset.path", "/data/train.csv"), call("dataset.hash", "abc123")]
         mock_log_param.assert_has_calls(param_calls)
 
-        metric_calls = [
-            call("dataset.rows", 10000),
-            call("dataset.features", 50)
-        ]
+        metric_calls = [call("dataset.rows", 10000), call("dataset.features", 50)]
         mock_log_metric.assert_has_calls(metric_calls)
 
     @patch("mlflow.log_param")

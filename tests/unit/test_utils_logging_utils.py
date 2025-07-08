@@ -1,16 +1,16 @@
 """Unit tests for logging utilities."""
 
-import pytest
 import logging
-import sys
-from pathlib import Path
-from datetime import datetime
-from unittest.mock import Mock, patch, MagicMock, call
-import tempfile
 import os
+import sys
+import tempfile
+from datetime import datetime
+from pathlib import Path
+from unittest.mock import Mock, patch
 
-from src.utils.logging_utils import PipelineLogger, get_pipeline_logger, LogContext
-from src.utils.constants import LOG_FORMAT, LOG_DATE_FORMAT
+import pytest
+
+from src.utils.logging_utils import LogContext, PipelineLogger, get_pipeline_logger
 
 
 class TestPipelineLogger:
@@ -30,10 +30,7 @@ class TestPipelineLogger:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_dir = Path(tmpdir) / "logs"
             logger = PipelineLogger(
-                "custom_logger",
-                log_level="DEBUG",
-                log_dir=log_dir,
-                use_rich=False
+                "custom_logger", log_level="DEBUG", log_dir=log_dir, use_rich=False
             )
 
             assert logger.name == "custom_logger"
@@ -51,14 +48,12 @@ class TestPipelineLogger:
         mock_rich_handler.return_value = mock_handler_instance
 
         logger = PipelineLogger("test_logger", use_rich=True)
-        logger_obj = logger.get_logger()
+        logger.get_logger()
 
         # Check that Rich handler was created
         mock_console.assert_called_once_with(stderr=True)
         mock_rich_handler.assert_called_once_with(
-            console=mock_console_instance,
-            show_time=True,
-            show_path=False
+            console=mock_console_instance, show_time=True, show_path=False
         )
 
         # Check handler was added
@@ -115,7 +110,7 @@ class TestPipelineLogger:
             ("INFO", logging.INFO),
             ("WARNING", logging.WARNING),
             ("ERROR", logging.ERROR),
-            ("CRITICAL", logging.CRITICAL)
+            ("CRITICAL", logging.CRITICAL),
         ]:
             logger = PipelineLogger("test", log_level=level_str)
             assert logger.log_level == level_int
@@ -132,7 +127,7 @@ class TestGetPipelineLogger:
         mock_pipeline_logger.return_value = mock_logger_instance
         mock_logger_instance.get_logger.return_value = Mock(spec=logging.Logger)
 
-        result = get_pipeline_logger()
+        get_pipeline_logger()
 
         mock_pipeline_logger.assert_called_once_with("hokusai_pipeline", "INFO", None)
         mock_logger_instance.get_logger.assert_called_once()
@@ -145,11 +140,7 @@ class TestGetPipelineLogger:
         mock_logger_instance.get_logger.return_value = Mock(spec=logging.Logger)
 
         log_dir = Path("/tmp/logs")
-        result = get_pipeline_logger(
-            name="custom",
-            log_level="DEBUG",
-            log_dir=log_dir
-        )
+        get_pipeline_logger(name="custom", log_level="DEBUG", log_dir=log_dir)
 
         mock_pipeline_logger.assert_called_once_with("custom", "DEBUG", log_dir)
 
@@ -161,7 +152,7 @@ class TestGetPipelineLogger:
         mock_pipeline_logger.return_value = mock_logger_instance
         mock_logger_instance.get_logger.return_value = Mock(spec=logging.Logger)
 
-        result = get_pipeline_logger()
+        get_pipeline_logger()
 
         mock_pipeline_logger.assert_called_once_with("hokusai_pipeline", "WARNING", None)
 

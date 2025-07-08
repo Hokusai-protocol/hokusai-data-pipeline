@@ -1,20 +1,19 @@
 """Unit tests for the A/B testing framework."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock, call
 import json
-import redis
 from datetime import datetime, timedelta
-from typing import Dict, Any
-import numpy as np
+from unittest.mock import Mock, patch
+
+import pytest
+import redis
 
 from src.services.ab_testing import (
-    ABTestStatus,
-    RoutingStrategy,
+    ABTestAnalyzer,
     ABTestConfig,
     ABTestMetrics,
+    ABTestStatus,
     ModelTrafficRouter,
-    ABTestAnalyzer
+    RoutingStrategy,
 )
 
 
@@ -57,7 +56,7 @@ class TestABTestConfig:
             end_time=None,
             success_metrics=["accuracy", "latency"],
             minimum_sample_size=1000,
-            confidence_level=0.95
+            confidence_level=0.95,
         )
 
     def test_config_creation(self):
@@ -110,7 +109,7 @@ class TestABTestMetrics:
             successful_predictions=90,
             failed_predictions=10,
             total_latency_ms=5000.0,
-            cache_hits=20
+            cache_hits=20,
         )
 
     def test_metrics_creation(self):
@@ -139,9 +138,7 @@ class TestABTestMetrics:
     def test_custom_metrics_initialization(self):
         """Test custom metrics initialization."""
         metrics = ABTestMetrics(
-            test_id="test",
-            variant="model_a",
-            custom_metrics={"accuracy": 0.95}
+            test_id="test", variant="model_a", custom_metrics={"accuracy": 0.95}
         )
         assert metrics.custom_metrics == {"accuracy": 0.95}
 
@@ -166,7 +163,7 @@ class TestModelTrafficRouter:
             start_time=datetime.utcnow(),
             end_time=None,
             success_metrics=["accuracy"],
-            minimum_sample_size=1000
+            minimum_sample_size=1000,
         )
 
     def test_router_initialization(self):
@@ -198,10 +195,7 @@ class TestModelTrafficRouter:
 
     def test_route_request_no_active_test(self):
         """Test routing when no active test exists."""
-        model_id, test_id = self.router.route_request(
-            "req_123",
-            "model_family"
-        )
+        model_id, test_id = self.router.route_request("req_123", "model_family")
 
         assert model_id == "model_family/production"
         assert test_id == ""
@@ -214,10 +208,7 @@ class TestModelTrafficRouter:
 
         # Mock random assignment
         with patch("random.random", return_value=0.3):
-            model_id, test_id = self.router.route_request(
-                "req_123",
-                "model_family"
-            )
+            model_id, test_id = self.router.route_request("req_123", "model_family")
 
         assert model_id == "model_family/v1"  # 0.3 < 0.5, so model_a
         assert test_id == "test_001"
@@ -243,22 +234,14 @@ class TestModelTrafficRouter:
         # First request for user
         self.mock_redis.get.return_value = None
         with patch("random.random", return_value=0.7):
-            model_id1, _ = self.router.route_request(
-                "req_123",
-                "model_family",
-                user_id="user_001"
-            )
+            model_id1, _ = self.router.route_request("req_123", "model_family", user_id="user_001")
 
         # Should have saved assignment
         self.mock_redis.set.assert_called()
 
         # Second request for same user should get cached assignment
         self.mock_redis.get.return_value = b"model_b"
-        model_id2, _ = self.router.route_request(
-            "req_456",
-            "model_family",
-            user_id="user_001"
-        )
+        model_id2, _ = self.router.route_request("req_456", "model_family", user_id="user_001")
 
         assert model_id2 == "model_family/v2"  # model_b
 
@@ -267,10 +250,7 @@ class TestModelTrafficRouter:
         # Create test first
         self.mock_redis.get.return_value = json.dumps(self.test_config.to_dict())
 
-        success = self.router.update_traffic_split(
-            "test_001",
-            {"model_a": 0.3, "model_b": 0.7}
-        )
+        success = self.router.update_traffic_split("test_001", {"model_a": 0.3, "model_b": 0.7})
 
         assert success is True
         self.mock_redis.set.assert_called()
@@ -280,10 +260,7 @@ class TestModelTrafficRouter:
         self.mock_redis.get.return_value = json.dumps(self.test_config.to_dict())
 
         with pytest.raises(ValueError, match="Traffic split must sum to 1.0"):
-            self.router.update_traffic_split(
-                "test_001",
-                {"model_a": 0.3, "model_b": 0.6}
-            )
+            self.router.update_traffic_split("test_001", {"model_a": 0.3, "model_b": 0.6})
 
     def test_pause_test(self):
         """Test pausing an active test."""
@@ -330,13 +307,10 @@ class TestModelTrafficRouter:
             "failed_predictions": 10,
             "total_latency_ms": 5000.0,
             "cache_hits": 20,
-            "custom_metrics": {}
+            "custom_metrics": {},
         }
 
-        self.mock_redis.get.side_effect = [
-            json.dumps(metrics_data),
-            None  # No data for model_b
-        ]
+        self.mock_redis.get.side_effect = [json.dumps(metrics_data), None]  # No data for model_b
 
         metrics = self.router.get_test_metrics("test_001")
 
@@ -356,7 +330,7 @@ class TestModelTrafficRouter:
             latency_ms=50.0,
             success=True,
             cache_hit=False,
-            custom_metrics={"accuracy": 0.95}
+            custom_metrics={"accuracy": 0.95},
         )
 
         # Should save updated metrics
@@ -378,7 +352,7 @@ class TestModelTrafficRouter:
             "failed_predictions": 1,
             "total_latency_ms": 500.0,
             "cache_hits": 2,
-            "custom_metrics": {"accuracy": 0.9}
+            "custom_metrics": {"accuracy": 0.9},
         }
 
         self.mock_redis.get.return_value = json.dumps(existing_metrics)
@@ -389,7 +363,7 @@ class TestModelTrafficRouter:
             latency_ms=60.0,
             success=False,
             cache_hit=True,
-            custom_metrics={"accuracy": 0.8}
+            custom_metrics={"accuracy": 0.8},
         )
 
         saved_data = json.loads(self.mock_redis.set.call_args[0][1])
@@ -408,15 +382,13 @@ class TestModelTrafficRouter:
         self.test_config.status = ABTestStatus.ACTIVE
         self.test_config.user_segments = {
             "user_type": ["premium", "enterprise"],
-            "regions": ["US", "EU"]
+            "regions": ["US", "EU"],
         }
         self.router.routing_rules["test_001"] = self.test_config
 
         # User not in segment
         model_id, test_id = self.router.route_request(
-            "req_123",
-            "model_family",
-            features={"user_type": "free", "region": "US"}
+            "req_123", "model_family", features={"user_type": "free", "region": "US"}
         )
 
         assert model_id == "model_family/production"
@@ -424,9 +396,7 @@ class TestModelTrafficRouter:
 
         # User in segment
         model_id, test_id = self.router.route_request(
-            "req_456",
-            "model_family",
-            features={"user_type": "premium", "region": "EU"}
+            "req_456", "model_family", features={"user_type": "premium", "region": "EU"}
         )
 
         assert test_id == "test_001"
@@ -441,10 +411,7 @@ class TestModelTrafficRouter:
         # Mock the complete_test method
         self.router.complete_test = Mock(return_value=True)
 
-        model_id, test_id = self.router.route_request(
-            "req_123",
-            "model_family"
-        )
+        model_id, test_id = self.router.route_request("req_123", "model_family")
 
         # Should complete the expired test
         self.router.complete_test.assert_called_once_with("test_001")
@@ -473,7 +440,7 @@ class TestABTestAnalyzer:
             success_metrics=["accuracy"],
             minimum_sample_size=100,
             confidence_level=0.95,
-            status=ABTestStatus.ACTIVE
+            status=ABTestStatus.ACTIVE,
         )
 
         # Create test metrics
@@ -483,7 +450,7 @@ class TestABTestAnalyzer:
             total_requests=1000,
             successful_predictions=850,
             failed_predictions=150,
-            total_latency_ms=50000.0
+            total_latency_ms=50000.0,
         )
 
         self.metrics_b = ABTestMetrics(
@@ -492,7 +459,7 @@ class TestABTestAnalyzer:
             total_requests=1000,
             successful_predictions=900,
             failed_predictions=100,
-            total_latency_ms=55000.0
+            total_latency_ms=55000.0,
         )
 
     @patch("src.services.ab_testing.ModelTrafficRouter")
@@ -503,7 +470,7 @@ class TestABTestAnalyzer:
         mock_router_class.return_value = mock_router
         mock_router.get_test_metrics.return_value = {
             "model_a": self.metrics_a,
-            "model_b": self.metrics_b
+            "model_b": self.metrics_b,
         }
 
         # Mock test config loading
@@ -522,11 +489,7 @@ class TestABTestAnalyzer:
 
     def test_calculate_significance(self):
         """Test statistical significance calculation."""
-        significance = self.analyzer._calculate_significance(
-            self.metrics_a,
-            self.metrics_b,
-            0.95
-        )
+        significance = self.analyzer._calculate_significance(self.metrics_a, self.metrics_b, 0.95)
 
         assert "success_rate_pvalue" in significance
         assert "is_significant" in significance
@@ -544,11 +507,7 @@ class TestABTestAnalyzer:
         empty_metrics_a = ABTestMetrics(test_id="test", variant="model_a")
         empty_metrics_b = ABTestMetrics(test_id="test", variant="model_b")
 
-        significance = self.analyzer._calculate_significance(
-            empty_metrics_a,
-            empty_metrics_b,
-            0.95
-        )
+        significance = self.analyzer._calculate_significance(empty_metrics_a, empty_metrics_b, 0.95)
 
         assert significance["success_rate_pvalue"] == 1.0
         assert significance["is_significant"] is False
@@ -558,9 +517,7 @@ class TestABTestAnalyzer:
         significance = {"is_significant": True}
 
         winner = self.analyzer._determine_winner(
-            {"model_a": self.metrics_a, "model_b": self.metrics_b},
-            significance,
-            self.test_config
+            {"model_a": self.metrics_a, "model_b": self.metrics_b}, significance, self.test_config
         )
 
         assert winner == "model_b"  # Higher success rate
@@ -572,9 +529,7 @@ class TestABTestAnalyzer:
         significance = {"is_significant": True}
 
         winner = self.analyzer._determine_winner(
-            {"model_a": self.metrics_a, "model_b": self.metrics_b},
-            significance,
-            self.test_config
+            {"model_a": self.metrics_a, "model_b": self.metrics_b}, significance, self.test_config
         )
 
         assert winner is None
@@ -584,19 +539,14 @@ class TestABTestAnalyzer:
         significance = {"is_significant": False}
 
         winner = self.analyzer._determine_winner(
-            {"model_a": self.metrics_a, "model_b": self.metrics_b},
-            significance,
-            self.test_config
+            {"model_a": self.metrics_a, "model_b": self.metrics_b}, significance, self.test_config
         )
 
         assert winner is None
 
     def test_calculate_lift(self):
         """Test lift calculation."""
-        lift = self.analyzer._calculate_lift({
-            "model_a": self.metrics_a,
-            "model_b": self.metrics_b
-        })
+        lift = self.analyzer._calculate_lift({"model_a": self.metrics_a, "model_b": self.metrics_b})
 
         # Model B has 90% success vs 85% for Model A
         # Lift = (0.9 - 0.85) / 0.85 * 100 = 5.88%
@@ -611,10 +561,7 @@ class TestABTestAnalyzer:
         """Test lift calculation with zero baseline."""
         self.metrics_a.successful_predictions = 0
 
-        lift = self.analyzer._calculate_lift({
-            "model_a": self.metrics_a,
-            "model_b": self.metrics_b
-        })
+        lift = self.analyzer._calculate_lift({"model_a": self.metrics_a, "model_b": self.metrics_b})
 
         assert lift["success_rate_lift_percent"] == float("inf")
 
@@ -622,40 +569,30 @@ class TestABTestAnalyzer:
         """Test recommendation generation."""
         # Model B wins with good lift
         rec = self.analyzer._generate_recommendation(
-            "model_b",
-            {"is_significant": True},
-            {"success_rate_lift_percent": 10.0}
+            "model_b", {"is_significant": True}, {"success_rate_lift_percent": 10.0}
         )
         assert "Deploy model B" in rec
 
         # Model B wins with marginal lift
         rec = self.analyzer._generate_recommendation(
-            "model_b",
-            {"is_significant": True},
-            {"success_rate_lift_percent": 2.0}
+            "model_b", {"is_significant": True}, {"success_rate_lift_percent": 2.0}
         )
         assert "marginal" in rec
 
         # Model A wins
         rec = self.analyzer._generate_recommendation(
-            "model_a",
-            {"is_significant": True},
-            {"success_rate_lift_percent": -5.0}
+            "model_a", {"is_significant": True}, {"success_rate_lift_percent": -5.0}
         )
         assert "Keep model A" in rec
 
         # No winner - not significant
         rec = self.analyzer._generate_recommendation(
-            None,
-            {"is_significant": False},
-            {"success_rate_lift_percent": 5.0}
+            None, {"is_significant": False}, {"success_rate_lift_percent": 5.0}
         )
         assert "not statistically significant" in rec
 
         # No winner - insufficient samples
         rec = self.analyzer._generate_recommendation(
-            None,
-            {"is_significant": True},
-            {"success_rate_lift_percent": 5.0}
+            None, {"is_significant": True}, {"success_rate_lift_percent": 5.0}
         )
         assert "insufficient sample size" in rec

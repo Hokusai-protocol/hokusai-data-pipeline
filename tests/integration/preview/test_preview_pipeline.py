@@ -1,11 +1,13 @@
 """Integration tests for the complete preview pipeline."""
 
-import pytest
-import pandas as pd
-import numpy as np
 import json
+import logging
 import time
 from unittest.mock import Mock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
 
 # Imports will be added once modules are implemented
 # from src.preview.data_loader import PreviewDataLoader
@@ -23,12 +25,14 @@ class TestPreviewPipelineIntegration:
     def sample_contributed_data(self, tmp_path):
         """Create sample contributed data file."""
         np.random.seed(42)
-        data = pd.DataFrame({
-            "query_id": range(5000),
-            "query": [f"query_{i}" for i in range(5000)],
-            "label": np.random.randint(0, 2, 5000),
-            "features": [np.random.rand(10).tolist() for _ in range(5000)]
-        })
+        data = pd.DataFrame(
+            {
+                "query_id": range(5000),
+                "query": [f"query_{i}" for i in range(5000)],
+                "label": np.random.randint(0, 2, 5000),
+                "features": [np.random.rand(10).tolist() for _ in range(5000)],
+            }
+        )
         csv_path = tmp_path / "contributed_data.csv"
         data.to_csv(csv_path, index=False)
         return csv_path
@@ -37,12 +41,14 @@ class TestPreviewPipelineIntegration:
     def large_contributed_data(self, tmp_path):
         """Create large contributed data file for performance testing."""
         np.random.seed(42)
-        data = pd.DataFrame({
-            "query_id": range(15000),
-            "query": [f"query_{i}" for i in range(15000)],
-            "label": np.random.randint(0, 2, 15000),
-            "features": [np.random.rand(10).tolist() for _ in range(15000)]
-        })
+        data = pd.DataFrame(
+            {
+                "query_id": range(15000),
+                "query": [f"query_{i}" for i in range(15000)],
+                "label": np.random.randint(0, 2, 15000),
+                "features": [np.random.rand(10).tolist() for _ in range(15000)],
+            }
+        )
         csv_path = tmp_path / "large_contributed_data.csv"
         data.to_csv(csv_path, index=False)
         return csv_path
@@ -54,9 +60,7 @@ class TestPreviewPipelineIntegration:
 
         pipeline = PreviewPipeline()
         result = pipeline.run(
-            data_path=sample_contributed_data,
-            output_file=output_file,
-            output_format="json"
+            data_path=sample_contributed_data, output_file=output_file, output_format="json"
         )
 
         assert result["success"] is True
@@ -80,10 +84,15 @@ class TestPreviewPipelineIntegration:
 
         # Run CLI command
         cmd = [
-            "python", "-m", "hokusai_preview",
-            "--data-path", str(sample_contributed_data),
-            "--output-file", str(output_file),
-            "--output-format", "json"
+            "python",
+            "-m",
+            "hokusai_preview",
+            "--data-path",
+            str(sample_contributed_data),
+            "--output-file",
+            str(output_file),
+            "--output-format",
+            "json",
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -98,17 +107,14 @@ class TestPreviewPipelineIntegration:
         pipeline = PreviewPipeline()
 
         start_time = time.time()
-        result = pipeline.run(
-            data_path=large_contributed_data,
-            output_format="json"
-        )
+        result = pipeline.run(data_path=large_contributed_data, output_format="json")
         end_time = time.time()
 
         execution_time = end_time - start_time
 
         assert result["success"] is True
         assert execution_time < 300  # 5 minutes = 300 seconds
-        print(f"Execution time: {execution_time:.2f} seconds")
+        logging.info(f"Execution time: {execution_time:.2f} seconds")
 
     @pytest.mark.skip(reason="PreviewPipeline not yet implemented")
     def test_delta_accuracy_within_20_percent(self, sample_contributed_data):
@@ -116,17 +122,14 @@ class TestPreviewPipelineIntegration:
         # Run preview pipeline
         preview_pipeline = PreviewPipeline()
         preview_result = preview_pipeline.run(
-            data_path=sample_contributed_data,
-            output_format="json"
+            data_path=sample_contributed_data, output_format="json"
         )
 
         preview_delta = preview_result["delta_one_score"]
 
         # Simulate full pipeline delta (in real test, would run actual pipeline)
         with patch("src.pipeline.hokusai_pipeline.HokusaiPipeline") as mock_pipeline:
-            mock_pipeline.return_value.run.return_value = {
-                "delta_one_score": 0.025
-            }
+            mock_pipeline.return_value.run.return_value = {"delta_one_score": 0.025}
             full_pipeline_delta = 0.025
 
         # Check accuracy within ±20%
@@ -138,10 +141,7 @@ class TestPreviewPipelineIntegration:
         """Test pretty output format."""
         pipeline = PreviewPipeline()
 
-        pipeline.run(
-            data_path=sample_contributed_data,
-            output_format="pretty"
-        )
+        pipeline.run(data_path=sample_contributed_data, output_format="pretty")
 
         captured = capsys.readouterr()
         output = captured.out
@@ -157,10 +157,7 @@ class TestPreviewPipelineIntegration:
         """Test preview in test mode with mock baseline."""
         pipeline = PreviewPipeline(test_mode=True)
 
-        result = pipeline.run(
-            data_path=sample_contributed_data,
-            output_format="json"
-        )
+        result = pipeline.run(data_path=sample_contributed_data, output_format="json")
 
         assert result["success"] is True
         assert result["baseline_model_type"] == "mock_baseline"
@@ -175,13 +172,15 @@ class TestPreviewPipelineIntegration:
 
         pipeline = PreviewPipeline()
 
-        with patch("src.preview.model_manager.PreviewModelManager.load_baseline_model") as mock_load:
+        with patch(
+            "src.preview.model_manager.PreviewModelManager.load_baseline_model"
+        ) as mock_load:
             mock_load.return_value = Mock()
 
             result = pipeline.run(
                 data_path=sample_contributed_data,
                 baseline_model=str(baseline_path),
-                output_format="json"
+                output_format="json",
             )
 
         assert result["success"] is True
@@ -191,20 +190,19 @@ class TestPreviewPipelineIntegration:
     def test_sampling_for_large_datasets(self, tmp_path):
         """Test automatic sampling for datasets > 10k samples."""
         # Create dataset with 20k samples
-        large_data = pd.DataFrame({
-            "query_id": range(20000),
-            "query": [f"query_{i}" for i in range(20000)],
-            "label": np.random.randint(0, 2, 20000),
-            "features": [np.random.rand(10).tolist() for _ in range(20000)]
-        })
+        large_data = pd.DataFrame(
+            {
+                "query_id": range(20000),
+                "query": [f"query_{i}" for i in range(20000)],
+                "label": np.random.randint(0, 2, 20000),
+                "features": [np.random.rand(10).tolist() for _ in range(20000)],
+            }
+        )
         large_path = tmp_path / "large_data.csv"
         large_data.to_csv(large_path, index=False)
 
         pipeline = PreviewPipeline()
-        result = pipeline.run(
-            data_path=large_path,
-            output_format="json"
-        )
+        result = pipeline.run(data_path=large_path, output_format="json")
 
         assert result["success"] is True
         assert result["sample_size_used"] == 10000
@@ -219,25 +217,20 @@ class TestPreviewPipelineIntegration:
         pipeline = PreviewPipeline()
 
         with pytest.raises(ValueError, match="Failed to load data"):
-            pipeline.run(
-                data_path=invalid_csv,
-                output_format="json"
-            )
+            pipeline.run(data_path=invalid_csv, output_format="json")
 
     @pytest.mark.skip(reason="PreviewPipeline not yet implemented")
     def test_memory_efficiency(self, large_contributed_data):
         """Test memory-efficient processing."""
-        import psutil
         import os
+
+        import psutil
 
         process = psutil.Process(os.getpid())
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
 
         pipeline = PreviewPipeline()
-        result = pipeline.run(
-            data_path=large_contributed_data,
-            output_format="json"
-        )
+        result = pipeline.run(data_path=large_contributed_data, output_format="json")
 
         peak_memory = process.memory_info().rss / 1024 / 1024  # MB
         memory_increase = peak_memory - initial_memory
@@ -252,15 +245,9 @@ class TestPreviewPipelineIntegration:
         pipeline1 = PreviewPipeline(random_seed=42)
         pipeline2 = PreviewPipeline(random_seed=42)
 
-        result1 = pipeline1.run(
-            data_path=sample_contributed_data,
-            output_format="json"
-        )
+        result1 = pipeline1.run(data_path=sample_contributed_data, output_format="json")
 
-        result2 = pipeline2.run(
-            data_path=sample_contributed_data,
-            output_format="json"
-        )
+        result2 = pipeline2.run(data_path=sample_contributed_data, output_format="json")
 
         assert result1["delta_one_score"] == result2["delta_one_score"]
         assert result1["metrics"] == result2["metrics"]
@@ -270,10 +257,7 @@ class TestPreviewPipelineIntegration:
         """Test verbose mode output."""
         pipeline = PreviewPipeline(verbose=True)
 
-        pipeline.run(
-            data_path=sample_contributed_data,
-            output_format="json"
-        )
+        pipeline.run(data_path=sample_contributed_data, output_format="json")
 
         captured = capsys.readouterr()
         output = captured.out

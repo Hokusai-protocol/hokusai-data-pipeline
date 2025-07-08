@@ -1,17 +1,18 @@
 """DSPy Pipeline Executor for running DSPy programs within Hokusai ML platform."""
 
 import json
-import time
 import logging
-from enum import Enum
-from typing import Dict, Any, List, Optional, Union
-from dataclasses import dataclass, asdict
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from dataclasses import asdict, dataclass
+from enum import Enum
+from typing import Any, Optional
 
 import mlflow
+
+from src.dspy_signatures.base import BaseSignature
 from src.services.dspy_model_loader import DSPyModelLoader
 from src.utils.config import get_config
-from src.dspy_signatures.base import BaseSignature
 
 logger = logging.getLogger(__name__)
 
@@ -42,17 +43,17 @@ class ExecutionResult:
     """Result of DSPy program execution."""
 
     success: bool
-    outputs: Optional[Dict[str, Any]]
+    outputs: Optional[dict[str, Any]]
     error: Optional[str]
     execution_time: float
     program_name: str
-    metadata: Dict[str, Any] = None
+    metadata: dict[str, Any] = None
 
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert result to dictionary."""
         return asdict(self)
 
@@ -70,10 +71,10 @@ class DSPyPipelineExecutor:
         mlflow_tracking: bool = True,
         timeout: int = 300,
         max_retries: int = 1,
-        max_workers: int = 4
-    ):
+        max_workers: int = 4,
+    ) -> None:
         """Initialize DSPy Pipeline Executor.
-        
+
         Args:
             cache_enabled: Enable caching of programs and results
             mlflow_tracking: Enable MLflow experiment tracking
@@ -92,12 +93,7 @@ class DSPyPipelineExecutor:
         self._result_cache = {}
         self._model_loader = DSPyModelLoader()
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
-        self._execution_stats = {
-            "total": 0,
-            "success": 0,
-            "failed": 0,
-            "execution_times": []
-        }
+        self._execution_stats = {"total": 0, "success": 0, "failed": 0, "execution_times": []}
 
         # Initialize MLflow if enabled
         if self.mlflow_tracking:
@@ -118,6 +114,7 @@ class DSPyPipelineExecutor:
             # Enable DSPy autolog using our integration
             try:
                 from src.integrations.mlflow_dspy import autolog
+
                 autolog()
                 logger.info("MLflow DSPy autolog enabled via Hokusai integration")
             except ImportError:
@@ -133,13 +130,13 @@ class DSPyPipelineExecutor:
             logger.warning(f"Failed to initialize MLflow tracking: {e}")
             self.mlflow_tracking = False
 
-    def _validate_inputs(self, inputs: Dict[str, Any], program: Any) -> None:
+    def _validate_inputs(self, inputs: dict[str, Any], program: Any) -> None:
         """Validate inputs against program signature.
-        
+
         Args:
             inputs: Input dictionary
             program: DSPy program instance
-            
+
         Raises:
             ValidationError: If inputs are invalid
 
@@ -160,23 +157,21 @@ class DSPyPipelineExecutor:
             try:
                 signature.validate_inputs(inputs)
             except ValueError as e:
-                raise ValidationError(str(e))
+                raise ValidationError(str(e)) from e
         # Otherwise check for required input fields
         elif hasattr(signature, "input_fields"):
             required_fields = signature.input_fields
             missing_fields = [f for f in required_fields if f not in inputs]
 
             if missing_fields:
-                raise ValidationError(
-                    f"Missing required input fields: {missing_fields}"
-                )
+                raise ValidationError(f"Missing required input fields: {missing_fields}")
 
     def _load_program_by_id(self, model_id: str) -> Any:
         """Load DSPy program by model ID.
-        
+
         Args:
             model_id: Model identifier
-            
+
         Returns:
             DSPy program instance
 
@@ -188,13 +183,12 @@ class DSPyPipelineExecutor:
         try:
             # Try to load from model registry first
             from src.services.model_registry import HokusaiModelRegistry
+
             registry = HokusaiModelRegistry()
 
             model_info = registry.get_model(model_id)
             if model_info and "program_path" in model_info:
-                program_data = self._model_loader.load_from_config(
-                    model_info["program_path"]
-                )
+                program_data = self._model_loader.load_from_config(model_info["program_path"])
                 program = program_data["program"]
             else:
                 # Fallback to direct loading
@@ -207,21 +201,18 @@ class DSPyPipelineExecutor:
             return program
 
         except Exception as e:
-            raise DSPyExecutionError(f"Failed to load model {model_id}: {e}")
+            raise DSPyExecutionError(f"Failed to load model {model_id}: {e}") from e
 
     def _execute_program(
-        self,
-        program: Any,
-        inputs: Dict[str, Any],
-        mode: ExecutionMode = ExecutionMode.NORMAL
-    ) -> Dict[str, Any]:
+        self, program: Any, inputs: dict[str, Any], mode: ExecutionMode = ExecutionMode.NORMAL
+    ) -> dict[str, Any]:
         """Execute DSPy program with given inputs.
-        
+
         Args:
             program: DSPy program instance
             inputs: Input dictionary
             mode: Execution mode
-            
+
         Returns:
             Program outputs
 
@@ -244,9 +235,7 @@ class DSPyPipelineExecutor:
             elif callable(program):
                 outputs = program(**inputs)
             else:
-                raise DSPyExecutionError(
-                    f"Program {type(program).__name__} is not callable"
-                )
+                raise DSPyExecutionError(f"Program {type(program).__name__} is not callable")
 
             # Convert outputs to dictionary if needed
             if hasattr(outputs, "__dict__"):
@@ -267,19 +256,19 @@ class DSPyPipelineExecutor:
         self,
         program: Any = None,
         model_id: str = None,
-        inputs: Dict[str, Any] = None,
+        inputs: dict[str, Any] = None,
         mode: ExecutionMode = ExecutionMode.NORMAL,
-        retry_on_failure: bool = True
+        retry_on_failure: bool = True,
     ) -> ExecutionResult:
         """Execute DSPy program with inputs.
-        
+
         Args:
             program: DSPy program instance (optional if model_id provided)
             model_id: Model ID to load (optional if program provided)
             inputs: Input dictionary
             mode: Execution mode
             retry_on_failure: Whether to retry on failure
-            
+
         Returns:
             ExecutionResult with outputs and metadata
 
@@ -311,7 +300,7 @@ class DSPyPipelineExecutor:
             error=None,
             execution_time=0,
             program_name=program_name,
-            metadata={"mode": mode.value}
+            metadata={"mode": mode.value},
         )
 
         # Track with MLflow
@@ -319,11 +308,13 @@ class DSPyPipelineExecutor:
         if self.mlflow_tracking and mode != ExecutionMode.DRY_RUN:
             try:
                 mlflow_run = mlflow.start_run(nested=True)
-                mlflow.log_params({
-                    "program_name": program_name,
-                    "mode": mode.value,
-                    "input_keys": list(inputs.keys()) if inputs else []
-                })
+                mlflow.log_params(
+                    {
+                        "program_name": program_name,
+                        "mode": mode.value,
+                        "input_keys": list(inputs.keys()) if inputs else [],
+                    }
+                )
             except Exception as e:
                 logger.debug(f"MLflow tracking error: {e}")
                 self.mlflow_tracking = False
@@ -343,12 +334,7 @@ class DSPyPipelineExecutor:
                     result.metadata["validation_passed"] = True
                 else:
                     # Execute with timeout
-                    future = self._executor.submit(
-                        self._execute_program,
-                        program,
-                        inputs,
-                        mode
-                    )
+                    future = self._executor.submit(self._execute_program, program, inputs, mode)
 
                     outputs = future.result(timeout=self.timeout)
 
@@ -359,7 +345,7 @@ class DSPyPipelineExecutor:
                         result.metadata["debug_trace"] = {
                             "program_type": type(program).__name__,
                             "input_count": len(inputs),
-                            "output_count": len(outputs) if outputs else 0
+                            "output_count": len(outputs) if outputs else 0,
                         }
 
                 break  # Success, exit retry loop
@@ -391,10 +377,12 @@ class DSPyPipelineExecutor:
         # Log to MLflow
         if self.mlflow_tracking and mode != ExecutionMode.DRY_RUN and mlflow_run:
             try:
-                mlflow.log_metrics({
-                    "execution_time": result.execution_time,
-                    "success": 1.0 if result.success else 0.0
-                })
+                mlflow.log_metrics(
+                    {
+                        "execution_time": result.execution_time,
+                        "success": 1.0 if result.success else 0.0,
+                    }
+                )
 
                 if result.outputs:
                     # Log sample outputs (limit size)
@@ -414,18 +402,15 @@ class DSPyPipelineExecutor:
         return result
 
     def execute_batch(
-        self,
-        program: Any = None,
-        model_id: str = None,
-        inputs_list: List[Dict[str, Any]] = None
-    ) -> List[ExecutionResult]:
+        self, program: Any = None, model_id: str = None, inputs_list: list[dict[str, Any]] = None
+    ) -> list[ExecutionResult]:
         """Execute DSPy program on batch of inputs.
-        
+
         Args:
             program: DSPy program instance
             model_id: Model ID to load
             inputs_list: List of input dictionaries
-            
+
         Returns:
             List of ExecutionResults
 
@@ -444,7 +429,7 @@ class DSPyPipelineExecutor:
                 self.execute,
                 program=program,
                 inputs=inputs,
-                retry_on_failure=False  # Don't retry in batch mode
+                retry_on_failure=False,  # Don't retry in batch mode
             )
             futures.append(future)
 
@@ -461,7 +446,7 @@ class DSPyPipelineExecutor:
                     outputs=None,
                     error=f"Batch execution error: {str(e)}",
                     execution_time=0,
-                    program_name=getattr(program, "name", "unknown")
+                    program_name=getattr(program, "name", "unknown"),
                 )
                 results.append(error_result)
 
@@ -480,12 +465,13 @@ class DSPyPipelineExecutor:
 
         # Keep only recent execution times
         if len(self._execution_stats["execution_times"]) > 1000:
-            self._execution_stats["execution_times"] = \
-                self._execution_stats["execution_times"][-1000:]
+            self._execution_stats["execution_times"] = self._execution_stats["execution_times"][
+                -1000:
+            ]
 
-    def get_execution_stats(self) -> Dict[str, Any]:
+    def get_execution_stats(self) -> dict[str, Any]:
         """Get execution statistics.
-        
+
         Returns:
             Dictionary with execution statistics
 
@@ -498,28 +484,32 @@ class DSPyPipelineExecutor:
             "failed_executions": self._execution_stats["failed"],
             "success_rate": (
                 self._execution_stats["success"] / self._execution_stats["total"]
-                if self._execution_stats["total"] > 0 else 0
-            )
+                if self._execution_stats["total"] > 0
+                else 0
+            ),
         }
 
         if exec_times:
-            stats.update({
-                "average_execution_time": sum(exec_times) / len(exec_times),
-                "min_execution_time": min(exec_times),
-                "max_execution_time": max(exec_times),
-                "p95_execution_time": sorted(exec_times)[int(len(exec_times) * 0.95)]
-                if len(exec_times) > 20 else max(exec_times)
-            })
+            stats.update(
+                {
+                    "average_execution_time": sum(exec_times) / len(exec_times),
+                    "min_execution_time": min(exec_times),
+                    "max_execution_time": max(exec_times),
+                    "p95_execution_time": sorted(exec_times)[int(len(exec_times) * 0.95)]
+                    if len(exec_times) > 20
+                    else max(exec_times),
+                }
+            )
 
         return stats
 
-    def clear_cache(self):
+    def clear_cache(self) -> None:
         """Clear program and result caches."""
         self._program_cache.clear()
         self._result_cache.clear()
         logger.info("Caches cleared")
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         """Shutdown executor and cleanup resources."""
         self._executor.shutdown(wait=True)
         self.clear_cache()

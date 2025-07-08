@@ -1,19 +1,20 @@
 """Experiment orchestration service for model improvement experiments."""
 
+import logging
+from typing import Any, Optional
+
 import mlflow
 import mlflow.pyfunc
-from typing import Dict, Any, List, Optional
-import logging
 import numpy as np
-from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, precision_score, recall_score
 import pandas as pd
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 
 logger = logging.getLogger(__name__)
 
 
 class ExperimentManager:
     """Manage experiments for testing model improvements.
-    
+
     This service provides:
     - Experiment creation for improvement testing
     - Standardized model comparison
@@ -23,9 +24,9 @@ class ExperimentManager:
 
     VALID_METRICS = ["accuracy", "auroc", "f1_score", "precision", "recall"]
 
-    def __init__(self, experiment_name: str = "hokusai_model_improvements"):
+    def __init__(self, experiment_name: str = "hokusai_model_improvements") -> None:
         """Initialize the experiment manager.
-        
+
         Args:
             experiment_name: Name of the MLFlow experiment
 
@@ -35,14 +36,13 @@ class ExperimentManager:
         mlflow.set_experiment(experiment_name)
         logger.info(f"Initialized ExperimentManager with experiment: {experiment_name}")
 
-    def create_improvement_experiment(self, baseline_model_id: str,
-                                    contributed_data: Any) -> str:
+    def create_improvement_experiment(self, baseline_model_id: str, contributed_data: Any) -> str:
         """Create a new experiment for testing improvements.
-        
+
         Args:
             baseline_model_id: ID of the baseline model
             contributed_data: Data contributed for improvement
-            
+
         Returns:
             Experiment run ID
 
@@ -50,20 +50,27 @@ class ExperimentManager:
         try:
             with mlflow.start_run() as run:
                 # Log experiment metadata
-                mlflow.log_params({
-                    "baseline_model_id": baseline_model_id,
-                    "contributed_data_hash": contributed_data.get("metadata", {}).get("dataset_hash", "unknown"),
-                    "contributed_data_size": str(len(contributed_data.get("features", []))),
-                    "experiment_type": "model_improvement",
-                    "created_at": pd.Timestamp.now().isoformat()
-                })
+                mlflow.log_params(
+                    {
+                        "baseline_model_id": baseline_model_id,
+                        "contributed_data_hash": contributed_data.get("metadata", {}).get(
+                            "dataset_hash", "unknown"
+                        ),
+                        "contributed_data_size": str(len(contributed_data.get("features", []))),
+                        "experiment_type": "model_improvement",
+                        "created_at": pd.Timestamp.now().isoformat(),
+                    }
+                )
 
                 # Set experiment tags
                 mlflow.set_tag("experiment_type", "model_improvement")
                 mlflow.set_tag("baseline_model", baseline_model_id)
 
                 if "metadata" in contributed_data:
-                    mlflow.set_tag("contributor_id", contributed_data["metadata"].get("contributor_id", "unknown"))
+                    mlflow.set_tag(
+                        "contributor_id",
+                        contributed_data["metadata"].get("contributor_id", "unknown"),
+                    )
 
                 experiment_id = run.info.run_id
                 logger.info(f"Created improvement experiment: {experiment_id}")
@@ -74,15 +81,16 @@ class ExperimentManager:
             logger.error(f"Failed to create improvement experiment: {str(e)}")
             raise
 
-    def compare_models(self, baseline_id: str, candidate_id: str,
-                      test_data: Dict[str, Any]) -> Dict[str, Any]:
+    def compare_models(
+        self, baseline_id: str, candidate_id: str, test_data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Perform standardized comparison between baseline and candidate models.
-        
+
         Args:
             baseline_id: Baseline model ID
             candidate_id: Candidate model ID
             test_data: Test dataset for comparison
-            
+
         Returns:
             Comparison results with metrics and recommendation
 
@@ -111,9 +119,7 @@ class ExperimentManager:
                     improvements[metric] = candidate_metrics[metric] - baseline_metrics[metric]
 
                 # Log comparison results
-                self._log_comparison_results(
-                    baseline_metrics, candidate_metrics, improvements
-                )
+                self._log_comparison_results(baseline_metrics, candidate_metrics, improvements)
 
                 # Generate recommendation
                 recommendation = self._determine_recommendation(improvements)
@@ -123,7 +129,7 @@ class ExperimentManager:
                     "candidate_metrics": candidate_metrics,
                     "improvements": improvements,
                     "recommendation": recommendation,
-                    "test_dataset": test_data.get("dataset_name", "unknown")
+                    "test_dataset": test_data.get("dataset_name", "unknown"),
                 }
 
                 logger.info(f"Model comparison complete. Recommendation: {recommendation}")
@@ -134,12 +140,14 @@ class ExperimentManager:
             logger.error(f"Failed to compare models: {str(e)}")
             raise
 
-    def get_experiment_history(self, baseline_model_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_experiment_history(
+        self, baseline_model_id: Optional[str] = None
+    ) -> list[dict[str, Any]]:
         """Get history of experiments for a baseline model.
-        
+
         Args:
             baseline_model_id: Optional filter by baseline model
-            
+
         Returns:
             List of experiment summaries
 
@@ -153,7 +161,7 @@ class ExperimentManager:
             runs = mlflow.search_runs(
                 experiment_names=[self.experiment_name],
                 filter_string=filter_string,
-                order_by=["start_time DESC"]
+                order_by=["start_time DESC"],
             )
 
             history = []
@@ -163,7 +171,7 @@ class ExperimentManager:
                     "baseline_model": run.get("params.baseline_model_id"),
                     "improvement": run.get("metrics.accuracy_improvement", 0),
                     "recommendation": run.get("tags.recommendation", "unknown"),
-                    "timestamp": run["start_time"]
+                    "timestamp": run["start_time"],
                 }
                 history.append(summary)
 
@@ -173,15 +181,16 @@ class ExperimentManager:
             logger.error(f"Failed to get experiment history: {str(e)}")
             raise
 
-    def _calculate_metrics(self, y_true: np.ndarray, y_pred: np.ndarray,
-                         threshold: float = 0.5) -> Dict[str, float]:
+    def _calculate_metrics(
+        self, y_true: np.ndarray, y_pred: np.ndarray, threshold: float = 0.5
+    ) -> dict[str, float]:
         """Calculate standard metrics for model evaluation.
-        
+
         Args:
             y_true: True labels
             y_pred: Predicted probabilities or labels
             threshold: Threshold for binary classification
-            
+
         Returns:
             Dictionary of calculated metrics
 
@@ -226,29 +235,24 @@ class ExperimentManager:
 
         return metrics
 
-    def _determine_recommendation(self, improvements: Dict[str, float],
-                                threshold: float = 0.01) -> str:
+    def _determine_recommendation(
+        self, improvements: dict[str, float], threshold: float = 0.01
+    ) -> str:
         """Determine recommendation based on improvements.
-        
+
         Args:
             improvements: Metric improvements
             threshold: Minimum improvement threshold
-            
+
         Returns:
             Recommendation: ACCEPT, REJECT, or REVIEW
 
         """
         # Count significant improvements
-        significant_improvements = sum(
-            1 for v in improvements.values()
-            if v > threshold
-        )
+        significant_improvements = sum(1 for v in improvements.values() if v > threshold)
 
         # Count regressions
-        regressions = sum(
-            1 for v in improvements.values()
-            if v < -threshold
-        )
+        regressions = sum(1 for v in improvements.values() if v < -threshold)
 
         if regressions > 0:
             return "REJECT"
@@ -259,11 +263,14 @@ class ExperimentManager:
         else:
             return "REJECT"
 
-    def _log_comparison_results(self, baseline_metrics: Dict[str, float],
-                              candidate_metrics: Dict[str, float],
-                              improvements: Dict[str, float]) -> None:
+    def _log_comparison_results(
+        self,
+        baseline_metrics: dict[str, float],
+        candidate_metrics: dict[str, float],
+        improvements: dict[str, float],
+    ) -> None:
         """Log model comparison results to MLFlow.
-        
+
         Args:
             baseline_metrics: Baseline model metrics
             candidate_metrics: Candidate model metrics
@@ -282,15 +289,15 @@ class ExperimentManager:
         for metric, value in improvements.items():
             mlflow.log_metric(f"{metric}_improvement", value)
 
-    def _validate_config(self, config: Dict[str, Any]) -> bool:
+    def _validate_config(self, config: dict[str, Any]) -> bool:
         """Validate experiment configuration.
-        
+
         Args:
             config: Experiment configuration
-            
+
         Returns:
             True if valid
-            
+
         Raises:
             ValueError: If configuration is invalid
 
@@ -306,9 +313,9 @@ class ExperimentManager:
 
         return True
 
-    def _log_artifacts(self, artifacts: Dict[str, str]) -> None:
+    def _log_artifacts(self, artifacts: dict[str, str]) -> None:
         """Log experiment artifacts.
-        
+
         Args:
             artifacts: Dictionary of artifact name to file path
 
@@ -320,12 +327,12 @@ class ExperimentManager:
             except Exception as e:
                 logger.error(f"Failed to log artifact {name}: {str(e)}")
 
-    def _format_report(self, comparison_result: Dict[str, Any]) -> str:
+    def _format_report(self, comparison_result: dict[str, Any]) -> str:
         """Format comparison results as a readable report.
-        
+
         Args:
             comparison_result: Model comparison results
-            
+
         Returns:
             Formatted report string
 

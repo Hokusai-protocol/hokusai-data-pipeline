@@ -2,10 +2,11 @@
 
 import hashlib
 import json
+import logging
+import os
+import subprocess
 from datetime import datetime
 from typing import Optional
-import subprocess
-import os
 
 from .schema_validator import SchemaValidator, validate_for_zk_proof
 
@@ -13,15 +14,15 @@ from .schema_validator import SchemaValidator, validate_for_zk_proof
 class ZKCompatibleOutputFormatter:
     """Converts pipeline results to ZK-compatible format."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.validator = SchemaValidator()
 
     def format_output(self, pipeline_results: dict) -> dict:
         """Convert pipeline results to ZK-compatible format.
-        
+
         Args:
             pipeline_results: Raw pipeline results in existing format
-            
+
         Returns:
             ZK-compatible formatted output
 
@@ -32,7 +33,7 @@ class ZKCompatibleOutputFormatter:
             "evaluation_results": self._format_evaluation_results(pipeline_results),
             "delta_computation": self._format_delta_computation(pipeline_results),
             "models": self._format_models(pipeline_results),
-            "attestation": self._format_attestation(pipeline_results)
+            "attestation": self._format_attestation(pipeline_results),
         }
 
         # Choose between single contributor or multiple contributors format
@@ -48,10 +49,10 @@ class ZKCompatibleOutputFormatter:
 
     def format_and_validate(self, pipeline_results: dict) -> tuple[dict, bool, list]:
         """Format output and validate it against ZK schema.
-        
+
         Args:
             pipeline_results: Raw pipeline results
-            
+
         Returns:
             Tuple of (formatted_output, is_valid, errors)
 
@@ -85,7 +86,7 @@ class ZKCompatibleOutputFormatter:
             "timestamp": self._format_timestamp(pipeline_meta.get("timestamp")),
             "pipeline_version": pipeline_version,
             "environment": pipeline_meta.get("config", {}).get("environment", "unknown"),
-            "dry_run": pipeline_meta.get("dry_run", False)
+            "dry_run": pipeline_meta.get("dry_run", False),
         }
 
     def _format_evaluation_results(self, results: dict) -> dict:
@@ -104,10 +105,10 @@ class ZKCompatibleOutputFormatter:
                 "size": benchmark_data.get("size", 0),
                 "type": benchmark_data.get("type", "unknown"),
                 "features": benchmark_data.get("features", []),
-                "dataset_hash": self._compute_benchmark_hash(benchmark_data)
+                "dataset_hash": self._compute_benchmark_hash(benchmark_data),
             },
             "evaluation_timestamp": self._format_timestamp(eval_meta.get("evaluation_timestamp")),
-            "evaluation_time_seconds": eval_meta.get("evaluation_time_seconds", 0.0)
+            "evaluation_time_seconds": eval_meta.get("evaluation_time_seconds", 0.0),
         }
 
     def _format_delta_computation(self, results: dict) -> dict:
@@ -122,7 +123,7 @@ class ZKCompatibleOutputFormatter:
                 "new_value": values.get("new_value", 0.0),
                 "absolute_delta": values.get("absolute_delta", 0.0),
                 "relative_delta": values.get("relative_delta", 0.0),
-                "improvement": values.get("improvement", False)
+                "improvement": values.get("improvement", False),
             }
 
         return {
@@ -131,7 +132,7 @@ class ZKCompatibleOutputFormatter:
             "computation_method": delta_comp.get("computation_method", "weighted_average_delta"),
             "metrics_included": delta_comp.get("metrics_included", []),
             "improved_metrics": delta_comp.get("improved_metrics", []),
-            "degraded_metrics": delta_comp.get("degraded_metrics", [])
+            "degraded_metrics": delta_comp.get("degraded_metrics", []),
         }
 
     def _format_models(self, results: dict) -> dict:
@@ -141,7 +142,7 @@ class ZKCompatibleOutputFormatter:
 
         return {
             "baseline": self._format_single_model(baseline, "baseline"),
-            "new": self._format_single_model(new, "new")
+            "new": self._format_single_model(new, "new"),
         }
 
     def _format_single_model(self, model_info: dict, model_type: str) -> dict:
@@ -152,7 +153,7 @@ class ZKCompatibleOutputFormatter:
             "model_hash": self._compute_model_hash(model_info),
             "training_config_hash": self._compute_config_hash(model_info),
             "mlflow_run_id": model_info.get("mlflow_run_id"),
-            "metrics": model_info.get("metrics", {})
+            "metrics": model_info.get("metrics", {}),
         }
 
         # Add training metadata for new model
@@ -162,7 +163,7 @@ class ZKCompatibleOutputFormatter:
                 "base_samples": training_meta.get("base_samples", 0),
                 "contributed_samples": training_meta.get("contributed_samples", 0),
                 "contribution_ratio": training_meta.get("contribution_ratio", 0.0),
-                "data_manifest": self._format_data_manifest(training_meta.get("data_manifest", {}))
+                "data_manifest": self._format_data_manifest(training_meta.get("data_manifest", {})),
             }
 
         return formatted
@@ -173,24 +174,27 @@ class ZKCompatibleOutputFormatter:
         data_manifest = contrib.get("data_manifest", {})
 
         contributor_info = {
-            "data_hash": contrib.get("data_hash", self._compute_placeholder_hash("contributor_data")),
+            "data_hash": contrib.get(
+                "data_hash", self._compute_placeholder_hash("contributor_data")
+            ),
             "data_manifest": self._format_data_manifest(data_manifest),
             "contributor_weights": contrib.get("contributor_weights", 0.0),
             "contributed_samples": contrib.get("contributed_samples", 0),
             "total_samples": contrib.get("total_samples", 0),
-            "validation_status": "valid"  # Default status
+            "validation_status": "valid",  # Default status
         }
 
         # Add ETH wallet address if provided
         wallet_address = contrib.get("wallet_address")
         if wallet_address:
-            from .eth_address_validator import validate_eth_address, normalize_eth_address
+            from .eth_address_validator import normalize_eth_address, validate_eth_address
+
             try:
                 validate_eth_address(wallet_address)
                 contributor_info["wallet_address"] = normalize_eth_address(wallet_address)
             except Exception as e:
                 # Log warning but don't fail the pipeline
-                print(f"Warning: Invalid ETH address provided: {e}")
+                logging.info(f"Warning: Invalid ETH address provided: {e}")
 
         return contributor_info
 
@@ -204,23 +208,28 @@ class ZKCompatibleOutputFormatter:
 
             contributor_info = {
                 "id": contributor.get("id", contributor.get("contributor_id", "unknown")),
-                "data_hash": contributor.get("data_hash", self._compute_placeholder_hash("contributor_data")),
+                "data_hash": contributor.get(
+                    "data_hash", self._compute_placeholder_hash("contributor_data")
+                ),
                 "data_manifest": self._format_data_manifest(data_manifest),
                 "weight": contributor.get("weight", contributor.get("contributor_weights", 0.0)),
                 "contributed_samples": contributor.get("contributed_samples", 0),
-                "validation_status": contributor.get("validation_status", "valid")
+                "validation_status": contributor.get("validation_status", "valid"),
             }
 
             # Add ETH wallet address if provided
             wallet_address = contributor.get("wallet_address")
             if wallet_address:
-                from .eth_address_validator import validate_eth_address, normalize_eth_address
+                from .eth_address_validator import normalize_eth_address, validate_eth_address
+
                 try:
                     validate_eth_address(wallet_address)
                     contributor_info["wallet_address"] = normalize_eth_address(wallet_address)
                 except Exception as e:
                     # Log warning but don't fail the pipeline
-                    print(f"Warning: Invalid ETH address for contributor {contributor_info['id']}: {e}")
+                    logging.info(
+                        f"Warning: Invalid ETH address for contributor {contributor_info['id']}: {e}"
+                    )
 
             formatted_contributors.append(contributor_info)
 
@@ -236,7 +245,7 @@ class ZKCompatibleOutputFormatter:
             "data_hash": manifest.get("data_hash", self._compute_placeholder_hash("data_manifest")),
             "dtypes": manifest.get("dtypes", {}),
             "null_counts": manifest.get("null_counts", {}),
-            "unique_counts": manifest.get("unique_counts", {})
+            "unique_counts": manifest.get("unique_counts", {}),
         }
 
     def _format_attestation(self, results: dict) -> dict:
@@ -255,7 +264,7 @@ class ZKCompatibleOutputFormatter:
             "verification_key": None,
             "proof_system": "none",
             "circuit_hash": None,
-            "public_inputs_hash": public_inputs_hash
+            "public_inputs_hash": public_inputs_hash,
         }
 
     def _compute_model_hash(self, model_info: dict) -> str:
@@ -264,7 +273,7 @@ class ZKCompatibleOutputFormatter:
         model_content = {
             "model_id": model_info.get("model_id", ""),
             "model_type": model_info.get("model_type", ""),
-            "metrics": model_info.get("metrics", {})
+            "metrics": model_info.get("metrics", {}),
         }
         content_str = json.dumps(model_content, sort_keys=True)
         return hashlib.sha256(content_str.encode("utf-8")).hexdigest()
@@ -281,7 +290,7 @@ class ZKCompatibleOutputFormatter:
         benchmark_content = {
             "size": benchmark_info.get("size", 0),
             "type": benchmark_info.get("type", ""),
-            "features": benchmark_info.get("features", [])
+            "features": benchmark_info.get("features", []),
         }
         content_str = json.dumps(benchmark_content, sort_keys=True)
         return hashlib.sha256(content_str.encode("utf-8")).hexdigest()
@@ -294,7 +303,7 @@ class ZKCompatibleOutputFormatter:
             "delta_computation": results.get("delta_computation", {}),
             "baseline_model": results.get("baseline_model", {}),
             "new_model": results.get("new_model", {}),
-            "evaluation_metadata": results.get("evaluation_metadata", {})
+            "evaluation_metadata": results.get("evaluation_metadata", {}),
         }
         data_str = json.dumps(evaluation_data, sort_keys=True)
         return hashlib.sha256(data_str.encode("utf-8")).hexdigest()
@@ -305,7 +314,7 @@ class ZKCompatibleOutputFormatter:
             "delta_one_score": results.get("delta_computation", {}).get("delta_one_score", 0.0),
             "baseline_metrics": results.get("baseline_model", {}).get("metrics", {}),
             "new_metrics": results.get("new_model", {}).get("metrics", {}),
-            "contributor_hash": results.get("contributor_attribution", {}).get("data_hash", "")
+            "contributor_hash": results.get("contributor_attribution", {}).get("data_hash", ""),
         }
 
     def _compute_deterministic_hash(self, data: dict) -> str:
@@ -340,7 +349,7 @@ class ZKCompatibleOutputFormatter:
                 ["git", "rev-parse", "HEAD"],
                 capture_output=True,
                 text=True,
-                cwd=os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                cwd=os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
             )
             if result.returncode == 0:
                 return result.stdout.strip()[:8]  # Short hash

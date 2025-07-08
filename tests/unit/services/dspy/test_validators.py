@@ -1,7 +1,6 @@
 """Unit tests for DSPy validators."""
 
-import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 
 from src.services.dspy.validators import DSPyValidator
 
@@ -33,10 +32,7 @@ class TestDSPyValidator:
         config = {
             "name": "test-model",
             "version": "1.0",
-            "source": {
-                "type": "local",
-                "path": "/path/to/model.py"
-            }
+            "source": {"type": "local", "path": "/path/to/model.py"},
         }
 
         result = self.validator.validate_config(config)
@@ -59,11 +55,7 @@ class TestDSPyValidator:
 
     def test_validate_config_invalid_source(self):
         """Test validation of invalid source configuration."""
-        config = {
-            "name": "test",
-            "version": "1.0",
-            "source": "invalid"  # Should be dict
-        }
+        config = {"name": "test", "version": "1.0", "source": "invalid"}  # Should be dict
 
         result = self.validator.validate_config(config)
 
@@ -77,22 +69,17 @@ class TestDSPyValidator:
             "version": "1.0",
             "source": {"type": "local", "path": "test.py"},
             "signatures": {
-                "sig1": {
-                    "inputs": ["input1"],
-                    "outputs": ["output1"]
-                },
-                "sig2": {
-                    "inputs": "invalid",  # Should be list
-                    "outputs": ["output2"]
-                }
-            }
+                "sig1": {"inputs": ["input1"], "outputs": ["output1"]},
+                "sig2": {"inputs": "invalid", "outputs": ["output2"]},  # Should be list
+            },
         }
 
         result = self.validator.validate_config(config)
 
         assert result["valid"] is False
-        assert any("sig2" in error and "inputs must be a list" in error
-                  for error in result["errors"])
+        assert any(
+            "sig2" in error and "inputs must be a list" in error for error in result["errors"]
+        )
 
     def test_validate_valid_program(self):
         """Test validating a valid DSPy program."""
@@ -126,7 +113,7 @@ class TestDSPyValidator:
         signature = Mock()
         signature.fields = {
             "input": Mock(type="text", description="Input text"),
-            "output": Mock(type="text", description="Output text")
+            "output": Mock(type="text", description="Output text"),
         }
 
         result = self.validator.validate_signature(signature)
@@ -141,17 +128,11 @@ class TestDSPyValidator:
             "name": "test",
             "version": "1.0",
             "source": {"type": "local", "path": "test.py"},
-            "signatures": {
-                "sig1": {"inputs": ["a"], "outputs": ["b"]}
-            },
+            "signatures": {"sig1": {"inputs": ["a"], "outputs": ["b"]}},
             "chains": {
-                "chain1": {
-                    "steps": ["sig1"]  # Valid reference
-                },
-                "chain2": {
-                    "steps": ["unknown_sig"]  # Invalid reference
-                }
-            }
+                "chain1": {"steps": ["sig1"]},  # Valid reference
+                "chain2": {"steps": ["unknown_sig"]},  # Invalid reference
+            },
         }
 
         result = self.validator.validate_config(config)
@@ -162,11 +143,7 @@ class TestDSPyValidator:
     def test_create_validation_report(self):
         """Test creating a validation report."""
         program = MockDSPyProgram()
-        config = {
-            "name": "test",
-            "version": "1.0",
-            "source": {"type": "local", "path": "test.py"}
-        }
+        config = {"name": "test", "version": "1.0", "source": {"type": "local", "path": "test.py"}}
 
         report = self.validator.create_validation_report(program, config)
 

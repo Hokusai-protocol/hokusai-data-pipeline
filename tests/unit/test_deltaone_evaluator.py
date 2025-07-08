@@ -1,8 +1,7 @@
 """Unit tests for DeltaOne Detector functionality."""
+
 import unittest
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime
-import mlflow
+from unittest.mock import Mock, patch
 
 
 class TestDeltaOneEvaluator(unittest.TestCase):
@@ -19,24 +18,13 @@ class TestDeltaOneEvaluator(unittest.TestCase):
         """Test detection when model achieves ≥1pp improvement."""
         # Mock model versions with improvement
         mock_versions = [
-            Mock(
-                version="3",
-                tags={"benchmark_metric": "accuracy"},
-                run_id="run3"
-            ),
+            Mock(version="3", tags={"benchmark_metric": "accuracy"}, run_id="run3"),
             Mock(
                 version="2",
-                tags={
-                    "benchmark_metric": "accuracy",
-                    "benchmark_value": "0.850"
-                },
-                run_id="run2"
+                tags={"benchmark_metric": "accuracy", "benchmark_value": "0.850"},
+                run_id="run2",
             ),
-            Mock(
-                version="1",
-                tags={},
-                run_id="run1"
-            )
+            Mock(version="1", tags={}, run_id="run1"),
         ]
 
         # Mock MLflow client
@@ -51,6 +39,7 @@ class TestDeltaOneEvaluator(unittest.TestCase):
 
         # Import and test
         from src.evaluation.deltaone_evaluator import detect_delta_one
+
         result = detect_delta_one(self.model_name)
 
         # Assertions
@@ -62,19 +51,12 @@ class TestDeltaOneEvaluator(unittest.TestCase):
         """Test detection when improvement is <1pp."""
         # Mock model versions with small improvement
         mock_versions = [
-            Mock(
-                version="2",
-                tags={"benchmark_metric": "accuracy"},
-                run_id="run2"
-            ),
+            Mock(version="2", tags={"benchmark_metric": "accuracy"}, run_id="run2"),
             Mock(
                 version="1",
-                tags={
-                    "benchmark_metric": "accuracy",
-                    "benchmark_value": "0.850"
-                },
-                run_id="run1"
-            )
+                tags={"benchmark_metric": "accuracy", "benchmark_value": "0.850"},
+                run_id="run1",
+            ),
         ]
 
         # Mock MLflow client
@@ -89,6 +71,7 @@ class TestDeltaOneEvaluator(unittest.TestCase):
 
         # Import and test
         from src.evaluation.deltaone_evaluator import detect_delta_one
+
         result = detect_delta_one(self.model_name)
 
         # Assertions
@@ -99,16 +82,12 @@ class TestDeltaOneEvaluator(unittest.TestCase):
         """Test detection when no baseline exists."""
         # Mock model versions without baseline
         mock_versions = [
-            Mock(
-                version="2",
-                tags={"benchmark_metric": "accuracy"},
-                run_id="run2"
-            ),
+            Mock(version="2", tags={"benchmark_metric": "accuracy"}, run_id="run2"),
             Mock(
                 version="1",
                 tags={},  # No benchmark_value
-                run_id="run1"
-            )
+                run_id="run1",
+            ),
         ]
 
         # Mock MLflow client
@@ -118,6 +97,7 @@ class TestDeltaOneEvaluator(unittest.TestCase):
 
         # Import and test
         from src.evaluation.deltaone_evaluator import detect_delta_one
+
         result = detect_delta_one(self.model_name)
 
         # Should return False when no baseline exists
@@ -133,6 +113,7 @@ class TestDeltaOneEvaluator(unittest.TestCase):
 
         # Import and test
         from src.evaluation.deltaone_evaluator import detect_delta_one
+
         result = detect_delta_one(self.model_name)
 
         # Should return False when no models exist
@@ -143,19 +124,12 @@ class TestDeltaOneEvaluator(unittest.TestCase):
         """Test detection when metric is missing from latest version."""
         # Mock model versions
         mock_versions = [
-            Mock(
-                version="2",
-                tags={"benchmark_metric": "accuracy"},
-                run_id="run2"
-            ),
+            Mock(version="2", tags={"benchmark_metric": "accuracy"}, run_id="run2"),
             Mock(
                 version="1",
-                tags={
-                    "benchmark_metric": "accuracy",
-                    "benchmark_value": "0.850"
-                },
-                run_id="run1"
-            )
+                tags={"benchmark_metric": "accuracy", "benchmark_value": "0.850"},
+                run_id="run1",
+            ),
         ]
 
         # Mock MLflow client
@@ -170,6 +144,7 @@ class TestDeltaOneEvaluator(unittest.TestCase):
 
         # Import and test
         from src.evaluation.deltaone_evaluator import detect_delta_one
+
         result = detect_delta_one(self.model_name)
 
         # Should return False when metric is missing
@@ -178,23 +153,18 @@ class TestDeltaOneEvaluator(unittest.TestCase):
     @patch("mlflow.active_run", return_value=None)
     @patch("src.evaluation.deltaone_evaluator.MlflowClient")
     @patch("mlflow.log_metric")
-    def test_detect_delta_one_logs_achievement(self, mock_log_metric, mock_mlflow_client, mock_active_run):
+    def test_detect_delta_one_logs_achievement(
+        self, mock_log_metric, mock_mlflow_client, mock_active_run
+    ):
         """Test that DeltaOne achievement is logged to MLflow."""
         # Mock model versions with improvement
         mock_versions = [
-            Mock(
-                version="2",
-                tags={"benchmark_metric": "accuracy"},
-                run_id="run2"
-            ),
+            Mock(version="2", tags={"benchmark_metric": "accuracy"}, run_id="run2"),
             Mock(
                 version="1",
-                tags={
-                    "benchmark_metric": "accuracy",
-                    "benchmark_value": "0.850"
-                },
-                run_id="run1"
-            )
+                tags={"benchmark_metric": "accuracy", "benchmark_value": "0.850"},
+                run_id="run1",
+            ),
         ]
 
         # Mock MLflow client
@@ -209,6 +179,7 @@ class TestDeltaOneEvaluator(unittest.TestCase):
 
         # Import and test
         from src.evaluation.deltaone_evaluator import detect_delta_one
+
         result = detect_delta_one(self.model_name)
 
         # Check that metrics were logged
@@ -239,7 +210,7 @@ class TestDeltaOneEvaluator(unittest.TestCase):
             Mock(version="2"),
             Mock(version="1"),
             Mock(version="21"),
-            Mock(version="3")
+            Mock(version="3"),
         ]
 
         mock_client = Mock()
@@ -247,6 +218,7 @@ class TestDeltaOneEvaluator(unittest.TestCase):
         mock_client.search_model_versions.return_value = mock_versions
 
         from src.evaluation.deltaone_evaluator import _get_sorted_model_versions
+
         sorted_versions = _get_sorted_model_versions(mock_client, "test_model")
 
         # Check sorting order (descending by version number)
@@ -263,7 +235,7 @@ class TestDeltaOneEvaluator(unittest.TestCase):
             Mock(version="4", tags={"benchmark_metric": "accuracy"}),
             Mock(version="3", tags={"benchmark_value": "0.85", "benchmark_metric": "accuracy"}),
             Mock(version="2", tags={"benchmark_value": "0.80"}),
-            Mock(version="1", tags={})
+            Mock(version="1", tags={}),
         ]
 
         baseline = _find_baseline_version(versions)
@@ -273,7 +245,7 @@ class TestDeltaOneEvaluator(unittest.TestCase):
         # Test with no valid baseline
         versions_no_baseline = [
             Mock(version="2", tags={}),
-            Mock(version="1", tags={"benchmark_metric": "accuracy"})
+            Mock(version="1", tags={"benchmark_metric": "accuracy"}),
         ]
         baseline = _find_baseline_version(versions_no_baseline)
         self.assertIsNone(baseline)
@@ -295,7 +267,7 @@ class TestDeltaOneWebhook(unittest.TestCase):
             "model_name": "test_model",
             "delta_value": 0.015,
             "baseline_version": "1",
-            "new_version": "2"
+            "new_version": "2",
         }
 
         result = send_deltaone_webhook("https://example.com/webhook", payload)
@@ -323,15 +295,13 @@ class TestDeltaOneWebhook(unittest.TestCase):
         mock_post.side_effect = [
             Mock(status_code=500),
             Mock(status_code=500),
-            Mock(status_code=200)
+            Mock(status_code=200),
         ]
 
         from src.evaluation.deltaone_evaluator import send_deltaone_webhook
 
         result = send_deltaone_webhook(
-            "https://example.com/webhook",
-            {"model_name": "test"},
-            max_retries=3
+            "https://example.com/webhook", {"model_name": "test"}, max_retries=3
         )
 
         self.assertTrue(result)

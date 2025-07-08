@@ -1,7 +1,8 @@
 """Unit tests for ZK output formatter."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from src.utils.zk_output_formatter import ZKCompatibleOutputFormatter
 
@@ -27,37 +28,31 @@ class TestZKCompatibleOutputFormatter:
                         "new_value": 0.8840483940124245,
                         "absolute_delta": 0.029555816850036498,
                         "relative_delta": 0.0345887344606151,
-                        "improvement": True
+                        "improvement": True,
                     },
                     "f1": {
                         "baseline_value": 0.8389452328858691,
                         "new_value": 0.8911018964512049,
                         "absolute_delta": 0.05215666356533577,
                         "relative_delta": 0.06216933063189741,
-                        "improvement": True
-                    }
+                        "improvement": True,
+                    },
                 },
                 "computation_method": "weighted_average_delta",
                 "metrics_included": ["accuracy", "f1"],
                 "improved_metrics": ["accuracy", "f1"],
-                "degraded_metrics": []
+                "degraded_metrics": [],
             },
             "baseline_model": {
                 "model_id": "1.0.0",
                 "model_type": "mock_model",
-                "metrics": {
-                    "accuracy": 0.854492577162388,
-                    "f1": 0.8389452328858691
-                },
-                "mlflow_run_id": None
+                "metrics": {"accuracy": 0.854492577162388, "f1": 0.8389452328858691},
+                "mlflow_run_id": None,
             },
             "new_model": {
                 "model_id": "2.0.0",
                 "model_type": "mock_hokusai_integrated_classifier",
-                "metrics": {
-                    "accuracy": 0.8840483940124245,
-                    "f1": 0.8911018964512049
-                },
+                "metrics": {"accuracy": 0.8840483940124245, "f1": 0.8911018964512049},
                 "mlflow_run_id": "test_run_id",
                 "training_metadata": {
                     "base_samples": 500,
@@ -67,13 +62,20 @@ class TestZKCompatibleOutputFormatter:
                         "source_path": "data/test_fixtures/test_queries.csv",
                         "row_count": 100,
                         "column_count": 6,
-                        "columns": ["query_id", "query_text", "feature_1", "feature_2", "feature_3", "label"],
+                        "columns": [
+                            "query_id",
+                            "query_text",
+                            "feature_1",
+                            "feature_2",
+                            "feature_3",
+                            "label",
+                        ],
                         "data_hash": "3b26f05d3923476fb7eeedd1bee22e4e6b8c19566fe0f61f45c7ea48d7242e7e",
                         "dtypes": {"query_id": "object", "query_text": "object"},
                         "null_counts": {"query_id": 0, "query_text": 0},
-                        "unique_counts": {"query_id": 100, "query_text": 100}
-                    }
-                }
+                        "unique_counts": {"query_id": 100, "query_text": 100},
+                    },
+                },
             },
             "contributor_attribution": {
                 "data_hash": "3b26f05d3923476fb7eeedd1bee22e4e6b8c19566fe0f61f45c7ea48d7242e7e",
@@ -84,33 +86,36 @@ class TestZKCompatibleOutputFormatter:
                     "source_path": "data/test_fixtures/test_queries.csv",
                     "row_count": 100,
                     "column_count": 6,
-                    "columns": ["query_id", "query_text", "feature_1", "feature_2", "feature_3", "label"],
+                    "columns": [
+                        "query_id",
+                        "query_text",
+                        "feature_1",
+                        "feature_2",
+                        "feature_3",
+                        "label",
+                    ],
                     "data_hash": "3b26f05d3923476fb7eeedd1bee22e4e6b8c19566fe0f61f45c7ea48d7242e7e",
                     "dtypes": {"query_id": "object", "query_text": "object"},
                     "null_counts": {"query_id": 0, "query_text": 0},
-                    "unique_counts": {"query_id": 100, "query_text": 100}
-                }
+                    "unique_counts": {"query_id": 100, "query_text": 100},
+                },
             },
             "evaluation_metadata": {
                 "benchmark_dataset": {
                     "size": 1000,
                     "features": ["feature_1", "feature_2", "feature_3"],
-                    "type": "mock_classification_benchmark"
+                    "type": "mock_classification_benchmark",
                 },
                 "evaluation_timestamp": "2025-06-13T01:32:05.672891",
                 "evaluation_time_seconds": 0.002335071563720703,
-                "pipeline_run_id": "1749778320931703"
+                "pipeline_run_id": "1749778320931703",
             },
             "pipeline_metadata": {
                 "run_id": "1749778320931703",
                 "timestamp": "2025-06-13T01:32:06.868547",
-                "config": {
-                    "environment": "test",
-                    "log_level": "INFO",
-                    "dry_run": True
-                },
-                "dry_run": True
-            }
+                "config": {"environment": "test", "log_level": "INFO", "dry_run": True},
+                "dry_run": True,
+            },
         }
 
     def test_format_output_structure(self, formatter, sample_pipeline_results):
@@ -231,7 +236,10 @@ class TestZKCompatibleOutputFormatter:
         assert "total_samples" in contrib_info
         assert "validation_status" in contrib_info
 
-        assert contrib_info["data_hash"] == "3b26f05d3923476fb7eeedd1bee22e4e6b8c19566fe0f61f45c7ea48d7242e7e"
+        assert (
+            contrib_info["data_hash"]
+            == "3b26f05d3923476fb7eeedd1bee22e4e6b8c19566fe0f61f45c7ea48d7242e7e"
+        )
         assert contrib_info["contributed_samples"] == 100
         assert contrib_info["total_samples"] == 600
         assert contrib_info["validation_status"] == "valid"
@@ -268,8 +276,14 @@ class TestZKCompatibleOutputFormatter:
 
         # Hashes should be identical for same input
         assert result1["attestation"]["hash_tree_root"] == result2["attestation"]["hash_tree_root"]
-        assert result1["attestation"]["public_inputs_hash"] == result2["attestation"]["public_inputs_hash"]
-        assert result1["models"]["baseline"]["model_hash"] == result2["models"]["baseline"]["model_hash"]
+        assert (
+            result1["attestation"]["public_inputs_hash"]
+            == result2["attestation"]["public_inputs_hash"]
+        )
+        assert (
+            result1["models"]["baseline"]["model_hash"]
+            == result2["models"]["baseline"]["model_hash"]
+        )
 
     @patch("src.utils.zk_output_formatter.subprocess.run")
     def test_git_commit_hash_success(self, mock_subprocess, formatter):
@@ -309,10 +323,13 @@ class TestZKCompatibleOutputFormatter:
     def test_format_and_validate_success(self, formatter, sample_pipeline_results):
         """Test format_and_validate with valid data."""
         with patch.object(formatter.validator, "validate_output", return_value=(True, [])):
-            with patch("src.utils.zk_output_formatter.validate_for_zk_proof",
-                      return_value=(True, "abcd1234" * 8, [])):
-
-                formatted_output, is_valid, errors = formatter.format_and_validate(sample_pipeline_results)
+            with patch(
+                "src.utils.zk_output_formatter.validate_for_zk_proof",
+                return_value=(True, "abcd1234" * 8, []),
+            ):
+                formatted_output, is_valid, errors = formatter.format_and_validate(
+                    sample_pipeline_results
+                )
 
                 assert is_valid is True
                 assert len(errors) == 0
@@ -320,10 +337,14 @@ class TestZKCompatibleOutputFormatter:
 
     def test_format_and_validate_schema_failure(self, formatter, sample_pipeline_results):
         """Test format_and_validate with schema validation failure."""
-        with patch.object(formatter.validator, "validate_output",
-                         return_value=(False, ["Schema validation error"])):
-
-            formatted_output, is_valid, errors = formatter.format_and_validate(sample_pipeline_results)
+        with patch.object(
+            formatter.validator,
+            "validate_output",
+            return_value=(False, ["Schema validation error"]),
+        ):
+            formatted_output, is_valid, errors = formatter.format_and_validate(
+                sample_pipeline_results
+            )
 
             assert is_valid is False
             assert "Schema validation error" in errors
@@ -331,10 +352,13 @@ class TestZKCompatibleOutputFormatter:
     def test_format_and_validate_zk_failure(self, formatter, sample_pipeline_results):
         """Test format_and_validate with ZK validation failure."""
         with patch.object(formatter.validator, "validate_output", return_value=(True, [])):
-            with patch("src.utils.zk_output_formatter.validate_for_zk_proof",
-                      return_value=(False, None, ["ZK validation error"])):
-
-                formatted_output, is_valid, errors = formatter.format_and_validate(sample_pipeline_results)
+            with patch(
+                "src.utils.zk_output_formatter.validate_for_zk_proof",
+                return_value=(False, None, ["ZK validation error"]),
+            ):
+                formatted_output, is_valid, errors = formatter.format_and_validate(
+                    sample_pipeline_results
+                )
 
                 assert is_valid is False
                 assert "ZK validation error" in errors
@@ -344,19 +368,19 @@ class TestZKCompatibleOutputFormatter:
         model_info1 = {
             "model_id": "test_model",
             "model_type": "test_type",
-            "metrics": {"accuracy": 0.85}
+            "metrics": {"accuracy": 0.85},
         }
 
         model_info2 = {
             "model_id": "test_model",
             "model_type": "test_type",
-            "metrics": {"accuracy": 0.85}
+            "metrics": {"accuracy": 0.85},
         }
 
         model_info3 = {
             "model_id": "different_model",
             "model_type": "test_type",
-            "metrics": {"accuracy": 0.85}
+            "metrics": {"accuracy": 0.85},
         }
 
         hash1 = formatter._compute_model_hash(model_info1)

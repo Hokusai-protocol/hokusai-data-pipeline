@@ -5,19 +5,20 @@ to the standardized schema required for zero-knowledge proof generation and
 on-chain verification.
 """
 
-import json
 import hashlib
+import json
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Optional
-from jsonschema import validate, ValidationError, Draft202012Validator
+from typing import Any, Optional
+
+from jsonschema import Draft202012Validator, ValidationError, validate
 
 
 class SchemaValidator:
     """Validates Hokusai pipeline outputs against the ZK-compatible schema."""
 
-    def __init__(self, schema_path: Optional[str] = None):
+    def __init__(self, schema_path: Optional[str] = None) -> None:
         """Initialize the schema validator.
-        
+
         Args:
             schema_path: Path to the JSON schema file. If None, uses default schema.
 
@@ -31,23 +32,23 @@ class SchemaValidator:
         self.schema = self._load_schema()
         self.validator = Draft202012Validator(self.schema)
 
-    def _load_schema(self) -> Dict[str, Any]:
+    def _load_schema(self) -> dict[str, Any]:
         """Load and parse the JSON schema."""
         try:
             with open(self.schema_path) as f:
                 schema = json.load(f)
             return schema
         except FileNotFoundError:
-            raise FileNotFoundError(f"Schema file not found: {self.schema_path}")
+            raise FileNotFoundError(f"Schema file not found: {self.schema_path}") from None
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in schema file: {e}")
+            raise ValueError(f"Invalid JSON in schema file: {e}") from e
 
-    def validate_output(self, output_data: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate_output(self, output_data: dict[str, Any]) -> tuple[bool, list[str]]:
         """Validate a pipeline output against the schema.
-        
+
         Args:
             output_data: The pipeline output data to validate
-            
+
         Returns:
             Tuple of (is_valid, error_messages)
 
@@ -71,12 +72,12 @@ class SchemaValidator:
             errors.append(f"Validation error: {str(e)}")
             return False, errors
 
-    def _validate_zk_requirements(self, data: Dict[str, Any]) -> List[str]:
+    def _validate_zk_requirements(self, data: dict[str, Any]) -> list[str]:
         """Perform additional ZK-specific validations beyond the schema.
-        
+
         Args:
             data: The output data to validate
-            
+
         Returns:
             List of validation error messages
 
@@ -97,7 +98,7 @@ class SchemaValidator:
 
         return errors
 
-    def _validate_hashes(self, data: Dict[str, Any]) -> List[str]:
+    def _validate_hashes(self, data: dict[str, Any]) -> list[str]:
         """Validate hash field formats and consistency."""
         errors = []
 
@@ -105,7 +106,7 @@ class SchemaValidator:
         hash_fields = [
             ("contributor_info", "data_hash"),
             ("attestation", "hash_tree_root"),
-            ("attestation", "public_inputs_hash")
+            ("attestation", "public_inputs_hash"),
         ]
 
         for field_path in hash_fields:
@@ -135,7 +136,7 @@ class SchemaValidator:
         except ValueError:
             return False
 
-    def _validate_deterministic_fields(self, data: Dict[str, Any]) -> List[str]:
+    def _validate_deterministic_fields(self, data: dict[str, Any]) -> list[str]:
         """Validate that fields required for deterministic serialization are present."""
         errors = []
 
@@ -144,7 +145,7 @@ class SchemaValidator:
             ("metadata", "pipeline_run_id"),
             ("metadata", "timestamp"),
             ("delta_computation", "delta_one_score"),
-            ("contributor_info", "data_hash")
+            ("contributor_info", "data_hash"),
         ]
 
         for field_path in required_for_zk:
@@ -168,12 +169,13 @@ class SchemaValidator:
         """Check if a string is a valid ISO 8601 timestamp."""
         try:
             from datetime import datetime
+
             datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
             return True
         except ValueError:
             return False
 
-    def _validate_attestation_fields(self, data: Dict[str, Any]) -> List[str]:
+    def _validate_attestation_fields(self, data: dict[str, Any]) -> list[str]:
         """Validate attestation-specific requirements."""
         errors = []
 
@@ -199,12 +201,12 @@ class SchemaValidator:
 
         return errors
 
-    def validate_file(self, file_path: str) -> Tuple[bool, List[str]]:
+    def validate_file(self, file_path: str) -> tuple[bool, list[str]]:
         """Validate a JSON file against the schema.
-        
+
         Args:
             file_path: Path to the JSON file to validate
-            
+
         Returns:
             Tuple of (is_valid, error_messages)
 
@@ -222,18 +224,23 @@ class SchemaValidator:
 
     def get_schema_version(self) -> str:
         """Get the version of the schema being used."""
-        return self.schema.get("title", "Unknown") + " (Schema ID: " + self.schema.get("$id", "Unknown") + ")"
+        return (
+            self.schema.get("title", "Unknown")
+            + " (Schema ID: "
+            + self.schema.get("$id", "Unknown")
+            + ")"
+        )
 
 
-def compute_deterministic_hash(data: Dict[str, Any]) -> str:
+def compute_deterministic_hash(data: dict[str, Any]) -> str:
     """Compute a deterministic hash of the output data for ZK proof generation.
-    
+
     This function ensures that the same data always produces the same hash,
     which is critical for ZK proof verification.
-    
+
     Args:
         data: The pipeline output data
-        
+
     Returns:
         SHA-256 hash of the deterministically serialized data
 
@@ -258,12 +265,12 @@ def _sort_dict_recursively(obj: Any) -> Any:
         return obj
 
 
-def validate_for_zk_proof(output_data: Dict[str, Any]) -> Tuple[bool, str, List[str]]:
+def validate_for_zk_proof(output_data: dict[str, Any]) -> tuple[bool, str, list[str]]:
     """Comprehensive validation for ZK proof readiness.
-    
+
     Args:
         output_data: The pipeline output data
-        
+
     Returns:
         Tuple of (is_ready, deterministic_hash, error_messages)
 

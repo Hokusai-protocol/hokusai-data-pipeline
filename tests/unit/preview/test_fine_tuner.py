@@ -1,10 +1,11 @@
 """Unit tests for preview fine tuner module."""
 
-import pytest
-import pandas as pd
-import numpy as np
-from unittest.mock import Mock, patch
 import time
+from unittest.mock import Mock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
 
 # Import will be added once module is implemented
 from src.preview.fine_tuner import PreviewFineTuner
@@ -17,11 +18,13 @@ class TestPreviewFineTuner:
     def sample_training_data(self):
         """Create sample training data."""
         np.random.seed(42)
-        data = pd.DataFrame({
-            "query_id": range(1000),
-            "features": [np.random.rand(10).tolist() for _ in range(1000)],
-            "label": np.random.randint(0, 2, 1000)
-        })
+        data = pd.DataFrame(
+            {
+                "query_id": range(1000),
+                "features": [np.random.rand(10).tolist() for _ in range(1000)],
+                "label": np.random.randint(0, 2, 1000),
+            }
+        )
         return data
 
     @pytest.fixture
@@ -30,7 +33,9 @@ class TestPreviewFineTuner:
         model = Mock()
         model.fit = Mock()
         model.predict = Mock(return_value=np.array([0, 1, 0, 1]))
-        model.predict_proba = Mock(return_value=np.array([[0.3, 0.7], [0.8, 0.2], [0.4, 0.6], [0.9, 0.1]]))
+        model.predict_proba = Mock(
+            return_value=np.array([[0.3, 0.7], [0.8, 0.2], [0.4, 0.6], [0.9, 0.1]])
+        )
         model.get_params = Mock(return_value={"learning_rate": 0.001, "n_estimators": 100})
         return model
 
@@ -43,7 +48,7 @@ class TestPreviewFineTuner:
             "learning_rate": 0.001,
             "validation_split": 0.2,
             "early_stopping_patience": 2,
-            "random_seed": 42
+            "random_seed": 42,
         }
 
     @pytest.mark.skip(reason="PreviewFineTuner not yet implemented")
@@ -65,7 +70,7 @@ class TestPreviewFineTuner:
         train_data, val_data = tuner.prepare_data_splits(sample_training_data)
 
         assert len(train_data) == 800  # 80% of 1000
-        assert len(val_data) == 200    # 20% of 1000
+        assert len(val_data) == 200  # 20% of 1000
         assert len(train_data) + len(val_data) == len(sample_training_data)
 
         # Check no overlap
@@ -98,8 +103,7 @@ class TestPreviewFineTuner:
 
         with patch.object(tuner, "_train_epoch") as mock_train:
             mock_train.side_effect = [
-                {"loss": 0.9, "val_loss": val_loss}
-                for val_loss in val_losses
+                {"loss": 0.9, "val_loss": val_loss} for val_loss in val_losses
             ]
 
             fine_tuned_model, history = tuner.fine_tune(mock_base_model, sample_training_data)
@@ -138,11 +142,13 @@ class TestPreviewFineTuner:
     def test_memory_efficient_processing(self, mock_base_model):
         """Test memory-efficient processing for large datasets."""
         # Create a large dataset
-        large_data = pd.DataFrame({
-            "query_id": range(50000),
-            "features": [np.random.rand(10).tolist() for _ in range(50000)],
-            "label": np.random.randint(0, 2, 50000)
-        })
+        large_data = pd.DataFrame(
+            {
+                "query_id": range(50000),
+                "features": [np.random.rand(10).tolist() for _ in range(50000)],
+                "label": np.random.randint(0, 2, 50000),
+            }
+        )
 
         tuner = PreviewFineTuner(epochs=1, batch_size=128, memory_efficient=True)
 
@@ -179,11 +185,13 @@ class TestPreviewFineTuner:
     @pytest.mark.skip(reason="PreviewFineTuner not yet implemented")
     def test_handle_nan_values(self, mock_base_model):
         """Test handling of NaN values in data."""
-        data_with_nan = pd.DataFrame({
-            "query_id": range(100),
-            "features": [np.random.rand(10).tolist() for _ in range(100)],
-            "label": np.random.randint(0, 2, 100)
-        })
+        data_with_nan = pd.DataFrame(
+            {
+                "query_id": range(100),
+                "features": [np.random.rand(10).tolist() for _ in range(100)],
+                "label": np.random.randint(0, 2, 100),
+            }
+        )
         # Introduce some NaN values
         data_with_nan.loc[10:20, "label"] = np.nan
 
@@ -195,11 +203,7 @@ class TestPreviewFineTuner:
     @pytest.mark.skip(reason="PreviewFineTuner not yet implemented")
     def test_checkpoint_saving(self, mock_base_model, sample_training_data, tmp_path):
         """Test model checkpoint saving during training."""
-        tuner = PreviewFineTuner(
-            epochs=3,
-            checkpoint_dir=str(tmp_path),
-            save_checkpoints=True
-        )
+        tuner = PreviewFineTuner(epochs=3, checkpoint_dir=str(tmp_path), save_checkpoints=True)
 
         tuner.fine_tune(mock_base_model, sample_training_data)
 

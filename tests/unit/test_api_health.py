@@ -1,10 +1,8 @@
 """Unit tests for API health endpoints."""
 
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch
+
 from fastapi.testclient import TestClient
-import json
-from datetime import datetime
 
 from src.api.routes.health import router
 
@@ -15,6 +13,7 @@ class TestHealthAPI:
     def setup_method(self):
         """Set up test fixtures."""
         from fastapi import FastAPI
+
         self.app = FastAPI()
         self.app.include_router(router)
         self.client = TestClient(self.app)
@@ -158,7 +157,7 @@ class TestHealthAPI:
             "requests_per_second": 10.5,
             "average_response_time_ms": 25.3,
             "active_connections": 5,
-            "error_rate": 0.01
+            "error_rate": 0.01,
         }
         mock_get_metrics.return_value = mock_metrics
 
@@ -208,10 +207,7 @@ class TestHealthAPI:
     @patch("src.api.routes.health.check_external_service")
     def test_health_check_external_service(self, mock_check_external):
         """Test health check with external service check."""
-        mock_check_external.return_value = {
-            "status": "healthy",
-            "latency_ms": 15.2
-        }
+        mock_check_external.return_value = {"status": "healthy", "latency_ms": 15.2}
 
         response = self.client.get("/health")
 

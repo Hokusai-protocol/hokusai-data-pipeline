@@ -1,9 +1,11 @@
 """Unit tests for enhanced model evaluation functionality."""
 
-import pytest
-import pandas as pd
-import numpy as np
 from unittest.mock import Mock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
+
 from src.modules.evaluation import ModelEvaluator
 
 
@@ -19,11 +21,13 @@ class TestModelEvaluator:
     def sample_data(self):
         """Create sample test data."""
         np.random.seed(42)
-        X_test = pd.DataFrame({
-            "feature_1": np.random.randn(100),
-            "feature_2": np.random.randn(100),
-            "feature_3": np.random.randn(100)
-        })
+        X_test = pd.DataFrame(
+            {
+                "feature_1": np.random.randn(100),
+                "feature_2": np.random.randn(100),
+                "feature_3": np.random.randn(100),
+            }
+        )
         y_test = pd.Series(np.random.choice([0, 1], size=100))
         return X_test, y_test
 
@@ -38,8 +42,8 @@ class TestModelEvaluator:
                 "precision": 0.83,
                 "recall": 0.87,
                 "f1": 0.85,
-                "auroc": 0.91
-            }
+                "auroc": 0.91,
+            },
         }
 
     @pytest.fixture
@@ -139,7 +143,7 @@ class TestModelEvaluator:
             "precision": 0.78,
             "recall": 0.82,
             "f1": 0.80,
-            "auroc": 0.85
+            "auroc": 0.85,
         }
 
         new_metrics = {
@@ -147,7 +151,7 @@ class TestModelEvaluator:
             "precision": 0.83,
             "recall": 0.87,
             "f1": 0.85,
-            "auroc": 0.91
+            "auroc": 0.91,
         }
 
         comparison = evaluator.compare_models(baseline_metrics, new_metrics)
@@ -176,7 +180,7 @@ class TestModelEvaluator:
             "precision": {"absolute_delta": 0.03},
             "recall": {"absolute_delta": 0.02},
             "f1": {"absolute_delta": 0.04},
-            "auroc": {"absolute_delta": 0.06}
+            "auroc": {"absolute_delta": 0.06},
         }
 
         delta_score = evaluator.calculate_delta_score(comparison)
@@ -190,7 +194,7 @@ class TestModelEvaluator:
         comparison = {
             "accuracy": {"absolute_delta": 0.05},
             "precision": {"absolute_delta": 0.03},
-            "recall": {"absolute_delta": 0.02}
+            "recall": {"absolute_delta": 0.02},
         }
 
         weights = {"accuracy": 0.5, "precision": 0.3, "recall": 0.2}
@@ -205,13 +209,13 @@ class TestModelEvaluator:
         baseline_results = {
             "metrics": {"accuracy": 0.80, "f1": 0.78},
             "model_type": "baseline_model",
-            "test_samples": 1000
+            "test_samples": 1000,
         }
 
         new_results = {
             "metrics": {"accuracy": 0.85, "f1": 0.83},
             "model_type": "new_model",
-            "test_samples": 1000
+            "test_samples": 1000,
         }
 
         comparison = {
@@ -220,15 +224,15 @@ class TestModelEvaluator:
                 "new": 0.85,
                 "absolute_delta": 0.05,
                 "relative_delta": 6.25,
-                "improved": True
+                "improved": True,
             },
             "f1": {
                 "baseline": 0.78,
                 "new": 0.83,
                 "absolute_delta": 0.05,
                 "relative_delta": 6.41,
-                "improved": True
-            }
+                "improved": True,
+            },
         }
 
         delta_score = 0.05
@@ -279,7 +283,7 @@ class TestModelEvaluator:
 
         mock_model = {
             "type": "mock_classifier",
-            "metrics": {"accuracy": 0.85, "f1": 0.83, "precision": 0.80}
+            "metrics": {"accuracy": 0.85, "f1": 0.83, "precision": 0.80},
         }
 
         results = evaluator.evaluate_mock_model(mock_model, X_test, y_test)
@@ -302,10 +306,9 @@ class TestEvaluationIntegration:
 
         # Create test data
         np.random.seed(42)
-        X_test = pd.DataFrame({
-            "feature_1": np.random.randn(100),
-            "feature_2": np.random.randn(100)
-        })
+        X_test = pd.DataFrame(
+            {"feature_1": np.random.randn(100), "feature_2": np.random.randn(100)}
+        )
         y_test = pd.Series(np.random.choice([0, 1], size=100))
 
         # Create mock models
@@ -316,8 +319,8 @@ class TestEvaluationIntegration:
                 "precision": 0.78,
                 "recall": 0.82,
                 "f1": 0.80,
-                "auroc": 0.85
-            }
+                "auroc": 0.85,
+            },
         }
 
         new_model = {
@@ -327,8 +330,8 @@ class TestEvaluationIntegration:
                 "precision": 0.83,
                 "recall": 0.87,
                 "f1": 0.85,
-                "auroc": 0.91
-            }
+                "auroc": 0.91,
+            },
         }
 
         # Evaluate both models
@@ -336,10 +339,7 @@ class TestEvaluationIntegration:
         new_results = evaluator.evaluate_model(new_model, X_test, y_test)
 
         # Compare models
-        comparison = evaluator.compare_models(
-            baseline_results["metrics"],
-            new_results["metrics"]
-        )
+        comparison = evaluator.compare_models(baseline_results["metrics"], new_results["metrics"])
 
         # Calculate delta score
         delta_score = evaluator.calculate_delta_score(comparison)

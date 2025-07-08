@@ -1,14 +1,15 @@
 """Model versioning and rollback system for Hokusai platform."""
 
+import hashlib
 import json
 import logging
-from typing import Dict, List, Optional, Any
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from dataclasses import dataclass, asdict
 from enum import Enum
+from typing import Any, Optional
+
 import redis
 from packaging import version
-import hashlib
 
 from .model_abstraction import HokusaiModel, ModelStatus
 from .model_registry import HokusaiModelRegistry
@@ -45,12 +46,12 @@ class ModelVersion:
     created_at: datetime
     updated_at: datetime
     created_by: str
-    metadata: Dict[str, Any]
-    performance_metrics: Dict[str, float]
+    metadata: dict[str, Any]
+    performance_metrics: dict[str, float]
     mlflow_run_id: Optional[str] = None
     parent_version: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         data = asdict(self)
         data["status"] = self.status.value
@@ -60,7 +61,7 @@ class ModelVersion:
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ModelVersion":
+    def from_dict(cls, data: dict[str, Any]) -> "ModelVersion":
         """Create from dictionary."""
         data["status"] = ModelStatus(data["status"])
         data["environment"] = Environment(data["environment"])
@@ -83,9 +84,9 @@ class VersionTransition:
     performed_at: datetime
     reason: str
     rollback_available: bool = True
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[dict[str, Any]] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         data = asdict(self)
         data["transition_type"] = self.transition_type.value
@@ -97,9 +98,9 @@ class VersionTransition:
 class ModelVersionManager:
     """Manages model versions and transitions."""
 
-    def __init__(self, registry: HokusaiModelRegistry, redis_client: redis.Redis):
+    def __init__(self, registry: HokusaiModelRegistry, redis_client: redis.Redis) -> None:
         """Initialize the version manager.
-        
+
         Args:
             registry: Model registry instance
             redis_client: Redis client for version tracking
@@ -109,20 +110,23 @@ class ModelVersionManager:
         self.redis = redis_client
         self.version_history = {}
 
-    def register_version(self, model: HokusaiModel,
-                        model_family: str,
-                        version_tag: str,
-                        created_by: str,
-                        parent_version: Optional[str] = None) -> ModelVersion:
+    def register_version(
+        self,
+        model: HokusaiModel,
+        model_family: str,
+        version_tag: str,
+        created_by: str,
+        parent_version: Optional[str] = None,
+    ) -> ModelVersion:
         """Register a new model version.
-        
+
         Args:
             model: The model instance
             model_family: Model family name
             version_tag: Semantic version tag (e.g., "1.2.0")
             created_by: User or system that created the version
             parent_version: Parent version if this is derived
-            
+
         Returns:
             ModelVersion instance
 
@@ -131,7 +135,7 @@ class ModelVersionManager:
         try:
             version.parse(version_tag)
         except version.InvalidVersion:
-            raise ValueError(f"Invalid version format: {version_tag}")
+            raise ValueError(f"Invalid version format: {version_tag}") from None
 
         # Check if version already exists
         if self._version_exists(model_family, version_tag):
@@ -145,8 +149,8 @@ class ModelVersionManager:
                 "version": version_tag,
                 "model_family": model_family,
                 "created_by": created_by,
-                "parent_version": parent_version
-            }
+                "parent_version": parent_version,
+            },
         )
 
         # Create version record
@@ -162,7 +166,7 @@ class ModelVersionManager:
             metadata=model.metadata.to_dict(),
             performance_metrics=model.metadata.performance_metrics,
             mlflow_run_id=mlflow_result["run_id"],
-            parent_version=parent_version
+            parent_version=parent_version,
         )
 
         # Store version
@@ -174,20 +178,23 @@ class ModelVersionManager:
         logger.info(f"Registered model version: {model_family}/{version_tag}")
         return model_version
 
-    def promote_model(self, model_family: str,
-                     version_tag: str,
-                     environment: Environment,
-                     promoted_by: str,
-                     reason: str) -> bool:
+    def promote_model(
+        self,
+        model_family: str,
+        version_tag: str,
+        environment: Environment,
+        promoted_by: str,
+        reason: str,
+    ) -> bool:
         """Promote a model version to a higher environment.
-        
+
         Args:
             model_family: Model family name
             version_tag: Version to promote
             environment: Target environment
             promoted_by: User performing promotion
             reason: Reason for promotion
-            
+
         Returns:
             True if successful
 
@@ -231,33 +238,34 @@ class ModelVersionManager:
             reason=reason,
             metadata={
                 "old_environment": old_environment.value,
-                "new_environment": environment.value
-            }
+                "new_environment": environment.value,
+            },
         )
         self._record_transition(transition)
 
         # Update active version for environment
         self._set_active_version(model_family, environment, version_tag)
 
-        logger.info(
-            f"Promoted {model_family}/{version_tag} to {environment.value}"
-        )
+        logger.info(f"Promoted {model_family}/{version_tag} to {environment.value}")
         return True
 
-    def rollback_model(self, model_family: str,
-                      target_version: str,
-                      environment: Environment,
-                      performed_by: str,
-                      reason: str) -> bool:
+    def rollback_model(
+        self,
+        model_family: str,
+        target_version: str,
+        environment: Environment,
+        performed_by: str,
+        reason: str,
+    ) -> bool:
         """Rollback to a previous model version.
-        
+
         Args:
             model_family: Model family name
             target_version: Version to rollback to
             environment: Environment to rollback in
             performed_by: User performing rollback
             reason: Reason for rollback
-            
+
         Returns:
             True if successful
 
@@ -298,7 +306,7 @@ class ModelVersionManager:
             environment=environment,
             performed_by=performed_by,
             performed_at=datetime.utcnow(),
-            reason=reason
+            reason=reason,
         )
         self._record_transition(transition)
 
@@ -311,18 +319,17 @@ class ModelVersionManager:
         )
         return True
 
-    def deprecate_model(self, model_family: str,
-                       version_tag: str,
-                       deprecated_by: str,
-                       reason: str) -> bool:
+    def deprecate_model(
+        self, model_family: str, version_tag: str, deprecated_by: str, reason: str
+    ) -> bool:
         """Mark a model version as deprecated.
-        
+
         Args:
             model_family: Model family name
             version_tag: Version to deprecate
             deprecated_by: User deprecating the version
             reason: Reason for deprecation
-            
+
         Returns:
             True if successful
 
@@ -333,8 +340,10 @@ class ModelVersionManager:
             raise ValueError(f"Version {version_tag} not found")
 
         # Check if version is in production
-        if (model_version.status == ModelStatus.PRODUCTION and
-            model_version.environment == Environment.PRODUCTION):
+        if (
+            model_version.status == ModelStatus.PRODUCTION
+            and model_version.environment == Environment.PRODUCTION
+        ):
             raise ValueError("Cannot deprecate active production version")
 
         # Update status
@@ -356,21 +365,20 @@ class ModelVersionManager:
             performed_by=deprecated_by,
             performed_at=datetime.utcnow(),
             reason=reason,
-            metadata={"old_status": old_status.value}
+            metadata={"old_status": old_status.value},
         )
         self._record_transition(transition)
 
         logger.info(f"Deprecated {model_family}/{version_tag}")
         return True
 
-    def get_version(self, model_family: str,
-                   version_tag: str) -> Optional[ModelVersion]:
+    def get_version(self, model_family: str, version_tag: str) -> Optional[ModelVersion]:
         """Get a specific model version.
-        
+
         Args:
             model_family: Model family name
             version_tag: Version tag
-            
+
         Returns:
             ModelVersion instance or None
 
@@ -382,14 +390,15 @@ class ModelVersionManager:
             return ModelVersion.from_dict(json.loads(data))
         return None
 
-    def get_active_version(self, model_family: str,
-                          environment: Environment) -> Optional[ModelVersion]:
+    def get_active_version(
+        self, model_family: str, environment: Environment
+    ) -> Optional[ModelVersion]:
         """Get the active version for an environment.
-        
+
         Args:
             model_family: Model family name
             environment: Target environment
-            
+
         Returns:
             Active ModelVersion or None
 
@@ -402,14 +411,13 @@ class ModelVersionManager:
             return self.get_version(model_family, version_tag)
         return None
 
-    def get_version_history(self, model_family: str,
-                          limit: int = 10) -> List[ModelVersion]:
+    def get_version_history(self, model_family: str, limit: int = 10) -> list[ModelVersion]:
         """Get version history for a model family.
-        
+
         Args:
             model_family: Model family name
             limit: Maximum number of versions to return
-            
+
         Returns:
             List of ModelVersion instances
 
@@ -427,14 +435,13 @@ class ModelVersionManager:
 
         return versions
 
-    def get_transition_history(self, model_family: str,
-                             limit: int = 20) -> List[VersionTransition]:
+    def get_transition_history(self, model_family: str, limit: int = 20) -> list[VersionTransition]:
         """Get transition history for a model family.
-        
+
         Args:
             model_family: Model family name
             limit: Maximum number of transitions to return
-            
+
         Returns:
             List of VersionTransition instances
 
@@ -448,9 +455,7 @@ class ModelVersionManager:
             transition_dict["transition_type"] = VersionTransitionType(
                 transition_dict["transition_type"]
             )
-            transition_dict["environment"] = Environment(
-                transition_dict["environment"]
-            )
+            transition_dict["environment"] = Environment(transition_dict["environment"])
             transition_dict["performed_at"] = datetime.fromisoformat(
                 transition_dict["performed_at"]
             )
@@ -458,16 +463,14 @@ class ModelVersionManager:
 
         return transitions
 
-    def compare_versions(self, model_family: str,
-                        version_a: str,
-                        version_b: str) -> Dict[str, Any]:
+    def compare_versions(self, model_family: str, version_a: str, version_b: str) -> dict[str, Any]:
         """Compare two model versions.
-        
+
         Args:
             model_family: Model family name
             version_a: First version
             version_b: Second version
-            
+
         Returns:
             Comparison results
 
@@ -486,10 +489,10 @@ class ModelVersionManager:
                 metric_comparison[metric] = {
                     "version_a": model_a.performance_metrics[metric],
                     "version_b": model_b.performance_metrics[metric],
-                    "difference": model_b.performance_metrics[metric] -
-                                model_a.performance_metrics[metric],
-                    "improvement": model_b.performance_metrics[metric] >
-                                 model_a.performance_metrics[metric]
+                    "difference": model_b.performance_metrics[metric]
+                    - model_a.performance_metrics[metric],
+                    "improvement": model_b.performance_metrics[metric]
+                    > model_a.performance_metrics[metric],
                 }
 
         return {
@@ -501,19 +504,19 @@ class ModelVersionManager:
             "version_b_status": model_b.status.value,
             "version_a_environment": model_a.environment.value,
             "version_b_environment": model_b.environment.value,
-            "is_newer": version.parse(version_b) > version.parse(version_a)
+            "is_newer": version.parse(version_b) > version.parse(version_a),
         }
 
-    def cleanup_old_versions(self, model_family: str,
-                           keep_count: int = 5,
-                           dry_run: bool = True) -> List[str]:
+    def cleanup_old_versions(
+        self, model_family: str, keep_count: int = 5, dry_run: bool = True
+    ) -> list[str]:
         """Clean up old deprecated versions.
-        
+
         Args:
             model_family: Model family name
             keep_count: Number of recent versions to keep
             dry_run: If True, only return what would be deleted
-            
+
         Returns:
             List of versions that were (or would be) deleted
 
@@ -568,9 +571,7 @@ class ModelVersionManager:
         score = self._version_to_score(version_tag)
         self.redis.zadd(key, {version_tag: score})
 
-    def _set_active_version(self, model_family: str,
-                          environment: Environment,
-                          version_tag: str):
+    def _set_active_version(self, model_family: str, environment: Environment, version_tag: str):
         """Set the active version for an environment."""
         key = f"active_version:{model_family}:{environment.value}"
         self.redis.set(key, version_tag)
@@ -587,18 +588,16 @@ class ModelVersionManager:
         timestamp = datetime.utcnow().isoformat()
         return hashlib.md5(timestamp.encode()).hexdigest()[:12]
 
-    def _validate_promotion_path(self, from_env: Environment,
-                               to_env: Environment) -> bool:
+    def _validate_promotion_path(self, from_env: Environment, to_env: Environment) -> bool:
         """Validate if promotion path is allowed."""
         allowed_paths = {
             (Environment.DEVELOPMENT, Environment.STAGING),
             (Environment.DEVELOPMENT, Environment.PRODUCTION),  # Hot fix
-            (Environment.STAGING, Environment.PRODUCTION)
+            (Environment.STAGING, Environment.PRODUCTION),
         }
         return (from_env, to_env) in allowed_paths
 
-    def _can_rollback(self, current: ModelVersion,
-                     target: ModelVersion) -> bool:
+    def _can_rollback(self, current: ModelVersion, target: ModelVersion) -> bool:
         """Check if rollback is allowed."""
         # Can only rollback to older versions
         current_v = version.parse(current.version)
@@ -610,8 +609,10 @@ class ModelVersionManager:
         # Target must have been in production before
         transitions = self.get_transition_history(current.model_family)
         for transition in transitions:
-            if (transition.to_version == target.version and
-                transition.environment == Environment.PRODUCTION):
+            if (
+                transition.to_version == target.version
+                and transition.environment == Environment.PRODUCTION
+            ):
                 return True
 
         return False

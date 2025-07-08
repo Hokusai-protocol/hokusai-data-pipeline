@@ -1,10 +1,11 @@
 """Unit tests for DSPy configuration parser."""
 
+import json
+import tempfile
+from pathlib import Path
+
 import pytest
 import yaml
-import json
-from pathlib import Path
-import tempfile
 
 from src.services.dspy.config_parser import DSPyConfigParser
 
@@ -20,6 +21,7 @@ class TestDSPyConfigParser:
     def teardown_method(self):
         """Clean up test fixtures."""
         import shutil
+
         shutil.rmtree(self.temp_dir)
 
     def test_parse_valid_yaml_config(self):
@@ -27,10 +29,7 @@ class TestDSPyConfigParser:
         config = {
             "name": "test-dspy-model",
             "version": "1.0.0",
-            "source": {
-                "type": "local",
-                "path": "./models/test.py"
-            }
+            "source": {"type": "local", "path": "./models/test.py"},
         }
 
         # Write to temp file
@@ -55,9 +54,9 @@ class TestDSPyConfigParser:
                 "text_gen": {
                     "inputs": ["prompt"],
                     "outputs": ["text"],
-                    "description": "Generate text"
+                    "description": "Generate text",
                 }
-            }
+            },
         }
 
         config_path = Path(self.temp_dir) / "sig_config.yaml"
@@ -75,11 +74,7 @@ class TestDSPyConfigParser:
         config = {
             "name": "json-model",
             "version": "2.0",
-            "source": {
-                "type": "huggingface",
-                "repo_id": "test/model",
-                "filename": "model.py"
-            }
+            "source": {"type": "huggingface", "repo_id": "test/model", "filename": "model.py"},
         }
 
         config_path = Path(self.temp_dir) / "config.json"
@@ -107,13 +102,7 @@ class TestDSPyConfigParser:
 
     def test_invalid_source_type(self):
         """Test validation catches invalid source type."""
-        config = {
-            "name": "test",
-            "version": "1.0",
-            "source": {
-                "type": "invalid_type"
-            }
-        }
+        config = {"name": "test", "version": "1.0", "source": {"type": "invalid_type"}}
 
         config_path = Path(self.temp_dir) / "invalid_source.yaml"
         with open(config_path, "w") as f:
@@ -129,11 +118,8 @@ class TestDSPyConfigParser:
             "version": "1.0",
             "source": {"type": "local", "path": "test.py"},
             "chains": {
-                "main": {
-                    "steps": ["step1", "step2"],
-                    "description": "Main processing chain"
-                }
-            }
+                "main": {"steps": ["step1", "step2"], "description": "Main processing chain"}
+            },
         }
 
         result = self.parser.parse_python_config(config)

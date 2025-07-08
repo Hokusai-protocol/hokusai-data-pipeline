@@ -1,11 +1,12 @@
 """Integration tests for the evaluate_on_benchmark pipeline step."""
 
-import pytest
-import pandas as pd
-import numpy as np
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
 
 from src.pipeline.hokusai_pipeline import HokusaiPipeline
 from src.utils.config import get_test_config
@@ -23,14 +24,16 @@ class TestEvaluateOnBenchmarkIntegration:
     @pytest.fixture
     def sample_contributed_data(self, temp_dir):
         """Create sample contributed data file."""
-        data = pd.DataFrame({
-            "query_id": [f"contrib_q_{i}" for i in range(50)],
-            "query_text": [f"contributed query {i}" for i in range(50)],
-            "feature_1": np.random.randn(50),
-            "feature_2": np.random.randn(50),
-            "feature_3": np.random.randn(50),
-            "label": np.random.choice([0, 1], size=50)
-        })
+        data = pd.DataFrame(
+            {
+                "query_id": [f"contrib_q_{i}" for i in range(50)],
+                "query_text": [f"contributed query {i}" for i in range(50)],
+                "feature_1": np.random.randn(50),
+                "feature_2": np.random.randn(50),
+                "feature_3": np.random.randn(50),
+                "label": np.random.choice([0, 1], size=50),
+            }
+        )
 
         file_path = Path(temp_dir) / "contributed_data.csv"
         data.to_csv(file_path, index=False)
@@ -110,8 +113,12 @@ class TestEvaluateOnBenchmarkIntegration:
     @patch("src.utils.mlflow_config.log_step_parameters")
     @patch("src.utils.mlflow_config.log_step_metrics")
     def test_evaluate_on_benchmark_mlflow_integration(
-        self, mock_log_metrics, mock_log_params, mock_mlflow_context,
-        temp_dir, sample_contributed_data
+        self,
+        mock_log_metrics,
+        mock_log_params,
+        mock_mlflow_context,
+        temp_dir,
+        sample_contributed_data,
     ):
         """Test MLflow integration in evaluate_on_benchmark step."""
         # Setup mock context manager
@@ -270,6 +277,7 @@ class TestEvaluateOnBenchmarkIntegration:
 
     def test_deterministic_evaluation_results(self, temp_dir, sample_contributed_data):
         """Test that evaluation results are deterministic with fixed random seed."""
+
         def run_pipeline():
             pipeline = HokusaiPipeline()
             pipeline.baseline_model_path = None
@@ -302,9 +310,7 @@ class TestEvaluateOnBenchmarkIntegration:
             )
 
         # Compare delta scores
-        assert results1["delta_score"] == pytest.approx(
-            results2["delta_score"], rel=1e-6
-        )
+        assert results1["delta_score"] == pytest.approx(results2["delta_score"], rel=1e-6)
 
     def test_error_handling_no_benchmark_data(self, temp_dir):
         """Test error handling when no benchmark data is available."""
@@ -317,11 +323,13 @@ class TestEvaluateOnBenchmarkIntegration:
 
         # Mock the integrated_data to simulate missing label column
         pipeline.config = get_test_config()
-        pipeline.integrated_data = pd.DataFrame({
-            "feature_1": [1, 2, 3],
-            "feature_2": [4, 5, 6]
-            # Missing 'label' column
-        })
+        pipeline.integrated_data = pd.DataFrame(
+            {
+                "feature_1": [1, 2, 3],
+                "feature_2": [4, 5, 6],
+                # Missing 'label' column
+            }
+        )
 
         # Should raise ValueError when no suitable benchmark data
         with pytest.raises(ValueError, match="No suitable benchmark data available"):
@@ -345,13 +353,15 @@ class TestEvaluationPerformance:
         pipeline.load_baseline_model()
 
         # Override with larger mock data
-        large_data = pd.DataFrame({
-            "query_id": [f"q_{i}" for i in range(10000)],
-            "feature_1": np.random.randn(10000),
-            "feature_2": np.random.randn(10000),
-            "feature_3": np.random.randn(10000),
-            "label": np.random.choice([0, 1], size=10000)
-        })
+        large_data = pd.DataFrame(
+            {
+                "query_id": [f"q_{i}" for i in range(10000)],
+                "feature_1": np.random.randn(10000),
+                "feature_2": np.random.randn(10000),
+                "feature_3": np.random.randn(10000),
+                "label": np.random.choice([0, 1], size=10000),
+            }
+        )
 
         pipeline.integrated_data = large_data
         pipeline.contributed_data = large_data[:1000]  # Subset as contributed
@@ -361,11 +371,18 @@ class TestEvaluationPerformance:
         pipeline.new_model = {
             "type": "mock_model",
             "version": "2.0.0",
-            "metrics": {"accuracy": 0.87, "precision": 0.85, "recall": 0.89, "f1": 0.87, "auroc": 0.93}
+            "metrics": {
+                "accuracy": 0.87,
+                "precision": 0.85,
+                "recall": 0.89,
+                "f1": 0.87,
+                "auroc": 0.93,
+            },
         }
 
         # Run evaluation and measure time
         import time
+
         start_time = time.time()
         pipeline.evaluate_on_benchmark()
         end_time = time.time()
@@ -378,4 +395,6 @@ class TestEvaluationPerformance:
 
         # Performance should be reasonable even with larger dataset
         assert evaluation_time < 5.0  # Should complete within 5 seconds
-        assert pipeline.evaluation_results["benchmark_dataset"]["size"] == 1000  # Benchmark size limited
+        assert (
+            pipeline.evaluation_results["benchmark_dataset"]["size"] == 1000
+        )  # Benchmark size limited

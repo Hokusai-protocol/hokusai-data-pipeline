@@ -8,9 +8,4 @@ from .config_parser import DSPyConfigParser
 from .loaders import LocalDSPyLoader, RemoteDSPyLoader
 from .validators import DSPyValidator
 
-__all__ = [
-    "DSPyConfigParser",
-    "LocalDSPyLoader",
-    "RemoteDSPyLoader",
-    "DSPyValidator"
-]
+__all__ = ["DSPyConfigParser", "LocalDSPyLoader", "RemoteDSPyLoader", "DSPyValidator"]

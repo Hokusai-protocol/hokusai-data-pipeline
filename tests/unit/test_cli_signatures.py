@@ -1,12 +1,12 @@
 """Unit tests for CLI signatures commands."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-from click.testing import CliRunner
 import json
-import yaml
-import tempfile
 import os
+import tempfile
+from unittest.mock import Mock, patch
+
+import yaml
+from click.testing import CliRunner
 
 from src.cli.signatures import signatures
 
@@ -154,17 +154,16 @@ class TestSignaturesCLI:
         """Test load signature from file."""
         # Create temporary config file
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump({
-                "name": "CustomSignature",
-                "type": "signature",
-                "version": "1.0.0",
-                "inputs": {
-                    "text": {"type": "str", "description": "Input text"}
+            yaml.dump(
+                {
+                    "name": "CustomSignature",
+                    "type": "signature",
+                    "version": "1.0.0",
+                    "inputs": {"text": {"type": "str", "description": "Input text"}},
+                    "outputs": {"result": {"type": "str", "description": "Result"}},
                 },
-                "outputs": {
-                    "result": {"type": "str", "description": "Result"}
-                }
-            }, f)
+                f,
+            )
             config_path = f.name
 
         try:
@@ -186,10 +185,7 @@ class TestSignaturesCLI:
         """Test execute signature command."""
         # Create input file
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({
-                "recipient": "John Doe",
-                "subject": "Meeting Tomorrow"
-            }, f)
+            json.dump({"recipient": "John Doe", "subject": "Meeting Tomorrow"}, f)
             input_file = f.name
 
         try:
@@ -198,11 +194,9 @@ class TestSignaturesCLI:
             mock_executor.execute_signature.return_value = mock_result
             mock_executor_class.return_value = mock_executor
 
-            result = self.runner.invoke(signatures, [
-                "execute",
-                "EmailDraft",
-                "--input-file", input_file
-            ])
+            result = self.runner.invoke(
+                signatures, ["execute", "EmailDraft", "--input-file", input_file]
+            )
 
             assert result.exit_code == 0
             assert "email_body" in result.output
@@ -218,7 +212,7 @@ class TestSignaturesCLI:
         test_cases = [
             {
                 "input": {"recipient": "John", "subject": "Meeting"},
-                "expected": {"email_body": "Dear John..."}
+                "expected": {"email_body": "Dear John..."},
             }
         ]
 
@@ -238,11 +232,9 @@ class TestSignaturesCLI:
             mock_executor.execute_signature.return_value = {"email_body": "Dear John..."}
             mock_executor_class.return_value = mock_executor
 
-            result = self.runner.invoke(signatures, [
-                "test",
-                "EmailDraft",
-                "--test-file", test_file
-            ])
+            result = self.runner.invoke(
+                signatures, ["test", "EmailDraft", "--test-file", test_file]
+            )
 
             assert result.exit_code == 0
             assert "Test Results" in result.output

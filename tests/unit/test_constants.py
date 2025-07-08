@@ -1,44 +1,43 @@
 """Unit tests for constants module."""
 
-import pytest
 from src.utils.constants import (
-    # Pipeline step names
-    STEP_LOAD_BASELINE,
-    STEP_INTEGRATE_DATA,
-    STEP_TRAIN_MODEL,
-    STEP_EVALUATE,
-    STEP_COMPARE,
-    STEP_ATTESTATION,
-    STEP_MONITOR,
+    ATTESTATION_SCHEMA_VERSION,
+    # Attestation constants
+    ATTESTATION_VERSION,
     # Model artifact names
     BASELINE_MODEL_NAME,
-    NEW_MODEL_NAME,
+    ERROR_DATA_VALIDATION,
+    ERROR_METRIC_CALCULATION,
+    # Error messages
+    ERROR_MODEL_NOT_FOUND,
+    LOG_DATE_FORMAT,
+    # Logging formats
+    LOG_FORMAT,
     # Metric names
     METRIC_ACCURACY,
+    METRIC_AUROC,
+    METRIC_F1,
     METRIC_PRECISION,
     METRIC_RECALL,
-    METRIC_F1,
-    METRIC_AUROC,
+    NEW_MODEL_NAME,
+    OUTPUT_FORMAT_CSV,
     # Output formats
     OUTPUT_FORMAT_JSON,
     OUTPUT_FORMAT_PARQUET,
-    OUTPUT_FORMAT_CSV,
-    # File extensions
-    SUPPORTED_DATA_FORMATS,
-    # Attestation constants
-    ATTESTATION_VERSION,
-    ATTESTATION_SCHEMA_VERSION,
-    # Status codes
-    STATUS_SUCCESS,
     STATUS_FAILED,
     STATUS_PARTIAL,
-    # Error messages
-    ERROR_MODEL_NOT_FOUND,
-    ERROR_DATA_VALIDATION,
-    ERROR_METRIC_CALCULATION,
-    # Logging formats
-    LOG_FORMAT,
-    LOG_DATE_FORMAT
+    # Status codes
+    STATUS_SUCCESS,
+    STEP_ATTESTATION,
+    STEP_COMPARE,
+    STEP_EVALUATE,
+    STEP_INTEGRATE_DATA,
+    # Pipeline step names
+    STEP_LOAD_BASELINE,
+    STEP_MONITOR,
+    STEP_TRAIN_MODEL,
+    # File extensions
+    SUPPORTED_DATA_FORMATS,
 )
 
 
@@ -58,8 +57,13 @@ class TestConstants:
 
         # Check they are all strings
         steps = [
-            STEP_LOAD_BASELINE, STEP_INTEGRATE_DATA, STEP_TRAIN_MODEL,
-            STEP_EVALUATE, STEP_COMPARE, STEP_ATTESTATION, STEP_MONITOR
+            STEP_LOAD_BASELINE,
+            STEP_INTEGRATE_DATA,
+            STEP_TRAIN_MODEL,
+            STEP_EVALUATE,
+            STEP_COMPARE,
+            STEP_ATTESTATION,
+            STEP_MONITOR,
         ]
         for step in steps:
             assert isinstance(step, str)
@@ -82,10 +86,7 @@ class TestConstants:
         assert METRIC_AUROC == "auroc"
 
         # Check all are lowercase
-        metrics = [
-            METRIC_ACCURACY, METRIC_PRECISION, METRIC_RECALL,
-            METRIC_F1, METRIC_AUROC
-        ]
+        metrics = [METRIC_ACCURACY, METRIC_PRECISION, METRIC_RECALL, METRIC_F1, METRIC_AUROC]
         for metric in metrics:
             assert metric.lower() == metric
 
@@ -151,11 +152,7 @@ class TestConstants:
         assert ERROR_METRIC_CALCULATION == "Metric calculation failed: {}"
 
         # Check they contain placeholders
-        error_messages = [
-            ERROR_MODEL_NOT_FOUND,
-            ERROR_DATA_VALIDATION,
-            ERROR_METRIC_CALCULATION
-        ]
+        error_messages = [ERROR_MODEL_NOT_FOUND, ERROR_DATA_VALIDATION, ERROR_METRIC_CALCULATION]
         for msg in error_messages:
             assert "{}" in msg
             assert msg.endswith(": {}")
@@ -175,6 +172,7 @@ class TestConstants:
 
         # Check date format is valid
         import datetime
+
         now = datetime.datetime.now()
         formatted_date = now.strftime(LOG_DATE_FORMAT)
         assert len(formatted_date) > 0
@@ -182,6 +180,7 @@ class TestConstants:
     def test_constants_naming_convention(self):
         """Test that all constants follow UPPER_SNAKE_CASE convention."""
         import inspect
+
         import src.utils.constants as constants_module
 
         # Get all module attributes
@@ -198,8 +197,12 @@ class TestConstants:
         """Test that constants values are appropriate immutable types."""
         # String constants should not be mutable
         string_constants = [
-            STEP_LOAD_BASELINE, BASELINE_MODEL_NAME, METRIC_ACCURACY,
-            OUTPUT_FORMAT_JSON, STATUS_SUCCESS, LOG_FORMAT
+            STEP_LOAD_BASELINE,
+            BASELINE_MODEL_NAME,
+            METRIC_ACCURACY,
+            OUTPUT_FORMAT_JSON,
+            STATUS_SUCCESS,
+            LOG_FORMAT,
         ]
 
         for const in string_constants:

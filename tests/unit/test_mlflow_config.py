@@ -1,18 +1,20 @@
 """Tests for MLFlow configuration and utilities."""
 
-import pytest
-import tempfile
 import shutil
-from unittest.mock import patch, MagicMock
+import tempfile
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from src.utils.mlflow_config import (
     MLFlowConfig,
     generate_run_name,
-    log_pipeline_metadata,
-    mlflow_run_context,
-    log_step_parameters,
-    log_step_metrics,
+    log_dataset_info,
     log_model_artifact,
-    log_dataset_info
+    log_pipeline_metadata,
+    log_step_metrics,
+    log_step_parameters,
+    mlflow_run_context,
 )
 
 
@@ -35,11 +37,14 @@ class TestMLFlowConfig:
         assert config.experiment_name == "hokusai-pipeline"
         assert config.artifact_root is None
 
-    @patch.dict("os.environ", {
-        "MLFLOW_TRACKING_URI": "http://localhost:5000",
-        "MLFLOW_EXPERIMENT_NAME": "test-experiment",
-        "MLFLOW_ARTIFACT_ROOT": "/tmp/artifacts"
-    })
+    @patch.dict(
+        "os.environ",
+        {
+            "MLFLOW_TRACKING_URI": "http://localhost:5000",
+            "MLFLOW_EXPERIMENT_NAME": "test-experiment",
+            "MLFLOW_ARTIFACT_ROOT": "/tmp/artifacts",
+        },
+    )
     def test_init_with_env_vars(self):
         """Test MLFlowConfig initialization with environment variables."""
         config = MLFlowConfig()
@@ -51,8 +56,9 @@ class TestMLFlowConfig:
     @patch("mlflow.get_experiment_by_name")
     @patch("mlflow.create_experiment")
     @patch("mlflow.set_experiment")
-    def test_setup_tracking_new_experiment(self, mock_set_exp, mock_create_exp,
-                                         mock_get_exp, mock_set_uri):
+    def test_setup_tracking_new_experiment(
+        self, mock_set_exp, mock_create_exp, mock_get_exp, mock_set_uri
+    ):
         """Test setting up tracking with new experiment."""
         mock_get_exp.return_value = None
         mock_create_exp.return_value = "test_id"
@@ -138,7 +144,7 @@ class TestMLFlowUtilities:
         tags = {
             "pipeline.step": "test_step",
             "pipeline.run_id": "run123",
-            "metaflow.run_id": "metaflow456"
+            "metaflow.run_id": "metaflow456",
         }
         with mlflow_run_context(run_name="test_run", tags=tags) as run:
             assert run == mock_run
@@ -156,7 +162,7 @@ class TestMLFlowUtilities:
         tags = {
             "pipeline.step": "test_step",
             "pipeline.run_id": "run123",
-            "metaflow.run_id": "metaflow456"
+            "metaflow.run_id": "metaflow456",
         }
 
         # The function has a bug that causes RuntimeError, so we expect that

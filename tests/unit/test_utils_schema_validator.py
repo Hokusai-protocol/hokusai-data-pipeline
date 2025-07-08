@@ -1,11 +1,9 @@
 """Unit tests for schema validator utility."""
 
-import pytest
-from unittest.mock import Mock, patch, mock_open, MagicMock
-import json
 from pathlib import Path
-from jsonschema import ValidationError
-from typing import Dict, Any, List
+from unittest.mock import mock_open, patch
+
+import pytest
 
 from src.utils.schema_validator import SchemaValidator
 
@@ -23,15 +21,12 @@ class TestSchemaValidator:
                 "version": {"type": "string"},
                 "performance_delta": {
                     "type": "object",
-                    "properties": {
-                        "accuracy": {"type": "number"},
-                        "f1_score": {"type": "number"}
-                    }
+                    "properties": {"accuracy": {"type": "number"}, "f1_score": {"type": "number"}},
                 },
                 "contributor_address": {"type": "string"},
-                "computation_hash": {"type": "string"}
+                "computation_hash": {"type": "string"},
             },
-            "required": ["model_id", "version", "performance_delta", "computation_hash"]
+            "required": ["model_id", "version", "performance_delta", "computation_hash"],
         }
 
     @patch("builtins.open", new_callable=mock_open)
@@ -80,12 +75,9 @@ class TestSchemaValidator:
         valid_output = {
             "model_id": "model_123",
             "version": "1.0.0",
-            "performance_delta": {
-                "accuracy": 0.03,
-                "f1_score": 0.02
-            },
+            "performance_delta": {"accuracy": 0.03, "f1_score": 0.02},
             "contributor_address": "0x123abc",
-            "computation_hash": "hash123"
+            "computation_hash": "hash123",
         }
 
         is_valid, errors = validator.validate_output(valid_output)
@@ -105,7 +97,7 @@ class TestSchemaValidator:
             "version": "1.0.0",
             # Missing performance_delta
             "contributor_address": "0x123abc",
-            "computation_hash": "hash123"
+            "computation_hash": "hash123",
         }
 
         is_valid, errors = validator.validate_output(invalid_output)
@@ -126,7 +118,7 @@ class TestSchemaValidator:
             "version": "1.0.0",
             "performance_delta": "not_an_object",  # Should be object
             "contributor_address": "0x123abc",
-            "computation_hash": "hash123"
+            "computation_hash": "hash123",
         }
 
         is_valid, errors = validator.validate_output(invalid_output)
@@ -150,7 +142,7 @@ class TestSchemaValidator:
                 "version": "1.0.0",
                 "performance_delta": {"accuracy": 0.03},
                 "contributor_address": "0x123abc",
-                "computation_hash": "hash123"
+                "computation_hash": "hash123",
             }
 
             is_valid, errors = validator.validate_output(valid_schema_output)
@@ -174,8 +166,8 @@ class TestSchemaValidator:
             "attestation": {
                 "timestamp": "2024-01-15T12:00:00Z",
                 "signature": "sig123",
-                "metadata": {}
-            }
+                "metadata": {},
+            },
         }
 
         is_valid, errors = validator.validate_attestation_format(attestation)
@@ -194,7 +186,7 @@ class TestSchemaValidator:
             "model_id": "model_123",
             "version": "1.0.0",
             "performance_delta": {"accuracy": 0.03, "f1": 0.02},
-            "contributor_address": "0x123abc"
+            "contributor_address": "0x123abc",
         }
 
         hash1 = validator.compute_output_hash(output)
