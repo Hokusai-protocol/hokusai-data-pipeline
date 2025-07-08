@@ -158,24 +158,41 @@ jobs:
     
     - name: Update ECS Services
       run: |
-        # Update ECS services with new images directly
-        # Force new deployment to pick up latest images
+        # Update ECS services with new images
+        # First update task definitions with new image tags
         
-        # Update API service
+        # Get ECR registry URL
+        ECR_REGISTRY=$(aws ecr describe-repositories --repository-names hokusai-api --query 'repositories[0].repositoryUri' --output text | cut -d'/' -f1)
+        IMAGE_TAG=${{ github.sha }}
+        
+        # Update API task definition
+        TASK_DEF=$(aws ecs describe-task-definition --task-definition hokusai-api-development --query 'taskDefinition')
+        NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ECR_REGISTRY/hokusai-api:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
+        echo "$NEW_TASK_DEF" > /tmp/api-task-def.json
+        API_TASK_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/api-task-def.json --query 'taskDefinition.taskDefinitionArn' --output text)
+        
+        # Update MLflow task definition
+        TASK_DEF=$(aws ecs describe-task-definition --task-definition hokusai-mlflow-development --query 'taskDefinition')
+        NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ECR_REGISTRY/hokusai-mlflow:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
+        echo "$NEW_TASK_DEF" > /tmp/mlflow-task-def.json
+        MLFLOW_TASK_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/mlflow-task-def.json --query 'taskDefinition.taskDefinitionArn' --output text)
+        
+        # Update services with new task definitions
         aws ecs update-service \
           --cluster hokusai-development \
           --service hokusai-api \
+          --task-definition $API_TASK_ARN \
           --force-new-deployment \
           --desired-count 2
         
-        # Update MLflow service  
         aws ecs update-service \
           --cluster hokusai-development \
           --service hokusai-mlflow \
+          --task-definition $MLFLOW_TASK_ARN \
           --force-new-deployment \
           --desired-count 1
         
-        echo "✅ Services updated with new images"
+        echo "✅ Services updated with new task definitions"
     
     - name: Run deployment validation
       run: |
