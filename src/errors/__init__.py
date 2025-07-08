@@ -1,5 +1,4 @@
-"""
-Error handling and custom exceptions for Hokusai ML Platform
+"""Error handling and custom exceptions for Hokusai ML Platform
 """
 
 from .exceptions import (
@@ -18,7 +17,7 @@ from .handlers import ErrorHandler, configure_logging
 __all__ = [
     "HokusaiError",
     "TokenNotFoundError",
-    "TokenInvalidStatusError", 
+    "TokenInvalidStatusError",
     "ModelValidationError",
     "MetricValidationError",
     "DatabaseConnectionError",

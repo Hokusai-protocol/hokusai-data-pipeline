@@ -7,11 +7,11 @@ from .base import BaseSignature, SignatureField
 
 class CritiqueText(BaseSignature):
     """Provide constructive critique and analysis of text."""
-    
+
     category = "analysis"
     tags = ["analysis", "critique", "evaluation"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -42,7 +42,7 @@ class CritiqueText(BaseSignature):
                 default="balanced"
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -77,7 +77,7 @@ class CritiqueText(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [
@@ -95,11 +95,11 @@ class CritiqueText(BaseSignature):
 
 class SummarizeText(BaseSignature):
     """Generate concise summaries of longer texts."""
-    
+
     category = "analysis"
     tags = ["analysis", "summary", "condensation"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -138,7 +138,7 @@ class SummarizeText(BaseSignature):
                 default=True
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -161,7 +161,7 @@ class SummarizeText(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [
@@ -177,11 +177,11 @@ class SummarizeText(BaseSignature):
 
 class ExtractInfo(BaseSignature):
     """Extract specific information from text."""
-    
+
     category = "analysis"
     tags = ["analysis", "extraction", "parsing"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -212,7 +212,7 @@ class ExtractInfo(BaseSignature):
                 default=False
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -235,7 +235,7 @@ class ExtractInfo(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [
@@ -257,11 +257,11 @@ class ExtractInfo(BaseSignature):
 
 class ClassifyText(BaseSignature):
     """Classify text into predefined categories."""
-    
+
     category = "analysis"
     tags = ["analysis", "classification", "categorization"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -299,7 +299,7 @@ class ClassifyText(BaseSignature):
                 default=0.5
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -328,7 +328,7 @@ class ClassifyText(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [

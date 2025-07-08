@@ -44,6 +44,7 @@ class ModelTrainer:
 
         Returns:
             X_train, X_test, y_train, y_test
+
         """
         if feature_columns is None:
             feature_columns = [col for col in df.columns
@@ -58,7 +59,7 @@ class ModelTrainer:
             random_state=self.random_seed,
             stratify=y if len(np.unique(y)) < 100 else None
         )
-    
+
     def train_mock_model(
         self,
         X_train: pd.DataFrame,
@@ -74,6 +75,7 @@ class ModelTrainer:
 
         Returns:
             Mock trained model
+
         """
         # Simulate training metrics with some randomness
         base_accuracy = 0.85
@@ -101,7 +103,7 @@ class ModelTrainer:
                 col: np.random.uniform(0, 1) for col in X_train.columns
             }
         }
-    
+
     def train_sklearn_model(
         self,
         X_train: pd.DataFrame,
@@ -119,6 +121,7 @@ class ModelTrainer:
 
         Returns:
             Trained model
+
         """
         if model_params is None:
             model_params = {}
@@ -131,7 +134,7 @@ class ModelTrainer:
         model.fit(X_train, y_train)
 
         return model
-    
+
     def _log_model_data(self, model: Any, model_name: str, params: Dict[str, Any], metrics: Dict[str, float]):
         """Helper method to log model data to MLflow."""
         # Log parameters
@@ -149,13 +152,13 @@ class ModelTrainer:
             import json
             import tempfile
             with tempfile.NamedTemporaryFile(
-                    mode='w', suffix='.json', delete=False) as f:
+                    mode="w", suffix=".json", delete=False) as f:
                 json.dump(model, f, indent=2)
                 mlflow.log_artifact(f.name, artifact_path="model")
         else:
             # For real models
             mlflow.sklearn.log_model(model, model_name)
-    
+
     def log_model_to_mlflow(
         self,
         model: Any,
@@ -175,30 +178,31 @@ class ModelTrainer:
 
         Returns:
             MLflow run ID
+
         """
         # Use current active run if available, otherwise start a new one
         active_run = mlflow.active_run()
         if active_run:
             run = active_run
             self._log_model_data(model, model_name, params, metrics)
-            
+
             # Log additional artifacts
             if artifacts:
                 for artifact_name, artifact_path in artifacts.items():
                     mlflow.log_artifact(artifact_path, artifact_name)
-            
+
             return run.info.run_id
         else:
             with mlflow.start_run() as run:
                 self._log_model_data(model, model_name, params, metrics)
-                
+
                 # Log additional artifacts
                 if artifacts:
                     for artifact_name, artifact_path in artifacts.items():
                         mlflow.log_artifact(artifact_path, artifact_name)
-                
+
                 return run.info.run_id
-    
+
     def create_training_report(
         self,
         model: Any,
@@ -216,12 +220,13 @@ class ModelTrainer:
 
         Returns:
             Training report dictionary
+
         """
         model_type = (type(model).__name__ if not isinstance(model, dict)
                       else model.get("type"))
         target_dist = (y_train.value_counts().to_dict()
-                       if hasattr(y_train, 'value_counts') else {})
-        
+                       if hasattr(y_train, "value_counts") else {})
+
         return {
             "model_type": model_type,
             "training_samples": len(X_train),

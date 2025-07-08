@@ -22,37 +22,38 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OptimizationAttestation:
     """Data structure for optimization attestation."""
+
     schema_version: str = "1.0"
     attestation_type: str = "teleprompt_optimization"
     attestation_id: str = ""
     timestamp: str = ""
-    
+
     # Model information
     model_id: str = ""
     baseline_version: str = ""
     optimized_version: str = ""
     optimization_strategy: str = ""
-    
+
     # Performance metrics
     deltaone_achieved: bool = False
     performance_delta: float = 0.0
     baseline_metrics: Dict[str, float] = None
     optimized_metrics: Dict[str, float] = None
-    
+
     # Optimization details
     trace_count: int = 0
     optimization_time_seconds: float = 0.0
     outcome_metric: str = ""
     date_range: Dict[str, str] = None
-    
+
     # Contributors
     contributors: List[Dict[str, Any]] = None
     total_contribution_weight: float = 1.0
-    
+
     # Verification
     attestation_hash: str = ""
     signature: Optional[str] = None
-    
+
     def __post_init__(self):
         """Initialize default values."""
         if self.baseline_metrics is None:
@@ -67,18 +68,18 @@ class OptimizationAttestation:
             self.timestamp = datetime.utcnow().isoformat()
         if not self.attestation_id:
             self.attestation_id = self._generate_attestation_id()
-    
+
     def _generate_attestation_id(self) -> str:
         """Generate unique attestation ID."""
         import uuid
         # Include a random component to ensure uniqueness
         data = f"{self.model_id}-{self.optimized_version}-{self.timestamp}-{uuid.uuid4()}"
         return hashlib.sha256(data.encode()).hexdigest()[:16]
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary format."""
         return asdict(self)
-    
+
     def to_json(self) -> str:
         """Convert to JSON string."""
         return json.dumps(self.to_dict(), indent=2)
@@ -86,12 +87,12 @@ class OptimizationAttestation:
 
 class OptimizationAttestationService:
     """Service for generating and managing optimization attestations."""
-    
+
     def __init__(self):
         """Initialize attestation service."""
         self._storage: Dict[str, OptimizationAttestation] = {}
         self._lock = threading.Lock()
-    
+
     def create_attestation(
         self,
         model_info: Dict[str, str],
@@ -109,12 +110,13 @@ class OptimizationAttestationService:
             
         Returns:
             OptimizationAttestation object
+
         """
         logger.info("Creating optimization attestation")
-        
+
         # Validate contributor addresses
         validated_contributors = self._validate_contributors(contributors)
-        
+
         # Create attestation
         attestation = OptimizationAttestation(
             model_id=model_info.get("model_id", ""),
@@ -132,27 +134,28 @@ class OptimizationAttestationService:
             contributors=validated_contributors,
             total_contribution_weight=sum(c["weight"] for c in validated_contributors)
         )
-        
+
         # Generate attestation hash
         attestation.attestation_hash = self._generate_hash(attestation)
-        
+
         # Store attestation
         with self._lock:
             self._storage[attestation.attestation_id] = attestation
-        
+
         logger.info(f"Created attestation {attestation.attestation_id}")
         return attestation
-    
+
     def store_attestation(self, attestation: OptimizationAttestation) -> None:
         """Store attestation in the service.
         
         Args:
             attestation: Attestation to store
+
         """
         with self._lock:
             self._storage[attestation.attestation_id] = attestation
             logger.info(f"Stored attestation: {attestation.attestation_id}")
-    
+
     def verify_attestation(
         self,
         attestation: OptimizationAttestation
@@ -164,18 +167,19 @@ class OptimizationAttestationService:
             
         Returns:
             True if attestation is valid
+
         """
         # Recompute hash
         expected_hash = self._generate_hash(attestation)
-        
+
         # Compare with stored hash
         is_valid = attestation.attestation_hash == expected_hash
-        
+
         if not is_valid:
             logger.warning(f"Attestation {attestation.attestation_id} verification failed")
-        
+
         return is_valid
-    
+
     def get_attestation(self, attestation_id: str) -> Optional[OptimizationAttestation]:
         """Retrieve attestation by ID.
         
@@ -184,10 +188,11 @@ class OptimizationAttestationService:
             
         Returns:
             Attestation object or None
+
         """
         with self._lock:
             return self._storage.get(attestation_id)
-    
+
     def list_attestations(
         self,
         model_id: Optional[str] = None,
@@ -203,30 +208,31 @@ class OptimizationAttestationService:
             
         Returns:
             List of matching attestations
+
         """
         with self._lock:
             attestations = list(self._storage.values())
-        
+
         if model_id:
             attestations = [
                 a for a in attestations
                 if a.model_id == model_id
             ]
-        
+
         if contributor_address:
             attestations = [
                 a for a in attestations
                 if any(c["address"] == contributor_address for c in a.contributors)
             ]
-        
+
         if deltaone_only:
             attestations = [
                 a for a in attestations
                 if a.deltaone_achieved
             ]
-        
+
         return attestations
-    
+
     def prepare_for_blockchain(
         self,
         attestation: OptimizationAttestation
@@ -238,6 +244,7 @@ class OptimizationAttestationService:
             
         Returns:
             Blockchain-ready attestation data
+
         """
         # Create compact representation for on-chain storage
         blockchain_data = {
@@ -257,9 +264,9 @@ class OptimizationAttestationService:
             ],
             "attestation_hash": attestation.attestation_hash
         }
-        
+
         return blockchain_data
-    
+
     def calculate_rewards(
         self,
         attestation: OptimizationAttestation,
@@ -273,27 +280,28 @@ class OptimizationAttestationService:
             
         Returns:
             Dictionary mapping addresses to reward amounts
+
         """
         if not attestation.deltaone_achieved:
             return {}
-        
+
         rewards = {}
-        
+
         for contributor in attestation.contributors:
             address = contributor["address"]
             weight = contributor["weight"]
             reward = total_reward * weight
             rewards[address] = round(reward, 6)
-        
+
         # Ensure total matches (handle rounding)
         total_allocated = sum(rewards.values())
         if total_allocated != total_reward:
             # Adjust largest contributor's reward
             largest_contributor = max(rewards, key=rewards.get)
             rewards[largest_contributor] += (total_reward - total_allocated)
-        
+
         return rewards
-    
+
     def _validate_contributors(
         self,
         contributors: List[Dict[str, Any]]
@@ -305,12 +313,13 @@ class OptimizationAttestationService:
             
         Returns:
             Validated contributor list
+
         """
         validated = []
-        
+
         for contrib in contributors:
             address = contrib.get("address", "")
-            
+
             # Validate ETH address
             try:
                 if not validate_eth_address(address):
@@ -319,22 +328,22 @@ class OptimizationAttestationService:
             except Exception as e:
                 logger.warning(f"Invalid ETH address {address}: {e}")
                 continue
-            
+
             validated.append({
                 "contributor_id": contrib.get("contributor_id", ""),
                 "address": address,
                 "weight": float(contrib.get("weight", 0)),
                 "trace_count": int(contrib.get("trace_count", 0))
             })
-        
+
         # Normalize weights
         total_weight = sum(c["weight"] for c in validated)
         if total_weight > 0:
             for contrib in validated:
                 contrib["weight"] = contrib["weight"] / total_weight
-        
+
         return validated
-    
+
     def _generate_hash(self, attestation: OptimizationAttestation) -> str:
         """Generate hash for attestation.
         
@@ -343,6 +352,7 @@ class OptimizationAttestationService:
             
         Returns:
             Hash string
+
         """
         # Create deterministic representation
         data = {
@@ -363,7 +373,7 @@ class OptimizationAttestationService:
                 for c in attestation.contributors
             ]
         }
-        
+
         # Generate hash
         json_str = json.dumps(data, sort_keys=True)
         return hashlib.sha256(json_str.encode()).hexdigest()

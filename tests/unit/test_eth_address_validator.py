@@ -23,7 +23,7 @@ class TestETHAddressValidation:
             "0x0000000000000000000000000000000000000000",
             "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
         ]
-        
+
         for address in valid_addresses:
             assert validate_eth_address(address) is True
 
@@ -39,7 +39,7 @@ class TestETHAddressValidation:
             "not_an_address",                               # Invalid format
             "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1Be ed",  # Contains space
         ]
-        
+
         for address in invalid_addresses:
             with pytest.raises(ETHAddressValidationError):
                 validate_eth_address(address)
@@ -52,7 +52,7 @@ class TestETHAddressValidation:
             ("0X5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED", "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"),
             ("0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359", "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359"),
         ]
-        
+
         for input_address, expected_output in test_cases:
             assert normalize_eth_address(input_address) == expected_output
 
@@ -64,7 +64,7 @@ class TestETHAddressValidation:
             "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359",
             "0xdbF03B407c01E7cD3CBea99509d93f8DDDC8C6FB",
         ]
-        
+
         for address in valid_checksummed:
             assert is_valid_eth_checksum(address) is True
 
@@ -74,7 +74,7 @@ class TestETHAddressValidation:
             "0xfb6916095ca1df60bb79ce92ce3ea74c37c5d359",  # All lowercase
             "0xFB6916095CA1DF60BB79CE92CE3EA74C37C5D359",  # All uppercase
         ]
-        
+
         for address in invalid_checksummed:
             assert is_valid_eth_checksum(address) is False
 
@@ -82,7 +82,7 @@ class TestETHAddressValidation:
         """Test validation with strict checksum enforcement."""
         # Should pass with correct checksum
         assert validate_eth_address("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed", strict_checksum=True) is True
-        
+
         # Should fail with incorrect checksum
         with pytest.raises(ETHAddressValidationError, match="Invalid checksum"):
             validate_eth_address("0x5aaeb6053F3E94C9b9A09f33669435E7Ef1BeAed", strict_checksum=True)
@@ -101,7 +101,7 @@ class TestETHAddressValidation:
             ("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAe", "Invalid ETH address length"),
             ("0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAeG", "Invalid hexadecimal characters"),
         ]
-        
+
         for invalid_address, expected_message in test_cases:
             with pytest.raises(ETHAddressValidationError) as exc_info:
                 validate_eth_address(invalid_address)
@@ -115,7 +115,7 @@ class TestETHAddressValidation:
     def test_type_error_handling(self):
         """Test handling of non-string address values."""
         invalid_types = [123, [], {}, True]
-        
+
         for invalid_type in invalid_types:
             with pytest.raises(ETHAddressValidationError, match="ETH address must be a string"):
                 validate_eth_address(invalid_type)

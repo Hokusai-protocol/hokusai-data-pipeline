@@ -1,3 +1,4 @@
+# Original ruff configuration (strict)
 [tool.ruff]
 # Exclude common directories
 exclude = [
@@ -9,22 +10,28 @@ exclude = [
     "dist",
 ]
 
-# Allow imports after sys.path modifications
+line-length = 100
+target-version = "py39"
+
 [tool.ruff.lint]
-# Temporarily ignore common issues to get deployment working
-ignore = [
-    "E402",  # Module level import not at top of file
-    "F401",  # Unused imports
-    "F841",  # Unused variables
-    "E721",  # Type comparisons
-    "E722",  # Bare except
-    "E712",  # True/False comparisons
-    "F821",  # Undefined names
-    "F541",  # f-string without placeholders
-    "F811",  # Redefinition of unused variable
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "D",  # pydocstyle
+    "UP", # pyupgrade
+    "N",  # pep8-naming
+    "C",  # flake8-comprehensions
+    "B",  # flake8-bugbear
+    "A",  # flake8-builtins
+    "S",  # flake8-bandit
+    "T",  # flake8-debugger
+    "Q",  # flake8-quotes
+    "ANN", # flake8-annotations
 ]
 
-# Per-file ignores
+# Only allow E402 in specific files
 [tool.ruff.lint.per-file-ignores]
 "src/cli/signatures.py" = ["E402"]
-"tests/*" = ["F401", "F841"]  # Unused imports and variables in tests
+"tests/*" = ["D", "ANN", "S101"]  # Don't require docstrings/types in tests, allow assert

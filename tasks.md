@@ -1,64 +1,115 @@
-# Implementation Tasks: Model Registration from Hokusai Site
+# Implementation Tasks: Technical Debt Fixes
 
-## 1. CLI Command Implementation
-1. [x] Create new CLI command structure
-   a. [x] Add `model` command group to hokusai-ml-platform CLI
-   b. [x] Implement `register` subcommand with required arguments
-   c. [x] Add argument parsing for --token-id, --model-path, --metric, --baseline
-   d. [x] Implement help text and usage examples
+## 1. Dependency Resolution
+1. [x] Analyze current dependency conflicts
+   a. [x] Run pip-compile --dry-run to see full dependency tree
+   b. [x] Identify exact numpy version requirements for mlflow and dspy-ai
+   c. [x] Research compatible versions or workarounds
+   d. [x] Document findings in DEPENDENCIES.md
 
-## 2. Database Integration Layer
-2. [x] Implement database connection and operations
-   a. [x] Create database configuration module
-   b. [x] Implement token validation function (check if token exists and is in Draft status)
-   c. [x] Create function to update model status to 'registered'
-   d. [x] Implement function to save mlflow_run_id to database
-   e. [x] Add transaction support for atomic operations
+2. [x] Create modular requirements files
+   a. [x] Create requirements-core.in with essential dependencies
+   b. [x] Create requirements-mlflow.in with mlflow and compatible numpy
+   c. [x] Create requirements-dspy.in as optional dependency group
+   d. [x] Create requirements-dev.in for development tools
+   e. [x] Use pip-compile to generate locked versions
 
-## 3. Model Upload to MLflow
-3. [x] Implement MLflow integration
-   a. [x] Create MLflow client configuration
-   b. [x] Implement model artifact upload function
-   c. [x] Add metadata tagging (token_id, metric, baseline)
-   d. [x] Generate and return mlflow_run_id
-   e. [x] Handle model versioning
+3. [x] Test dependency installation
+   a. [x] Create fresh virtual environment
+   b. [x] Test core + mlflow installation
+   c. [x] Test core + dspy installation separately
+   d. [x] Verify no conflicts with pip check
+   e. [x] Document installation instructions
 
-## 4. Metric Validation System
-4. [x] Create metric validation module
-   a. [x] Define supported metrics list (auroc, accuracy, f1, etc.)
-   b. [x] Implement baseline comparison logic
-   c. [x] Create metric calculation function if needed
-   d. [x] Add validation for numeric baseline values
-   e. [x] Implement threshold checking
+## 2. Re-enable and Fix Tests
+4. [x] Audit currently disabled tests
+   a. [x] Review .github/workflows/deploy.yml for skipped tests
+   b. [x] Check pytest.ini for disabled test patterns
+   c. [x] List all --ignore flags in test commands
+   d. [x] Document why each test was disabled
 
-## 5. Event System Integration
-5. [x] Implement event emission functionality
-   a. [x] Design event payload structure
-   b. [x] Create event publisher interface (support multiple backends)
-   c. [x] Implement pub/sub event emission
-   d. [x] Add webhook support option
-   e. [x] Create database watcher alternative
+5. [ ] Fix unit tests
+   a. [ ] Fix test_api_dspy.py import issues
+   b. [ ] Fix test_api_health.py dependencies
+   c. [ ] Fix test_api_models.py mocking
+   d. [ ] Fix test_cli_signatures.py and test_cli_teleprompt.py
+   e. [ ] Fix test_dspy_* test files
 
-## 6. Error Handling and Logging
-6. [x] Implement comprehensive error handling
-   a. [x] Create custom exception classes
-   b. [x] Add detailed error messages for each failure scenario
-   c. [x] Implement logging throughout the registration flow
-   d. [x] Add retry logic for transient failures
-   e. [x] Create error recovery mechanisms
+6. [ ] Fix integration tests
+   a. [ ] Re-enable tests/integration/ directory
+   b. [ ] Update database fixtures
+   c. [ ] Fix external service mocking
+   d. [ ] Ensure proper test isolation
 
-## 7. Testing
-7. [x] Write and implement tests
-   a. [x] Unit tests for CLI command parsing
-   b. [x] Integration tests for database operations
-   c. [x] Mock tests for MLflow integration
-   d. [x] End-to-end registration flow tests
-   e. [x] Error scenario tests
+7. [ ] Achieve 80% test coverage
+   a. [ ] Run coverage report
+   b. [ ] Identify uncovered code paths
+   c. [ ] Write additional tests for gaps
+   d. [ ] Configure coverage thresholds in CI
 
-## 8. Documentation
-8. [x] Create comprehensive documentation
-   a. [x] Update CLI documentation with new command
-   b. [x] Write user guide for model registration
-   c. [x] Document configuration requirements
-   d. [x] Add troubleshooting section
-   e. [x] Create example workflows
+## 3. Linting Configuration and Fixes
+8. [ ] Re-enable ruff linting rules
+   a. [ ] Review git history for linting rule changes
+   b. [ ] Restore original ruff configuration in pyproject.toml
+   c. [ ] Run ruff check --diff to see all issues
+   d. [ ] Document number of issues per category
+
+9. [ ] Fix import sorting issues (I category)
+   a. [ ] Run ruff check --select I --fix
+   b. [ ] Manually review and fix remaining issues
+   c. [ ] Update import conventions in CONTRIBUTING.md
+
+10. [ ] Fix code style issues (E, W categories)
+    a. [ ] Fix line length violations (E501)
+    b. [ ] Fix whitespace issues
+    c. [ ] Fix indentation problems
+    d. [ ] Update code formatting guidelines
+
+11. [ ] Fix other linting categories
+    a. [ ] Add missing docstrings (D category)
+    b. [ ] Add type annotations where needed (ANN)
+    c. [ ] Fix security issues (S category)
+    d. [ ] Address complexity issues (C category)
+
+## 4. CI/CD Pipeline Fixes
+12. [ ] Update GitHub Actions workflow
+    a. [ ] Remove temporary test skips
+    b. [ ] Re-enable linting step
+    c. [ ] Update dependency installation steps
+    d. [ ] Add dependency caching
+    e. [ ] Fix any failing steps
+
+13. [ ] Configure pre-commit hooks
+    a. [ ] Install pre-commit framework
+    b. [ ] Configure ruff as pre-commit hook
+    c. [ ] Add other code quality checks
+    d. [ ] Document in CONTRIBUTING.md
+
+## 5. Documentation Updates (Dependent on Tasks 1-4)
+14. [ ] Update project documentation
+    a. [ ] Update README with new dependency instructions
+    b. [ ] Create DEPENDENCIES.md with version rationale
+    c. [ ] Update CONTRIBUTING.md with linting rules
+    d. [ ] Document test running procedures
+    e. [ ] Add troubleshooting guide
+
+15. [ ] Configure automated dependency updates
+    a. [ ] Set up Dependabot configuration
+    b. [ ] Configure security alerts
+    c. [ ] Create update review process
+    d. [ ] Document update procedures
+
+## Testing
+16. [ ] Comprehensive testing of fixes
+    a. [ ] Clean install test on fresh system
+    b. [ ] Run full test suite
+    c. [ ] Verify linting passes
+    d. [ ] Test CI/CD pipeline
+    e. [ ] Performance regression testing
+
+## Documentation
+17. [ ] Final documentation updates
+    a. [ ] Create migration guide for existing installations
+    b. [ ] Document breaking changes
+    c. [ ] Update changelog
+    d. [ ] Create release notes

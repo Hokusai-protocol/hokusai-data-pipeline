@@ -17,14 +17,14 @@ settings = get_settings()
 async def health_check():
     """Check health status of the API and dependent services."""
     services_status = {}
-    
+
     # Check MLFlow
     try:
         mlflow.get_tracking_uri()
         services_status["mlflow"] = "healthy"
     except Exception:
         services_status["mlflow"] = "unhealthy"
-    
+
     # Check Redis
     try:
         r = redis.Redis(host=settings.redis_host, port=settings.redis_port)
@@ -32,7 +32,7 @@ async def health_check():
         services_status["redis"] = "healthy"
     except Exception:
         services_status["redis"] = "unhealthy"
-    
+
     # Check PostgreSQL
     try:
         conn = psycopg2.connect(settings.postgres_uri)
@@ -40,10 +40,10 @@ async def health_check():
         services_status["postgres"] = "healthy"
     except Exception:
         services_status["postgres"] = "unhealthy"
-    
+
     # Overall status
     overall_status = "healthy" if all(s == "healthy" for s in services_status.values()) else "degraded"
-    
+
     return HealthCheckResponse(
         status=overall_status,
         version="1.0.0",

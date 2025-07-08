@@ -7,7 +7,7 @@ from typing import List, Optional, Dict, Any
 @dataclass
 class SignatureMetadata:
     """Metadata for a DSPy signature."""
-    
+
     name: str
     description: str
     category: str
@@ -17,7 +17,7 @@ class SignatureMetadata:
     examples: List[Dict[str, Any]] = field(default_factory=list)
     deprecated: bool = False
     replacement: Optional[str] = None
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert metadata to dictionary."""
         return {
@@ -31,7 +31,7 @@ class SignatureMetadata:
             "deprecated": self.deprecated,
             "replacement": self.replacement
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SignatureMetadata":
         """Create metadata from dictionary."""

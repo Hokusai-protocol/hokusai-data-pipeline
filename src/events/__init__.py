@@ -1,5 +1,4 @@
-"""
-Event system for Hokusai ML Platform
+"""Event system for Hokusai ML Platform
 """
 
 from .publisher import EventPublisher, EventType

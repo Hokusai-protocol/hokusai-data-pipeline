@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 class OptimizationStrategy(Enum):
     """Available optimization strategies for teleprompt."""
+
     BOOTSTRAP_FEWSHOT = "bootstrap_fewshot"
     BOOTSTRAP_FEWSHOT_RANDOM = "bootstrap_fewshot_random"
     COPRO = "copro"  # Cooperative Prompt Optimization
@@ -44,6 +45,7 @@ class OptimizationStrategy(Enum):
 @dataclass
 class OptimizationConfig:
     """Configuration for teleprompt optimization."""
+
     strategy: OptimizationStrategy = OptimizationStrategy.BOOTSTRAP_FEWSHOT
     min_traces: int = 1000
     max_traces: int = 100000
@@ -54,7 +56,7 @@ class OptimizationConfig:
     deltaone_threshold: float = 0.01  # 1% improvement
     batch_size: int = 1000
     num_candidates: int = 10  # For random search
-    
+
     def __post_init__(self):
         """Validate configuration."""
         if self.min_traces >= self.max_traces:
@@ -68,6 +70,7 @@ class OptimizationConfig:
 @dataclass
 class OptimizationResult:
     """Result of teleprompt optimization."""
+
     success: bool
     optimized_program: Optional[Any] = None
     baseline_program: Optional[Any] = None
@@ -82,22 +85,23 @@ class OptimizationResult:
 
 class TelepromptFinetuner:
     """Service for fine-tuning DSPy programs using teleprompt."""
-    
+
     def __init__(self, config: OptimizationConfig):
         """Initialize the fine-tuner service.
         
         Args:
             config: Optimization configuration
+
         """
         self.config = config
         self.mlflow_client = MlflowClient()
         self.trace_loader = TraceLoader()
         # Remove deltaone_evaluator as we'll use the detect_delta_one function directly
         self._lock = threading.Lock()
-        
+
         if not DSPY_AVAILABLE:
             logger.warning("DSPy not available - teleprompt optimization will be limited")
-    
+
     def run_optimization(
         self,
         program: Any,
@@ -115,10 +119,11 @@ class TelepromptFinetuner:
             
         Returns:
             OptimizationResult with optimized program and metadata
+
         """
         logger.info(f"Starting teleprompt optimization for {getattr(program, 'name', 'Unknown')}")
         start_time = time.time()
-        
+
         try:
             # Load traces from MLflow
             traces = self._load_and_filter_traces(
@@ -127,24 +132,24 @@ class TelepromptFinetuner:
                 end_date,
                 outcome_metric
             )
-            
+
             if len(traces) < self.config.min_traces:
                 raise ValueError(
                     f"Insufficient traces: {len(traces)} < {self.config.min_traces}"
                 )
-            
+
             # Calculate contributor weights
             contributors = self._calculate_contributor_weights(traces)
-            
+
             # Prepare traces for optimization
             prepared_traces = self._prepare_traces_for_optimization(traces)
-            
+
             # Run optimization
             optimized_program = self._run_teleprompt_compilation(
                 program,
                 prepared_traces
             )
-            
+
             # Create result
             result = OptimizationResult(
                 success=True,
@@ -162,13 +167,13 @@ class TelepromptFinetuner:
                     }
                 }
             )
-            
+
             # Generate version
             result.model_version = self._generate_version(program, result)
-            
+
             logger.info(f"Optimization completed successfully in {result.optimization_time:.2f}s")
             return result
-            
+
         except Exception as e:
             logger.error(f"Optimization failed: {str(e)}")
             return OptimizationResult(
@@ -176,7 +181,7 @@ class TelepromptFinetuner:
                 error_message=str(e),
                 optimization_time=time.time() - start_time
             )
-    
+
     def evaluate_deltaone(
         self,
         optimization_result: OptimizationResult,
@@ -190,27 +195,28 @@ class TelepromptFinetuner:
             
         Returns:
             Dictionary with DeltaOne evaluation results
+
         """
         if not optimization_result.success:
             return {"deltaone_achieved": False, "error": "Optimization failed"}
-        
+
         logger.info("Evaluating DeltaOne improvement")
-        
+
         # For now, we'll simulate the evaluation since we need a registered model
         # In production, the optimized model would be registered first
         # Then detect_delta_one would be called on the registered model
-        
+
         # Simulate performance comparison
         baseline_perf = 0.85  # Example baseline performance
         optimized_perf = 0.88  # Example optimized performance (3% improvement)
-        
+
         if test_data:
             # If test data provided, could run actual evaluation
             logger.info(f"Would evaluate on {len(test_data)} test samples")
-        
+
         delta = optimized_perf - baseline_perf
         deltaone_achieved = delta >= self.config.deltaone_threshold
-        
+
         evaluation = {
             "deltaone_achieved": deltaone_achieved,
             "delta": delta,
@@ -224,14 +230,14 @@ class TelepromptFinetuner:
                 "accuracy": optimized_perf
             }
         }
-        
+
         if deltaone_achieved:
             logger.info(f"DeltaOne achieved! Improvement: {delta:.2%}")
         else:
             logger.info(f"DeltaOne not achieved. Improvement: {delta:.2%}")
-        
+
         return evaluation
-    
+
     def generate_attestation(
         self,
         optimization_result: OptimizationResult,
@@ -245,12 +251,13 @@ class TelepromptFinetuner:
             
         Returns:
             Attestation data structure
+
         """
         if not deltaone_result.get("deltaone_achieved", False):
             raise ValueError("Cannot generate attestation - DeltaOne not achieved")
-        
+
         logger.info("Generating optimization attestation")
-        
+
         # Build attestation
         attestation = {
             "schema_version": "1.0",
@@ -287,12 +294,12 @@ class TelepromptFinetuner:
                 for contrib_id, info in optimization_result.contributors.items()
             ]
         }
-        
+
         # Generate attestation hash
         attestation["attestation_hash"] = generate_attestation_hash(attestation)
-        
+
         return attestation
-    
+
     def save_optimized_model(
         self,
         optimization_result: OptimizationResult,
@@ -308,9 +315,10 @@ class TelepromptFinetuner:
             
         Returns:
             Dictionary with model registration info
+
         """
         logger.info(f"Saving optimized model: {model_name}")
-        
+
         with mlflow.start_run() as run:
             # Log optimization metadata
             mlflow.log_params({
@@ -318,13 +326,13 @@ class TelepromptFinetuner:
                 "trace_count": optimization_result.trace_count,
                 "optimization_time": optimization_result.optimization_time
             })
-            
+
             # Log contributor information
             mlflow.log_dict(
                 optimization_result.contributors,
                 "contributors.json"
             )
-            
+
             # Log the optimized program (simplified for now)
             mlflow.log_dict(
                 {
@@ -333,10 +341,10 @@ class TelepromptFinetuner:
                 },
                 "program_metadata.json"
             )
-            
+
             # Register model
             model_uri = f"runs:/{run.info.run_id}/model"
-            
+
             # Prepare tags
             model_tags = {
                 "optimization_strategy": optimization_result.strategy,
@@ -345,21 +353,21 @@ class TelepromptFinetuner:
             }
             if tags:
                 model_tags.update(tags)
-            
+
             # Register in MLflow
             mlflow.register_model(
                 model_uri=model_uri,
                 name=model_name,
                 tags=model_tags
             )
-            
+
             return {
                 "model_name": model_name,
                 "version": optimization_result.model_version,
                 "run_id": run.info.run_id,
                 "tags": model_tags
             }
-    
+
     def _load_and_filter_traces(
         self,
         program: Any,
@@ -377,6 +385,7 @@ class TelepromptFinetuner:
             
         Returns:
             List of filtered traces
+
         """
         # Load traces
         traces = self.trace_loader.load_traces(
@@ -387,12 +396,12 @@ class TelepromptFinetuner:
             outcome_metric=outcome_metric,
             limit=self.config.max_traces
         )
-        
+
         # Additional filtering can be added here
         logger.info(f"Loaded {len(traces)} traces for optimization")
-        
+
         return traces
-    
+
     def _calculate_contributor_weights(
         self,
         traces: List[Dict[str, Any]]
@@ -404,28 +413,29 @@ class TelepromptFinetuner:
             
         Returns:
             Dictionary mapping contributor IDs to their info and weights
+
         """
         contributor_stats = {}
-        
+
         for trace in traces:
             contrib_id = trace.get("contributor_id")
             if not contrib_id:
                 continue
-                
+
             if contrib_id not in contributor_stats:
                 contributor_stats[contrib_id] = {
                     "address": trace.get("contributor_address", ""),
                     "trace_count": 0,
                     "total_score": 0.0
                 }
-            
+
             contributor_stats[contrib_id]["trace_count"] += 1
             contributor_stats[contrib_id]["total_score"] += trace.get("outcome_score", 0)
-        
+
         # Calculate weights
         total_traces = len(traces)
         contributors = {}
-        
+
         for contrib_id, stats in contributor_stats.items():
             weight = stats["trace_count"] / total_traces
             contributors[contrib_id] = {
@@ -434,9 +444,9 @@ class TelepromptFinetuner:
                 "trace_count": stats["trace_count"],
                 "avg_score": stats["total_score"] / stats["trace_count"]
             }
-        
+
         return contributors
-    
+
     def _prepare_traces_for_optimization(
         self,
         traces: List[Dict[str, Any]]
@@ -448,22 +458,23 @@ class TelepromptFinetuner:
             
         Returns:
             List of (input, output) tuples for teleprompt
+
         """
         prepared = []
-        
+
         for trace in traces:
             inputs = trace.get("inputs", {})
             outputs = trace.get("outputs", {})
-            
+
             # Skip invalid traces
             if not inputs or not outputs:
                 continue
-            
+
             prepared.append((inputs, outputs))
-        
+
         logger.info(f"Prepared {len(prepared)} traces for optimization")
         return prepared
-    
+
     def _run_teleprompt_compilation(
         self,
         program: Any,
@@ -477,10 +488,11 @@ class TelepromptFinetuner:
             
         Returns:
             Optimized program
+
         """
         if not DSPY_AVAILABLE:
             raise RuntimeError("DSPy not available for optimization")
-        
+
         # Create optimizer based on strategy
         if self.config.strategy == OptimizationStrategy.BOOTSTRAP_FEWSHOT:
             optimizer = BootstrapFewShot(
@@ -495,17 +507,17 @@ class TelepromptFinetuner:
             )
         else:
             raise ValueError(f"Unsupported strategy: {self.config.strategy}")
-        
+
         # Run optimization with timeout
         import signal
-        
+
         def timeout_handler(signum, frame):
             raise TimeoutError("Optimization timed out")
-        
+
         # Set timeout
         signal.signal(signal.SIGALRM, timeout_handler)
         signal.alarm(self.config.timeout_seconds)
-        
+
         try:
             # Compile program
             optimized = optimizer.compile(
@@ -514,11 +526,11 @@ class TelepromptFinetuner:
             )
             signal.alarm(0)  # Cancel timeout
             return optimized
-            
+
         except Exception as e:
             signal.alarm(0)  # Cancel timeout
             raise
-    
+
     def _generate_version(
         self,
         program: Any,
@@ -532,9 +544,10 @@ class TelepromptFinetuner:
             
         Returns:
             Version string
+
         """
         base_version = getattr(program, "version", "1.0.0")
         timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
         strategy_abbr = self.config.strategy.value[:3]
-        
+
         return f"{base_version}-opt-{strategy_abbr}-{timestamp}"

@@ -1,5 +1,4 @@
-"""
-Database integration for Hokusai ML Platform
+"""Database integration for Hokusai ML Platform
 """
 
 from .config import DatabaseConfig
@@ -9,7 +8,7 @@ from .operations import TokenOperations
 
 __all__ = [
     "DatabaseConfig",
-    "DatabaseConnection", 
+    "DatabaseConnection",
     "TokenModel",
     "ModelStatus",
     "TokenOperations"

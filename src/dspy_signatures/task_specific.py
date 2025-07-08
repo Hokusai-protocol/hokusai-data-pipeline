@@ -7,11 +7,11 @@ from .base import BaseSignature, SignatureField
 
 class EmailDraft(BaseSignature):
     """Generate professional email drafts based on context and purpose."""
-    
+
     category = "task_specific"
     tags = ["email", "communication", "writing"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -61,7 +61,7 @@ class EmailDraft(BaseSignature):
                 default=[]
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -84,7 +84,7 @@ class EmailDraft(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [
@@ -103,11 +103,11 @@ class EmailDraft(BaseSignature):
 
 class CodeGeneration(BaseSignature):
     """Generate code based on requirements and specifications."""
-    
+
     category = "task_specific"
     tags = ["code", "programming", "development"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -152,7 +152,7 @@ class CodeGeneration(BaseSignature):
                 default=False
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -181,7 +181,7 @@ class CodeGeneration(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [
@@ -200,11 +200,11 @@ class CodeGeneration(BaseSignature):
 
 class DataAnalysis(BaseSignature):
     """Generate data analysis insights and recommendations."""
-    
+
     category = "task_specific"
     tags = ["data", "analysis", "insights"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -242,7 +242,7 @@ class DataAnalysis(BaseSignature):
                 default="business stakeholders"
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -277,7 +277,7 @@ class DataAnalysis(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [
@@ -304,11 +304,11 @@ class DataAnalysis(BaseSignature):
 
 class ReportGeneration(BaseSignature):
     """Generate structured reports from data and requirements."""
-    
+
     category = "task_specific"
     tags = ["report", "documentation", "writing"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -352,7 +352,7 @@ class ReportGeneration(BaseSignature):
                 default=None
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -381,7 +381,7 @@ class ReportGeneration(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [

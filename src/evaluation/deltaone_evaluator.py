@@ -11,8 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 def detect_delta_one(model_name: str, webhook_url: Optional[str] = None) -> bool:
-    """
-    Detect if the latest model version achieves ≥1 percentage point improvement.
+    """Detect if the latest model version achieves ≥1 percentage point improvement.
     
     Args:
         model_name: Name of the registered model in MLflow
@@ -20,49 +19,50 @@ def detect_delta_one(model_name: str, webhook_url: Optional[str] = None) -> bool
         
     Returns:
         True if DeltaOne improvement detected, False otherwise
+
     """
     try:
         client = MlflowClient()
-        
+
         # Get all versions sorted by version number (descending)
         versions = _get_sorted_model_versions(client, model_name)
-        
+
         if len(versions) < 2:
             logger.info(f"Not enough versions for model {model_name}. Found {len(versions)} versions.")
             return False
-            
+
         # Get latest version
         latest_version = versions[0]
-        
+
         # Find baseline version with benchmark_value
         baseline_version = _find_baseline_version(versions[1:])
-        
+
         if not baseline_version:
             logger.warning(f"No baseline version found for model {model_name}")
             return False
-            
+
         # Extract metric name from latest version or baseline
         metric_name = latest_version.tags.get("benchmark_metric") or baseline_version.tags.get("benchmark_metric")
         baseline_value = float(baseline_version.tags.get("benchmark_value"))
-        
+
         if not metric_name:
             logger.error("No benchmark_metric tag found in latest or baseline version")
             return False
-            
+
         # Get current metric value from latest version
         current_value = _get_metric_value(client, latest_version, metric_name)
-        
+
         if current_value is None:
             logger.error(f"Metric {metric_name} not found in latest version")
             return False
-            
+
         # Calculate percentage point difference
         delta = _calculate_percentage_point_difference(baseline_value, current_value)
-        
+
         # Check if ≥1pp improvement achieved
         if delta >= 0.01:  # 1 percentage point
             logger.info(f"DeltaOne achieved for {model_name}: {delta:.3f}pp improvement")
-            
+
             # Log achievement to MLflow
             try:
                 # Check if we're in an active run, otherwise log metrics are just informational
@@ -75,7 +75,7 @@ def detect_delta_one(model_name: str, webhook_url: Optional[str] = None) -> bool
                     mlflow.log_metric("custom:delta_value", delta)
             except Exception as e:
                 logger.debug(f"Could not log metrics to MLflow: {e}")
-            
+
             # Send webhook notification if configured
             if webhook_url:
                 payload = {
@@ -88,12 +88,12 @@ def detect_delta_one(model_name: str, webhook_url: Optional[str] = None) -> bool
                     "current_value": current_value
                 }
                 send_deltaone_webhook(webhook_url, payload)
-                
+
             return True
-            
+
         logger.info(f"No DeltaOne improvement for {model_name}: {delta:.3f}pp")
         return False
-        
+
     except Exception as e:
         logger.error(f"Error detecting DeltaOne for {model_name}: {e}")
         return False
@@ -129,8 +129,7 @@ def _calculate_percentage_point_difference(baseline: float, current: float) -> f
 
 
 def send_deltaone_webhook(webhook_url: str, payload: Dict[str, Any], max_retries: int = 3) -> bool:
-    """
-    Send webhook notification for DeltaOne achievement.
+    """Send webhook notification for DeltaOne achievement.
     
     Args:
         webhook_url: URL to send notification to
@@ -139,12 +138,13 @@ def send_deltaone_webhook(webhook_url: str, payload: Dict[str, Any], max_retries
         
     Returns:
         True if notification sent successfully, False otherwise
+
     """
     headers = {
         "Content-Type": "application/json",
         "User-Agent": "Hokusai-DeltaOne/1.0"
     }
-    
+
     for attempt in range(max_retries):
         try:
             response = requests.post(
@@ -153,19 +153,19 @@ def send_deltaone_webhook(webhook_url: str, payload: Dict[str, Any], max_retries
                 headers=headers,
                 timeout=10
             )
-            
+
             if response.status_code == 200:
                 logger.info("DeltaOne webhook notification sent successfully")
                 return True
             else:
                 logger.warning(f"Webhook returned status {response.status_code}")
-                
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Webhook request failed (attempt {attempt + 1}): {e}")
-            
+
         # Exponential backoff for retries
         if attempt < max_retries - 1:
             time.sleep(2 ** attempt)
-            
+
     logger.error(f"Failed to send webhook after {max_retries} attempts")
     return False

@@ -10,7 +10,7 @@ from .validators import DSPyValidator
 
 __all__ = [
     "DSPyConfigParser",
-    "LocalDSPyLoader", 
+    "LocalDSPyLoader",
     "RemoteDSPyLoader",
     "DSPyValidator"
 ]

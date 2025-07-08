@@ -36,7 +36,7 @@ async def get_model_lineage(request: Request, model_id: str, _=Depends(require_a
     """Get complete improvement history of a model."""
     try:
         lineage = registry.get_model_lineage(model_id)
-        
+
         return ModelLineageResponse(
             model_id=model_id,
             lineage=lineage,
@@ -77,7 +77,7 @@ async def register_model(
             model_type=registration.model_type,
             metadata=registration.metadata
         )
-        
+
         return ModelRegistrationResponse(
             model_id=result["model_id"],
             model_name=result["model_name"],
@@ -112,12 +112,12 @@ async def get_contributor_impact(request: Request, address: str, _=Depends(requi
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid Ethereum address format"
         )
-    
+
     try:
         # This would query the tracking data
         # For now, returning mock data
         impact_data = tracker.get_contributor_impact(address)
-        
+
         return ContributorImpactResponse(
             address=address,
             total_models_improved=impact_data.get("total_models_improved", 0),

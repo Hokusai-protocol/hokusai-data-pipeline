@@ -12,18 +12,18 @@ logger = logging.getLogger(__name__)
 
 class MLFlowConfig:
     """Configuration manager for MLFlow tracking."""
-    
+
     def __init__(self):
         self.tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns")
         self.experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", "hokusai-pipeline")
         self.artifact_root = os.getenv("MLFLOW_ARTIFACT_ROOT", None)
-        
+
     def setup_tracking(self) -> None:
         """Initialize MLFlow tracking configuration."""
         try:
             mlflow.set_tracking_uri(self.tracking_uri)
             logger.info(f"MLFlow tracking URI set to: {self.tracking_uri}")
-            
+
             # Create or get experiment
             experiment = mlflow.get_experiment_by_name(self.experiment_name)
             if experiment is None:
@@ -35,13 +35,13 @@ class MLFlowConfig:
             else:
                 experiment_id = experiment.experiment_id
                 logger.info(f"Using existing MLFlow experiment: {self.experiment_name} (ID: {experiment_id})")
-                
+
             mlflow.set_experiment(self.experiment_name)
-            
+
         except Exception as e:
             logger.error(f"Failed to setup MLFlow tracking: {e}")
             raise
-            
+
     def validate_connection(self) -> bool:
         """Validate MLFlow tracking server connection."""
         try:
@@ -83,14 +83,14 @@ def mlflow_run_context(run_name: str = None, experiment_name: str = None, tags: 
                 mlflow.set_experiment(experiment_name)
             except Exception as e:
                 logger.warning(f"Could not set experiment {experiment_name}: {e}")
-        
+
         with mlflow.start_run(run_name=run_name) as run:
             try:
                 # Log tags if provided
                 if tags:
                     for key, value in tags.items():
                         mlflow.set_tag(key, value)
-                
+
                 logger.info(f"Started MLFlow run: {run_name or 'unnamed'} (ID: {run.info.run_id})")
                 yield run
             except Exception as e:

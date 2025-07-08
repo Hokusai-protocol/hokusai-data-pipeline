@@ -6,6 +6,6 @@ from .experiment_manager import ExperimentManager
 
 __all__ = [
     "HokusaiModelRegistry",
-    "PerformanceTracker", 
+    "PerformanceTracker",
     "ExperimentManager"
 ]

@@ -1,5 +1,4 @@
-"""
-DSPy Signature Library for Hokusai Platform.
+"""DSPy Signature Library for Hokusai Platform.
 
 This module provides a comprehensive library of reusable DSPy signatures
 for common prompt patterns across the platform.
@@ -45,7 +44,7 @@ _registry = get_global_registry()
 for sig in [DraftText, ReviseText, ExpandText, RefineText]:
     _registry.register(sig(), sig.get_metadata())
 
-# Register analysis signatures  
+# Register analysis signatures
 for sig in [CritiqueText, SummarizeText, ExtractInfo, ClassifyText]:
     _registry.register(sig(), sig.get_metadata())
 
@@ -72,25 +71,25 @@ __all__ = [
     "BaseSignature",
     "SignatureField",
     "SignatureLoader",
-    
+
     # Text generation
     "DraftText",
-    "ReviseText", 
+    "ReviseText",
     "ExpandText",
     "RefineText",
-    
+
     # Analysis
     "CritiqueText",
     "SummarizeText",
     "ExtractInfo",
     "ClassifyText",
-    
+
     # Conversation
     "RespondToUser",
     "ClarifyIntent",
     "GenerateFollowUp",
     "ResolveQuery",
-    
+
     # Task-specific
     "EmailDraft",
     "CodeGeneration",

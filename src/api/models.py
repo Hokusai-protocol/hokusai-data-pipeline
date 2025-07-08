@@ -8,11 +8,12 @@ import re
 
 class ModelRegistration(BaseModel):
     """Request model for registering a new model."""
+
     model_name: str = Field(..., description="Name of the model")
     model_type: str = Field(..., description="Type of model (lead_scoring, classification, etc.)")
     model_data: Dict[str, Any] = Field(..., description="Model data or reference")
     metadata: Dict[str, Any] = Field(default={}, description="Additional metadata")
-    
+
     @validator("model_type")
     def validate_model_type(cls, v):
         valid_types = ["lead_scoring", "classification", "regression", "ranking"]
@@ -23,6 +24,7 @@ class ModelRegistration(BaseModel):
 
 class ModelRegistrationResponse(BaseModel):
     """Response model for model registration."""
+
     model_id: str
     model_name: str
     version: str
@@ -32,6 +34,7 @@ class ModelRegistrationResponse(BaseModel):
 
 class ModelLineageResponse(BaseModel):
     """Response model for model lineage."""
+
     model_id: str
     lineage: List[Dict[str, Any]]
     total_versions: int
@@ -40,8 +43,9 @@ class ModelLineageResponse(BaseModel):
 
 class ContributorImpactRequest(BaseModel):
     """Request model for contributor impact query."""
+
     address: str = Field(..., description="Ethereum address of contributor")
-    
+
     @validator("address")
     def validate_eth_address(cls, v):
         pattern = r"^0x[a-fA-F0-9]{40}$"
@@ -52,6 +56,7 @@ class ContributorImpactRequest(BaseModel):
 
 class ContributorImpactResponse(BaseModel):
     """Response model for contributor impact."""
+
     address: str
     total_models_improved: int
     total_improvement_score: float
@@ -62,6 +67,7 @@ class ContributorImpactResponse(BaseModel):
 
 class ExperimentRequest(BaseModel):
     """Request model for creating an experiment."""
+
     baseline_model_id: str
     contributed_data_reference: str
     experiment_config: Dict[str, Any] = Field(default={})
@@ -69,6 +75,7 @@ class ExperimentRequest(BaseModel):
 
 class ExperimentResponse(BaseModel):
     """Response model for experiment creation."""
+
     experiment_id: str
     status: str
     created_at: datetime
@@ -76,6 +83,7 @@ class ExperimentResponse(BaseModel):
 
 class ModelComparisonRequest(BaseModel):
     """Request model for model comparison."""
+
     baseline_id: str
     candidate_id: str
     test_dataset_reference: str
@@ -87,6 +95,7 @@ class ModelComparisonRequest(BaseModel):
 
 class ModelComparisonResponse(BaseModel):
     """Response model for model comparison."""
+
     baseline_metrics: Dict[str, float]
     candidate_metrics: Dict[str, float]
     improvements: Dict[str, float]
@@ -96,6 +105,7 @@ class ModelComparisonResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     """Standard error response."""
+
     detail: str
     error_code: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
@@ -103,6 +113,7 @@ class ErrorResponse(BaseModel):
 
 class HealthCheckResponse(BaseModel):
     """Health check response."""
+
     status: str
     version: str
     services: Dict[str, str]

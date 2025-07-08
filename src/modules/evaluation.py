@@ -11,10 +11,10 @@ from sklearn.metrics import (
 
 class ModelEvaluator:
     """Handles model evaluation on benchmark datasets."""
-    
+
     def __init__(self, metrics: Optional[List[str]] = None):
         self.metrics = metrics or ["accuracy", "precision", "recall", "f1", "auroc"]
-    
+
     def evaluate_mock_model(
         self,
         model: Dict[str, Any],
@@ -30,10 +30,11 @@ class ModelEvaluator:
             
         Returns:
             Evaluation metrics
+
         """
         # For mock models, return the stored metrics with slight variation
         base_metrics = model.get("metrics", {})
-        
+
         # Add slight random variation to simulate test set performance
         evaluated_metrics = {}
         for metric in self.metrics:
@@ -43,9 +44,9 @@ class ModelEvaluator:
                 evaluated_metrics[metric] = max(0, min(1, base_metrics[metric] + variation))
             else:
                 evaluated_metrics[metric] = np.random.uniform(0.7, 0.9)
-        
+
         return evaluated_metrics
-    
+
     def evaluate_sklearn_model(
         self,
         model: Any,
@@ -63,10 +64,11 @@ class ModelEvaluator:
             
         Returns:
             Evaluation metrics
+
         """
         # Get predictions
         y_pred = model.predict(X_test)
-        
+
         # Get probabilities if available
         y_proba = None
         if hasattr(model, "predict_proba"):
@@ -74,28 +76,28 @@ class ModelEvaluator:
             # For binary classification, use positive class probabilities
             if y_proba.shape[1] == 2:
                 y_proba = y_proba[:, 1]
-        
+
         # Calculate metrics
         metrics = {}
-        
+
         if "accuracy" in self.metrics:
             metrics["accuracy"] = accuracy_score(y_test, y_pred)
-        
+
         if "precision" in self.metrics:
             metrics["precision"] = precision_score(
                 y_test, y_pred, average="weighted", zero_division=0
             )
-        
+
         if "recall" in self.metrics:
             metrics["recall"] = recall_score(
                 y_test, y_pred, average="weighted", zero_division=0
             )
-        
+
         if "f1" in self.metrics:
             metrics["f1"] = f1_score(
                 y_test, y_pred, average="weighted", zero_division=0
             )
-        
+
         if "auroc" in self.metrics and y_proba is not None:
             try:
                 metrics["auroc"] = roc_auc_score(
@@ -104,9 +106,9 @@ class ModelEvaluator:
             except ValueError:
                 # AUROC not defined for the given case
                 metrics["auroc"] = None
-        
+
         return metrics
-    
+
     def evaluate_model(
         self,
         model: Any,
@@ -122,19 +124,20 @@ class ModelEvaluator:
             
         Returns:
             Evaluation results
+
         """
         # Check if mock model
         if isinstance(model, dict) and model.get("type", "").startswith("mock"):
             metrics = self.evaluate_mock_model(model, X_test, y_test)
         else:
             metrics = self.evaluate_sklearn_model(model, X_test, y_test)
-        
+
         return {
             "metrics": metrics,
             "test_samples": len(X_test),
             "model_type": type(model).__name__ if not isinstance(model, dict) else model.get("type")
         }
-    
+
     def compare_models(
         self,
         baseline_metrics: Dict[str, float],
@@ -148,25 +151,26 @@ class ModelEvaluator:
             
         Returns:
             Comparison results
+
         """
         comparison = {}
-        
+
         for metric in self.metrics:
             if metric in baseline_metrics and metric in new_metrics:
                 baseline_val = baseline_metrics[metric]
                 new_val = new_metrics[metric]
-                
+
                 comparison[metric] = {
                     "baseline": baseline_val,
                     "new": new_val,
                     "absolute_delta": new_val - baseline_val,
-                    "relative_delta": ((new_val - baseline_val) / baseline_val * 100) 
+                    "relative_delta": ((new_val - baseline_val) / baseline_val * 100)
                                      if baseline_val > 0 else 0,
                     "improved": new_val > baseline_val
                 }
-        
+
         return comparison
-    
+
     def calculate_delta_score(
         self,
         comparison: Dict[str, Dict[str, float]],
@@ -180,23 +184,24 @@ class ModelEvaluator:
             
         Returns:
             Delta score
+
         """
         if not weights:
             # Default equal weights
-            weights = {metric: 1.0 for metric in comparison.keys()}
-        
+            weights = dict.fromkeys(comparison.keys(), 1.0)
+
         # Normalize weights
         total_weight = sum(weights.values())
         weights = {k: v/total_weight for k, v in weights.items()}
-        
+
         # Calculate weighted delta
         delta_score = 0
         for metric, values in comparison.items():
             if metric in weights and values.get("absolute_delta") is not None:
                 delta_score += weights[metric] * values["absolute_delta"]
-        
+
         return delta_score
-    
+
     def create_evaluation_report(
         self,
         baseline_results: Dict[str, Any],
@@ -214,6 +219,7 @@ class ModelEvaluator:
             
         Returns:
             Evaluation report
+
         """
         return {
             "baseline_model": {

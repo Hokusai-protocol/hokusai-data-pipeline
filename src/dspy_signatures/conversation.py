@@ -7,11 +7,11 @@ from .base import BaseSignature, SignatureField
 
 class RespondToUser(BaseSignature):
     """Generate appropriate responses to user messages in conversations."""
-    
+
     category = "conversation"
     tags = ["conversation", "response", "dialogue"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -50,7 +50,7 @@ class RespondToUser(BaseSignature):
                 default="friendly"
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -73,7 +73,7 @@ class RespondToUser(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [
@@ -90,11 +90,11 @@ class RespondToUser(BaseSignature):
 
 class ClarifyIntent(BaseSignature):
     """Generate clarifying questions to better understand user intent."""
-    
+
     category = "conversation"
     tags = ["conversation", "clarification", "intent"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -125,7 +125,7 @@ class ClarifyIntent(BaseSignature):
                 default=3
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -148,7 +148,7 @@ class ClarifyIntent(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [
@@ -164,11 +164,11 @@ class ClarifyIntent(BaseSignature):
 
 class GenerateFollowUp(BaseSignature):
     """Generate relevant follow-up questions to deepen conversation."""
-    
+
     category = "conversation"
     tags = ["conversation", "follow-up", "engagement"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -199,7 +199,7 @@ class GenerateFollowUp(BaseSignature):
                 default=3
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -222,7 +222,7 @@ class GenerateFollowUp(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [
@@ -243,11 +243,11 @@ class GenerateFollowUp(BaseSignature):
 
 class ResolveQuery(BaseSignature):
     """Resolve user queries with comprehensive answers."""
-    
+
     category = "conversation"
     tags = ["conversation", "query", "resolution"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -279,7 +279,7 @@ class ResolveQuery(BaseSignature):
                 default="detailed"
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -308,7 +308,7 @@ class ResolveQuery(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [

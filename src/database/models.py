@@ -1,5 +1,4 @@
-"""
-Database models for Hokusai ML Platform
+"""Database models for Hokusai ML Platform
 """
 from enum import Enum
 from dataclasses import dataclass
@@ -9,6 +8,7 @@ from datetime import datetime
 
 class ModelStatus(Enum):
     """Status of a model in the registration process"""
+
     DRAFT = "draft"
     REGISTERING = "registering"
     REGISTERED = "registered"
@@ -20,6 +20,7 @@ class ModelStatus(Enum):
 @dataclass
 class TokenModel:
     """Represents a token and its associated model in the database"""
+
     token_id: str
     model_status: ModelStatus
     mlflow_run_id: Optional[str] = None
@@ -29,7 +30,7 @@ class TokenModel:
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     metadata: Optional[Dict[str, Any]] = None
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for database operations"""
         return {
@@ -43,7 +44,7 @@ class TokenModel:
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "metadata": self.metadata
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TokenModel":
         """Create instance from dictionary"""
@@ -58,11 +59,11 @@ class TokenModel:
             updated_at=datetime.fromisoformat(data["updated_at"]) if data.get("updated_at") else None,
             metadata=data.get("metadata")
         )
-    
+
     def is_draft(self) -> bool:
         """Check if token is in draft status"""
         return self.model_status == ModelStatus.DRAFT
-    
+
     def can_register(self) -> bool:
         """Check if token can be registered"""
         return self.model_status in [ModelStatus.DRAFT, ModelStatus.FAILED]

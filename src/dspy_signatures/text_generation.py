@@ -7,11 +7,11 @@ from .base import BaseSignature, SignatureField
 
 class DraftText(BaseSignature):
     """Generate an initial draft of text based on topic and purpose."""
-    
+
     category = "text_generation"
     tags = ["writing", "generation", "draft"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -49,7 +49,7 @@ class DraftText(BaseSignature):
                 default="general"
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -66,7 +66,7 @@ class DraftText(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [
@@ -89,11 +89,11 @@ class DraftText(BaseSignature):
 
 class ReviseText(BaseSignature):
     """Revise and improve existing text based on feedback."""
-    
+
     category = "text_generation"
     tags = ["writing", "revision", "editing"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -124,7 +124,7 @@ class ReviseText(BaseSignature):
                 default=True
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -147,7 +147,7 @@ class ReviseText(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [
@@ -163,11 +163,11 @@ class ReviseText(BaseSignature):
 
 class ExpandText(BaseSignature):
     """Expand text by adding more detail, examples, or elaboration."""
-    
+
     category = "text_generation"
     tags = ["writing", "expansion", "elaboration"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -198,7 +198,7 @@ class ExpandText(BaseSignature):
                 default="all"
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -215,7 +215,7 @@ class ExpandText(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [
@@ -231,11 +231,11 @@ class ExpandText(BaseSignature):
 
 class RefineText(BaseSignature):
     """Refine text for clarity, conciseness, and polish."""
-    
+
     category = "text_generation"
     tags = ["writing", "refinement", "polish"]
     version = "1.0.0"
-    
+
     @classmethod
     def get_input_fields(cls) -> List[SignatureField]:
         return [
@@ -266,7 +266,7 @@ class RefineText(BaseSignature):
                 default="neutral"
             )
         ]
-    
+
     @classmethod
     def get_output_fields(cls) -> List[SignatureField]:
         return [
@@ -289,7 +289,7 @@ class RefineText(BaseSignature):
                 required=False
             )
         ]
-    
+
     @classmethod
     def get_examples(cls) -> List[Dict[str, Any]]:
         return [

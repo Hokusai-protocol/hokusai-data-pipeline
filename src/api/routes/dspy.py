@@ -34,11 +34,12 @@ def get_executor() -> DSPyPipelineExecutor:
 
 class DSPyExecutionRequest(BaseModel):
     """Request model for DSPy execution."""
+
     program_id: Optional[str] = Field(None, description="ID of the registered DSPy program")
     inputs: Dict[str, Any] = Field(..., description="Input data for the program")
     mode: Optional[str] = Field("normal", description="Execution mode: normal, dry_run, debug")
     timeout: Optional[int] = Field(None, description="Override default timeout in seconds")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -55,9 +56,10 @@ class DSPyExecutionRequest(BaseModel):
 
 class DSPyBatchExecutionRequest(BaseModel):
     """Request model for batch DSPy execution."""
+
     program_id: str = Field(..., description="ID of the registered DSPy program")
     inputs_list: List[Dict[str, Any]] = Field(..., description="List of input dictionaries")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -80,6 +82,7 @@ class DSPyBatchExecutionRequest(BaseModel):
 
 class DSPyExecutionResponse(BaseModel):
     """Response model for DSPy execution."""
+
     execution_id: str = Field(..., description="Unique execution identifier")
     success: bool = Field(..., description="Whether execution was successful")
     outputs: Optional[Dict[str, Any]] = Field(None, description="Program outputs")
@@ -91,6 +94,7 @@ class DSPyExecutionResponse(BaseModel):
 
 class DSPyBatchExecutionResponse(BaseModel):
     """Response model for batch DSPy execution."""
+
     batch_id: str = Field(..., description="Unique batch identifier")
     total: int = Field(..., description="Total number of executions")
     successful: int = Field(..., description="Number of successful executions")
@@ -100,6 +104,7 @@ class DSPyBatchExecutionResponse(BaseModel):
 
 class DSPyProgramInfo(BaseModel):
     """Information about a DSPy program."""
+
     program_id: str = Field(..., description="Program identifier")
     name: str = Field(..., description="Program name")
     version: str = Field(..., description="Program version")
@@ -120,26 +125,26 @@ async def execute_dspy_program(
     """
     try:
         executor = get_executor()
-        
+
         # Parse execution mode
         mode = ExecutionMode.NORMAL
         if request.mode:
             mode = ExecutionMode[request.mode.upper()]
-        
+
         # Execute program
         result = executor.execute(
             model_id=request.program_id,
             inputs=request.inputs,
             mode=mode
         )
-        
+
         # Generate execution ID
         execution_id = str(uuid.uuid4())
-        
+
         # Log execution for tracking
         logger.info(f"DSPy execution {execution_id} for user {token_data.get('sub')}: "
                    f"program={request.program_id}, success={result.success}")
-        
+
         return DSPyExecutionResponse(
             execution_id=execution_id,
             success=result.success,
@@ -149,7 +154,7 @@ async def execute_dspy_program(
             program_name=result.program_name,
             metadata=result.metadata
         )
-        
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -170,20 +175,20 @@ async def execute_dspy_batch(
     """
     try:
         executor = get_executor()
-        
+
         # Execute batch
         results = executor.execute_batch(
             model_id=request.program_id,
             inputs_list=request.inputs_list
         )
-        
+
         # Generate batch ID
         batch_id = str(uuid.uuid4())
-        
+
         # Count successes and failures
         successful = sum(1 for r in results if r.success)
         failed = len(results) - successful
-        
+
         # Convert results to response format
         response_results = []
         for i, result in enumerate(results):
@@ -196,11 +201,11 @@ async def execute_dspy_batch(
                 program_name=result.program_name,
                 metadata=result.metadata
             ))
-        
+
         logger.info(f"DSPy batch execution {batch_id} for user {token_data.get('sub')}: "
                    f"program={request.program_id}, total={len(results)}, "
                    f"successful={successful}, failed={failed}")
-        
+
         return DSPyBatchExecutionResponse(
             batch_id=batch_id,
             total=len(results),
@@ -208,7 +213,7 @@ async def execute_dspy_batch(
             failed=failed,
             results=response_results
         )
-        
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -228,11 +233,11 @@ async def list_dspy_programs(
         # Get list of available programs from model registry
         from src.services.model_registry import HokusaiModelRegistry
         registry = HokusaiModelRegistry()
-        
+
         # Filter for DSPy programs
         programs = []
         all_models = registry.list_models(model_type="dspy")
-        
+
         for model in all_models:
             programs.append(DSPyProgramInfo(
                 program_id=model["id"],
@@ -241,11 +246,11 @@ async def list_dspy_programs(
                 signatures=model.get("signatures", []),
                 description=model.get("description")
             ))
-        
+
         logger.info(f"Listed {len(programs)} DSPy programs for user {token_data.get('sub')}")
-        
+
         return programs
-        
+
     except Exception as e:
         logger.error(f"Error listing DSPy programs: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to list programs: {str(e)}")
@@ -280,13 +285,13 @@ async def get_execution_stats(
     try:
         executor = get_executor()
         stats = executor.get_execution_stats()
-        
+
         return {
             "statistics": stats,
             "cache_enabled": executor.cache_enabled,
             "mlflow_tracking": executor.mlflow_tracking
         }
-        
+
     except Exception as e:
         logger.error(f"Error getting execution stats: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get stats: {str(e)}")
@@ -304,11 +309,11 @@ async def clear_cache(
     try:
         executor = get_executor()
         executor.clear_cache()
-        
+
         logger.info(f"DSPy cache cleared by user {token_data.get('sub')}")
-        
+
         return {"message": "Cache cleared successfully"}
-        
+
     except Exception as e:
         logger.error(f"Error clearing cache: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to clear cache: {str(e)}")
@@ -321,7 +326,7 @@ async def dspy_health_check():
     try:
         executor = get_executor()
         stats = executor.get_execution_stats()
-        
+
         return {
             "status": "healthy",
             "total_executions": stats.get("total_executions", 0),

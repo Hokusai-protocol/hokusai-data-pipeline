@@ -30,7 +30,7 @@ def sample_data():
     """Create sample dataset for testing."""
     np.random.seed(42)
     n_samples = 1000
-    
+
     data = pd.DataFrame({
         "query_id": [f"q_{i}" for i in range(n_samples)],
         "query_text": [f"sample query {i}" for i in range(n_samples)],
@@ -39,7 +39,7 @@ def sample_data():
         "feature_3": np.random.randn(n_samples),
         "label": np.random.randint(0, 2, n_samples)
     })
-    
+
     return data
 
 
@@ -94,19 +94,19 @@ def sample_contributed_data(temp_dir):
         "feature_3": np.random.randn(100),
         "label": np.random.randint(0, 2, 100)
     })
-    
+
     # Save as CSV
     csv_path = temp_dir / "contributed_data.csv"
     data.to_csv(csv_path, index=False)
-    
+
     # Save as JSON
     json_path = temp_dir / "contributed_data.json"
     data.to_json(json_path, orient="records")
-    
+
     # Save as Parquet
     parquet_path = temp_dir / "contributed_data.parquet"
     data.to_parquet(parquet_path)
-    
+
     return {
         "data": data,
         "csv_path": csv_path,
@@ -123,9 +123,9 @@ def sample_model_path(temp_dir):
         "version": "1.0.0",
         "weights": [0.1, 0.2, 0.3]
     }
-    
+
     model_path = temp_dir / "model.json"
     with open(model_path, "w") as f:
         json.dump(model_data, f)
-    
+
     return model_path

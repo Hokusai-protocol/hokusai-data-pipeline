@@ -11,7 +11,7 @@ class TestETHOutputFormatting:
     def setup_method(self):
         """Set up test fixtures."""
         self.formatter = ZKCompatibleOutputFormatter()
-        
+
         # Mock base pipeline results
         self.base_results = {
             "contributor_attribution": {
@@ -47,9 +47,9 @@ class TestETHOutputFormatting:
         """Test formatting single contributor with ETH address."""
         # Add ETH address to contributor data
         self.base_results["contributor_attribution"]["wallet_address"] = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
-        
+
         result = self.formatter.format_output(self.base_results)
-        
+
         # Should use contributor_info format (single contributor)
         assert "contributor_info" in result
         assert "contributors" not in result
@@ -58,7 +58,7 @@ class TestETHOutputFormatting:
     def test_single_contributor_without_eth_address(self):
         """Test formatting single contributor without ETH address."""
         result = self.formatter.format_output(self.base_results)
-        
+
         # Should use contributor_info format without wallet_address
         assert "contributor_info" in result
         assert "contributors" not in result
@@ -95,20 +95,20 @@ class TestETHOutputFormatting:
                 "wallet_address": "0xfB6916095ca1df60bB79Ce92cE3Ea74c37c5d359"
             }
         ]
-        
+
         result = self.formatter.format_output(self.base_results)
-        
+
         # Should use contributors array format (multiple contributors)
         assert "contributors" in result
         assert "contributor_info" not in result
         assert len(result["contributors"]) == 2
-        
+
         # Check first contributor
         contrib1 = result["contributors"][0]
         assert contrib1["id"] == "contributor_1"
         assert contrib1["wallet_address"] == "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
         assert contrib1["weight"] == 0.7
-        
+
         # Check second contributor
         contrib2 = result["contributors"][1]
         assert contrib2["id"] == "contributor_2"
@@ -133,13 +133,13 @@ class TestETHOutputFormatting:
                 # No wallet_address provided
             }
         ]
-        
+
         result = self.formatter.format_output(self.base_results)
-        
+
         # Check that only first contributor has wallet_address
         contrib1 = result["contributors"][0]
         contrib2 = result["contributors"][1]
-        
+
         assert "wallet_address" in contrib1
         assert contrib1["wallet_address"] == "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
         assert "wallet_address" not in contrib2
@@ -148,13 +148,13 @@ class TestETHOutputFormatting:
         """Test handling of invalid ETH addresses."""
         # Add invalid ETH address
         self.base_results["contributor_attribution"]["wallet_address"] = "invalid_address"
-        
-        with patch('builtins.print') as mock_print:
+
+        with patch("builtins.print") as mock_print:
             result = self.formatter.format_output(self.base_results)
-            
+
             # Should not include wallet_address field
             assert "wallet_address" not in result["contributor_info"]
-            
+
             # Should have printed warning
             mock_print.assert_called_once()
             warning_msg = mock_print.call_args[0][0]
@@ -164,9 +164,9 @@ class TestETHOutputFormatting:
         """Test that ETH addresses are properly normalized."""
         # Add lowercase ETH address
         self.base_results["contributor_attribution"]["wallet_address"] = "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed"
-        
+
         result = self.formatter.format_output(self.base_results)
-        
+
         # Should be normalized to proper checksum format
         assert result["contributor_info"]["wallet_address"] == "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
 
@@ -174,30 +174,30 @@ class TestETHOutputFormatting:
         """Test handling of ETH addresses with uppercase X prefix."""
         # Add ETH address with uppercase X
         self.base_results["contributor_attribution"]["wallet_address"] = "0X5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED"
-        
+
         result = self.formatter.format_output(self.base_results)
-        
+
         # Should be normalized to proper format
         assert result["contributor_info"]["wallet_address"] == "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
 
     def test_format_and_validate_with_eth_address(self):
         """Test format_and_validate with ETH address."""
         self.base_results["contributor_attribution"]["wallet_address"] = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
-        
+
         formatted_output, is_valid, errors = self.formatter.format_and_validate(self.base_results)
-        
+
         # Print debug info if test fails
         if not is_valid:
             print(f"Validation errors: {errors}")
             print(f"Formatted output: {formatted_output}")
-        
+
         assert formatted_output["contributor_info"]["wallet_address"] == "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
         # Note: We expect validation to fail because we don't have complete test data for all required fields
 
     def test_backward_compatibility(self):
         """Test that outputs without ETH addresses still work."""
         result = self.formatter.format_output(self.base_results)
-        
+
         # Should still generate valid output structure
         assert "contributor_info" in result
         assert "schema_version" in result
@@ -206,6 +206,6 @@ class TestETHOutputFormatting:
         assert "delta_computation" in result
         assert "models" in result
         assert "attestation" in result
-        
+
         # Should not have wallet_address field
         assert "wallet_address" not in result["contributor_info"]

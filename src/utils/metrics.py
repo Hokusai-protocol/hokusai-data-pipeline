@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class MetricCategory(Enum):
     """Categories for organizing metrics."""
+
     USAGE = "usage"
     MODEL = "model"
     PIPELINE = "pipeline"
@@ -30,7 +31,7 @@ STANDARD_METRICS = {
     "usage:engagement_rate": "User engagement rate",
     "usage:click_through_rate": "Click-through rate",
     "usage:retention_rate": "User retention rate",
-    
+
     # Model metrics - track model performance
     "model:accuracy": "Model accuracy score",
     "model:precision": "Model precision score",
@@ -39,24 +40,25 @@ STANDARD_METRICS = {
     "model:auroc": "Area under ROC curve",
     "model:latency_ms": "Inference latency in milliseconds",
     "model:throughput_qps": "Queries per second",
-    
+
     # Pipeline metrics - track pipeline execution
     "pipeline:data_processed": "Amount of data processed",
     "pipeline:success_rate": "Pipeline success rate",
     "pipeline:duration_seconds": "Pipeline execution time",
     "pipeline:memory_usage_mb": "Memory usage in megabytes",
     "pipeline:error_rate": "Pipeline error rate",
-    
+
     # Custom metrics placeholder
     "custom:metric": "Custom metric (user-defined)"
 }
 
 # Regex pattern for valid metric names
-METRIC_NAME_PATTERN = re.compile(r'^([a-z]+:)?[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$')
+METRIC_NAME_PATTERN = re.compile(r"^([a-z]+:)?[a-z][a-z0-9_]*(\.[a-z0-9_]+)*$")
 
 
 class MetricValidationError(Exception):
     """Raised when metric validation fails."""
+
     pass
 
 
@@ -68,6 +70,7 @@ def validate_metric_name(name: str) -> bool:
         
     Returns:
         True if valid, False otherwise
+
     """
     if not name:
         return False
@@ -82,9 +85,10 @@ def parse_metric_name(name: str) -> Tuple[Optional[str], str]:
         
     Returns:
         Tuple of (category, base_name) or (None, name) if no category
+
     """
-    if ':' in name:
-        parts = name.split(':', 1)
+    if ":" in name:
+        parts = name.split(":", 1)
         return parts[0], parts[1]
     return None, name
 
@@ -98,6 +102,7 @@ def format_metric_name(category: Optional[str], name: str) -> str:
         
     Returns:
         Formatted metric name
+
     """
     if category:
         return f"{category}:{name}"
@@ -112,16 +117,17 @@ def validate_metric_value(value: Any) -> bool:
         
     Returns:
         True if valid, False otherwise
+
     """
     if not isinstance(value, (int, float)):
         return False
-    
+
     if isinstance(value, float):
-        if not (-float('inf') < value < float('inf')):
+        if not (-float("inf") < value < float("inf")):
             return False
         if value != value:  # NaN check
             return False
-    
+
     return True
 
 
@@ -133,6 +139,7 @@ def migrate_metric_name(old_name: str) -> str:
         
     Returns:
         New standardized metric name
+
     """
     # Common migrations
     migrations = {
@@ -149,21 +156,22 @@ def migrate_metric_name(old_name: str) -> str:
         "duration": "pipeline:duration_seconds",
         "latency": "model:latency_ms"
     }
-    
+
     return migrations.get(old_name, old_name)
 
 
 class MetricLogger:
     """Centralized metric logging with MLflow integration."""
-    
+
     def __init__(self, allow_legacy_names: bool = False):
         """Initialize MetricLogger.
         
         Args:
             allow_legacy_names: Whether to allow non-standard metric names
+
         """
         self.allow_legacy_names = allow_legacy_names
-    
+
     def log_metric(
         self,
         name: str,
@@ -181,6 +189,7 @@ class MetricLogger:
             
         Raises:
             MetricValidationError: If validation fails and raise_on_error=True
+
         """
         # Validate metric name
         if not self.allow_legacy_names and not validate_metric_name(name):
@@ -189,7 +198,7 @@ class MetricLogger:
                 raise MetricValidationError(error_msg)
             logger.warning(error_msg)
             return
-        
+
         # Validate metric value
         if not validate_metric_value(value):
             error_msg = f"Invalid metric value for {name}: {value}"
@@ -197,7 +206,7 @@ class MetricLogger:
                 raise MetricValidationError(error_msg)
             logger.warning(error_msg)
             return
-        
+
         try:
             if step is not None:
                 mlflow.log_metric(name, value, step=step)
@@ -209,7 +218,7 @@ class MetricLogger:
             if raise_on_error:
                 raise
             logger.warning(error_msg)
-    
+
     def log_metrics(
         self,
         metrics: Dict[str, float],
@@ -222,6 +231,7 @@ class MetricLogger:
             metrics: Dictionary of metric name to value
             step: Optional step/iteration number
             raise_on_error: Whether to raise exceptions or log warnings
+
         """
         # Validate all metrics first
         for name, value in metrics.items():
@@ -231,19 +241,19 @@ class MetricLogger:
                     raise MetricValidationError(error_msg)
                 logger.warning(error_msg)
                 continue
-            
+
             if not validate_metric_value(value):
                 error_msg = f"Invalid metric value in batch for {name}: {value}"
                 if raise_on_error:
                     raise MetricValidationError(error_msg)
                 logger.warning(error_msg)
                 continue
-        
+
         # Log all valid metrics
         for name, value in metrics.items():
             if (self.allow_legacy_names or validate_metric_name(name)) and validate_metric_value(value):
                 self.log_metric(name, value, step, raise_on_error=False)
-    
+
     def log_metric_with_metadata(
         self,
         name: str,
@@ -258,10 +268,11 @@ class MetricLogger:
             value: Metric value
             metadata: Additional metadata to log as parameters
             step: Optional step/iteration number
+
         """
         # Log the metric
         self.log_metric(name, value, step)
-        
+
         # Log metadata as parameters
         for key, val in metadata.items():
             param_name = f"metric_metadata.{name}.{key}"
@@ -269,7 +280,7 @@ class MetricLogger:
                 mlflow.log_param(param_name, str(val))
             except MlflowException as e:
                 logger.warning(f"Failed to log metadata for {name}: {e}")
-    
+
     def get_metrics_by_prefix(
         self,
         run_id: str,
@@ -283,11 +294,12 @@ class MetricLogger:
             
         Returns:
             Dictionary of matching metrics
+
         """
         try:
             run = mlflow.get_run(run_id)
             metrics = run.data.metrics
-            
+
             return {
                 name: value
                 for name, value in metrics.items()
@@ -296,7 +308,7 @@ class MetricLogger:
         except MlflowException as e:
             logger.error(f"Failed to get metrics for run {run_id}: {e}")
             return {}
-    
+
     def aggregate_metrics(
         self,
         metrics_list: List[Dict[str, float]]
@@ -308,14 +320,15 @@ class MetricLogger:
             
         Returns:
             Aggregated metrics with mean, min, max, median
+
         """
         aggregated = {}
-        
+
         # Collect all unique metric names
         all_metrics = set()
         for metrics in metrics_list:
             all_metrics.update(metrics.keys())
-        
+
         # Aggregate each metric
         for metric_name in all_metrics:
             values = [
@@ -323,7 +336,7 @@ class MetricLogger:
                 for metrics in metrics_list
                 if metric_name in metrics
             ]
-            
+
             if values:
                 aggregated[metric_name] = {
                     "mean": mean(values),
@@ -332,7 +345,7 @@ class MetricLogger:
                     "median": median(values),
                     "count": len(values)
                 }
-        
+
         return aggregated
 
 

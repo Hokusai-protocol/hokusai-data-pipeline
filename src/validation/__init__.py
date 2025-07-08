@@ -1,5 +1,4 @@
-"""
-Metric validation system for Hokusai ML Platform
+"""Metric validation system for Hokusai ML Platform
 """
 
 from .metrics import MetricValidator, SupportedMetrics
