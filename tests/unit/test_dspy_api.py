@@ -203,7 +203,7 @@ class TestDSPyAPI:
             },
         ]
 
-        with patch("src.api.routes.dspy.HokusaiModelRegistry") as mock_registry_class:
+        with patch("src.services.model_registry.HokusaiModelRegistry") as mock_registry_class:
             mock_registry = MagicMock()
             mock_registry.list_models.return_value = mock_models
             mock_registry_class.return_value = mock_registry

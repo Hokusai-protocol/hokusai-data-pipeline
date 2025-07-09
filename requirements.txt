@@ -323,6 +323,9 @@ wheel==0.45.1
 zipp==3.23.0
     # via importlib-metadata
 
+moto==4.2.11
+    # via -r requirements-all.in
+
 # The following packages are considered to be unsafe in a requirements file:
 # pip
 # setuptools

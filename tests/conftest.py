@@ -150,8 +150,9 @@ def set_test_env_vars():
         "REDIS_HOST": "localhost",
         "REDIS_PORT": "6379",
         "POSTGRES_URI": "postgresql://test:test@localhost:5432/test",
-        "AWS_ACCESS_KEY_ID": "test",
-        "AWS_SECRET_ACCESS_KEY": "test",
+        "AWS_ACCESS_KEY_ID": "test_access_key",
+        "AWS_SECRET_ACCESS_KEY": "test_secret_key",
+        "AWS_SESSION_TOKEN": "test_session_token",
         "AWS_DEFAULT_REGION": "us-east-1"
     }
     
@@ -168,3 +169,14 @@ def set_test_env_vars():
             os.environ.pop(key, None)
         else:
             os.environ[key] = value
+
+
+@pytest.fixture(autouse=True)
+def mock_aws_credentials(monkeypatch):
+    """Mock AWS credentials for tests."""
+    # This prevents boto3 from trying to load real credentials
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    monkeypatch.setenv("AWS_SECURITY_TOKEN", "testing")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
