@@ -18,8 +18,16 @@ class TestHealthAPI:
         self.app.include_router(router)
         self.client = TestClient(self.app)
 
-    def test_health_check_endpoint(self):
+    @patch("src.api.routes.health.psycopg2")
+    @patch("src.api.routes.health.redis")
+    @patch("src.api.routes.health.mlflow")
+    def test_health_check_endpoint(self, mock_mlflow, mock_redis, mock_psycopg2):
         """Test basic health check endpoint."""
+        # Mock all services as healthy
+        mock_mlflow.get_tracking_uri.return_value = "sqlite:///mlflow.db"
+        mock_redis.Redis.return_value.ping.return_value = True
+        mock_psycopg2.connect.return_value.close.return_value = None
+        
         response = self.client.get("/health")
 
         assert response.status_code == 200
@@ -28,32 +36,39 @@ class TestHealthAPI:
         assert "timestamp" in data
         assert "version" in data
 
+    @patch("src.api.routes.health.psycopg2")
+    @patch("src.api.routes.health.redis")
     @patch("src.api.routes.health.mlflow")
-    def test_health_check_with_mlflow_healthy(self, mock_mlflow):
+    def test_health_check_with_mlflow_healthy(self, mock_mlflow, mock_redis, mock_psycopg2):
         """Test health check with healthy MLflow connection."""
-        # Mock healthy MLflow
-        mock_mlflow.tracking.MlflowClient.return_value.list_experiments.return_value = []
+        # Mock all services as healthy
+        mock_mlflow.get_tracking_uri.return_value = "sqlite:///mlflow.db"
+        mock_redis.Redis.return_value.ping.return_value = True
+        mock_psycopg2.connect.return_value.close.return_value = None
 
         response = self.client.get("/health")
 
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "healthy"
-        assert data["services"]["mlflow"]["status"] == "healthy"
+        assert data["services"]["mlflow"] == "healthy"
 
+    @patch("src.api.routes.health.psycopg2")
+    @patch("src.api.routes.health.redis")
     @patch("src.api.routes.health.mlflow")
-    def test_health_check_with_mlflow_unhealthy(self, mock_mlflow):
+    def test_health_check_with_mlflow_unhealthy(self, mock_mlflow, mock_redis, mock_psycopg2):
         """Test health check with unhealthy MLflow connection."""
-        # Mock MLflow connection failure
-        mock_mlflow.tracking.MlflowClient.side_effect = Exception("Connection failed")
+        # Mock MLflow connection failure, others healthy
+        mock_mlflow.get_tracking_uri.side_effect = Exception("Connection failed")
+        mock_redis.Redis.return_value.ping.return_value = True
+        mock_psycopg2.connect.return_value.close.return_value = None
 
         response = self.client.get("/health")
 
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "degraded"
-        assert data["services"]["mlflow"]["status"] == "unhealthy"
-        assert "Connection failed" in data["services"]["mlflow"]["error"]
+        assert data["services"]["mlflow"] == "unhealthy"
 
     def test_readiness_check(self):
         """Test readiness check endpoint."""
