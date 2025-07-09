@@ -118,3 +118,4 @@ class HealthCheckResponse(BaseModel):
     version: str
     services: dict[str, str]
     timestamp: datetime
+    system_info: Optional[dict[str, float]] = None

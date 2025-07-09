@@ -1,9 +1,11 @@
 """Pytest configuration and fixtures."""
 
 import json
+import os
 import shutil
 import tempfile
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pandas as pd
@@ -112,3 +114,57 @@ def sample_model_path(temp_dir):
         json.dump(model_data, f)
 
     return model_path
+
+
+@pytest.fixture(autouse=True)
+def mock_mlflow_globally():
+    """Mock MLflow globally to prevent actual connections in tests."""
+    with patch("mlflow.set_tracking_uri") as mock_set_uri, \
+         patch("mlflow.get_experiment_by_name") as mock_get_exp, \
+         patch("mlflow.create_experiment") as mock_create_exp, \
+         patch("mlflow.set_experiment") as mock_set_exp, \
+         patch("mlflow.start_run") as mock_start_run, \
+         patch("mlflow.log_params") as mock_log_params, \
+         patch("mlflow.log_metrics") as mock_log_metrics, \
+         patch("mlflow.set_tag") as mock_set_tag, \
+         patch("mlflow.log_artifact") as mock_log_artifact, \
+         patch("mlflow.pyfunc.load_model") as mock_load_model, \
+         patch("mlflow.models.get_model_info") as mock_get_model_info:
+        
+        # Setup default return values
+        mock_get_exp.return_value = Mock(experiment_id="test_exp_id")
+        mock_create_exp.return_value = "test_exp_id"
+        mock_start_run.return_value.__enter__ = Mock(return_value=Mock(info=Mock(run_id="test_run_id")))
+        mock_start_run.return_value.__exit__ = Mock(return_value=None)
+        mock_load_model.return_value = Mock()
+        mock_get_model_info.return_value = Mock(run_id="test_run_id", model_uuid="test_uuid")
+        
+        yield
+
+
+@pytest.fixture(autouse=True)
+def set_test_env_vars():
+    """Set environment variables for testing."""
+    test_env = {
+        "MLFLOW_TRACKING_URI": "file:///tmp/test_mlruns",
+        "REDIS_HOST": "localhost",
+        "REDIS_PORT": "6379",
+        "POSTGRES_URI": "postgresql://test:test@localhost:5432/test",
+        "AWS_ACCESS_KEY_ID": "test",
+        "AWS_SECRET_ACCESS_KEY": "test",
+        "AWS_DEFAULT_REGION": "us-east-1"
+    }
+    
+    original_env = {}
+    for key, value in test_env.items():
+        original_env[key] = os.environ.get(key)
+        os.environ[key] = value
+    
+    yield
+    
+    # Restore original environment
+    for key, value in original_env.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
