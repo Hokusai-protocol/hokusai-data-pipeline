@@ -3,7 +3,7 @@
 
 import json
 import os
-from typing import Dict, Any, List
+from typing import Any, Dict
 
 
 def generate_task_definition(
@@ -15,13 +15,13 @@ def generate_task_definition(
     port: int = 8001
 ) -> Dict[str, Any]:
     """Generate ECS task definition for a service."""
-    
+
     # Environment variables for the container
     env_vars = [
         {"name": "ENVIRONMENT", "value": environment},
         {"name": "AWS_DEFAULT_REGION", "value": os.environ.get("AWS_REGION", "us-east-1")},
     ]
-    
+
     # Service-specific configuration
     if service_name == "hokusai-api":
         env_vars.extend([
@@ -37,7 +37,7 @@ def generate_task_definition(
             {"name": "DEFAULT_ARTIFACT_ROOT", "value": "s3://${S3_ARTIFACTS_BUCKET}/artifacts"},
         ])
         port = 5000
-    
+
     # Generate task definition
     task_definition = {
         "family": f"{service_name}-{environment}",
@@ -82,7 +82,7 @@ def generate_task_definition(
         "executionRoleArn": "${ECS_TASK_EXECUTION_ROLE_ARN}",
         "taskRoleArn": "${ECS_TASK_ROLE_ARN}"
     }
-    
+
     # Add secrets from Secrets Manager
     if service_name == "hokusai-api":
         task_definition["containerDefinitions"][0]["secrets"] = [
@@ -95,21 +95,21 @@ def generate_task_definition(
                 "valueFrom": "${APP_SECRETS_ARN}:database_password::"
             }
         ]
-    
+
     return task_definition
 
 
 def save_task_definition(task_def: Dict[str, Any], output_path: str) -> None:
     """Save task definition to file."""
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         json.dump(task_def, f, indent=2)
     print(f"Task definition saved to: {output_path}")
 
 
-def main():
+def main() -> None:
     """Generate task definitions for all services."""
     environment = os.environ.get("ENVIRONMENT", "development")
-    
+
     # API service task definition
     api_task_def = generate_task_definition(
         service_name="hokusai-api",
@@ -119,7 +119,7 @@ def main():
         memory=int(os.environ.get("API_MEMORY", 512))
     )
     save_task_definition(api_task_def, f"task-def-api-{environment}.json")
-    
+
     # MLflow service task definition
     mlflow_task_def = generate_task_definition(
         service_name="hokusai-mlflow",

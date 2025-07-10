@@ -1,15 +1,16 @@
 """Main FastAPI application for Hokusai MLOps services."""
 
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-import logging
+from slowapi.util import get_remote_address
 
-from src.api.routes import models, health, dspy
 from src.api.middleware.auth import AuthMiddleware
+from src.api.routes import dspy, health, models
 from src.api.utils.config import get_settings
 
 # Configure logging
@@ -25,7 +26,7 @@ app = FastAPI(
     description="API for model registry, performance tracking, and experiment management",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
 )
 
 # Configure CORS
@@ -50,26 +51,26 @@ app.include_router(health.router, tags=["health"])
 app.include_router(models.router, prefix="/models", tags=["models"])
 app.include_router(dspy.router, tags=["dspy"])
 
+
 # Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Handle uncaught exceptions."""
     logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error"}
-    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
 
 # Startup event
 @app.on_event("startup")
-async def startup_event():
+async def startup_event() -> None:
     """Initialize services on startup."""
     logger.info("Starting Hokusai MLOps API...")
     # Initialize database connections, caches, etc.
 
+
 # Shutdown event
 @app.on_event("shutdown")
-async def shutdown_event():
+async def shutdown_event() -> None:
     """Cleanup on shutdown."""
     logger.info("Shutting down Hokusai MLOps API...")
     # Close database connections, flush caches, etc.

@@ -1,0 +1,7 @@
+# MLflow and data science dependencies
+-r requirements-core.in
+mlflow==2.9.0
+metaflow==2.11.0
+numpy<2.0  # MLflow requirement
+pandas==2.0.3
+scikit-learn==1.4.0

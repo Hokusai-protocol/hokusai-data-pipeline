@@ -1,12 +1,13 @@
 """Module for model training."""
 
-from typing import Dict, Any, Optional, Tuple
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split
 from datetime import datetime
+from typing import Any, Optional
+
 import mlflow
 import mlflow.sklearn
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
 
 
 class ModelTrainer:
@@ -16,8 +17,8 @@ class ModelTrainer:
         self,
         random_seed: int = 42,
         mlflow_tracking_uri: Optional[str] = None,
-        experiment_name: Optional[str] = None
-    ):
+        experiment_name: Optional[str] = None,
+    ) -> None:
         self.random_seed = random_seed
         np.random.seed(random_seed)
 
@@ -31,8 +32,8 @@ class ModelTrainer:
         df: pd.DataFrame,
         target_column: str,
         feature_columns: Optional[list] = None,
-        test_size: float = 0.2
-    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+        test_size: float = 0.2,
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
         """Prepare data for training.
 
         Args:
@@ -44,27 +45,25 @@ class ModelTrainer:
 
         Returns:
             X_train, X_test, y_train, y_test
+
         """
         if feature_columns is None:
-            feature_columns = [col for col in df.columns
-                               if col != target_column]
+            feature_columns = [col for col in df.columns if col != target_column]
 
         X = df[feature_columns]
         y = df[target_column]
 
         return train_test_split(
-            X, y,
+            X,
+            y,
             test_size=test_size,
             random_state=self.random_seed,
-            stratify=y if len(np.unique(y)) < 100 else None
+            stratify=y if len(np.unique(y)) < 100 else None,
         )
-    
+
     def train_mock_model(
-        self,
-        X_train: pd.DataFrame,
-        y_train: pd.Series,
-        model_type: str = "mock_classifier"
-    ) -> Dict[str, Any]:
+        self, X_train: pd.DataFrame, y_train: pd.Series, model_type: str = "mock_classifier"
+    ) -> dict[str, Any]:
         """Train a mock model for testing.
 
         Args:
@@ -74,6 +73,7 @@ class ModelTrainer:
 
         Returns:
             Mock trained model
+
         """
         # Simulate training metrics with some randomness
         base_accuracy = 0.85
@@ -91,23 +91,21 @@ class ModelTrainer:
                 "precision": base_accuracy + improvement - 0.02,
                 "recall": base_accuracy + improvement + 0.02,
                 "f1_score": base_accuracy + improvement,
-                "auroc": min(0.95, base_accuracy + improvement + 0.06)
+                "auroc": min(0.95, base_accuracy + improvement + 0.06),
             },
             "parameters": {
                 "random_seed": self.random_seed,
-                "training_duration_seconds": np.random.uniform(10, 60)
+                "training_duration_seconds": np.random.uniform(10, 60),
             },
-            "feature_importance": {
-                col: np.random.uniform(0, 1) for col in X_train.columns
-            }
+            "feature_importance": {col: np.random.uniform(0, 1) for col in X_train.columns},
         }
-    
+
     def train_sklearn_model(
         self,
         X_train: pd.DataFrame,
         y_train: pd.Series,
         model_class: Any,
-        model_params: Optional[Dict[str, Any]] = None
+        model_params: Optional[dict[str, Any]] = None,
     ) -> Any:
         """Train a scikit-learn model.
 
@@ -119,6 +117,7 @@ class ModelTrainer:
 
         Returns:
             Trained model
+
         """
         if model_params is None:
             model_params = {}
@@ -131,8 +130,10 @@ class ModelTrainer:
         model.fit(X_train, y_train)
 
         return model
-    
-    def _log_model_data(self, model: Any, model_name: str, params: Dict[str, Any], metrics: Dict[str, float]):
+
+    def _log_model_data(
+        self, model: Any, model_name: str, params: dict[str, Any], metrics: dict[str, float]
+    ):
         """Helper method to log model data to MLflow."""
         # Log parameters
         for key, value in params.items():
@@ -143,26 +144,25 @@ class ModelTrainer:
             mlflow.log_metric(key, value)
 
         # Log model
-        if (isinstance(model, dict) and
-                model.get("type", "").startswith("mock")):
+        if isinstance(model, dict) and model.get("type", "").startswith("mock"):
             # For mock models, log as artifact
             import json
             import tempfile
-            with tempfile.NamedTemporaryFile(
-                    mode='w', suffix='.json', delete=False) as f:
+
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
                 json.dump(model, f, indent=2)
                 mlflow.log_artifact(f.name, artifact_path="model")
         else:
             # For real models
             mlflow.sklearn.log_model(model, model_name)
-    
+
     def log_model_to_mlflow(
         self,
         model: Any,
         model_name: str,
-        metrics: Dict[str, float],
-        params: Dict[str, Any],
-        artifacts: Optional[Dict[str, str]] = None
+        metrics: dict[str, float],
+        params: dict[str, Any],
+        artifacts: Optional[dict[str, str]] = None,
     ) -> str:
         """Log model to MLflow.
 
@@ -175,37 +175,34 @@ class ModelTrainer:
 
         Returns:
             MLflow run ID
+
         """
         # Use current active run if available, otherwise start a new one
         active_run = mlflow.active_run()
         if active_run:
             run = active_run
             self._log_model_data(model, model_name, params, metrics)
-            
+
             # Log additional artifacts
             if artifacts:
                 for artifact_name, artifact_path in artifacts.items():
                     mlflow.log_artifact(artifact_path, artifact_name)
-            
+
             return run.info.run_id
         else:
             with mlflow.start_run() as run:
                 self._log_model_data(model, model_name, params, metrics)
-                
+
                 # Log additional artifacts
                 if artifacts:
                     for artifact_name, artifact_path in artifacts.items():
                         mlflow.log_artifact(artifact_path, artifact_name)
-                
+
                 return run.info.run_id
-    
+
     def create_training_report(
-        self,
-        model: Any,
-        X_train: pd.DataFrame,
-        y_train: pd.Series,
-        training_time: float
-    ) -> Dict[str, Any]:
+        self, model: Any, X_train: pd.DataFrame, y_train: pd.Series, training_time: float
+    ) -> dict[str, Any]:
         """Create a training report.
 
         Args:
@@ -216,12 +213,11 @@ class ModelTrainer:
 
         Returns:
             Training report dictionary
+
         """
-        model_type = (type(model).__name__ if not isinstance(model, dict)
-                      else model.get("type"))
-        target_dist = (y_train.value_counts().to_dict()
-                       if hasattr(y_train, 'value_counts') else {})
-        
+        model_type = type(model).__name__ if not isinstance(model, dict) else model.get("type")
+        target_dist = y_train.value_counts().to_dict() if hasattr(y_train, "value_counts") else {}
+
         return {
             "model_type": model_type,
             "training_samples": len(X_train),
@@ -229,5 +225,5 @@ class ModelTrainer:
             "target_distribution": target_dist,
             "training_time_seconds": training_time,
             "timestamp": datetime.utcnow().isoformat(),
-            "feature_names": X_train.columns.tolist()
+            "feature_names": X_train.columns.tolist(),
         }

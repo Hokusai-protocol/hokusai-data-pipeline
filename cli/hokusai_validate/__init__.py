@@ -1,5 +1,4 @@
-"""
-Hokusai Data Validation CLI
+"""Hokusai Data Validation CLI.
 
 A command-line tool for validating, hashing, and previewing data
 before submission to the Hokusai pipeline.

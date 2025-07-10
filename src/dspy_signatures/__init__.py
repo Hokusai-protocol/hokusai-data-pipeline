@@ -1,42 +1,18 @@
-"""
-DSPy Signature Library for Hokusai Platform.
+"""DSPy Signature Library for Hokusai Platform.
 
 This module provides a comprehensive library of reusable DSPy signatures
 for common prompt patterns across the platform.
 """
 
-from .registry import SignatureRegistry, get_global_registry
+from .analysis import ClassifyText, CritiqueText, ExtractInfo, SummarizeText
 from .base import BaseSignature, SignatureField
+from .conversation import ClarifyIntent, GenerateFollowUp, ResolveQuery, RespondToUser
 from .loader import SignatureLoader
+from .registry import SignatureRegistry, get_global_registry
+from .task_specific import CodeGeneration, DataAnalysis, EmailDraft, ReportGeneration
 
 # Import all signature categories
-from .text_generation import (
-    DraftText,
-    ReviseText,
-    ExpandText,
-    RefineText
-)
-
-from .analysis import (
-    CritiqueText,
-    SummarizeText,
-    ExtractInfo,
-    ClassifyText
-)
-
-from .conversation import (
-    RespondToUser,
-    ClarifyIntent,
-    GenerateFollowUp,
-    ResolveQuery
-)
-
-from .task_specific import (
-    EmailDraft,
-    CodeGeneration,
-    DataAnalysis,
-    ReportGeneration
-)
+from .text_generation import DraftText, ExpandText, RefineText, ReviseText
 
 # Initialize global registry and register all signatures
 _registry = get_global_registry()
@@ -45,7 +21,7 @@ _registry = get_global_registry()
 for sig in [DraftText, ReviseText, ExpandText, RefineText]:
     _registry.register(sig(), sig.get_metadata())
 
-# Register analysis signatures  
+# Register analysis signatures
 for sig in [CritiqueText, SummarizeText, ExtractInfo, ClassifyText]:
     _registry.register(sig(), sig.get_metadata())
 
@@ -72,28 +48,24 @@ __all__ = [
     "BaseSignature",
     "SignatureField",
     "SignatureLoader",
-    
     # Text generation
     "DraftText",
-    "ReviseText", 
+    "ReviseText",
     "ExpandText",
     "RefineText",
-    
     # Analysis
     "CritiqueText",
     "SummarizeText",
     "ExtractInfo",
     "ClassifyText",
-    
     # Conversation
     "RespondToUser",
     "ClarifyIntent",
     "GenerateFollowUp",
     "ResolveQuery",
-    
     # Task-specific
     "EmailDraft",
     "CodeGeneration",
     "DataAnalysis",
-    "ReportGeneration"
+    "ReportGeneration",
 ]

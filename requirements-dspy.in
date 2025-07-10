@@ -1,0 +1,4 @@
+# DSPy-ai as optional dependency
+# Install separately after core dependencies
+dspy-ai>=2.6.0
+huggingface-hub>=0.19.0

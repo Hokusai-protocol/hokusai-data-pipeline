@@ -1,0 +1,37 @@
+# Original ruff configuration (strict)
+[tool.ruff]
+# Exclude common directories
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+]
+
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "D",  # pydocstyle
+    "UP", # pyupgrade
+    "N",  # pep8-naming
+    "C",  # flake8-comprehensions
+    "B",  # flake8-bugbear
+    "A",  # flake8-builtins
+    "S",  # flake8-bandit
+    "T",  # flake8-debugger
+    "Q",  # flake8-quotes
+    "ANN", # flake8-annotations
+]
+
+# Only allow E402 in specific files
+[tool.ruff.lint.per-file-ignores]
+"src/cli/signatures.py" = ["E402"]
+"tests/*" = ["D", "ANN", "S101"]  # Don't require docstrings/types in tests, allow assert

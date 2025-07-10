@@ -1,47 +1,51 @@
 """MLFlow configuration and utilities for the Hokusai pipeline."""
 
-import os
 import logging
-import mlflow
-from datetime import datetime
-from typing import Optional, Dict, Any
+import os
 from contextlib import contextmanager
+from datetime import datetime
+from typing import Any, Optional
+
+import mlflow
 
 logger = logging.getLogger(__name__)
 
 
 class MLFlowConfig:
     """Configuration manager for MLFlow tracking."""
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
         self.tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns")
         self.experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", "hokusai-pipeline")
         self.artifact_root = os.getenv("MLFLOW_ARTIFACT_ROOT", None)
-        
+
     def setup_tracking(self) -> None:
         """Initialize MLFlow tracking configuration."""
         try:
             mlflow.set_tracking_uri(self.tracking_uri)
             logger.info(f"MLFlow tracking URI set to: {self.tracking_uri}")
-            
+
             # Create or get experiment
             experiment = mlflow.get_experiment_by_name(self.experiment_name)
             if experiment is None:
                 experiment_id = mlflow.create_experiment(
-                    name=self.experiment_name,
-                    artifact_location=self.artifact_root
+                    name=self.experiment_name, artifact_location=self.artifact_root
                 )
-                logger.info(f"Created MLFlow experiment: {self.experiment_name} (ID: {experiment_id})")
+                logger.info(
+                    f"Created MLFlow experiment: {self.experiment_name} (ID: {experiment_id})"
+                )
             else:
                 experiment_id = experiment.experiment_id
-                logger.info(f"Using existing MLFlow experiment: {self.experiment_name} (ID: {experiment_id})")
-                
+                logger.info(
+                    f"Using existing MLFlow experiment: {self.experiment_name} (ID: {experiment_id})"
+                )
+
             mlflow.set_experiment(self.experiment_name)
-            
+
         except Exception as e:
             logger.error(f"Failed to setup MLFlow tracking: {e}")
             raise
-            
+
     def validate_connection(self) -> bool:
         """Validate MLFlow tracking server connection."""
         try:
@@ -74,7 +78,9 @@ def log_pipeline_metadata(run_id: str, step_name: str, metaflow_run_id: str) -> 
 
 
 @contextmanager
-def mlflow_run_context(run_name: str = None, experiment_name: str = None, tags: Dict[str, str] = None, **kwargs):
+def mlflow_run_context(
+    run_name: str = None, experiment_name: str = None, tags: dict[str, str] = None, **kwargs
+):
     """Context manager for MLFlow runs with automatic cleanup."""
     try:
         # Set up experiment if provided
@@ -83,14 +89,14 @@ def mlflow_run_context(run_name: str = None, experiment_name: str = None, tags: 
                 mlflow.set_experiment(experiment_name)
             except Exception as e:
                 logger.warning(f"Could not set experiment {experiment_name}: {e}")
-        
+
         with mlflow.start_run(run_name=run_name) as run:
             try:
                 # Log tags if provided
                 if tags:
                     for key, value in tags.items():
                         mlflow.set_tag(key, value)
-                
+
                 logger.info(f"Started MLFlow run: {run_name or 'unnamed'} (ID: {run.info.run_id})")
                 yield run
             except Exception as e:
@@ -105,7 +111,7 @@ def mlflow_run_context(run_name: str = None, experiment_name: str = None, tags: 
         yield None
 
 
-def log_step_parameters(params: Dict[str, Any]) -> None:
+def log_step_parameters(params: dict[str, Any]) -> None:
     """Log parameters for a pipeline step."""
     for key, value in params.items():
         try:
@@ -114,7 +120,7 @@ def log_step_parameters(params: Dict[str, Any]) -> None:
             logger.warning(f"Failed to log parameter {key}: {e}")
 
 
-def log_step_metrics(metrics: Dict[str, float]) -> None:
+def log_step_metrics(metrics: dict[str, float]) -> None:
     """Log metrics for a pipeline step."""
     for key, value in metrics.items():
         try:
@@ -132,7 +138,9 @@ def log_model_artifact(model_path: str, artifact_name: str) -> None:
         logger.error(f"Failed to log model artifact {artifact_name}: {e}")
 
 
-def log_dataset_info(dataset_path: str, dataset_hash: str, row_count: int, feature_count: int) -> None:
+def log_dataset_info(
+    dataset_path: str, dataset_hash: str, row_count: int, feature_count: int
+) -> None:
     """Log dataset information and metadata."""
     try:
         mlflow.log_param("dataset.path", dataset_path)

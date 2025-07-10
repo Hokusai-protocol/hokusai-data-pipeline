@@ -2,7 +2,8 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List, Any, Dict, Type
+from typing import Any
+
 import dspy
 
 from .metadata import SignatureMetadata
@@ -11,18 +12,18 @@ from .metadata import SignatureMetadata
 @dataclass
 class SignatureField:
     """Represents a field in a DSPy signature."""
-    
+
     name: str
     description: str
-    type_hint: Type
+    type_hint: type
     required: bool = True
     default: Any = None
-    
+
     def validate(self, value: Any) -> bool:
         """Validate a value against this field."""
         if value is None:
             return not self.required
-        
+
         # Basic type checking
         if self.type_hint in (str, int, float, bool):
             return isinstance(value, self.type_hint)
@@ -30,10 +31,10 @@ class SignatureField:
             return isinstance(value, list)
         elif self.type_hint is dict:
             return isinstance(value, dict)
-        
+
         # For other types, just check if value exists
         return True
-    
+
     def to_dspy_field(self) -> str:
         """Convert to DSPy field format."""
         field_str = f"{self.name}"
@@ -44,69 +45,71 @@ class SignatureField:
 
 class BaseSignature(ABC):
     """Base class for all DSPy signatures in the library."""
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
         self.name = self.__class__.__name__
         self.description = self.__class__.__doc__ or ""
-        self.category = getattr(self.__class__, 'category', 'general')
+        self.category = getattr(self.__class__, "category", "general")
         self._input_fields = None
         self._output_fields = None
-    
+
     @classmethod
     @abstractmethod
-    def get_input_fields(cls) -> List[SignatureField]:
+    def get_input_fields(cls) -> list[SignatureField]:
         """Define input fields for the signature."""
         pass
-    
+
     @classmethod
-    @abstractmethod  
-    def get_output_fields(cls) -> List[SignatureField]:
+    @abstractmethod
+    def get_output_fields(cls) -> list[SignatureField]:
         """Define output fields for the signature."""
         pass
-    
+
     @classmethod
-    def get_examples(cls) -> List[Dict[str, Any]]:
+    def get_examples(cls) -> list[dict[str, Any]]:
         """Provide example inputs and outputs."""
         return []
-    
+
     @classmethod
     def get_metadata(cls) -> SignatureMetadata:
         """Get signature metadata."""
         return SignatureMetadata(
             name=cls.__name__,
             description=cls.__doc__ or "",
-            category=getattr(cls, 'category', 'general'),
-            tags=getattr(cls, 'tags', []),
-            version=getattr(cls, 'version', '1.0.0'),
-            examples=cls.get_examples()
+            category=getattr(cls, "category", "general"),
+            tags=getattr(cls, "tags", []),
+            version=getattr(cls, "version", "1.0.0"),
+            examples=cls.get_examples(),
         )
-    
+
     @property
-    def input_fields(self) -> List[SignatureField]:
+    def input_fields(self) -> list[SignatureField]:
         """Get input fields (cached)."""
         if self._input_fields is None:
             self._input_fields = self.get_input_fields()
         return self._input_fields
-    
+
     @property
-    def output_fields(self) -> List[SignatureField]:
+    def output_fields(self) -> list[SignatureField]:
         """Get output fields (cached)."""
         if self._output_fields is None:
             self._output_fields = self.get_output_fields()
         return self._output_fields
-    
-    def validate_inputs(self, inputs: Dict[str, Any]) -> bool:
+
+    def validate_inputs(self, inputs: dict[str, Any]) -> bool:
         """Validate inputs against signature fields."""
         for field in self.input_fields:
             if field.required and field.name not in inputs:
                 raise ValueError(f"Missing required field: {field.name}")
-            
+
             if field.name in inputs:
                 if not field.validate(inputs[field.name]):
-                    raise ValueError(f"Invalid type for field '{field.name}': expected {field.type_hint}")
-        
+                    raise ValueError(
+                        f"Invalid type for field '{field.name}': expected {field.type_hint}"
+                    )
+
         return True
-    
+
     def to_dspy_signature(self) -> str:
         """Convert to DSPy signature string format."""
         # Build input string
@@ -114,140 +117,137 @@ class BaseSignature(ABC):
         for field in self.input_fields:
             desc = field.description or field.name
             input_parts.append(f"{field.name}: {desc}")
-        
-        # Build output string  
+
+        # Build output string
         output_parts = []
         for field in self.output_fields:
             desc = field.description or field.name
             output_parts.append(f"{field.name}: {desc}")
-        
+
         # Combine into signature
         inputs_str = ", ".join(input_parts)
         outputs_str = ", ".join(output_parts)
-        
+
         return f"{inputs_str} -> {outputs_str}"
-    
-    def create_dspy_signature_class(self) -> Type[dspy.Signature]:
+
+    def create_dspy_signature_class(self) -> type[dspy.Signature]:
         """Create a DSPy Signature class dynamically."""
         # Create class attributes
-        attrs = {
-            "__doc__": self.to_dspy_signature(),
-            "__module__": "dspy_signatures.dynamic"
-        }
-        
+        attrs = {"__doc__": self.to_dspy_signature(), "__module__": "dspy_signatures.dynamic"}
+
         # Add input fields
         for field in self.input_fields:
             field_desc = field.description or field.name
             if not field.required and field.default is not None:
                 field_desc += f" (default: {field.default})"
             attrs[field.name] = dspy.InputField(desc=field_desc)
-        
+
         # Add output fields
         for field in self.output_fields:
-            field_desc = field.description or field.name  
+            field_desc = field.description or field.name
             attrs[field.name] = dspy.OutputField(desc=field_desc)
-        
+
         # Create the signature class
-        signature_class = type(
-            f"{self.name}Signature",
-            (dspy.Signature,),
-            attrs
-        )
-        
+        signature_class = type(f"{self.name}Signature", (dspy.Signature,), attrs)
+
         return signature_class
 
 
 class SignatureValidator:
     """Validates DSPy signatures."""
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
         self.rules = {
-            'min_input_fields': 1,
-            'min_output_fields': 1,
-            'valid_field_name_pattern': r'^[a-z][a-z0-9_]*$'
+            "min_input_fields": 1,
+            "min_output_fields": 1,
+            "valid_field_name_pattern": r"^[a-z][a-z0-9_]*$",
         }
-    
-    def validate_signature_class(self, signature_class: Type[BaseSignature]) -> None:
+
+    def validate_signature_class(self, signature_class: type[BaseSignature]) -> None:
         """Validate a signature class."""
         # Check if it has required methods
-        if not hasattr(signature_class, 'get_input_fields'):
+        if not hasattr(signature_class, "get_input_fields"):
             raise ValueError(f"{signature_class.__name__} must implement get_input_fields()")
-        
-        if not hasattr(signature_class, 'get_output_fields'):
+
+        if not hasattr(signature_class, "get_output_fields"):
             raise ValueError(f"{signature_class.__name__} must implement get_output_fields()")
-        
+
         # Instantiate to check fields
         instance = signature_class()
-        
+
         # Check minimum fields
-        if len(instance.input_fields) < self.rules['min_input_fields']:
+        if len(instance.input_fields) < self.rules["min_input_fields"]:
             raise ValueError(f"{signature_class.__name__} must have at least one input field")
-        
-        if len(instance.output_fields) < self.rules['min_output_fields']:
+
+        if len(instance.output_fields) < self.rules["min_output_fields"]:
             raise ValueError(f"{signature_class.__name__} must have at least one output field")
-        
+
         # Validate field names
         import re
-        pattern = re.compile(self.rules['valid_field_name_pattern'])
-        
+
+        pattern = re.compile(self.rules["valid_field_name_pattern"])
+
         for field in instance.input_fields + instance.output_fields:
             if not pattern.match(field.name):
                 raise ValueError(f"Invalid field name '{field.name}' in {signature_class.__name__}")
-    
+
     def validate_field_name(self, name: str) -> bool:
         """Check if field name is valid."""
         import re
+
         if not name:
             return False
-        pattern = re.compile(self.rules['valid_field_name_pattern'])
+        pattern = re.compile(self.rules["valid_field_name_pattern"])
         return bool(pattern.match(name))
 
 
 class SignatureComposer:
     """Composes multiple signatures together."""
-    
-    def compose(self, sig1: Type[BaseSignature], sig2: Type[BaseSignature]) -> Type[BaseSignature]:
+
+    def compose(self, sig1: type[BaseSignature], sig2: type[BaseSignature]) -> type[BaseSignature]:
         """Compose two signatures in sequence (output of sig1 feeds into sig2)."""
         # Get instances
         s1 = sig1()
         s2 = sig2()
-        
+
         # Check compatibility - at least one output of sig1 should match input of sig2
         s1_outputs = {f.name for f in s1.output_fields}
         s2_inputs = {f.name for f in s2.input_fields}
-        
+
         if not s1_outputs.intersection(s2_inputs):
-            raise ValueError(f"Cannot compose {sig1.__name__} and {sig2.__name__}: no matching fields")
-        
+            raise ValueError(
+                f"Cannot compose {sig1.__name__} and {sig2.__name__}: no matching fields"
+            )
+
         # Create composed signature
         class ComposedSignature(BaseSignature):
-            category = 'composed'
-            
+            category = "composed"
+
             @classmethod
             def get_input_fields(cls):
                 # Use inputs from first signature
                 return s1.get_input_fields()
-            
+
             @classmethod
             def get_output_fields(cls):
                 # Use outputs from second signature
                 return s2.get_output_fields()
-        
+
         ComposedSignature.__name__ = f"{sig1.__name__}_{sig2.__name__}"
         ComposedSignature.__doc__ = f"Composition of {sig1.__name__} and {sig2.__name__}"
-        
+
         return ComposedSignature
-    
-    def merge(self, sig1: Type[BaseSignature], sig2: Type[BaseSignature]) -> Type[BaseSignature]:
+
+    def merge(self, sig1: type[BaseSignature], sig2: type[BaseSignature]) -> type[BaseSignature]:
         """Merge two signatures for parallel execution."""
         # Get instances
         s1 = sig1()
         s2 = sig2()
-        
+
         # Create merged signature
         class MergedSignature(BaseSignature):
-            category = 'merged'
-            
+            category = "merged"
+
             @classmethod
             def get_input_fields(cls):
                 # Union of input fields (avoiding duplicates)
@@ -258,13 +258,13 @@ class SignatureComposer:
                     if field.name not in fields:
                         fields[field.name] = field
                 return list(fields.values())
-            
-            @classmethod 
+
+            @classmethod
             def get_output_fields(cls):
                 # All output fields from both
                 return s1.get_output_fields() + s2.get_output_fields()
-        
+
         MergedSignature.__name__ = f"{sig1.__name__}_and_{sig2.__name__}"
         MergedSignature.__doc__ = f"Parallel execution of {sig1.__name__} and {sig2.__name__}"
-        
+
         return MergedSignature

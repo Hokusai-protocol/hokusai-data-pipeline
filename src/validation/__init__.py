@@ -1,12 +1,7 @@
-"""
-Metric validation system for Hokusai ML Platform
+"""Metric validation system for Hokusai ML Platform.
 """
 
-from .metrics import MetricValidator, SupportedMetrics
 from .baseline import BaselineComparator
+from .metrics import MetricValidator, SupportedMetrics
 
-__all__ = [
-    "MetricValidator",
-    "SupportedMetrics",
-    "BaselineComparator"
-]
+__all__ = ["MetricValidator", "SupportedMetrics", "BaselineComparator"]
