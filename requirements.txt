@@ -191,7 +191,7 @@ pre-commit==3.6.0
     # via -r requirements-all.in
 protobuf==4.25.8
     # via mlflow
-pyarrow==15.0.0
+pyarrow==14.0.2
     # via
     #   -r requirements-all.in
     #   mlflow
