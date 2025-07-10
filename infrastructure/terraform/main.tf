@@ -155,6 +155,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "mlflow_artifacts" {
     id     = "expire-old-versions"
     status = "Enabled"
     
+    filter {
+      prefix = ""
+    }
+    
     noncurrent_version_expiration {
       noncurrent_days = 90
     }
@@ -301,7 +305,7 @@ resource "aws_lb_target_group" "mlflow" {
     healthy_threshold   = 2
     interval            = 30
     matcher             = "200"
-    path                = "/health"
+    path                = "/mlflow"
     port                = "traffic-port"
     protocol            = "HTTP"
     timeout             = 5
@@ -356,7 +360,7 @@ resource "aws_lb_listener_rule" "mlflow" {
   
   condition {
     path_pattern {
-      values = ["/mlflow*"]
+      values = ["/mlflow", "/mlflow/*"]
     }
   }
 }
@@ -619,7 +623,7 @@ resource "aws_ecs_task_definition" "mlflow" {
       }
       
       healthCheck = {
-        command     = ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
+        command     = ["CMD-SHELL", "curl -f http://localhost:5000/mlflow || exit 1"]
         interval    = 30
         timeout     = 5
         retries     = 3
