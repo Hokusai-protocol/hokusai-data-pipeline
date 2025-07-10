@@ -115,8 +115,14 @@ class ExperimentManager:
 
                 # Calculate improvements
                 improvements = {}
+                comparison = {}
                 for metric in baseline_metrics:
-                    improvements[metric] = candidate_metrics[metric] - baseline_metrics[metric]
+                    delta = candidate_metrics[metric] - baseline_metrics[metric]
+                    improvements[metric] = delta
+                    comparison[metric] = {
+                        "delta": delta,
+                        "improved": delta > 0
+                    }
 
                 # Log comparison results
                 self._log_comparison_results(baseline_metrics, candidate_metrics, improvements)
@@ -125,9 +131,12 @@ class ExperimentManager:
                 recommendation = self._determine_recommendation(improvements)
 
                 comparison_result = {
+                    "baseline_id": baseline_id,
+                    "candidate_id": candidate_id,
                     "baseline_metrics": baseline_metrics,
                     "candidate_metrics": candidate_metrics,
                     "improvements": improvements,
+                    "comparison": comparison,
                     "recommendation": recommendation,
                     "test_dataset": test_data.get("dataset_name", "unknown"),
                 }
@@ -139,6 +148,61 @@ class ExperimentManager:
         except Exception as e:
             logger.error(f"Failed to compare models: {str(e)}")
             raise
+
+    def generate_recommendation(
+        self, comparison_results: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Generate deployment recommendation based on comparison results.
+
+        Args:
+            comparison_results: Results from model comparison
+
+        Returns:
+            Recommendation dictionary with:
+                - should_deploy: Boolean recommendation
+                - confidence: high/medium/low
+                - reasoning: Explanation for the recommendation
+                - metrics_summary: Summary of metric improvements
+
+        """
+        improvements = comparison_results.get("comparison", {})
+        
+        # Count improvements and regressions
+        significant_improvements = 0
+        significant_regressions = 0
+        threshold = 0.01
+        
+        for metric, data in improvements.items():
+            if data["improved"] and abs(data["delta"]) > threshold:
+                significant_improvements += 1
+            elif not data["improved"] and abs(data["delta"]) > threshold:
+                significant_regressions += 1
+        
+        # Determine recommendation
+        if significant_regressions > 0:
+            should_deploy = False
+            confidence = "high"
+            reasoning = f"Model shows {significant_regressions} metric regressions. No metrics improved."
+        elif significant_improvements >= len(improvements):
+            should_deploy = True
+            confidence = "high"
+            reasoning = "All metrics improved. Strong candidate for deployment."
+        elif significant_improvements > len(improvements) / 2:
+            should_deploy = True
+            confidence = "medium"
+            reasoning = f"Mixed results: {significant_improvements} metrics improved, but not all."
+        else:
+            should_deploy = False
+            confidence = "medium" if significant_improvements > 0 else "high"
+            reasoning = f"Insufficient improvement. Only {significant_improvements} metrics improved."
+        
+        return {
+            "should_deploy": should_deploy,
+            "confidence": confidence,
+            "reasoning": reasoning,
+            "improvements_count": significant_improvements,
+            "regressions_count": significant_regressions,
+        }
 
     def get_experiment_history(
         self, baseline_model_id: Optional[str] = None

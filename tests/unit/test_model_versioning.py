@@ -105,14 +105,13 @@ class TestVersionTransition:
             performed_by="admin@example.com",
             performed_at=datetime.now(),
             reason="Performance improvement",
-            success=True,
         )
 
         assert transition.transition_id == "trans_123"
         assert transition.from_version == "1.1.0"
         assert transition.to_version == "1.2.0"
         assert transition.transition_type == VersionTransitionType.PROMOTE
-        assert transition.success is True
+        assert transition.rollback_available is True  # Default value
 
 
 class TestModelVersionManager:
@@ -126,25 +125,44 @@ class TestModelVersionManager:
         with patch(
             "src.services.model_versioning.HokusaiModelRegistry", return_value=self.mock_registry
         ):
-            self.manager = ModelVersionManager(self.mock_redis)
+            self.manager = ModelVersionManager(self.mock_registry, self.mock_redis)
 
     def test_manager_initialization(self):
         """Test version manager initialization."""
-        assert self.manager.redis_client == self.mock_redis
+        assert self.manager.redis == self.mock_redis
         assert self.manager.registry == self.mock_registry
 
     def test_create_version(self):
         """Test creating a new model version."""
         # Mock model
         mock_model = Mock()
+        mock_model.metadata = Mock()
+        mock_model.metadata.model_type = Mock()
+        mock_model.metadata.model_type.value = "classification"
+        
+        # Mock _version_exists to return False
+        self.manager._version_exists = Mock(return_value=False)
+        
+        # Mock _save_version to avoid serialization issues
+        self.manager._save_version = Mock()
+        
+        # Mock registry.register_baseline to return a result
+        self.mock_registry.register_baseline.return_value = {
+            "model_id": "model_123",
+            "run_id": "run_123",
+            "version": "1"
+        }
+        
+        # Mock redis operations
+        self.mock_redis.get.return_value = None
+        self.mock_redis.set.return_value = True
 
-        # Create version
-        model_version = self.manager.create_version(
-            model_family="lead_scoring",
-            version="2.0.0",
+        # Create version using the actual method name
+        model_version = self.manager.register_version(
             model=mock_model,
+            model_family="lead_scoring",
+            version_tag="2.0.0",
             created_by="user@example.com",
-            metadata={"algorithm": "xgboost"},
             parent_version="1.5.0",
         )
 
@@ -155,8 +173,8 @@ class TestModelVersionManager:
         assert model_version.created_by == "user@example.com"
         assert model_version.parent_version == "1.5.0"
 
-        # Check Redis storage
-        self.mock_redis.set.assert_called()
+        # Check that _save_version was called
+        self.manager._save_version.assert_called_once()
 
     def test_get_version(self):
         """Test getting a model version."""
@@ -191,32 +209,60 @@ class TestModelVersionManager:
 
     def test_list_versions(self):
         """Test listing model versions."""
-        # Mock version keys
-        self.mock_redis.keys.return_value = [
-            b"model_version:lead_scoring:1.0.0",
-            b"model_version:lead_scoring:1.1.0",
-            b"model_version:lead_scoring:2.0.0",
-        ]
-
-        # Mock version data
-        def mock_get(key):
-            version_map = {
-                "model_version:lead_scoring:1.0.0": {"version": "1.0.0"},
-                "model_version:lead_scoring:1.1.0": {"version": "1.1.0"},
-                "model_version:lead_scoring:2.0.0": {"version": "2.0.0"},
+        # Mock the sorted set return value
+        self.mock_redis.zrevrange.return_value = [b"2.0.0", b"1.1.0", b"1.0.0"]
+        
+        # Mock get_version to return ModelVersion objects
+        def mock_get_version(model_family, version_tag):
+            versions = {
+                "1.0.0": ModelVersion(
+                    model_id="v1",
+                    model_family=model_family,
+                    version="1.0.0",
+                    status=ModelStatus.PRODUCTION,
+                    environment=Environment.PRODUCTION,
+                    created_at=datetime.now(),
+                    updated_at=datetime.now(),
+                    created_by="user@example.com",
+                    metadata={},
+                    performance_metrics={}
+                ),
+                "1.1.0": ModelVersion(
+                    model_id="v2",
+                    model_family=model_family,
+                    version="1.1.0",
+                    status=ModelStatus.STAGING,
+                    environment=Environment.STAGING,
+                    created_at=datetime.now(),
+                    updated_at=datetime.now(),
+                    created_by="user@example.com",
+                    metadata={},
+                    performance_metrics={}
+                ),
+                "2.0.0": ModelVersion(
+                    model_id="v3",
+                    model_family=model_family,
+                    version="2.0.0",
+                    status=ModelStatus.STAGING,
+                    environment=Environment.STAGING,
+                    created_at=datetime.now(),
+                    updated_at=datetime.now(),
+                    created_by="user@example.com",
+                    metadata={},
+                    performance_metrics={}
+                ),
             }
-            key_str = key.decode() if isinstance(key, bytes) else key
-            return json.dumps(version_map.get(key_str, {}))
+            return versions.get(version_tag)
+            
+        self.manager.get_version = mock_get_version
 
-        self.mock_redis.get.side_effect = mock_get
-
-        versions = self.manager.list_versions("lead_scoring")
+        versions = self.manager.get_version_history("lead_scoring")
 
         assert len(versions) == 3
-        # Should be sorted by version
-        assert versions[0]["version"] == "2.0.0"
-        assert versions[1]["version"] == "1.1.0"
-        assert versions[2]["version"] == "1.0.0"
+        # Should be sorted by version (descending)
+        assert versions[0].version == "2.0.0"
+        assert versions[1].version == "1.1.0"
+        assert versions[2].version == "1.0.0"
 
     def test_promote_version(self):
         """Test promoting a model version."""

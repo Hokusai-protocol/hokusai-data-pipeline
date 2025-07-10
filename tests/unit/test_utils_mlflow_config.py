@@ -20,6 +20,7 @@ from src.utils.mlflow_config import (
 class TestMLFlowConfig:
     """Test suite for MLFlowConfig class."""
 
+    @patch.dict("os.environ", {}, clear=True)
     def test_initialization_defaults(self):
         """Test initialization with default values."""
         config = MLFlowConfig()
@@ -44,6 +45,7 @@ class TestMLFlowConfig:
         assert config.experiment_name == "test-experiment"
         assert config.artifact_root == "s3://bucket/artifacts"
 
+    @patch.dict("os.environ", {}, clear=True)
     @patch("mlflow.set_tracking_uri")
     @patch("mlflow.get_experiment_by_name")
     @patch("mlflow.set_experiment")
@@ -60,6 +62,7 @@ class TestMLFlowConfig:
         mock_get_exp.assert_called_once_with("hokusai-pipeline")
         mock_set_exp.assert_called_once_with("hokusai-pipeline")
 
+    @patch.dict("os.environ", {}, clear=True)
     @patch("mlflow.set_tracking_uri")
     @patch("mlflow.get_experiment_by_name")
     @patch("mlflow.create_experiment")

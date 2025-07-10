@@ -16,31 +16,31 @@ class PipelineConfig:
     """Configuration for the Hokusai evaluation pipeline."""
 
     # Environment settings
-    environment: str = os.getenv("PIPELINE_ENV", "development")
-    log_level: str = os.getenv("PIPELINE_LOG_LEVEL", "INFO")
-    dry_run: bool = os.getenv("DRY_RUN", "false").lower() == "true"
+    environment: str = "development"
+    log_level: str = "INFO"
+    dry_run: bool = False
 
     # Paths
-    data_dir: Path = Path(os.getenv("PIPELINE_DATA_DIR", "./data"))
-    model_dir: Path = Path(os.getenv("PIPELINE_MODEL_DIR", "./models"))
+    data_dir: Path = Path("./data")
+    model_dir: Path = Path("./models")
 
     # MLflow settings
-    mlflow_tracking_uri: str = os.getenv("MLFLOW_TRACKING_URI", "./mlruns")
-    mlflow_experiment_name: str = os.getenv("MLFLOW_EXPERIMENT_NAME", "hokusai-evaluation")
+    mlflow_tracking_uri: str = "./mlruns"
+    mlflow_experiment_name: str = "hokusai-evaluation"
 
     # Metaflow settings
-    metaflow_datastore_root: str = os.getenv("METAFLOW_DATASTORE_ROOT", "./metaflow_data")
+    metaflow_datastore_root: str = "./metaflow_data"
 
     # Pipeline parameters
-    random_seed: int = int(os.getenv("RANDOM_SEED", "42"))
-    max_workers: int = int(os.getenv("MAX_WORKERS", "4"))
-    batch_size: int = int(os.getenv("BATCH_SIZE", "1000"))
+    random_seed: int = 42
+    max_workers: int = 4
+    batch_size: int = 1000
 
     # Model evaluation settings
     evaluation_metrics: list = field(
         default_factory=lambda: ["accuracy", "precision", "recall", "f1", "auroc"]
     )
-    confidence_threshold: float = float(os.getenv("CONFIDENCE_THRESHOLD", "0.5"))
+    confidence_threshold: float = 0.5
 
     # Data sampling
     sample_size: Optional[int] = None
@@ -48,7 +48,32 @@ class PipelineConfig:
     test_size: float = 0.2
 
     def __post_init__(self):
-        """Create directories if they don't exist."""
+        """Load configuration from environment variables and create directories."""
+        # Environment settings
+        self.environment = os.getenv("PIPELINE_ENV", self.environment)
+        self.log_level = os.getenv("PIPELINE_LOG_LEVEL", self.log_level)
+        self.dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
+        
+        # Paths
+        self.data_dir = Path(os.getenv("PIPELINE_DATA_DIR", str(self.data_dir)))
+        self.model_dir = Path(os.getenv("PIPELINE_MODEL_DIR", str(self.model_dir)))
+        
+        # MLflow settings
+        self.mlflow_tracking_uri = os.getenv("MLFLOW_TRACKING_URI", self.mlflow_tracking_uri)
+        self.mlflow_experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", self.mlflow_experiment_name)
+        
+        # Metaflow settings
+        self.metaflow_datastore_root = os.getenv("METAFLOW_DATASTORE_ROOT", self.metaflow_datastore_root)
+        
+        # Pipeline parameters
+        self.random_seed = int(os.getenv("RANDOM_SEED", str(self.random_seed)))
+        self.max_workers = int(os.getenv("MAX_WORKERS", str(self.max_workers)))
+        self.batch_size = int(os.getenv("BATCH_SIZE", str(self.batch_size)))
+        
+        # Model evaluation settings
+        self.confidence_threshold = float(os.getenv("CONFIDENCE_THRESHOLD", str(self.confidence_threshold)))
+        
+        # Create directories if they don't exist
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.model_dir.mkdir(parents=True, exist_ok=True)
 

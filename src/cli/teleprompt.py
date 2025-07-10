@@ -13,6 +13,7 @@ from src.services.teleprompt_finetuner import (
     OptimizationStrategy,
     TelepromptFinetuner,
 )
+from src.services.trace_loader import TraceLoader
 
 
 @click.group()

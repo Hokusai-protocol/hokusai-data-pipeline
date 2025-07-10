@@ -80,7 +80,7 @@ class AuthMiddleware:
 
         path = scope["path"]
         # Skip auth for health check and docs
-        if path in ["/health", "/docs", "/redoc", "/openapi.json"]:
+        if path in ["/health", "/docs", "/redoc", "/openapi.json", "/api/v1/dspy/health"]:
             return await self.app(scope, receive, send)
 
         headers = dict(scope["headers"])

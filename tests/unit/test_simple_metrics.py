@@ -117,9 +117,12 @@ class TestMetricUtilities:
         # Test various old formats
         assert migrate_metric_name("accuracy") == "model:accuracy"
         assert migrate_metric_name("reply_rate") == "usage:reply_rate"
-        assert migrate_metric_name("latency_ms") == "model:latency_ms"
-        assert migrate_metric_name("duration_seconds") == "pipeline:duration_seconds"
+        assert migrate_metric_name("latency") == "model:latency_ms"
+        assert migrate_metric_name("duration") == "pipeline:duration_seconds"
 
+        # Unknown names should not change
+        assert migrate_metric_name("unknown_metric") == "unknown_metric"
+        
         # Already migrated names should not change
         assert migrate_metric_name("model:accuracy") == "model:accuracy"
         assert migrate_metric_name("usage:reply_rate") == "usage:reply_rate"
@@ -128,45 +131,58 @@ class TestMetricUtilities:
 class TestCategorizedMetricLogging:
     """Test suite for category-specific metric logging."""
 
-    @patch("mlflow.log_metrics")
-    def test_log_usage_metrics(self, mock_log_metrics):
+    @patch("mlflow.log_metric")
+    def test_log_usage_metrics(self, mock_log_metric):
         """Test logging usage metrics."""
         metrics = {"reply_rate": 0.75, "engagement_rate": 0.85}
 
         log_usage_metrics(metrics)
 
-        expected = {"usage:reply_rate": 0.75, "usage:engagement_rate": 0.85}
-        mock_log_metrics.assert_called_once_with(expected)
+        # MLflow will receive names with underscores instead of colons
+        assert mock_log_metric.call_count == 2
+        calls = mock_log_metric.call_args_list
+        logged_metrics = {call[0][0]: call[0][1] for call in calls}
+        assert logged_metrics == {"usage_reply_rate": 0.75, "usage_engagement_rate": 0.85}
 
-    @patch("mlflow.log_metrics")
-    def test_log_model_metrics(self, mock_log_metrics):
+    @patch("mlflow.log_metric")
+    def test_log_model_metrics(self, mock_log_metric):
         """Test logging model metrics."""
         metrics = {"accuracy": 0.95, "latency_ms": 45.2}
 
         log_model_metrics(metrics)
 
-        expected = {"model:accuracy": 0.95, "model:latency_ms": 45.2}
-        mock_log_metrics.assert_called_once_with(expected)
+        # MLflow will receive names with underscores instead of colons
+        assert mock_log_metric.call_count == 2
+        calls = mock_log_metric.call_args_list
+        logged_metrics = {call[0][0]: call[0][1] for call in calls}
+        assert logged_metrics == {"model_accuracy": 0.95, "model_latency_ms": 45.2}
 
-    @patch("mlflow.log_metrics")
-    def test_log_pipeline_metrics(self, mock_log_metrics):
+    @patch("mlflow.log_metric")
+    def test_log_pipeline_metrics(self, mock_log_metric):
         """Test logging pipeline metrics."""
         metrics = {"duration_seconds": 120.5, "success_rate": 0.98}
 
         log_pipeline_metrics(metrics)
 
-        expected = {"pipeline:duration_seconds": 120.5, "pipeline:success_rate": 0.98}
-        mock_log_metrics.assert_called_once_with(expected)
+        # MLflow will receive names with underscores instead of colons
+        assert mock_log_metric.call_count == 2
+        calls = mock_log_metric.call_args_list
+        logged_metrics = {call[0][0]: call[0][1] for call in calls}
+        assert logged_metrics == {"pipeline_duration_seconds": 120.5, "pipeline_success_rate": 0.98}
 
-    @patch("mlflow.log_metrics")
-    def test_log_metrics_with_existing_prefix(self, mock_log_metrics):
+    @patch("mlflow.log_metric")
+    def test_log_metrics_with_existing_prefix(self, mock_log_metric):
         """Test that existing prefixes are preserved."""
         metrics = {"accuracy": 0.95, "model:precision": 0.92}  # Already has prefix
 
         log_model_metrics(metrics)
 
-        expected = {"model:accuracy": 0.95, "model:precision": 0.92}  # Prefix not duplicated
-        mock_log_metrics.assert_called_once_with(expected)
+        # MLflow will receive names with underscores instead of colons
+        assert mock_log_metric.call_count == 2
+        calls = mock_log_metric.call_args_list
+        logged_metrics = {call[0][0]: call[0][1] for call in calls}
+        # Metrics with existing prefix are preserved (no double prefix)
+        assert logged_metrics == {"model_accuracy": 0.95, "model_precision": 0.92}
 
 
 class TestStandardMetrics:

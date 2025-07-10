@@ -131,7 +131,7 @@ class TestTelepromptCLI:
         mock_deltaone = {"deltaone_achieved": True, "delta": 0.025}
 
         mock_model_info = {
-            "model_name": "EmailDraft-Optimized",
+            "model_name": "MyOptimizedModel",
             "version": "1.0.0-opt-bfs-20240115120000",
         }
 
@@ -149,9 +149,9 @@ class TestTelepromptCLI:
         )
 
         assert result.exit_code == 0
-        assert "Model saved: MyOptimizedModel" in result.output
+        assert "Model saved: MyOptimizedModel v1.0.0-opt-bfs-20240115120000" in result.output
 
-    @patch("src.cli.teleprompt.TraceLoader")
+    @patch("src.services.trace_loader.TraceLoader")
     def test_list_traces_command(self, mock_loader_class):
         """Test list traces command."""
         # Mock traces
@@ -174,7 +174,7 @@ class TestTelepromptCLI:
         assert "Found 1 traces" in result.output
         assert "EmailDraft" in result.output
 
-    @patch("src.cli.teleprompt.TraceLoader")
+    @patch("src.services.trace_loader.TraceLoader")
     def test_list_traces_json_format(self, mock_loader_class):
         """Test list traces with JSON format."""
         mock_traces = [{"program_name": "EmailDraft", "outcome_score": 0.85}]

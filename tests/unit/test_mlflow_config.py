@@ -30,6 +30,7 @@ class TestMLFlowConfig:
         """Clean up test environment."""
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
+    @patch.dict("os.environ", {}, clear=True)
     def test_init_default_config(self):
         """Test MLFlowConfig initialization with defaults."""
         config = MLFlowConfig()

@@ -203,11 +203,13 @@ class MetricLogger:
             return
 
         try:
+            # MLflow doesn't accept colons in metric names, so replace with underscores
+            mlflow_name = name.replace(":", "_")
             if step is not None:
-                mlflow.log_metric(name, value, step=step)
+                mlflow.log_metric(mlflow_name, value, step=step)
             else:
-                mlflow.log_metric(name, value)
-            logger.debug(f"Logged metric {name}={value}")
+                mlflow.log_metric(mlflow_name, value)
+            logger.debug(f"Logged metric {name}={value} (as {mlflow_name})")
         except MlflowException as e:
             error_msg = f"Failed to log metric {name}: {e}"
             if raise_on_error:
@@ -332,23 +334,39 @@ class MetricLogger:
 def log_usage_metrics(metrics: dict[str, float], **kwargs) -> None:
     """Log usage metrics with automatic prefixing."""
     logger = MetricLogger()
-    prefixed_metrics = {format_metric_name("usage", name): value for name, value in metrics.items()}
+    prefixed_metrics = {}
+    for name, value in metrics.items():
+        # Don't double-prefix metrics that already have a category
+        if ":" not in name:
+            prefixed_metrics[format_metric_name("usage", name)] = value
+        else:
+            prefixed_metrics[name] = value
     logger.log_metrics(prefixed_metrics, **kwargs)
 
 
 def log_model_metrics(metrics: dict[str, float], **kwargs) -> None:
     """Log model performance metrics with automatic prefixing."""
     logger = MetricLogger()
-    prefixed_metrics = {format_metric_name("model", name): value for name, value in metrics.items()}
+    prefixed_metrics = {}
+    for name, value in metrics.items():
+        # Don't double-prefix metrics that already have a category
+        if ":" not in name:
+            prefixed_metrics[format_metric_name("model", name)] = value
+        else:
+            prefixed_metrics[name] = value
     logger.log_metrics(prefixed_metrics, **kwargs)
 
 
 def log_pipeline_metrics(metrics: dict[str, float], **kwargs) -> None:
     """Log pipeline execution metrics with automatic prefixing."""
     logger = MetricLogger()
-    prefixed_metrics = {
-        format_metric_name("pipeline", name): value for name, value in metrics.items()
-    }
+    prefixed_metrics = {}
+    for name, value in metrics.items():
+        # Don't double-prefix metrics that already have a category
+        if ":" not in name:
+            prefixed_metrics[format_metric_name("pipeline", name)] = value
+        else:
+            prefixed_metrics[name] = value
     logger.log_metrics(prefixed_metrics, **kwargs)
 
 

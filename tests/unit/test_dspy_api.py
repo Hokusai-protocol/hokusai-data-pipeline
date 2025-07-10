@@ -1,25 +1,42 @@
 """Unit tests for DSPy API endpoints."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
+import sys
 
 import pytest
 from fastapi.testclient import TestClient
+
+# Mock boto3 before importing anything that uses it
+mock_boto3 = Mock()
+mock_secrets_client = Mock()
+mock_secrets_client.get_secret_value.return_value = {"SecretString": "test-api-key"}
+mock_boto3.client.return_value = mock_secrets_client
+sys.modules['boto3'] = mock_boto3
 
 from src.api.main import app
 from src.services.dspy_pipeline_executor import ExecutionMode, ExecutionResult
 
 
 # Mock authentication for tests
-@pytest.fixture
-def mock_auth():
-    """Mock authentication to bypass token verification."""
-    with patch("src.api.middleware.auth.require_auth") as mock_verify:
-        mock_verify.return_value = {"sub": "test-user", "email": "test@example.com"}
-        yield mock_verify
+@pytest.fixture(autouse=True)
+def mock_auth_dependencies():
+    """Mock authentication dependencies."""
+    # Mock the require_auth dependency to return test user data
+    async def mock_require_auth():
+        return {"sub": "test-user", "email": "test@example.com"}
+    
+    # Override the dependency in the app
+    from src.api.middleware.auth import require_auth
+    app.dependency_overrides[require_auth] = mock_require_auth
+    
+    yield
+    
+    # Clean up
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
-def client(mock_auth):
+def client():
     """Create test client with mocked auth."""
     return TestClient(app)
 
@@ -50,7 +67,7 @@ class TestDSPyAPI:
                     "program_id": "email-assistant-v1",
                     "inputs": {"recipient": "john@example.com", "subject": "Test"},
                 },
-                headers={"Authorization": "Bearer test-token"},
+                headers={"Authorization": "Bearer test-api-key"},
             )
 
             assert response.status_code == 200
@@ -85,7 +102,7 @@ class TestDSPyAPI:
             response = client.post(
                 "/api/v1/dspy/execute",
                 json={"program_id": "non-existent", "inputs": {"test": "data"}},
-                headers={"Authorization": "Bearer test-token"},
+                headers={"Authorization": "Bearer test-api-key"},
             )
 
             assert response.status_code == 200
@@ -130,7 +147,7 @@ class TestDSPyAPI:
                         {"recipient": "jane@example.com", "subject": "Test 2"},
                     ],
                 },
-                headers={"Authorization": "Bearer test-token"},
+                headers={"Authorization": "Bearer test-api-key"},
             )
 
             assert response.status_code == 200
@@ -174,7 +191,7 @@ class TestDSPyAPI:
                     "program_id": "email-assistant-v1",
                     "inputs_list": [{"recipient": "john@example.com"}, {"invalid": "data"}],
                 },
-                headers={"Authorization": "Bearer test-token"},
+                headers={"Authorization": "Bearer test-api-key"},
             )
 
             assert response.status_code == 200
@@ -209,7 +226,7 @@ class TestDSPyAPI:
             mock_registry_class.return_value = mock_registry
 
             response = client.get(
-                "/api/v1/dspy/programs", headers={"Authorization": "Bearer test-token"}
+                "/api/v1/dspy/programs", headers={"Authorization": "Bearer test-api-key"}
             )
 
             assert response.status_code == 200
@@ -238,7 +255,7 @@ class TestDSPyAPI:
             mock_get_executor.return_value = mock_executor
 
             response = client.get(
-                "/api/v1/dspy/stats", headers={"Authorization": "Bearer test-token"}
+                "/api/v1/dspy/stats", headers={"Authorization": "Bearer test-api-key"}
             )
 
             assert response.status_code == 200
@@ -255,7 +272,7 @@ class TestDSPyAPI:
             mock_get_executor.return_value = mock_executor
 
             response = client.post(
-                "/api/v1/dspy/cache/clear", headers={"Authorization": "Bearer test-token"}
+                "/api/v1/dspy/cache/clear", headers={"Authorization": "Bearer test-api-key"}
             )
 
             assert response.status_code == 200
@@ -301,7 +318,7 @@ class TestDSPyAPI:
             response = client.post(
                 "/api/v1/dspy/execute",
                 json={"program_id": "test-program", "inputs": {"data": "test"}, "mode": "debug"},
-                headers={"Authorization": "Bearer test-token"},
+                headers={"Authorization": "Bearer test-api-key"},
             )
 
             assert response.status_code == 200
@@ -330,7 +347,7 @@ class TestDSPyAPI:
         response = client.post(
             "/api/v1/dspy/execute",
             json={"program_id": "test", "inputs": {"data": "test"}, "mode": "invalid_mode"},
-            headers={"Authorization": "Bearer test-token"},
+            headers={"Authorization": "Bearer test-api-key"},
         )
 
         # Should fail with 500 due to invalid enum value

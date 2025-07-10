@@ -23,6 +23,10 @@ def _get_psycopg2():
     import psycopg2
     return psycopg2
 
+def _get_psutil():
+    import psutil
+    return psutil
+
 
 # Mock functions that tests expect
 def check_database_connection():
@@ -57,6 +61,12 @@ def check_external_service():
 
 # Mock variables for tests
 DEBUG_MODE = False
+
+# Make psutil available at module level for tests
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 
 @router.get("/health", response_model=HealthCheckResponse)
@@ -167,7 +177,21 @@ async def readiness_check():
 @router.get("/live")
 async def liveness_check():
     """Check if the service is alive."""
-    return {"alive": True, "uptime": 0, "memory_usage_mb": 0}
+    memory_usage_mb = 0
+    
+    # Try to get memory usage if psutil is available
+    if psutil:
+        try:
+            process = psutil.Process()
+            memory_usage_mb = process.memory_info().rss / 1024 / 1024
+        except Exception:
+            pass
+    
+    return {
+        "alive": True, 
+        "uptime": 0,  # This would normally track actual uptime
+        "memory_usage_mb": memory_usage_mb
+    }
 
 
 @router.get("/version")
@@ -176,7 +200,7 @@ async def version_info():
     return {
         "version": "1.0.0",
         "build_date": "2025-01-01",
-        "git_commit": "unknown",
+        "git_commit": get_git_commit(),
         "api_version": "v1"
     }
 
@@ -184,17 +208,22 @@ async def version_info():
 @router.get("/metrics")
 async def metrics():
     """Get service metrics."""
-    return {
-        "requests_total": 0,
-        "requests_per_second": 0.0,
-        "average_response_time_ms": 0.0,
-        "active_connections": 0
-    }
+    return get_metrics()
 
 
 @router.get("/debug")
 async def debug_info():
     """Get debug information (only in debug mode)."""
-    # This should check DEBUG_MODE but for now just return 404
     from fastapi import HTTPException
-    raise HTTPException(status_code=404, detail="Debug endpoint not available")
+    
+    if not DEBUG_MODE:
+        raise HTTPException(status_code=404, detail="Debug endpoint not available")
+    
+    # Return debug information when enabled
+    return {
+        "debug_mode": True,
+        "environment": "development",
+        "configuration": {},  # Would normally include sanitized settings
+        "settings": {},  # Backward compatibility
+        "loaded_modules": []  # Would normally list loaded modules
+    }

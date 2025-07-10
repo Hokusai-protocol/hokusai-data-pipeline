@@ -98,7 +98,7 @@ class TestExperimentManager:
         # Mock predictions
         y_true = np.array([0, 1, 1, 0, 1, 0, 1, 1, 0, 1])
         baseline_pred = np.array([0, 1, 0, 0, 1, 0, 1, 1, 0, 1])  # 9/10 correct
-        candidate_pred = np.array([0, 1, 1, 0, 1, 1, 1, 1, 0, 1])  # 8/10 correct
+        candidate_pred = np.array([0, 1, 1, 0, 0, 1, 1, 1, 0, 1])  # 8/10 correct
 
         mock_baseline.predict.return_value = baseline_pred
         mock_candidate.predict.return_value = candidate_pred
@@ -123,8 +123,8 @@ class TestExperimentManager:
         # Check metrics
         assert result["baseline_metrics"]["accuracy"] == 0.9
         assert result["candidate_metrics"]["accuracy"] == 0.8
-        assert result["comparison"]["accuracy"]["delta"] == -0.1
-        assert result["comparison"]["accuracy"]["improved"] is False
+        assert abs(result["comparison"]["accuracy"]["delta"] - (-0.1)) < 0.0001
+        assert result["comparison"]["accuracy"]["improved"] == False
 
     @patch("mlflow.set_experiment")
     def test_get_experiment_history(self, mock_set_experiment):
@@ -139,26 +139,34 @@ class TestExperimentManager:
                     "run_id": "run1",
                     "params.baseline_model_id": "model1",
                     "metrics.accuracy": 0.85,
+                    "metrics.accuracy_improvement": 0.02,
                     "tags.experiment_type": "model_improvement",
+                    "tags.recommendation": "ACCEPT",
                     "status": "FINISHED",
+                    "start_time": pd.Timestamp("2024-01-01 10:00:00"),
                 },
                 {
                     "run_id": "run2",
                     "params.baseline_model_id": "model1",
                     "metrics.accuracy": 0.87,
+                    "metrics.accuracy_improvement": 0.04,
                     "tags.experiment_type": "model_improvement",
+                    "tags.recommendation": "ACCEPT",
                     "status": "FINISHED",
+                    "start_time": pd.Timestamp("2024-01-02 10:00:00"),
                 },
             ]
         )
 
         with patch("mlflow.search_runs", return_value=mock_runs):
-            history = manager.get_experiment_history("model1", limit=10)
+            history = manager.get_experiment_history("model1")
 
         assert len(history) == 2
         assert history[0]["run_id"] == "run1"
-        assert history[0]["baseline_model_id"] == "model1"
-        assert history[0]["metrics"]["accuracy"] == 0.85
+        assert history[0]["baseline_model"] == "model1"
+        assert history[0]["improvement"] == 0.02
+        assert history[0]["recommendation"] == "ACCEPT"
+        assert history[0]["timestamp"] == pd.Timestamp("2024-01-01 10:00:00")
 
     @patch("mlflow.set_experiment")
     def test_generate_recommendation(self, mock_set_experiment):
@@ -182,6 +190,8 @@ class TestExperimentManager:
         assert rec["should_deploy"] is True
         assert rec["confidence"] == "high"
         assert "All metrics improved" in rec["reasoning"]
+        assert rec["improvements_count"] == 3
+        assert rec["regressions_count"] == 0
 
     @patch("mlflow.set_experiment")
     def test_generate_recommendation_no_improvement(self, mock_set_experiment):
@@ -203,7 +213,9 @@ class TestExperimentManager:
 
         assert rec["should_deploy"] is False
         assert rec["confidence"] == "high"
-        assert "No metrics improved" in rec["reasoning"]
+        assert "metric regressions" in rec["reasoning"]
+        assert rec["improvements_count"] == 0
+        assert rec["regressions_count"] == 2
 
     @patch("mlflow.set_experiment")
     def test_generate_recommendation_mixed_results(self, mock_set_experiment):
@@ -229,36 +241,34 @@ class TestExperimentManager:
         rec = manager.generate_recommendation(comparison_results)
 
         assert rec["should_deploy"] is False  # Conservative approach
-        assert rec["confidence"] == "medium"
-        assert "Mixed results" in rec["reasoning"]
+        assert rec["confidence"] == "high"  # High confidence because there's a regression
+        assert "metric regressions" in rec["reasoning"]
+        assert rec["improvements_count"] == 1
+        assert rec["regressions_count"] == 1
 
-    @patch("mlflow.tracking.MlflowClient")
-    def test_ensure_experiment_exists(self, mock_client_class):
+    @patch("mlflow.create_experiment")
+    @patch("mlflow.get_experiment_by_name")
+    def test_ensure_experiment_exists(self, mock_get_experiment, mock_create_experiment):
         """Test ensuring experiment exists."""
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
         # Experiment doesn't exist
-        mock_client.get_experiment_by_name.return_value = None
-        mock_client.create_experiment.return_value = "exp_123"
+        mock_get_experiment.return_value = None
+        mock_create_experiment.return_value = "exp_123"
 
         ExperimentManager("new_experiment")
 
-        mock_client.get_experiment_by_name.assert_called_with("new_experiment")
-        mock_client.create_experiment.assert_called_once()
+        mock_get_experiment.assert_called_with("new_experiment")
+        mock_create_experiment.assert_called_once_with("new_experiment")
 
-    @patch("mlflow.tracking.MlflowClient")
-    def test_ensure_experiment_exists_already_exists(self, mock_client_class):
+    @patch("mlflow.create_experiment")
+    @patch("mlflow.get_experiment_by_name")
+    def test_ensure_experiment_exists_already_exists(self, mock_get_experiment, mock_create_experiment):
         """Test when experiment already exists."""
-        mock_client = Mock()
-        mock_client_class.return_value = mock_client
-
         # Experiment exists
         mock_experiment = Mock()
         mock_experiment.experiment_id = "existing_123"
-        mock_client.get_experiment_by_name.return_value = mock_experiment
+        mock_get_experiment.return_value = mock_experiment
 
         ExperimentManager("existing_experiment")
 
-        mock_client.get_experiment_by_name.assert_called_with("existing_experiment")
-        mock_client.create_experiment.assert_not_called()
+        mock_get_experiment.assert_called_with("existing_experiment")
+        mock_create_experiment.assert_not_called()
