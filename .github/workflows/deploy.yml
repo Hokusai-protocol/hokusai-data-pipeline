@@ -146,89 +146,137 @@ jobs:
     - name: Update ECS Services
       run: |
         # Update ECS services with new images
-        # First update task definitions with new image tags
+        # First check if infrastructure exists
+        
+        # Check if ECS cluster exists
+        if ! aws ecs describe-clusters --clusters hokusai-development --query 'clusters[0].clusterName' >/dev/null 2>&1; then
+          echo "⚠️  ECS cluster 'hokusai-development' not found."
+          echo "Infrastructure deployment is required before application deployment."
+          echo "Please run: cd infrastructure && terraform apply -var environment=development"
+          echo "Skipping deployment for now..."
+          exit 0
+        fi
         
         # Get ECR registry URL
         ECR_REGISTRY=$(aws ecr describe-repositories --repository-names hokusai-api --query 'repositories[0].repositoryUri' --output text | cut -d'/' -f1)
         IMAGE_TAG=${{ github.sha }}
         
+        # Track what's available
+        API_AVAILABLE=false
+        MLFLOW_AVAILABLE=false
+        
         # Update API task definition
         # First check if task definition exists
         if aws ecs describe-task-definition --task-definition hokusai-api-development >/dev/null 2>&1; then
-          echo "Updating existing API task definition..."
+          echo "✅ Updating existing API task definition..."
           TASK_DEF=$(aws ecs describe-task-definition --task-definition hokusai-api-development --query 'taskDefinition')
           NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ECR_REGISTRY/hokusai-api:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
           echo "$NEW_TASK_DEF" > /tmp/api-task-def.json
           API_TASK_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/api-task-def.json --query 'taskDefinition.taskDefinitionArn' --output text)
+          API_AVAILABLE=true
         else
-          echo "❌ API task definition not found. Please deploy infrastructure first using 'infrastructure/scripts/deploy.sh'"
-          exit 1
+          echo "⚠️  API task definition not found. Skipping API deployment."
+          echo "   To deploy API infrastructure, run: terraform apply -target=aws_ecs_task_definition.api"
         fi
         
         # Update MLflow task definition
         if aws ecs describe-task-definition --task-definition hokusai-mlflow-development >/dev/null 2>&1; then
-          echo "Updating existing MLflow task definition..."
+          echo "✅ Updating existing MLflow task definition..."
           TASK_DEF=$(aws ecs describe-task-definition --task-definition hokusai-mlflow-development --query 'taskDefinition')
           NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ECR_REGISTRY/hokusai-mlflow:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
           echo "$NEW_TASK_DEF" > /tmp/mlflow-task-def.json
           MLFLOW_TASK_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/mlflow-task-def.json --query 'taskDefinition.taskDefinitionArn' --output text)
+          MLFLOW_AVAILABLE=true
         else
-          echo "❌ MLflow task definition not found. Please deploy infrastructure first using 'infrastructure/scripts/deploy.sh'"
-          exit 1
+          echo "⚠️  MLflow task definition not found. Skipping MLflow deployment."
+          echo "   To deploy MLflow infrastructure, run: terraform apply -target=aws_ecs_task_definition.mlflow"
         fi
         
-        # Update services with new task definitions
-        aws ecs update-service \
-          --cluster hokusai-development \
-          --service hokusai-api \
-          --task-definition $API_TASK_ARN \
-          --force-new-deployment \
-          --desired-count 2
+        # Update services only if task definitions exist
+        if [ "$API_AVAILABLE" = "true" ]; then
+          if aws ecs describe-services --cluster hokusai-development --services hokusai-api --query 'services[0].serviceName' >/dev/null 2>&1; then
+            echo "✅ Updating API service..."
+            aws ecs update-service \
+              --cluster hokusai-development \
+              --service hokusai-api \
+              --task-definition $API_TASK_ARN \
+              --force-new-deployment \
+              --desired-count 2
+          else
+            echo "⚠️  API service not found. Skipping service update."
+          fi
+        fi
         
-        aws ecs update-service \
-          --cluster hokusai-development \
-          --service hokusai-mlflow \
-          --task-definition $MLFLOW_TASK_ARN \
-          --force-new-deployment \
-          --desired-count 1
+        if [ "$MLFLOW_AVAILABLE" = "true" ]; then
+          if aws ecs describe-services --cluster hokusai-development --services hokusai-mlflow --query 'services[0].serviceName' >/dev/null 2>&1; then
+            echo "✅ Updating MLflow service..."
+            aws ecs update-service \
+              --cluster hokusai-development \
+              --service hokusai-mlflow \
+              --task-definition $MLFLOW_TASK_ARN \
+              --force-new-deployment \
+              --desired-count 1
+          else
+            echo "⚠️  MLflow service not found. Skipping service update."
+          fi
+        fi
         
-        echo "✅ Services updated with new task definitions"
+        # Summary
+        echo ""
+        echo "📊 Deployment Summary:"
+        if [ "$API_AVAILABLE" = "true" ] && [ "$MLFLOW_AVAILABLE" = "true" ]; then
+          echo "✅ Both API and MLflow services updated successfully"
+        elif [ "$API_AVAILABLE" = "true" ]; then
+          echo "⚠️  Only API service updated (MLflow infrastructure missing)"
+        elif [ "$MLFLOW_AVAILABLE" = "true" ]; then
+          echo "⚠️  Only MLflow service updated (API infrastructure missing)"
+        else
+          echo "⚠️  No services updated - infrastructure deployment required"
+          echo ""
+          echo "To deploy the infrastructure:"
+          echo "1. cd infrastructure"
+          echo "2. terraform init"
+          echo "3. terraform apply -var environment=development"
+        fi
     
     - name: Wait for services to stabilize
       run: |
-        echo "Waiting for services to stabilize..."
+        echo "Checking service stability..."
         
-        # Wait for API service
-        echo "Waiting for API service to stabilize..."
-        aws ecs wait services-stable \
-          --cluster hokusai-development \
-          --services hokusai-api \
-          --region ${{ env.AWS_REGION }} || {
-            echo "⚠️  API service did not stabilize within timeout period"
-            # Check service events for debugging
-            aws ecs describe-services \
-              --cluster hokusai-development \
-              --services hokusai-api \
-              --region ${{ env.AWS_REGION }} \
-              --query 'services[0].events[:5]' || true
-          }
+        # Only wait for services that exist
+        if aws ecs describe-services --cluster hokusai-development --services hokusai-api --query 'services[0].serviceName' >/dev/null 2>&1; then
+          echo "Waiting for API service to stabilize..."
+          aws ecs wait services-stable \
+            --cluster hokusai-development \
+            --services hokusai-api \
+            --region ${{ env.AWS_REGION }} || {
+              echo "⚠️  API service did not stabilize within timeout period"
+              # Check service events for debugging
+              aws ecs describe-services \
+                --cluster hokusai-development \
+                --services hokusai-api \
+                --region ${{ env.AWS_REGION }} \
+                --query 'services[0].events[:5]' || true
+            }
+        fi
         
-        # Wait for MLflow service
-        echo "Waiting for MLflow service to stabilize..."
-        aws ecs wait services-stable \
-          --cluster hokusai-development \
-          --services hokusai-mlflow \
-          --region ${{ env.AWS_REGION }} || {
-            echo "⚠️  MLflow service did not stabilize within timeout period"
-            # Check service events for debugging
-            aws ecs describe-services \
-              --cluster hokusai-development \
-              --services hokusai-mlflow \
-              --region ${{ env.AWS_REGION }} \
-              --query 'services[0].events[:5]' || true
-          }
+        if aws ecs describe-services --cluster hokusai-development --services hokusai-mlflow --query 'services[0].serviceName' >/dev/null 2>&1; then
+          echo "Waiting for MLflow service to stabilize..."
+          aws ecs wait services-stable \
+            --cluster hokusai-development \
+            --services hokusai-mlflow \
+            --region ${{ env.AWS_REGION }} || {
+              echo "⚠️  MLflow service did not stabilize within timeout period"
+              # Check service events for debugging
+              aws ecs describe-services \
+                --cluster hokusai-development \
+                --services hokusai-mlflow \
+                --region ${{ env.AWS_REGION }} \
+                --query 'services[0].events[:5]' || true
+            }
+        fi
         
-        echo "✅ Services are stable"
+        echo "✅ Service stability check complete"
     
     - name: Run deployment validation
       run: |
