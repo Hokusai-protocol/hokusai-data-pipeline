@@ -153,16 +153,29 @@ jobs:
         IMAGE_TAG=${{ github.sha }}
         
         # Update API task definition
-        TASK_DEF=$(aws ecs describe-task-definition --task-definition hokusai-api-development --query 'taskDefinition')
-        NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ECR_REGISTRY/hokusai-api:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
-        echo "$NEW_TASK_DEF" > /tmp/api-task-def.json
-        API_TASK_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/api-task-def.json --query 'taskDefinition.taskDefinitionArn' --output text)
+        # First check if task definition exists
+        if aws ecs describe-task-definition --task-definition hokusai-api-development >/dev/null 2>&1; then
+          echo "Updating existing API task definition..."
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition hokusai-api-development --query 'taskDefinition')
+          NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ECR_REGISTRY/hokusai-api:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
+          echo "$NEW_TASK_DEF" > /tmp/api-task-def.json
+          API_TASK_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/api-task-def.json --query 'taskDefinition.taskDefinitionArn' --output text)
+        else
+          echo "❌ API task definition not found. Please deploy infrastructure first using 'infrastructure/scripts/deploy.sh'"
+          exit 1
+        fi
         
         # Update MLflow task definition
-        TASK_DEF=$(aws ecs describe-task-definition --task-definition hokusai-mlflow-development --query 'taskDefinition')
-        NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ECR_REGISTRY/hokusai-mlflow:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
-        echo "$NEW_TASK_DEF" > /tmp/mlflow-task-def.json
-        MLFLOW_TASK_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/mlflow-task-def.json --query 'taskDefinition.taskDefinitionArn' --output text)
+        if aws ecs describe-task-definition --task-definition hokusai-mlflow-development >/dev/null 2>&1; then
+          echo "Updating existing MLflow task definition..."
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition hokusai-mlflow-development --query 'taskDefinition')
+          NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ECR_REGISTRY/hokusai-mlflow:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
+          echo "$NEW_TASK_DEF" > /tmp/mlflow-task-def.json
+          MLFLOW_TASK_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/mlflow-task-def.json --query 'taskDefinition.taskDefinitionArn' --output text)
+        else
+          echo "❌ MLflow task definition not found. Please deploy infrastructure first using 'infrastructure/scripts/deploy.sh'"
+          exit 1
+        fi
         
         # Update services with new task definitions
         aws ecs update-service \
@@ -180,6 +193,42 @@ jobs:
           --desired-count 1
         
         echo "✅ Services updated with new task definitions"
+    
+    - name: Wait for services to stabilize
+      run: |
+        echo "Waiting for services to stabilize..."
+        
+        # Wait for API service
+        echo "Waiting for API service to stabilize..."
+        aws ecs wait services-stable \
+          --cluster hokusai-development \
+          --services hokusai-api \
+          --region ${{ env.AWS_REGION }} || {
+            echo "⚠️  API service did not stabilize within timeout period"
+            # Check service events for debugging
+            aws ecs describe-services \
+              --cluster hokusai-development \
+              --services hokusai-api \
+              --region ${{ env.AWS_REGION }} \
+              --query 'services[0].events[:5]' || true
+          }
+        
+        # Wait for MLflow service
+        echo "Waiting for MLflow service to stabilize..."
+        aws ecs wait services-stable \
+          --cluster hokusai-development \
+          --services hokusai-mlflow \
+          --region ${{ env.AWS_REGION }} || {
+            echo "⚠️  MLflow service did not stabilize within timeout period"
+            # Check service events for debugging
+            aws ecs describe-services \
+              --cluster hokusai-development \
+              --services hokusai-mlflow \
+              --region ${{ env.AWS_REGION }} \
+              --query 'services[0].events[:5]' || true
+          }
+        
+        echo "✅ Services are stable"
     
     - name: Run deployment validation
       run: |
