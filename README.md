@@ -78,7 +78,8 @@ docker compose logs -f
 
 ### Accessing Services
 
-Once the platform is running, you can access:
+#### Local Development
+Once the platform is running locally, you can access:
 
 - **Model Registry API**: http://localhost:8001
   - API Documentation: http://localhost:8001/docs
@@ -97,6 +98,18 @@ Once the platform is running, you can access:
   - Database: `mlflow_db`
   - Username: `mlflow`
   - Password: `mlflow_password`
+
+#### Production Deployment (AWS)
+The platform is deployed on AWS and accessible at:
+
+- **Model Registry API**: http://registry.hokus.ai/api
+  - API Documentation: http://registry.hokus.ai/api/docs
+  - Model management, registration, and attestation generation
+  - Requires authentication (ETH signature or API key)
+  
+- **MLFlow UI**: http://mlflow.hokus.ai/mlflow/
+  - Visual experiment tracking and model registry
+  - Browse experiments, compare models, view metrics
 
 ### Running the Pipeline
 

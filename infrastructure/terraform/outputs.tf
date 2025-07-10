@@ -1,10 +1,20 @@
 output "api_endpoint" {
   description = "URL for the API endpoint"
-  value       = "http://${aws_lb.main.dns_name}/api"
+  value       = "http://registry.hokus.ai/api"
 }
 
 output "mlflow_endpoint" {
   description = "URL for the MLflow UI"
+  value       = "http://mlflow.hokus.ai/mlflow"
+}
+
+output "api_endpoint_alb" {
+  description = "API endpoint URL via ALB (direct)"
+  value       = "http://${aws_lb.main.dns_name}/api"
+}
+
+output "mlflow_endpoint_alb" {
+  description = "MLflow UI endpoint URL via ALB (direct)"
   value       = "http://${aws_lb.main.dns_name}/mlflow"
 }
 

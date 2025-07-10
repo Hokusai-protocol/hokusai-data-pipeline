@@ -331,7 +331,7 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# API listener rule
+# API listener rule - with host-based routing option
 resource "aws_lb_listener_rule" "api" {
   listener_arn = aws_lb_listener.http.arn
   priority     = 100
@@ -344,6 +344,23 @@ resource "aws_lb_listener_rule" "api" {
   condition {
     path_pattern {
       values = ["/api*"]
+    }
+  }
+}
+
+# Host-based routing for registry.hokus.ai
+resource "aws_lb_listener_rule" "registry_host" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 50  # Higher priority than path-based rules
+  
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
+  }
+  
+  condition {
+    host_header {
+      values = ["registry.hokus.ai"]
     }
   }
 }
