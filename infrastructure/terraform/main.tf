@@ -348,10 +348,33 @@ resource "aws_lb_listener_rule" "api" {
   }
 }
 
-# Host-based routing for registry.hokus.ai
-resource "aws_lb_listener_rule" "registry_host" {
+# Host-based routing for registry.hokus.ai - MLflow path
+resource "aws_lb_listener_rule" "registry_mlflow" {
   listener_arn = aws_lb_listener.http.arn
-  priority     = 50  # Higher priority than path-based rules
+  priority     = 40  # Highest priority for specific path on specific host
+  
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.mlflow.arn
+  }
+  
+  condition {
+    host_header {
+      values = ["registry.hokus.ai"]
+    }
+  }
+  
+  condition {
+    path_pattern {
+      values = ["/mlflow", "/mlflow/*"]
+    }
+  }
+}
+
+# Host-based routing for registry.hokus.ai - API (everything else)
+resource "aws_lb_listener_rule" "registry_api" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 50  # Lower priority - catches all other paths
   
   action {
     type             = "forward"

@@ -18,7 +18,7 @@ from datetime import datetime
 
 
 # Configuration
-MLFLOW_TRACKING_URI = "http://mlflow.hokus.ai/mlflow"
+MLFLOW_TRACKING_URI = "http://registry.hokus.ai/mlflow"
 API_BASE_URL = "http://registry.hokus.ai/api"
 
 # IMPORTANT: Use a test private key - never commit real keys!

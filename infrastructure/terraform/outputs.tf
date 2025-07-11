@@ -5,7 +5,7 @@ output "api_endpoint" {
 
 output "mlflow_endpoint" {
   description = "URL for the MLflow UI"
-  value       = "http://mlflow.hokus.ai/mlflow"
+  value       = "http://registry.hokus.ai/mlflow"
 }
 
 output "api_endpoint_alb" {

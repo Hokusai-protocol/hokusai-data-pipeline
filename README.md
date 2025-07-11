@@ -102,14 +102,12 @@ Once the platform is running locally, you can access:
 #### Production Deployment (AWS)
 The platform is deployed on AWS and accessible at:
 
-- **Model Registry API**: http://registry.hokus.ai/api
+- **Model Registry Platform**: http://registry.hokus.ai
+  - API: http://registry.hokus.ai/api
   - API Documentation: http://registry.hokus.ai/api/docs
+  - MLflow UI: http://registry.hokus.ai/mlflow
   - Model management, registration, and attestation generation
-  - Requires authentication (ETH signature or API key)
-  
-- **MLFlow UI**: http://mlflow.hokus.ai/mlflow/
-  - Visual experiment tracking and model registry
-  - Browse experiments, compare models, view metrics
+  - API requires authentication (ETH signature or API key)
 
 ### Running the Pipeline
 

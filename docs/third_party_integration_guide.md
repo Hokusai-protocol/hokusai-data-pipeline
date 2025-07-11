@@ -70,7 +70,7 @@ import mlflow
 import mlflow.sklearn  # or mlflow.pytorch, mlflow.tensorflow, etc.
 
 # Set MLflow tracking URI to Hokusai's MLflow server
-mlflow.set_tracking_uri("http://mlflow.hokus.ai/mlflow")
+mlflow.set_tracking_uri("http://registry.hokus.ai/mlflow")
 
 # Set experiment name
 mlflow.set_experiment("third_party_models")
