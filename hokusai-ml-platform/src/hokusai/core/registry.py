@@ -1,5 +1,6 @@
 """Model Registry for centralized model management."""
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -8,6 +9,7 @@ import mlflow
 from mlflow.tracking import MlflowClient
 
 from .models import HokusaiModel
+from ..auth.client import AuthenticatedClient, get_global_auth
 
 # Required tags for Hokusai tokenized models
 REQUIRED_HOKUSAI_TAGS = {"hokusai_token_id": str, "benchmark_metric": str, "benchmark_value": str}
@@ -53,10 +55,30 @@ class ModelLineage:
     total_improvement: float = 0.0
 
 
-class ModelRegistry:
+class ModelRegistry(AuthenticatedClient):
     """Central registry for all models with MLflow backend."""
 
-    def __init__(self, tracking_uri: str = "http://localhost:5000") -> None:
+    def __init__(
+        self, 
+        tracking_uri: str = None,
+        api_key: str = None,
+        api_endpoint: str = None,
+        auth=None,
+        **kwargs
+    ) -> None:
+        # Use global auth if available and no explicit auth provided
+        if auth is None and api_key is None:
+            global_auth = get_global_auth()
+            if global_auth:
+                auth = global_auth
+        
+        # Initialize authenticated client
+        super().__init__(api_key=api_key, api_endpoint=api_endpoint, auth=auth, **kwargs)
+        
+        # Set tracking URI
+        if tracking_uri is None:
+            tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", f"{self.api_endpoint}/mlflow")
+        
         self.tracking_uri = tracking_uri
         mlflow.set_tracking_uri(tracking_uri)
         self.client = MlflowClient(tracking_uri)
@@ -114,6 +136,35 @@ class ModelRegistry:
 
         except Exception as e:
             raise RegistryException(f"Failed to register baseline model: {str(e)}")
+    
+    def register_baseline_via_api(
+        self, model_type: str, mlflow_run_id: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> ModelRegistryEntry:
+        """Register a baseline model via the Hokusai API."""
+        try:
+            # Make API request
+            response = self.post(
+                "/api/v1/models/baseline",
+                json={
+                    "model_type": model_type,
+                    "mlflow_run_id": mlflow_run_id,
+                    "metadata": metadata or {}
+                }
+            )
+            
+            # Convert response to ModelRegistryEntry
+            return ModelRegistryEntry(
+                model_id=response["model_id"],
+                model_type=response["model_type"],
+                version=response["version"],
+                is_baseline=True,
+                metrics=response.get("metrics", {}),
+                mlflow_version=response.get("mlflow_version"),
+                timestamp=datetime.fromisoformat(response["timestamp"])
+            )
+            
+        except Exception as e:
+            raise RegistryException(f"Failed to register baseline via API: {str(e)}")
 
     def register_improved_model(
         self,

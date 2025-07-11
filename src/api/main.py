@@ -9,8 +9,10 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from src.api.middleware.auth import AuthMiddleware
+from src.middleware.auth import APIKeyAuthMiddleware
+from src.middleware.rate_limiter import RateLimitMiddleware
 from src.api.routes import dspy, health, models
+from src.api import auth
 from src.api.utils.config import get_settings
 
 # Configure logging
@@ -39,15 +41,19 @@ app.add_middleware(
 )
 
 # Add authentication middleware
-app.add_middleware(AuthMiddleware)
+app.add_middleware(APIKeyAuthMiddleware)
 
-# Configure rate limiting
+# Add rate limiting middleware
+app.add_middleware(RateLimitMiddleware)
+
+# Configure additional rate limiting with slowapi
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Include routers
 app.include_router(health.router, tags=["health"])
+app.include_router(auth.router, tags=["auth"])
 app.include_router(models.router, prefix="/models", tags=["models"])
 app.include_router(dspy.router, tags=["dspy"])
 

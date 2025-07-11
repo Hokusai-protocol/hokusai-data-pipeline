@@ -1,150 +1,107 @@
-# Product Requirements Document: Technical Debt Fixes
+# API Key Management System PRD
 
 ## Objectives
 
-Address critical technical debt in the Hokusai data pipeline to improve code quality, reliability, and maintainability. This includes fixing linting issues, resolving dependency conflicts, re-enabling tests, and establishing proper dependency management.
+Implement a secure and scalable API key management system for the Hokusai data pipeline that enables users to authenticate and access platform services. The system must support key generation, validation, rotation, and revocation while maintaining security best practices.
 
 ## Personas
 
-- **Development Team**: Engineers working on the Hokusai data pipeline who need a stable, well-tested codebase
-- **DevOps Engineers**: Team members responsible for deployments who need reliable CI/CD pipelines
-- **Contributors**: External developers who need clear code standards and passing tests
+**Data Scientists**
+- Need API keys to integrate Hokusai ML platform into their workflows
+- Require simple key generation and management through CLI or web interface
+- Want to manage multiple keys for different environments (dev, staging, prod)
+
+**Platform Administrators**
+- Need to monitor API key usage and enforce rate limits
+- Require ability to revoke compromised keys immediately
+- Want audit logs of all key operations
+
+**Third-party Developers**
+- Need programmatic access to Hokusai services via API keys
+- Require clear documentation on key usage and permissions
+- Want to rotate keys periodically for security
 
 ## Success Criteria
 
-1. All linting rules re-enabled and code passes linting checks
-2. Numpy version conflicts resolved between mlflow (<2.0) and dspy-ai (2.3.1)
-3. All tests re-enabled and passing with >80% coverage
-4. All dependencies pinned to specific versions
-5. CI/CD pipeline runs successfully without manual interventions
+1. Users can generate, list, and revoke API keys through CLI and REST API
+2. API keys are securely stored using encryption at rest
+3. Key validation adds minimal latency (<50ms) to API requests
+4. System supports key rotation without service interruption
+5. Comprehensive audit logging of all key operations
+6. Rate limiting and usage tracking per API key
+7. Integration with existing authentication system
 
-## Tasks
+## Implementation Tasks
 
-### 1. Re-enable and Fix Linting Issues
+### Database Schema Design
+Design and implement database tables for storing API keys, including:
+- Key identifier, hashed key value, user association
+- Creation/expiration timestamps, last used timestamp
+- Permissions/scopes, rate limit configuration
+- Status flags (active, revoked, expired)
 
-**Objective**: Restore code quality standards by re-enabling all linting rules and fixing violations
+### API Key Generation Service
+Create service for generating cryptographically secure API keys:
+- Generate 32-byte random keys using secure random generator
+- Hash keys using bcrypt before storage
+- Return unhashed key only once during creation
+- Support optional expiration dates
 
-**Requirements**:
-- Review the commit that relaxed ruff linting rules
-- Re-enable all original linting rules in pyproject.toml
-- Fix all linting errors in the codebase
-- Ensure pre-commit hooks are working
+### Key Validation Middleware
+Implement middleware for validating API keys on incoming requests:
+- Extract API key from Authorization header or query parameter
+- Validate key against hashed values in database
+- Cache validation results for performance
+- Update last_used timestamp asynchronously
+- Check expiration and revocation status
 
-**Acceptance Criteria**:
-- `ruff check src/ tests/` passes without errors
-- Pre-commit hooks prevent commits with linting errors
+### CLI Commands Implementation
+Add commands to hokusai-ml-platform CLI:
+- `hokusai auth create-key` - Generate new API key
+- `hokusai auth list-keys` - List user's API keys
+- `hokusai auth revoke-key` - Revoke specific key
+- `hokusai auth rotate-key` - Rotate existing key
 
-### 2. Resolve Numpy Version Conflicts
+### REST API Endpoints
+Implement RESTful endpoints for key management:
+- POST /api/v1/auth/keys - Create new API key
+- GET /api/v1/auth/keys - List user's keys
+- DELETE /api/v1/auth/keys/{key_id} - Revoke key
+- POST /api/v1/auth/keys/{key_id}/rotate - Rotate key
 
-**Objective**: Fix the dependency conflict between mlflow (requires numpy<2.0) and dspy-ai (installs numpy 2.3.1)
+### Rate Limiting Integration
+Implement rate limiting per API key:
+- Configure limits in database per key
+- Use Redis for distributed rate limit tracking
+- Return appropriate 429 responses when exceeded
+- Allow configuration of burst limits
 
-**Requirements**:
-- Analyze current dependency tree
-- Find compatible versions or use dependency groups
-- Update requirements files with compatible versions
-- Test both mlflow and dspy-ai functionality
+### Usage Analytics
+Track and store API key usage metrics:
+- Request count per key per time period
+- Endpoint usage breakdown
+- Response time metrics
+- Error rates by key
 
-**Acceptance Criteria**:
-- No dependency conflicts during installation
-- Both mlflow and dspy-ai features work correctly
-- `pip check` shows no conflicts
+### Security Hardening
+Implement security best practices:
+- Enforce HTTPS for all API key operations
+- Implement key prefix for easy identification (e.g., "hk_live_")
+- Add option for IP allowlisting per key
+- Implement automated key expiration policies
+- Secure key transmission guidelines
 
-### 3. Re-enable All Tests
+### Documentation
+Create comprehensive documentation:
+- API key authentication guide
+- Security best practices
+- Code examples in Python, JavaScript, and curl
+- Troubleshooting common issues
+- Migration guide for existing users
 
-**Objective**: Restore full test coverage by re-enabling all previously disabled tests
-
-**Requirements**:
-- Review all tests currently disabled in pytest configuration
-- Fix underlying issues causing test failures
-- Re-enable tests one by one
-- Ensure test coverage meets 80% threshold
-
-**Acceptance Criteria**:
-- All tests in test suite are enabled
-- Test coverage is ≥80%
-- CI/CD test stage passes consistently
-
-### 4. Pin Dependency Versions
-
-**Objective**: Establish reproducible builds by pinning all dependency versions
-
-**Requirements**:
-- Generate complete dependency lock file
-- Pin all direct and transitive dependencies
-- Document version selection rationale for key packages
-- Set up automated dependency updates
-
-**Acceptance Criteria**:
-- All dependencies in requirements.txt have exact versions
-- requirements-lock.txt contains full dependency tree
-- Builds are reproducible across environments
-- Dependabot or similar tool configured for updates
-
-## Technical Specifications
-
-### Dependency Resolution Strategy
-
-1. Create separate requirement files:
-   - `requirements-core.txt`: Core dependencies without conflicts
-   - `requirements-mlflow.txt`: MLflow and compatible dependencies
-   - `requirements-dspy.txt`: DSPy-ai as optional dependency
-   - `requirements-dev.txt`: Development dependencies
-
-2. Use pip-tools to manage dependencies:
-   - `requirements.in` files for human-edited dependencies
-   - `pip-compile` to generate locked requirements
-
-### Testing Strategy
-
-1. Fix tests in order of importance:
-   - Unit tests first
-   - Integration tests second
-   - End-to-end tests last
-
-2. Address common issues:
-   - Mock external dependencies properly
-   - Fix import errors from dependency changes
-   - Update deprecated API usage
-
-### Linting Configuration
-
-1. Restore original ruff configuration
-2. Fix issues by category:
-   - Import sorting (I)
-   - Code style (E, W)
-   - Docstrings (D)
-   - Type annotations (ANN)
-   - Security issues (S)
-
-## Implementation Plan
-
-1. **Phase 1**: Dependency Resolution (Day 1-2)
-   - Analyze and resolve numpy conflict
-   - Create modular requirements files
-   - Test installation in clean environment
-
-2. **Phase 2**: Test Fixes (Day 3-4)
-   - Re-enable and fix unit tests
-   - Address integration test issues
-   - Achieve 80% coverage
-
-3. **Phase 3**: Linting (Day 5)
-   - Re-enable linting rules
-   - Fix all violations
-   - Set up pre-commit hooks
-
-4. **Phase 4**: Documentation & CI/CD (Day 6)
-   - Update contribution guidelines
-   - Fix CI/CD pipeline
-   - Document changes
-
-## Risk Mitigation
-
-- **Risk**: Breaking changes in dependencies
-  - **Mitigation**: Comprehensive test suite before and after changes
-
-- **Risk**: Incompatible dependency versions
-  - **Mitigation**: Use optional dependencies or separate environments
-
-- **Risk**: Large number of linting errors
-  - **Mitigation**: Fix incrementally, category by category
+### Testing
+Implement comprehensive test coverage:
+- Unit tests for key generation and validation
+- Integration tests for API endpoints
+- Performance tests for validation middleware
+- Security tests for key storage and transmission

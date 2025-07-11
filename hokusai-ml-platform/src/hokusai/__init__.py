@@ -8,10 +8,15 @@ __email__ = "team@hokus.ai"
 from hokusai.core.models import HokusaiModel
 from hokusai.core.registry import ModelRegistry
 from hokusai.core.versioning import ModelVersionManager
+from hokusai.auth import HokusaiAuth
+from hokusai.auth.client import configure, setup
 
 __all__ = [
     "__version__",
     "ModelRegistry",
     "ModelVersionManager",
     "HokusaiModel",
+    "HokusaiAuth",
+    "configure",
+    "setup",
 ]

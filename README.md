@@ -19,6 +19,10 @@ Then start using it immediately:
 from hokusai.core import ModelRegistry
 from hokusai.tracking import ExperimentManager
 
+# Set your API key (or use environment variable HOKUSAI_API_KEY)
+from hokusai import setup
+setup(api_key="hk_live_your_api_key_here")
+
 # Connect to Hokusai
 registry = ModelRegistry("http://registry.hokus.ai/mlflow")
 manager = ExperimentManager(registry)
@@ -52,6 +56,25 @@ Access local services at:
 - **Token Integration**: Associate models with Hokusai tokens
 - **REST API**: Language-agnostic integration
 - **Attestations**: Blockchain-ready proof of improvements
+- **API Key Authentication**: Secure access with configurable rate limits
+
+## Authentication
+
+Hokusai uses API keys for secure access. Get started:
+
+```bash
+# Create your first API key
+hokusai auth create-key --name "My API Key"
+
+# Set it as an environment variable
+export HOKUSAI_API_KEY=hk_live_your_key_here
+
+# Or configure it in Python
+from hokusai import setup
+setup(api_key="hk_live_your_key_here")
+```
+
+See the [Authentication Guide](./documentation/docs/authentication.md) for details.
 
 ## Documentation
 
