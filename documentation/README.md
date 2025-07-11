@@ -1,4 +1,6 @@
-# Hokusai ML Platform Documentation
+# Hokusai Public Documentation (Docusaurus)
+
+> **Note**: This is the public-facing documentation for docs.hokus.ai. For internal developer documentation, see the [`/docs`](../docs/README.md) directory.
 
 This directory contains the comprehensive documentation for the Hokusai ML Platform, formatted for Docusaurus.
 

@@ -20,18 +20,18 @@ Before installing Hokusai ML Platform, ensure you have:
 
 ## Installation Methods
 
-### 1. Install from PyPI (Recommended)
+### 1. Install from GitHub (Current Method)
+
+```bash
+pip install git+https://github.com/hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform
+```
+
+### 2. Install from PyPI (Coming Soon)
+
+Once published to PyPI:
 
 ```bash
 pip install hokusai-ml-platform
-```
-
-### 2. Install from GitHub
-
-For the latest development version:
-
-```bash
-pip install git+https://github.com/hokusai-protocol/hokusai-data-pipeline.git
 ```
 
 ### 3. Development Installation
@@ -40,7 +40,7 @@ Clone the repository and install in editable mode:
 
 ```bash
 git clone https://github.com/hokusai-protocol/hokusai-data-pipeline.git
-cd hokusai-data-pipeline
+cd hokusai-data-pipeline/hokusai-ml-platform
 pip install -e .
 ```
 

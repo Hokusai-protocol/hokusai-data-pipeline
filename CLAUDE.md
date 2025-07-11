@@ -6,11 +6,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Hokusai data evaluation pipeline - a system for evaluating machine learning models with reproducible, attestation-ready outputs. The project is in early development stages with focus on workflow automation tooling.
 
+## Documentation Structure
+
+The project maintains two separate documentation directories for different audiences:
+
+### `/docs` - Internal Developer Documentation
+- **Purpose**: Technical documentation for contributors and developers working on Hokusai
+- **Content**: Architecture decisions, implementation details, advanced configuration, debugging guides
+- **Format**: Standard Markdown
+- **Audience**: Hokusai contributors, developers extending the platform
+
+### `/documentation` - Public User Documentation  
+- **Purpose**: User-facing documentation for docs.hokus.ai (Docusaurus format)
+- **Content**: Getting started guides, tutorials, API reference, best practices
+- **Format**: Docusaurus-compatible with frontmatter
+- **Audience**: Data scientists using Hokusai, third-party developers
+
+See `DOCUMENTATION_MAP.md` for detailed guidelines on what content belongs where.
+
 ## Common Commands
 Common prompts: 
 @~/.claude/my-common-prompts.md
 
-For this repo, use the "Hokusai data platform" project in Linear to pull the backlog list. 
+For this repo, use the "Hokusai data platform" project in Linear to pull the backlog list.
+
+### Quick Start for New Users
+```bash
+# Install the Python SDK (recommended approach)
+pip install git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform
+
+# Or run local services with Docker
+docker compose -f docker-compose.minimal.yml up -d
+``` 
 
 ## Development Commands
 
@@ -146,3 +173,26 @@ When implementing the actual pipeline in Python:
 - Use Metaflow's @step decorators for each pipeline stage
 - Store all metrics in MLFlow for tracking
 - Follow PEP 8 style guidelines for Python code
+
+## Documentation Guidelines
+
+When updating documentation:
+
+### For User-Facing Features
+- Update `/documentation` directory (Docusaurus format)
+- Include frontmatter with id, title, sidebar_label, sidebar_position
+- Focus on how to use features, not implementation details
+- Add to appropriate section in `documentation/sidebars.js`
+
+### For Technical Implementation
+- Update `/docs` directory (standard Markdown)
+- Include architecture diagrams and technical details
+- Document design decisions and trade-offs
+- Link to relevant code sections
+
+### Documentation Best Practices
+- Use the Python SDK as the primary example in user docs
+- Show REST API as alternative for non-Python users
+- Keep installation instructions simple (2 methods max)
+- Move complex options to advanced sections
+- Test all code examples before documenting
