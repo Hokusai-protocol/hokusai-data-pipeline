@@ -19,15 +19,12 @@ Get up and running with Hokusai ML Platform in 5 minutes!
 
 ```python
 from hokusai.core import ModelRegistry
-from hokusai.utils.mlflow_config import MLFlowConfig
-import mlflow
+from hokusai.tracking import ExperimentManager
 
-# Initialize MLflow configuration
-config = MLFlowConfig()
-config.setup_tracking()
+# Initialize Hokusai
+registry = ModelRegistry("http://registry.hokus.ai/mlflow")
+manager = ExperimentManager(registry)
 
-# Create a model registry
-registry = ModelRegistry()
 print("✅ Hokusai ML Platform initialized!")
 ```
 
