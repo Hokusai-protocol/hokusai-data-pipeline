@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # Rate limiting
     rate_limit_requests: int = 100
     rate_limit_period: int = 60  # seconds
+    
+    # Authentication Service
+    auth_service_url: str = "https://auth.hokus.ai"
+    auth_service_timeout: float = 5.0
 
     class Config:
         env_file = ".env"

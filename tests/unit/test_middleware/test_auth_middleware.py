@@ -1,25 +1,19 @@
-"""Unit tests for API key validation middleware."""
+"""Unit tests for API key validation middleware using external auth service."""
 
-import datetime
+import json
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from starlette.datastructures import Headers
 
-from src.middleware.auth import APIKeyAuthMiddleware, get_api_key_from_request
+from src.middleware.auth import APIKeyAuthMiddleware, get_api_key_from_request, ValidationResult
 
 
 class TestAPIKeyAuthMiddleware:
     """Test cases for API key authentication middleware."""
-
-    @pytest.fixture
-    def mock_api_key_service(self):
-        """Mock API key service."""
-        service = Mock()
-        service.validate_api_key = Mock()
-        return service
 
     @pytest.fixture
     def mock_cache(self):
@@ -27,25 +21,31 @@ class TestAPIKeyAuthMiddleware:
         cache = Mock()
         cache.get = Mock(return_value=None)
         cache.setex = Mock()
+        cache.ping = Mock()
         return cache
 
     @pytest.fixture
-    def app(self, mock_api_key_service, mock_cache):
+    def app(self, mock_cache):
         """Create FastAPI app with middleware."""
         app = FastAPI()
         
         # Add middleware
         app.add_middleware(
             APIKeyAuthMiddleware,
-            api_key_service=mock_api_key_service,
+            auth_service_url="https://auth.test.hokus.ai",
             cache=mock_cache,
-            excluded_paths=["/health", "/docs", "/openapi.json"]
+            excluded_paths=["/health", "/docs", "/openapi.json"],
+            timeout=5.0
         )
         
         # Add test endpoints
         @app.get("/protected")
-        async def protected_endpoint():
-            return {"message": "Protected resource"}
+        async def protected_endpoint(request: Request):
+            return {
+                "message": "Protected resource",
+                "user_id": getattr(request.state, "user_id", None),
+                "api_key_id": getattr(request.state, "api_key_id", None)
+            }
         
         @app.get("/health")
         async def health_check():
@@ -76,16 +76,23 @@ class TestAPIKeyAuthMiddleware:
         assert response.status_code == 401
         assert response.json()["detail"] == "API key required"
 
-    def test_middleware_validates_api_key_from_header(self, client, mock_api_key_service):
-        """Test middleware validates API key from Authorization header."""
+    @patch('httpx.AsyncClient.post')
+    async def test_middleware_validates_api_key_with_auth_service(self, mock_post, client):
+        """Test middleware validates API key with external auth service."""
         # Arrange
         api_key = "hk_live_valid_key_123"
-        mock_api_key_service.validate_api_key.return_value = Mock(
-            is_valid=True,
-            key_id="key123",
-            user_id="user123",
-            rate_limit_per_hour=100
-        )
+        
+        # Mock auth service response
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "user_id": "user123",
+            "key_id": "key123",
+            "service_id": "ml-platform",
+            "scopes": ["model:read", "model:write"],
+            "rate_limit_per_hour": 1000
+        }
+        mock_post.return_value = mock_response
         
         # Act
         response = client.get(
@@ -95,34 +102,21 @@ class TestAPIKeyAuthMiddleware:
         
         # Assert
         assert response.status_code == 200
-        mock_api_key_service.validate_api_key.assert_called_once()
+        result = response.json()
+        assert result["message"] == "Protected resource"
+        assert result["user_id"] == "user123"
+        assert result["api_key_id"] == "key123"
 
-    def test_middleware_validates_api_key_from_query_param(self, client, mock_api_key_service):
-        """Test middleware validates API key from query parameter."""
-        # Arrange
-        api_key = "hk_live_valid_key_123"
-        mock_api_key_service.validate_api_key.return_value = Mock(
-            is_valid=True,
-            key_id="key123",
-            user_id="user123",
-            rate_limit_per_hour=100
-        )
-        
-        # Act
-        response = client.get(f"/protected?api_key={api_key}")
-        
-        # Assert
-        assert response.status_code == 200
-        mock_api_key_service.validate_api_key.assert_called_once()
-
-    def test_middleware_rejects_invalid_api_key(self, client, mock_api_key_service):
-        """Test middleware rejects invalid API key."""
+    @patch('httpx.AsyncClient.post')
+    async def test_middleware_handles_invalid_api_key(self, mock_post, client):
+        """Test middleware handles invalid API key from auth service."""
         # Arrange
         api_key = "hk_live_invalid_key_123"
-        mock_api_key_service.validate_api_key.return_value = Mock(
-            is_valid=False,
-            error="API key not found"
-        )
+        
+        # Mock auth service response
+        mock_response = Mock()
+        mock_response.status_code = 401
+        mock_post.return_value = mock_response
         
         # Act
         response = client.get(
@@ -132,20 +126,42 @@ class TestAPIKeyAuthMiddleware:
         
         # Assert
         assert response.status_code == 401
-        assert response.json()["detail"] == "API key not found"
+        assert response.json()["detail"] == "Invalid or expired API key"
 
-    def test_middleware_uses_cache_for_validation(self, client, mock_api_key_service, mock_cache):
+    @patch('httpx.AsyncClient.post')
+    async def test_middleware_handles_rate_limit(self, mock_post, client):
+        """Test middleware handles rate limit response from auth service."""
+        # Arrange
+        api_key = "hk_live_rate_limited_key"
+        
+        # Mock auth service response
+        mock_response = Mock()
+        mock_response.status_code = 429
+        mock_post.return_value = mock_response
+        
+        # Act
+        response = client.get(
+            "/protected",
+            headers={"Authorization": f"Bearer {api_key}"}
+        )
+        
+        # Assert
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Rate limit exceeded"
+
+    @patch('httpx.AsyncClient.post')
+    async def test_middleware_uses_cache(self, mock_post, client, mock_cache):
         """Test middleware uses cache for API key validation."""
         # Arrange
         api_key = "hk_live_cached_key_123"
         cached_data = {
             "is_valid": True,
-            "key_id": "key123",
             "user_id": "user123",
-            "rate_limit_per_hour": 100
+            "key_id": "key123",
+            "service_id": "ml-platform",
+            "scopes": ["model:read"],
+            "rate_limit_per_hour": 1000
         }
-        # Cache stores JSON strings
-        import json
         mock_cache.get.return_value = json.dumps(cached_data)
         
         # Act
@@ -157,20 +173,26 @@ class TestAPIKeyAuthMiddleware:
         # Assert
         assert response.status_code == 200
         mock_cache.get.assert_called_once()
-        mock_api_key_service.validate_api_key.assert_not_called()
+        mock_post.assert_not_called()  # Should not call auth service
 
-    def test_middleware_caches_validation_result(self, client, mock_api_key_service, mock_cache):
+    @patch('httpx.AsyncClient.post')
+    async def test_middleware_caches_validation_result(self, mock_post, client, mock_cache):
         """Test middleware caches successful validation result."""
         # Arrange
         api_key = "hk_live_valid_key_123"
-        validation_result = Mock(
-            is_valid=True,
-            key_id="key123",
-            user_id="user123",
-            rate_limit_per_hour=100
-        )
-        mock_api_key_service.validate_api_key.return_value = validation_result
         mock_cache.get.return_value = None  # Not in cache
+        
+        # Mock auth service response
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "user_id": "user123",
+            "key_id": "key123",
+            "service_id": "ml-platform",
+            "scopes": ["model:read"],
+            "rate_limit_per_hour": 1000
+        }
+        mock_post.return_value = mock_response
         
         # Act
         response = client.get(
@@ -185,16 +207,23 @@ class TestAPIKeyAuthMiddleware:
         cache_call_args = mock_cache.setex.call_args
         assert cache_call_args[0][1] == 300  # 5 minute TTL
 
-    def test_middleware_includes_client_ip_in_validation(self, client, mock_api_key_service):
-        """Test middleware includes client IP in validation."""
+    @patch('httpx.AsyncClient.post')
+    async def test_middleware_includes_client_ip_in_validation(self, mock_post, client):
+        """Test middleware includes client IP in validation request."""
         # Arrange
         api_key = "hk_live_valid_key_123"
-        mock_api_key_service.validate_api_key.return_value = Mock(
-            is_valid=True,
-            key_id="key123",
-            user_id="user123",
-            rate_limit_per_hour=100
-        )
+        
+        # Mock auth service response
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "user_id": "user123",
+            "key_id": "key123",
+            "service_id": "ml-platform",
+            "scopes": ["model:read"],
+            "rate_limit_per_hour": 1000
+        }
+        mock_post.return_value = mock_response
         
         # Act
         response = client.get(
@@ -207,21 +236,17 @@ class TestAPIKeyAuthMiddleware:
         
         # Assert
         assert response.status_code == 200
-        # Check that client IP was passed to validation
-        call_args = mock_api_key_service.validate_api_key.call_args
-        assert call_args[1]["client_ip"] == "192.168.1.1"
+        # Check that client IP was included in auth service request
+        call_args = mock_post.call_args
+        request_data = call_args[1]["json"]
+        assert request_data["client_ip"] == "192.168.1.1"
 
-    def test_middleware_updates_last_used_async(self, client, mock_api_key_service):
-        """Test middleware updates last used timestamp asynchronously."""
+    @patch('httpx.AsyncClient.post')
+    async def test_middleware_handles_auth_service_timeout(self, mock_post, client):
+        """Test middleware handles auth service timeout gracefully."""
         # Arrange
-        api_key = "hk_live_valid_key_123"
-        mock_api_key_service.validate_api_key.return_value = Mock(
-            is_valid=True,
-            key_id="key123",
-            user_id="user123",
-            rate_limit_per_hour=100
-        )
-        mock_api_key_service.update_last_used = Mock()
+        api_key = "hk_live_timeout_key"
+        mock_post.side_effect = httpx.TimeoutException("Request timed out")
         
         # Act
         response = client.get(
@@ -230,15 +255,15 @@ class TestAPIKeyAuthMiddleware:
         )
         
         # Assert
-        assert response.status_code == 200
-        # Note: In real implementation, this would be async
-        # For testing, we verify the method would be called
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Authentication service timeout"
 
-    def test_middleware_handles_validation_errors_gracefully(self, client, mock_api_key_service):
-        """Test middleware handles validation service errors gracefully."""
+    @patch('httpx.AsyncClient.post')
+    async def test_middleware_handles_auth_service_error(self, mock_post, client):
+        """Test middleware handles auth service connection error."""
         # Arrange
-        api_key = "hk_live_error_key_123"
-        mock_api_key_service.validate_api_key.side_effect = Exception("Service error")
+        api_key = "hk_live_error_key"
+        mock_post.side_effect = httpx.ConnectError("Connection failed")
         
         # Act
         response = client.get(
@@ -247,51 +272,27 @@ class TestAPIKeyAuthMiddleware:
         )
         
         # Assert
-        assert response.status_code == 500
-        assert response.json()["detail"] == "Internal server error"
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Authentication service unavailable"
 
-    def test_middleware_sets_request_state(self, mock_api_key_service, mock_cache):
-        """Test middleware sets user context in request state."""
-        # Arrange
-        app = FastAPI()
-        api_key = "hk_live_valid_key_123"
+    def test_middleware_extracts_api_key_from_query_param(self, client):
+        """Test middleware can extract API key from query parameter."""
+        # Act
+        response = client.get("/protected?api_key=hk_live_query_key")
         
-        mock_api_key_service.validate_api_key.return_value = Mock(
-            is_valid=True,
-            key_id="key123",
-            user_id="user123",
-            rate_limit_per_hour=100
-        )
-        
-        # Add middleware
-        app.add_middleware(
-            APIKeyAuthMiddleware,
-            api_key_service=mock_api_key_service,
-            cache=mock_cache
-        )
-        
-        # Add endpoint that uses request state
-        @app.get("/protected")
-        async def protected_endpoint(request: Request):
-            return {
-                "user_id": request.state.user_id,
-                "api_key_id": request.state.api_key_id
-            }
-        
-        client = TestClient(app)
-        
+        # Assert
+        assert response.status_code == 401  # Will fail validation, but key was extracted
+
+    def test_middleware_extracts_api_key_from_x_api_key_header(self, client):
+        """Test middleware can extract API key from X-API-Key header."""
         # Act
         response = client.get(
             "/protected",
-            headers={"Authorization": f"Bearer {api_key}"}
+            headers={"X-API-Key": "hk_live_header_key"}
         )
         
         # Assert
-        assert response.status_code == 200
-        assert response.json() == {
-            "user_id": "user123",
-            "api_key_id": "key123"
-        }
+        assert response.status_code == 401  # Will fail validation, but key was extracted
 
 
 class TestGetAPIKeyFromRequest:

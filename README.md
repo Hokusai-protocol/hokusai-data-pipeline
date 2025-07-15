@@ -23,9 +23,9 @@ from hokusai.tracking import ExperimentManager
 # Option 1: Environment variable
 # export HOKUSAI_API_KEY=hk_live_your_api_key_here
 
-# Option 2: In Python
-import os
-os.environ["HOKUSAI_API_KEY"] = "hk_live_your_api_key_here"
+# Option 2: In Python using setup
+from hokusai import setup
+setup(api_key="hk_live_your_api_key_here")
 
 # Connect to Hokusai
 registry = ModelRegistry("http://registry.hokus.ai/mlflow")
@@ -74,11 +74,11 @@ hokusai auth create-key --name "My API Key"
 export HOKUSAI_API_KEY=hk_live_your_key_here
 
 # Or configure it in Python
-import os
-os.environ["HOKUSAI_API_KEY"] = "hk_live_your_key_here"
+from hokusai import setup
+setup(api_key="hk_live_your_key_here")
 ```
 
-See the [Authentication Guide](./documentation/getting-started/authentication.md) for details.
+See the [Authentication Guide](./documentation/authentication.md) for details.
 
 ## Documentation
 
@@ -94,11 +94,60 @@ We maintain two documentation sets for different audiences:
 **Live at**: https://docs.hokus.ai
 
 ### For Contributors (Internal Documentation)
-🔧 **[Developer Documentation](./docs/README.md)** - Technical details for contributors
-- Architecture decisions
-- Implementation details
+🔧 **[Developer Documentation](./docs/README.md)** - Technical docs for contributing to Hokusai
+- Architecture and design
 - Development setup
-- Contributing guidelines
+- Implementation details
+- Advanced configuration
+
+See [DOCUMENTATION_MAP.md](./DOCUMENTATION_MAP.md) for details on our documentation structure.
+
+## Production Access
+
+The platform is deployed and accessible at:
+- **Web**: http://registry.hokus.ai
+- **API**: http://registry.hokus.ai/api
+- **MLflow**: http://registry.hokus.ai/mlflow
+
+## Example Usage
+
+### Basic Model Registration
+
+```python
+from hokusai.core import ModelRegistry
+from hokusai.tracking import PerformanceTracker
+
+# Initialize
+registry = ModelRegistry()
+tracker = PerformanceTracker()
+
+# Register baseline model
+baseline = registry.register_baseline(
+    model=your_model,
+    model_type="classification",
+    metadata={"accuracy": 0.85}
+)
+
+# Track improvement with new data
+delta, attestation = tracker.track_improvement(
+    baseline_metrics={"accuracy": 0.85},
+    improved_metrics={"accuracy": 0.92},
+    data_contribution={"contributor": "0x...", "samples": 1000}
+)
+```
+
+### Token-Based Registration
+
+```python
+# Register model with Hokusai token
+result = registry.register_tokenized_model(
+    model_uri="runs:/abc123/model",
+    model_name="LEAD-SCORER",
+    token_id="lead-scorer",
+    metric_name="conversion_rate",
+    baseline_value=0.15
+)
+```
 
 ## Core Components
 
@@ -187,6 +236,18 @@ The platform is built with:
 - **Docker** for containerization
 
 See [Architecture Documentation](./docs/ARCHITECTURE.md) for details.
+
+## Project Structure
+
+```
+hokusai-data-pipeline/
+├── hokusai-ml-platform/   # Python SDK package
+├── src/                   # Pipeline source code
+├── docs/                  # Documentation
+├── infrastructure/        # AWS deployment
+├── tests/                 # Test suite
+└── docker-compose.yml     # Local services
+```
 
 ## Development Setup
 
