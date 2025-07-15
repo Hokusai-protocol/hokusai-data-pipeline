@@ -106,4 +106,4 @@ If you find any issues with the documentation:
 
 - Open an issue on GitHub
 - Join our Discord for discussion
-- Email documentation@hokusai.ai
+- Email documentation@hokus.ai

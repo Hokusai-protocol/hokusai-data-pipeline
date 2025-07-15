@@ -1,115 +1,75 @@
-# Implementation Tasks: Technical Debt Fixes
+# Implementation Tasks: MLflow Server Connection Error Fix
 
-## 1. Dependency Resolution
-1. [x] Analyze current dependency conflicts
-   a. [x] Run pip-compile --dry-run to see full dependency tree
-   b. [x] Identify exact numpy version requirements for mlflow and dspy-ai
-   c. [x] Research compatible versions or workarounds
-   d. [x] Document findings in DEPENDENCIES.md
+## 1. Fix Authentication Middleware
+- [x] a. Locate the authentication middleware file (src/middleware/auth.py)
+- [x] b. Add /mlflow/* to the list of excluded paths
+- [x] c. Test that MLflow endpoints bypass authentication
+- [x] d. Verify other endpoints still require authentication
 
-2. [x] Create modular requirements files
-   a. [x] Create requirements-core.in with essential dependencies
-   b. [x] Create requirements-mlflow.in with mlflow and compatible numpy
-   c. [x] Create requirements-dspy.in as optional dependency group
-   d. [x] Create requirements-dev.in for development tools
-   e. [x] Use pip-compile to generate locked versions
+## 2. Implement MLflow Proxy Router (Dependent on Task 1)
+- [x] a. Create new file src/api/routes/mlflow_proxy.py
+- [x] b. Implement reverse proxy logic to forward requests to MLflow server
+- [x] c. Add header stripping for authentication tokens
+- [x] d. Handle all HTTP methods (GET, POST, PUT, DELETE)
+- [x] e. Preserve request body and query parameters
 
-3. [x] Test dependency installation
-   a. [x] Create fresh virtual environment
-   b. [x] Test core + mlflow installation
-   c. [x] Test core + dspy installation separately
-   d. [x] Verify no conflicts with pip check
-   e. [x] Document installation instructions
+## 3. Update Main Application (Dependent on Task 2)
+- [x] a. Import MLflow proxy router in src/api/main.py
+- [x] b. Include the router with prefix="/mlflow"
+- [x] c. Test that routes are correctly registered
 
-## 2. Re-enable and Fix Tests
-4. [x] Audit currently disabled tests
-   a. [x] Review .github/workflows/deploy.yml for skipped tests
-   b. [x] Check pytest.ini for disabled test patterns
-   c. [x] List all --ignore flags in test commands
-   d. [x] Document why each test was disabled
+## 4. Update SDK Configuration
+- [x] a. Locate ExperimentManager class in hokusai-ml-platform package
+- [x] b. Update default MLflow tracking URI to use registry.hokus.ai/mlflow
+- [x] c. Add MLFLOW_TRACKING_URI environment variable support
+- [x] d. Implement configuration validation
+- [x] e. Add logging for configuration details
 
-5. [x] Fix unit tests
-   a. [ ] Fix test_api_dspy.py import issues
-   b. [ ] Fix test_api_health.py dependencies
-   c. [ ] Fix test_api_models.py mocking
-   d. [ ] Fix test_cli_signatures.py and test_cli_teleprompt.py
-   e. [ ] Fix test_dspy_* test files
+## 5. Add Local/Mock Mode (Dependent on Task 4)
+- [x] a. Create MockExperimentManager class for local testing
+- [x] b. Implement mock methods for all ExperimentManager operations
+- [x] c. Add HOKUSAI_MOCK_MODE environment variable
+- [x] d. Update ExperimentManager factory to return mock when enabled
+- [x] e. Document mock mode limitations
 
-6. [ ] Fix integration tests
-   a. [ ] Re-enable tests/integration/ directory
-   b. [ ] Update database fixtures
-   c. [ ] Fix external service mocking
-   d. [ ] Ensure proper test isolation
+## 6. Error Handling Improvements
+- [x] a. Add try-catch blocks around MLflow API calls
+- [x] b. Create custom exceptions for MLflow connection errors
+- [x] c. Implement exponential backoff retry logic
+- [x] d. Add detailed error messages with troubleshooting steps
+- [x] e. Log all MLflow connection attempts and failures
 
-7. [ ] Achieve 80% test coverage
-   a. [ ] Run coverage report
-   b. [ ] Identify uncovered code paths
-   c. [ ] Write additional tests for gaps
-   d. [ ] Configure coverage thresholds in CI
+## 7. Update Documentation
+- [x] a. Update documentation/getting-started/mlflow-access.md with configuration guide
+- [x] b. Add MLflow setup instructions to documentation/cli/model-registration.md
+- [ ] c. Create troubleshooting section in documentation/troubleshooting/mlflow-errors.md
+- [ ] d. Update API reference with MLflow proxy endpoints
+- [ ] e. Add environment variable reference to documentation/reference/configuration.md
 
-## 3. Linting Configuration and Fixes
-8. [x] Re-enable ruff linting rules
-   a. [x] Review git history for linting rule changes
-   b. [x] Restore original ruff configuration in pyproject.toml
-   c. [x] Run ruff check --diff to see all issues
-   d. [x] Document number of issues per category
+## 8. Write and Implement Tests
+- [x] a. Write unit tests for authentication middleware exclusion
+- [x] b. Create integration tests for MLflow proxy router
+- [x] c. Test mock mode functionality
+- [ ] d. Add end-to-end test for model registration flow
+- [x] e. Create test script scripts/test_mlflow_connection.py
+- [x] f. Add tests for error handling and retry logic
 
-9. [ ] Fix import sorting issues (I category)
-   a. [ ] Run ruff check --select I --fix
-   b. [ ] Manually review and fix remaining issues
-   c. [ ] Update import conventions in CONTRIBUTING.md
+## 9. Testing and Verification (Dependent on all above tasks)
+- [ ] a. Run all unit tests
+- [ ] b. Run integration tests
+- [ ] c. Test with actual MLflow server
+- [ ] d. Test in mock mode without MLflow
+- [ ] e. Verify documentation accuracy
+- [ ] f. Test third-party SDK integration
 
-10. [ ] Fix code style issues (E, W categories)
-    a. [ ] Fix line length violations (E501)
-    b. [ ] Fix whitespace issues
-    c. [ ] Fix indentation problems
-    d. [ ] Update code formatting guidelines
+## 10. Documentation Review
+- [ ] a. Review all documentation changes for accuracy
+- [ ] b. Ensure code examples work correctly
+- [ ] c. Verify environment variable names are consistent
+- [ ] d. Check that troubleshooting steps are clear
 
-11. [ ] Fix other linting categories
-    a. [ ] Add missing docstrings (D category)
-    b. [ ] Add type annotations where needed (ANN)
-    c. [ ] Fix security issues (S category)
-    d. [ ] Address complexity issues (C category)
-
-## 4. CI/CD Pipeline Fixes
-12. [x] Update GitHub Actions workflow
-    a. [x] Remove temporary test skips
-    b. [x] Re-enable linting step
-    c. [x] Update dependency installation steps
-    d. [ ] Add dependency caching
-    e. [ ] Fix any failing steps
-
-13. [ ] Configure pre-commit hooks
-    a. [ ] Install pre-commit framework
-    b. [ ] Configure ruff as pre-commit hook
-    c. [ ] Add other code quality checks
-    d. [ ] Document in CONTRIBUTING.md
-
-## 5. Documentation Updates (Dependent on Tasks 1-4)
-14. [ ] Update project documentation
-    a. [ ] Update README with new dependency instructions
-    b. [ ] Create DEPENDENCIES.md with version rationale
-    c. [ ] Update CONTRIBUTING.md with linting rules
-    d. [ ] Document test running procedures
-    e. [ ] Add troubleshooting guide
-
-15. [ ] Configure automated dependency updates
-    a. [ ] Set up Dependabot configuration
-    b. [ ] Configure security alerts
-    c. [ ] Create update review process
-    d. [ ] Document update procedures
-
-## Testing
-16. [ ] Comprehensive testing of fixes
-    a. [ ] Clean install test on fresh system
-    b. [ ] Run full test suite
-    c. [ ] Verify linting passes
-    d. [ ] Test CI/CD pipeline
-    e. [ ] Performance regression testing
-
-## Documentation
-17. [ ] Final documentation updates
-    a. [ ] Create migration guide for existing installations
-    b. [ ] Document breaking changes
-    c. [ ] Update changelog
-    d. [ ] Create release notes
+## 11. Deployment Preparation
+- [ ] a. Update deployment configuration with new environment variables
+- [ ] b. Document any infrastructure changes needed
+- [ ] c. Create migration guide for existing users
+- [ ] d. Prepare release notes

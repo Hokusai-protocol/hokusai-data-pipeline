@@ -64,7 +64,7 @@ Integrate Hokusai into your existing ML infrastructure.
 
 - 💬 [Discord Community](https://discord.gg/hokusai) - Get help from the community
 - 🐛 [GitHub Issues](https://github.com/hokusai-protocol/hokusai-data-pipeline/issues) - Report bugs or request features
-- 📧 [Contact Support](mailto:support@hokusai.ai) - Direct support for enterprise users
+- 📧 [Contact Support](mailto:support@hokus.ai) - Direct support for enterprise users
 
 ## Contributing
 

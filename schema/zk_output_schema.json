@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://hokusai.ai/schemas/zk-output-v1.json",
+  "$id": "https://hokus.ai/schemas/zk-output-v1.json",
   "title": "Hokusai ZK-Compatible Output Schema",
   "description": "Schema for Hokusai pipeline outputs compatible with zero-knowledge proof generation and on-chain verification",
   "type": "object",

@@ -23,8 +23,10 @@ const sidebars = {
       items: [
         'getting-started/installation',
         'getting-started/quickstart',
+        'authentication',
         'getting-started/configuration',
         'getting-started/first-model',
+        'getting-started/mlflow-access',
       ],
     },
     {
