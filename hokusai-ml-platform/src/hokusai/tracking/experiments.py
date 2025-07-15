@@ -1,5 +1,6 @@
 """Experiment orchestration service for model improvement experiments."""
 
+import os
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -24,17 +25,70 @@ class ExperimentManager:
 
     VALID_METRICS = ["accuracy", "auroc", "f1_score", "precision", "recall"]
 
-    def __init__(self, experiment_name: str = "hokusai_model_improvements") -> None:
+    def __init__(self, experiment_name: str = "hokusai_model_improvements", 
+                 mlflow_tracking_uri: Optional[str] = None,
+                 registry: Optional[Any] = None) -> None:
         """Initialize the experiment manager.
 
         Args:
             experiment_name: Name of the MLFlow experiment
+            mlflow_tracking_uri: Optional MLflow tracking URI (defaults to env var or registry.hokus.ai/mlflow)
+            registry: Optional ModelRegistry instance (for backward compatibility)
 
         """
+        # Configure MLflow tracking URI
+        if mlflow_tracking_uri:
+            self.tracking_uri = mlflow_tracking_uri
+        elif registry and hasattr(registry, 'tracking_uri'):
+            self.tracking_uri = registry.tracking_uri
+        else:
+            # Use environment variable or default to registry.hokus.ai
+            self.tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://registry.hokus.ai/mlflow")
+        
+        # Set tracking URI before any MLflow operations
+        mlflow.set_tracking_uri(self.tracking_uri)
+        logger.info(f"MLflow tracking URI set to: {self.tracking_uri}")
+        
         self.experiment_name = experiment_name
-        self._ensure_experiment_exists()
-        mlflow.set_experiment(experiment_name)
-        logger.info(f"Initialized ExperimentManager with experiment: {experiment_name}")
+        self.registry = registry
+        
+        # Check if mock mode is enabled
+        self.mock_mode = os.getenv("HOKUSAI_MOCK_MODE", "false").lower() == "true"
+        
+        if not self.mock_mode:
+            try:
+                self._ensure_experiment_exists()
+                mlflow.set_experiment(experiment_name)
+                logger.info(f"Initialized ExperimentManager with experiment: {experiment_name}")
+            except Exception as e:
+                logger.error(f"Failed to connect to MLflow server: {str(e)}")
+                logger.info("Consider setting HOKUSAI_MOCK_MODE=true for local development")
+                raise
+        else:
+            logger.info(f"Running in mock mode - MLflow operations will be simulated")
+
+    def start_experiment(self, experiment_name: str) -> Any:
+        """Start an experiment context (for backward compatibility).
+        
+        Args:
+            experiment_name: Name of the experiment
+            
+        Returns:
+            Context manager for the experiment
+        """
+        if self.mock_mode:
+            # Return a mock context manager
+            class MockExperiment:
+                def __enter__(self):
+                    logger.info(f"Mock: Starting experiment {experiment_name}")
+                    return self
+                def __exit__(self, *args):
+                    logger.info(f"Mock: Ending experiment {experiment_name}")
+            return MockExperiment()
+        else:
+            # Set the experiment and return MLflow run context
+            mlflow.set_experiment(experiment_name)
+            return mlflow.start_run()
 
     def create_improvement_experiment(self, baseline_model_id: str, contributed_data: Any) -> str:
         """Create a new experiment for testing improvements.
@@ -47,6 +101,12 @@ class ExperimentManager:
             Experiment run ID
 
         """
+        if self.mock_mode:
+            import uuid
+            mock_run_id = str(uuid.uuid4())
+            logger.info(f"Mock: Created improvement experiment with ID: {mock_run_id}")
+            return mock_run_id
+            
         try:
             with mlflow.start_run() as run:
                 # Log experiment metadata
@@ -95,6 +155,34 @@ class ExperimentManager:
             Comparison results with metrics and recommendation
 
         """
+        if self.mock_mode:
+            # Return mock comparison results
+            mock_baseline_metrics = {
+                "accuracy": 0.85,
+                "auroc": 0.88,
+                "f1_score": 0.84,
+                "precision": 0.86,
+                "recall": 0.83
+            }
+            mock_candidate_metrics = {
+                "accuracy": 0.87,
+                "auroc": 0.90,
+                "f1_score": 0.86,
+                "precision": 0.88,
+                "recall": 0.85
+            }
+            improvements = {k: mock_candidate_metrics[k] - mock_baseline_metrics[k] 
+                          for k in mock_baseline_metrics}
+            
+            logger.info("Mock: Performed model comparison")
+            return {
+                "baseline_metrics": mock_baseline_metrics,
+                "candidate_metrics": mock_candidate_metrics,
+                "improvements": improvements,
+                "recommendation": "ACCEPT",
+                "test_dataset": test_data.get("dataset_name", "mock_dataset")
+            }
+            
         try:
             with mlflow.start_run():
                 # Load models
@@ -366,11 +454,26 @@ class ExperimentManager:
 
     def _ensure_experiment_exists(self) -> None:
         """Ensure the MLFlow experiment exists."""
-        try:
-            experiment = mlflow.get_experiment_by_name(self.experiment_name)
-            if experiment is None:
-                mlflow.create_experiment(self.experiment_name)
-                logger.info(f"Created new experiment: {self.experiment_name}")
-        except Exception as e:
-            logger.error(f"Failed to ensure experiment exists: {str(e)}")
-            raise
+        import time
+        max_retries = 3
+        retry_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                experiment = mlflow.get_experiment_by_name(self.experiment_name)
+                if experiment is None:
+                    mlflow.create_experiment(self.experiment_name)
+                    logger.info(f"Created new experiment: {self.experiment_name}")
+                return
+            except Exception as e:
+                if "403" in str(e):
+                    logger.error(f"Authentication error connecting to MLflow server: {str(e)}")
+                    logger.error(f"Please check MLflow server configuration at: {self.tracking_uri}")
+                    logger.error("If running locally, set HOKUSAI_MOCK_MODE=true")
+                    raise
+                elif attempt < max_retries - 1:
+                    logger.warning(f"Failed to connect to MLflow (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                    time.sleep(retry_delay * (attempt + 1))
+                else:
+                    logger.error(f"Failed to ensure experiment exists after {max_retries} attempts: {str(e)}")
+                    raise

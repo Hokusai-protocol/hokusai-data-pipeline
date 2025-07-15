@@ -22,7 +22,7 @@ The Hokusai API provides programmatic access to all platform features:
 ## Base URL
 
 ```
-https://api.hokusai.ai/v1
+https://api.hokus.ai/v1
 ```
 
 For local development:
@@ -36,7 +36,7 @@ All API requests require authentication using an API key:
 
 ```bash
 curl -H "Authorization: Bearer YOUR_API_KEY" \
-  https://api.hokusai.ai/v1/models
+  https://api.hokus.ai/v1/models
 ```
 
 In Python:
@@ -49,7 +49,7 @@ headers = {
 }
 
 response = requests.get(
-    "https://api.hokusai.ai/v1/models",
+    "https://api.hokus.ai/v1/models",
     headers=headers
 )
 ```
@@ -162,7 +162,7 @@ X-RateLimit-Reset: 1642258800
 ### Register a Model
 
 ```bash
-curl -X POST https://api.hokusai.ai/v1/models \
+curl -X POST https://api.hokus.ai/v1/models \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -177,7 +177,7 @@ curl -X POST https://api.hokusai.ai/v1/models \
 ### Submit Data
 
 ```bash
-curl -X POST https://api.hokusai.ai/v1/contribute \
+curl -X POST https://api.hokus.ai/v1/contribute \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -194,7 +194,7 @@ curl -X POST https://api.hokusai.ai/v1/contribute \
 ### Check DeltaOne
 
 ```bash
-curl -X GET https://api.hokusai.ai/v1/deltaone/sentiment-analyzer \
+curl -X GET https://api.hokus.ai/v1/deltaone/sentiment-analyzer \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
@@ -223,4 +223,4 @@ Detailed documentation for each API section:
 
 - Check our [API FAQ](./faq.md)
 - Join our [Discord](https://discord.gg/hokusai) for support
-- Email [api-support@hokusai.ai](mailto:api-support@hokusai.ai)
+- Email [api-support@hokus.ai](mailto:api-support@hokus.ai)
