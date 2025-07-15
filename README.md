@@ -19,7 +19,11 @@ Then start using it immediately:
 from hokusai.core import ModelRegistry
 from hokusai.tracking import ExperimentManager
 
-# Set your API key (or use environment variable HOKUSAI_API_KEY)
+# Set your API key (required for MLflow access)
+# Option 1: Environment variable
+# export HOKUSAI_API_KEY=hk_live_your_api_key_here
+
+# Option 2: In Python using setup
 from hokusai import setup
 setup(api_key="hk_live_your_api_key_here")
 
@@ -60,7 +64,7 @@ Access local services at:
 
 ## Authentication
 
-Hokusai uses API keys for secure access. Get started:
+Hokusai requires API keys for secure access to all endpoints, including MLflow. Get started:
 
 ```bash
 # Create your first API key
@@ -74,7 +78,7 @@ from hokusai import setup
 setup(api_key="hk_live_your_key_here")
 ```
 
-See the [Authentication Guide](./documentation/docs/authentication.md) for details.
+See the [Authentication Guide](./documentation/authentication.md) for details.
 
 ## Documentation
 
@@ -145,6 +149,94 @@ result = registry.register_tokenized_model(
 )
 ```
 
+## Core Components
+
+### 1. Model Registry Service
+Track and version all your ML models with automatic performance monitoring.
+
+```python
+from hokusai.core import ModelRegistry
+
+registry = ModelRegistry()
+model_id = registry.register_baseline(
+    model=your_model,
+    model_type="classification",
+    metadata={"dataset": "customer_data_v2"}
+)
+```
+
+### 2. Performance Tracking
+Automatically track improvements from contributed data.
+
+```python
+from hokusai.tracking import PerformanceTracker
+
+tracker = PerformanceTracker()
+delta, attestation = tracker.track_improvement(
+    baseline_metrics={"accuracy": 0.85},
+    improved_metrics={"accuracy": 0.87},
+    data_contribution=contribution_metadata
+)
+```
+
+### 3. DSPy Integration
+Build and optimize prompt-based models with automatic tracking.
+
+```python
+from hokusai.integrations.dspy import DSPyModelWrapper
+
+# Wrap your DSPy module
+wrapper = DSPyModelWrapper(your_dspy_module)
+model_id = wrapper.register_with_tracking("email_assistant_v1")
+```
+
+### 4. A/B Testing Framework
+Deploy models with confidence using built-in A/B testing.
+
+```python
+from hokusai.core.ab_testing import ModelTrafficRouter
+
+router = ModelTrafficRouter()
+router.create_ab_test(
+    model_a="baseline_model_v1",
+    model_b="improved_model_v2", 
+    traffic_split={"model_a": 0.8, "model_b": 0.2}
+)
+```
+
+## CLI Tools
+
+The platform includes comprehensive CLI tools:
+
+```bash
+# Model registration
+hokusai model register \
+  --token-id XRAY \
+  --model-path ./model.pkl \
+  --metric auroc \
+  --baseline 0.82
+
+# Create API keys
+hokusai auth create-key --name "Production Key"
+
+# List your models
+hokusai model list
+
+# Track performance
+hokusai performance track --model-id abc123
+```
+
+## Architecture
+
+The platform is built with:
+- **FastAPI** for high-performance REST APIs
+- **MLflow** for experiment tracking and model registry
+- **PostgreSQL** for metadata storage
+- **Redis** for caching and rate limiting
+- **Docker** for containerization
+
+See [Architecture Documentation](./docs/ARCHITECTURE.md) for details.
+
 ## Project Structure
 
 ```
@@ -157,16 +249,57 @@ hokusai-data-pipeline/
 └── docker-compose.yml     # Local services
 ```
 
+## Development Setup
+
+For local development:
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+pip install -e ./hokusai-ml-platform
+
+# Set up environment
+cp .env.example .env
+# Edit .env with your configuration
+
+# Run tests
+pytest
+
+# Start development server
+uvicorn src.api.main:app --reload
+```
+
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+We welcome contributions! Please see our [Contributing Guide](./CONTRIBUTING.md) for details.
+
+Key areas for contribution:
+- New model type support
+- Additional metric calculations
+- Integration with more ML frameworks
+- Performance optimizations
+- Documentation improvements
+
+## Security
+
+- All endpoints require API key authentication
+- MLflow access is protected by the same API key system
+- Rate limiting prevents abuse
+- Audit logging tracks all operations
+
+Report security issues to: security@hokus.ai
 
 ## License
 
-Apache License 2.0
+Apache 2.0 - See [LICENSE](./LICENSE) for details.
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/hokusai/hokusai-data-pipeline/issues)
-- **Discord**: [Join our community](https://discord.gg/hokusai)
-- **Docs**: https://docs.hokus.ai
+- 📚 Documentation: https://docs.hokus.ai
+- 💬 Discord: https://discord.gg/hokusai
+- 📧 Email: support@hokus.ai
+- 🐛 Issues: [GitHub Issues](https://github.com/Hokusai-protocol/hokusai-data-pipeline/issues)
+
+---
+
+Built with ❤️ by the Hokusai Protocol team

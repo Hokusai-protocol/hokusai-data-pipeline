@@ -3,14 +3,12 @@
 import json
 import logging
 from datetime import datetime
-from typing import Any, Optional, List, Dict, Tuple
+from typing import Any, Optional, List
 
 from .connection import DatabaseConnection
 from .models import ModelStatus, TokenModel
 
 logger = logging.getLogger(__name__)
-
-
 
 
 class TokenOperations:

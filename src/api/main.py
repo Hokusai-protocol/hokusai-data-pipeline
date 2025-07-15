@@ -11,7 +11,7 @@ from slowapi.util import get_remote_address
 
 from src.middleware.auth import APIKeyAuthMiddleware
 from src.middleware.rate_limiter import RateLimitMiddleware
-from src.api.routes import dspy, health, models
+from src.api.routes import dspy, health, models, mlflow_proxy
 from src.api.utils.config import get_settings
 
 # Configure logging
@@ -54,6 +54,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(health.router, tags=["health"])
 app.include_router(models.router, prefix="/models", tags=["models"])
 app.include_router(dspy.router, tags=["dspy"])
+app.include_router(mlflow_proxy.router, prefix="/mlflow", tags=["mlflow"])
 
 
 # Global exception handler

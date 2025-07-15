@@ -71,4 +71,3 @@ class TokenModel:
     def can_register(self) -> bool:
         """Check if token can be registered."""
         return self.model_status in [ModelStatus.DRAFT, ModelStatus.FAILED]
-

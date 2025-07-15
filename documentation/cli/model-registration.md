@@ -126,17 +126,55 @@ Then use with: `--db-config /path/to/config.json`
 
 ### MLflow Configuration
 
-Set the MLflow tracking URI:
+The Hokusai platform uses MLflow for model tracking and registry. The MLflow server is hosted at `http://registry.hokus.ai/mlflow`.
+
+#### Default Configuration
+
+The SDK automatically configures MLflow to use the Hokusai server:
 
 ```bash
-export MLFLOW_TRACKING_URI=http://localhost:5000
+# MLflow is automatically configured to use registry.hokus.ai/mlflow
+hokusai model register \
+  --token-id XRAY \
+  --model-path ./model.pkl \
+  --metric auroc \
+  --baseline 0.82
 ```
 
-Or specify via command line:
+#### Custom MLflow Server
+
+To use a different MLflow server:
 
 ```bash
-hokusai model register ... --mlflow-uri http://localhost:5000
+# Via environment variable
+export MLFLOW_TRACKING_URI=http://your-mlflow-server:5000
+
+# Or via command line
+hokusai model register ... --mlflow-uri http://your-mlflow-server:5000
 ```
+
+#### Local Development Mode
+
+For local development without MLflow server access:
+
+```bash
+# Enable mock mode
+export HOKUSAI_MOCK_MODE=true
+
+# Now commands will run without connecting to MLflow
+hokusai model register \
+  --token-id XRAY \
+  --model-path ./model.pkl \
+  --metric auroc \
+  --baseline 0.82
+```
+
+In mock mode:
+- Model registration is simulated
+- No actual MLflow connection required
+- Useful for testing and development
+
+For more details on MLflow configuration, see the [MLflow Access Guide](../getting-started/mlflow-access.md).
 
 ## Event Notifications
 
@@ -203,16 +241,16 @@ hokusai model register \
   --metric reply_rate \
   --baseline 0.134 \
   --db-config ./config/production.json \
-  --mlflow-uri https://mlflow.hokusai.ai \
-  --webhook-url https://api.hokusai.ai/webhooks/model-events
+  --mlflow-uri http://registry.hokus.ai/mlflow \
+  --webhook-url https://api.hokus.ai/webhooks/model-events
 ```
 
 ### Using Environment Variables
 
 ```bash
-export HOKUSAI_DB_HOST=prod-db.hokusai.ai
+export HOKUSAI_DB_HOST=prod-db.hokus.ai
 export HOKUSAI_DB_USER=ml_platform_user
-export MLFLOW_TRACKING_URI=https://mlflow.hokusai.ai
+export MLFLOW_TRACKING_URI=http://registry.hokus.ai/mlflow
 
 hokusai model register \
   --token-id SENTIMENT-V3 \

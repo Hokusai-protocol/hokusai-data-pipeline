@@ -26,6 +26,7 @@ const sidebars = {
         'authentication',
         'getting-started/configuration',
         'getting-started/first-model',
+        'getting-started/mlflow-access',
       ],
     },
     {
