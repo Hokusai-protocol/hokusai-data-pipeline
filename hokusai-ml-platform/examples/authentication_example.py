@@ -143,7 +143,7 @@ def example_notebook_usage():
     from hokusai.tracking import ExperimentManager
     
     registry = ModelRegistry()
-    manager = ExperimentManager(registry)
+    manager = ExperimentManager(registry)  # This now works thanks to the API fix
     
     # Start experiment
     with manager.start_experiment("notebook_experiment"):
