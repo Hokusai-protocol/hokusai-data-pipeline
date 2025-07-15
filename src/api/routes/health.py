@@ -36,7 +36,12 @@ def check_database_connection():
 
 def check_mlflow_connection():
     """Check MLflow connection status."""
-    return (True, None)
+    try:
+        from src.utils.mlflow_config import get_mlflow_status
+        mlflow_status = get_mlflow_status()
+        return (mlflow_status["connected"], mlflow_status.get("error"))
+    except Exception as e:
+        return (False, str(e))
 
 
 def get_git_commit():
@@ -74,11 +79,13 @@ async def health_check(detailed: bool = False):
     """Check health status of the API and dependent services."""
     services_status = {}
 
-    # Check MLFlow
+    # Check MLFlow using enhanced status function
     try:
-        mlflow = _get_mlflow()
-        mlflow.get_tracking_uri()
-        services_status["mlflow"] = "healthy"
+        from src.utils.mlflow_config import get_mlflow_status
+        mlflow_status = get_mlflow_status()
+        services_status["mlflow"] = "healthy" if mlflow_status["connected"] else "unhealthy"
+        if detailed:
+            services_status["mlflow_details"] = mlflow_status
     except Exception:
         services_status["mlflow"] = "unhealthy"
 
@@ -207,8 +214,61 @@ async def version_info():
 
 @router.get("/metrics")
 async def metrics():
-    """Get service metrics."""
-    return get_metrics()
+    """Get service metrics in Prometheus format."""
+    try:
+        from src.utils.prometheus_metrics import get_prometheus_metrics
+        
+        # Update metrics by checking MLflow status
+        from src.utils.mlflow_config import get_mlflow_status
+        get_mlflow_status()  # This will update metrics as a side effect
+        
+        metrics_text = get_prometheus_metrics()
+        
+        from fastapi import Response
+        return Response(
+            content=metrics_text,
+            media_type="text/plain"
+        )
+    except ImportError:
+        # Fallback to basic metrics
+        return get_metrics()
+
+
+@router.get("/health/mlflow")
+async def mlflow_health_check():
+    """Get detailed MLflow connection status and circuit breaker state."""
+    try:
+        from src.utils.mlflow_config import get_mlflow_status
+        status = get_mlflow_status()
+        
+        # Add timestamp for monitoring
+        status["timestamp"] = datetime.utcnow()
+        
+        # Return 503 if circuit breaker is open
+        if status["circuit_breaker_state"] == "OPEN":
+            from fastapi import Response
+            import json
+            return Response(
+                content=json.dumps(status),
+                status_code=503,
+                media_type="application/json"
+            )
+        
+        return status
+    except Exception as e:
+        from fastapi import Response
+        import json
+        error_response = {
+            "error": str(e),
+            "connected": False,
+            "circuit_breaker_state": "UNKNOWN",
+            "timestamp": datetime.utcnow()
+        }
+        return Response(
+            content=json.dumps(error_response, default=str),
+            status_code=500,
+            media_type="application/json"
+        )
 
 
 @router.get("/debug")
