@@ -14,7 +14,7 @@ def main() -> None:
     # Initialize components
     registry = ModelRegistry()
     version_manager = ModelVersionManager(registry)
-    experiment_manager = ExperimentManager(registry)
+    experiment_manager = ExperimentManager(registry)  # This now works thanks to the API fix
     performance_tracker = PerformanceTracker()
     traffic_router = ModelTrafficRouter()
 

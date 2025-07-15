@@ -1,7 +1,7 @@
 """Experiment orchestration service for model improvement experiments."""
 
-import os
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 import mlflow
@@ -25,39 +25,61 @@ class ExperimentManager:
 
     VALID_METRICS = ["accuracy", "auroc", "f1_score", "precision", "recall"]
 
-    def __init__(self, experiment_name: str = "hokusai_model_improvements", 
+    def __init__(self, experiment_name: str = "hokusai_model_improvements",
                  mlflow_tracking_uri: Optional[str] = None,
                  registry: Optional[Any] = None) -> None:
         """Initialize the experiment manager.
 
         Args:
-            experiment_name: Name of the MLFlow experiment
+            experiment_name: Name of the MLFlow experiment OR ModelRegistry instance (for backward compatibility)
             mlflow_tracking_uri: Optional MLflow tracking URI (defaults to env var or registry.hokus.ai/mlflow)
             registry: Optional ModelRegistry instance (for backward compatibility)
 
+        Note:
+            For backward compatibility, you can pass a registry as the first parameter:
+            - ExperimentManager(registry) - registry as first parameter
+            - ExperimentManager(experiment_name='my_exp', registry=registry) - named parameters
+            - ExperimentManager('my_exp', registry=registry) - mixed parameters
+
         """
+        # Handle backward compatibility: if first parameter is not a string, assume it's a registry
+        if not isinstance(experiment_name, str):
+            # Check if it's a registry-like object (has methods/attributes that suggest it's a registry)
+            if (hasattr(experiment_name, "__class__") and
+                experiment_name is not None and
+                not isinstance(experiment_name, (int, float, bool, list, dict, tuple)) and
+                hasattr(experiment_name, "__dict__")):
+                # First parameter is likely a registry object
+                registry = experiment_name
+                experiment_name = "hokusai_model_improvements"  # Use default experiment name
+            else:
+                raise ValueError(
+                    "First parameter must be either a string (experiment_name) or a registry object. "
+                    f"Got: {type(experiment_name)}"
+                )
+
         # Configure MLflow tracking URI
         if mlflow_tracking_uri:
             self.tracking_uri = mlflow_tracking_uri
-        elif registry and hasattr(registry, 'tracking_uri'):
+        elif registry and hasattr(registry, "tracking_uri"):
             self.tracking_uri = registry.tracking_uri
         else:
             # Use environment variable or default to registry.hokus.ai
             self.tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://registry.hokus.ai/mlflow")
-        
+
         # Set tracking URI before any MLflow operations
         mlflow.set_tracking_uri(self.tracking_uri)
         logger.info(f"MLflow tracking URI set to: {self.tracking_uri}")
-        
+
         # Note: MLflow access requires a valid Hokusai API key
         # Set via HOKUSAI_API_KEY environment variable or API key configuration
-        
+
         self.experiment_name = experiment_name
         self.registry = registry
-        
+
         # Check if mock mode is enabled
         self.mock_mode = os.getenv("HOKUSAI_MOCK_MODE", "false").lower() == "true"
-        
+
         if not self.mock_mode:
             try:
                 self._ensure_experiment_exists()
@@ -68,7 +90,7 @@ class ExperimentManager:
                 logger.info("Consider setting HOKUSAI_MOCK_MODE=true for local development")
                 raise
         else:
-            logger.info(f"Running in mock mode - MLflow operations will be simulated")
+            logger.info("Running in mock mode - MLflow operations will be simulated")
 
     def start_experiment(self, experiment_name: str) -> Any:
         """Start an experiment context (for backward compatibility).
@@ -78,6 +100,7 @@ class ExperimentManager:
             
         Returns:
             Context manager for the experiment
+
         """
         if self.mock_mode:
             # Return a mock context manager
@@ -87,6 +110,7 @@ class ExperimentManager:
                     return self
                 def __exit__(self, *args):
                     logger.info(f"Mock: Ending experiment {experiment_name}")
+                    # args contains (exc_type, exc_value, traceback) but we don't need them for mocking
             return MockExperiment()
         else:
             # Set the experiment and return MLflow run context
@@ -109,7 +133,7 @@ class ExperimentManager:
             mock_run_id = str(uuid.uuid4())
             logger.info(f"Mock: Created improvement experiment with ID: {mock_run_id}")
             return mock_run_id
-            
+
         try:
             with mlflow.start_run() as run:
                 # Log experiment metadata
@@ -174,9 +198,9 @@ class ExperimentManager:
                 "precision": 0.88,
                 "recall": 0.85
             }
-            improvements = {k: mock_candidate_metrics[k] - mock_baseline_metrics[k] 
+            improvements = {k: mock_candidate_metrics[k] - mock_baseline_metrics[k]
                           for k in mock_baseline_metrics}
-            
+
             logger.info("Mock: Performed model comparison")
             return {
                 "baseline_metrics": mock_baseline_metrics,
@@ -185,7 +209,7 @@ class ExperimentManager:
                 "recommendation": "ACCEPT",
                 "test_dataset": test_data.get("dataset_name", "mock_dataset")
             }
-            
+
         try:
             with mlflow.start_run():
                 # Load models
@@ -460,7 +484,7 @@ class ExperimentManager:
         import time
         max_retries = 3
         retry_delay = 1.0
-        
+
         for attempt in range(max_retries):
             try:
                 experiment = mlflow.get_experiment_by_name(self.experiment_name)
