@@ -111,25 +111,42 @@ def test_hokusai_sdk_integration():
         return False
 
 
-def test_authentication_bypass():
-    """Test that MLflow endpoints bypass authentication."""
-    print("\n4. Testing authentication bypass for MLflow endpoints...")
+def test_authentication_requirement():
+    """Test that MLflow endpoints require authentication."""
+    print("\n4. Testing authentication requirement for MLflow endpoints...")
     
     base_url = "http://registry.hokus.ai"
+    api_key = os.getenv("HOKUSAI_API_KEY")
     
     # Test MLflow endpoint without auth headers
     try:
         response = requests.get(f"{base_url}/mlflow/api/2.0/mlflow/experiments/list", timeout=5)
-        if response.status_code == 200:
-            print(f"   ✓ MLflow endpoints accessible without authentication")
-        elif response.status_code == 403:
-            print(f"   ✗ MLflow endpoints still require authentication (403 Forbidden)")
-            return False
+        if response.status_code == 401:
+            print(f"   ✓ MLflow endpoints correctly require authentication")
         else:
-            print(f"   ? MLflow endpoint returned status {response.status_code}")
+            print(f"   ✗ MLflow endpoint should require auth but returned {response.status_code}")
+            return False
     except Exception as e:
-        print(f"   ✗ Failed to test authentication bypass: {e}")
+        print(f"   ✗ Failed to test authentication requirement: {e}")
         return False
+    
+    # Test MLflow endpoint with auth headers (if API key available)
+    if api_key:
+        try:
+            headers = {"Authorization": f"Bearer {api_key}"}
+            response = requests.get(
+                f"{base_url}/mlflow/api/2.0/mlflow/experiments/list", 
+                headers=headers,
+                timeout=5
+            )
+            if response.status_code == 200:
+                print(f"   ✓ MLflow endpoints accessible with valid API key")
+            else:
+                print(f"   ✗ MLflow endpoint with auth returned {response.status_code}")
+        except Exception as e:
+            print(f"   ! Could not test authenticated access: {e}")
+    else:
+        print(f"   ! Set HOKUSAI_API_KEY to test authenticated access")
     
     # Test that other endpoints still require auth
     try:
@@ -164,7 +181,7 @@ def main():
         ("Direct API Access", test_direct_api_access),
         ("MLflow Client Connection", test_mlflow_client_connection),
         ("Hokusai SDK Integration", test_hokusai_sdk_integration),
-        ("Authentication Bypass", test_authentication_bypass),
+        ("Authentication Requirement", test_authentication_requirement),
     ]
     
     results = []

@@ -49,6 +49,9 @@ class ExperimentManager:
         mlflow.set_tracking_uri(self.tracking_uri)
         logger.info(f"MLflow tracking URI set to: {self.tracking_uri}")
         
+        # Note: MLflow access requires a valid Hokusai API key
+        # Set via HOKUSAI_API_KEY environment variable or API key configuration
+        
         self.experiment_name = experiment_name
         self.registry = registry
         

@@ -96,9 +96,41 @@ experiment_manager = ExperimentManager()
 
 ## Authentication
 
-The MLflow server at `registry.hokus.ai/mlflow` **does not require authentication**. All MLflow endpoints are publicly accessible to simplify integration.
+The MLflow server at `registry.hokus.ai/mlflow` **requires authentication** via Hokusai API keys for security reasons. This ensures that:
+- Only authorized users can access experiments and models
+- All access is tracked for audit purposes
+- Intellectual property is protected
 
-Note: While MLflow doesn't require authentication, other Hokusai API endpoints still require valid API keys.
+### Using API Keys with MLflow
+
+You must include your Hokusai API key when accessing MLflow endpoints:
+
+```bash
+# Using Authorization header
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  http://registry.hokus.ai/mlflow/api/2.0/mlflow/experiments/list
+
+# Using X-API-Key header
+curl -H "X-API-Key: YOUR_API_KEY" \
+  http://registry.hokus.ai/mlflow/api/2.0/mlflow/experiments/list
+```
+
+### SDK Authentication
+
+When using the Hokusai SDK, authentication is handled automatically if you've configured your API key:
+
+```python
+# Set your API key via environment variable
+export HOKUSAI_API_KEY="your_api_key_here"
+
+# Or in Python
+import os
+os.environ["HOKUSAI_API_KEY"] = "your_api_key_here"
+
+# The SDK will automatically include the API key for MLflow requests
+from hokusai.tracking import ExperimentManager
+experiment_manager = ExperimentManager()
+```
 
 ## Common Operations
 
@@ -109,7 +141,8 @@ Navigate to: http://registry.hokus.ai/mlflow
 ### List Experiments via API
 
 ```bash
-curl http://registry.hokus.ai/mlflow/api/2.0/mlflow/experiments/list
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  http://registry.hokus.ai/mlflow/api/2.0/mlflow/experiments/list
 ```
 
 ### Get Experiment by Name
@@ -152,13 +185,22 @@ If you encounter connection errors:
    export HOKUSAI_MOCK_MODE=true
    ```
 
+### HTTP 401 Unauthorized Errors
+
+If you receive a 401 error when accessing MLflow:
+
+1. **Check your API key**: Ensure you have a valid Hokusai API key
+2. **Verify key format**: Use `Bearer YOUR_KEY` or `X-API-Key: YOUR_KEY`
+3. **Check environment variable**: Ensure `HOKUSAI_API_KEY` is set correctly
+4. **Validate key status**: Your API key must be active and not expired
+
 ### HTTP 403 Forbidden Errors
 
-This error should not occur with the current configuration. If you see it:
+If you receive a 403 error:
 
-1. Ensure you're using the correct URL: `http://registry.hokus.ai/mlflow`
-2. Check that you're not sending authentication headers to MLflow endpoints
-3. Verify the SDK is up to date: `pip install --upgrade hokusai-ml-platform`
+1. **Rate limit**: You may have exceeded the rate limit for your API key
+2. **Permissions**: Your API key may not have sufficient permissions
+3. **IP restrictions**: Check if your IP is allowed for the API key
 
 ### Timeout Errors
 

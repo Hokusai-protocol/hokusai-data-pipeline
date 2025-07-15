@@ -81,8 +81,8 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             "/docs",
             "/openapi.json",
             "/redoc",
-            "/favicon.ico",
-            "/mlflow"  # MLflow UI and API should not require authentication
+            "/favicon.ico"
+            # MLflow endpoints now require authentication for security
         ]
     
     async def dispatch(self, request: Request, call_next):

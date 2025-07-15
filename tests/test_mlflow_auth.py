@@ -9,30 +9,53 @@ from src.api.main import app
 from src.middleware.auth import APIKeyAuthMiddleware
 
 
-class TestMLflowAuthBypass:
-    """Test that MLflow endpoints bypass authentication."""
+class TestMLflowAuthRequirement:
+    """Test that MLflow endpoints require authentication."""
     
-    def test_mlflow_endpoints_excluded_from_auth(self):
-        """Test that /mlflow paths are in the excluded list."""
+    def test_mlflow_endpoints_not_excluded_from_auth(self):
+        """Test that /mlflow paths are NOT in the excluded list."""
         middleware = APIKeyAuthMiddleware(app)
-        assert "/mlflow" in middleware.excluded_paths
+        assert "/mlflow" not in middleware.excluded_paths
     
-    def test_mlflow_endpoint_without_auth(self):
-        """Test accessing MLflow endpoint without authentication."""
+    def test_mlflow_endpoint_without_auth_returns_401(self):
+        """Test accessing MLflow endpoint without authentication returns 401."""
         client = TestClient(app)
         
-        # Mock the MLflow proxy response
-        with patch('httpx.AsyncClient.request') as mock_request:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.content = b'{"experiments": []}'
-            mock_response.headers = {}
-            mock_request.return_value = mock_response
+        response = client.get("/mlflow/api/2.0/mlflow/experiments/list")
+        
+        # Should require authentication
+        assert response.status_code == 401
+        assert "API key required" in response.json()["detail"]
+    
+    def test_mlflow_endpoint_with_valid_auth(self):
+        """Test accessing MLflow endpoint with valid authentication."""
+        client = TestClient(app)
+        
+        # Mock API key validation
+        with patch('src.middleware.auth.APIKeyAuthMiddleware.api_key_service') as mock_service:
+            mock_validation = MagicMock()
+            mock_validation.is_valid = True
+            mock_validation.user_id = "test-user-123"
+            mock_validation.key_id = "test-key-456"
+            mock_validation.rate_limit_per_hour = 1000
+            mock_validation.error = None
+            mock_service.validate_api_key.return_value = mock_validation
             
-            response = client.get("/mlflow/api/2.0/mlflow/experiments/list")
-            
-            # Should not require authentication
-            assert response.status_code == 200
+            # Mock the MLflow proxy response
+            with patch('httpx.AsyncClient.request') as mock_request:
+                mock_response = MagicMock()
+                mock_response.status_code = 200
+                mock_response.content = b'{"experiments": []}'
+                mock_response.headers = {}
+                mock_request.return_value = mock_response
+                
+                response = client.get(
+                    "/mlflow/api/2.0/mlflow/experiments/list",
+                    headers={"Authorization": "Bearer test-api-key"}
+                )
+                
+                # Should succeed with authentication
+                assert response.status_code == 200
     
     def test_other_endpoints_require_auth(self):
         """Test that non-MLflow endpoints still require authentication."""
@@ -117,31 +140,46 @@ class TestMLflowProxy:
             # Verify response
             assert response.status_code == 200
     
-    def test_proxy_strips_auth_headers(self, client):
-        """Test that proxy removes authentication headers."""
-        with patch('httpx.AsyncClient.request') as mock_request:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.content = b'{}'
-            mock_response.headers = {}
-            mock_request.return_value = mock_response
+    def test_proxy_adds_user_context_headers(self, client):
+        """Test that proxy adds user context headers for audit trail."""
+        # Mock authenticated request
+        with patch('src.middleware.auth.APIKeyAuthMiddleware.api_key_service') as mock_service:
+            mock_validation = MagicMock()
+            mock_validation.is_valid = True
+            mock_validation.user_id = "test-user-123"
+            mock_validation.key_id = "test-key-456"
+            mock_validation.rate_limit_per_hour = 1000
+            mock_validation.error = None
+            mock_service.validate_api_key.return_value = mock_validation
             
-            # Send request with auth headers
-            headers = {
-                "Authorization": "Bearer test-key",
-                "X-API-Key": "test-key",
-                "User-Agent": "test-client"
-            }
-            
-            response = client.get("/mlflow/test", headers=headers)
-            
-            # Verify auth headers were stripped
-            call_args = mock_request.call_args
-            forwarded_headers = call_args[1]["headers"]
-            
-            assert "authorization" not in forwarded_headers
-            assert "x-api-key" not in forwarded_headers
-            assert "user-agent" in forwarded_headers  # Other headers preserved
+            with patch('httpx.AsyncClient.request') as mock_request:
+                mock_response = MagicMock()
+                mock_response.status_code = 200
+                mock_response.content = b'{}'
+                mock_response.headers = {}
+                mock_request.return_value = mock_response
+                
+                # Send authenticated request
+                headers = {
+                    "Authorization": "Bearer test-key",
+                    "User-Agent": "test-client"
+                }
+                
+                response = client.get("/mlflow/test", headers=headers)
+                
+                # Verify user context headers were added
+                call_args = mock_request.call_args
+                forwarded_headers = call_args[1]["headers"]
+                
+                # Auth headers should be stripped
+                assert "authorization" not in forwarded_headers
+                assert "x-api-key" not in forwarded_headers
+                
+                # User context should be added
+                assert "x-hokusai-user-id" in forwarded_headers
+                assert "x-hokusai-api-key-id" in forwarded_headers
+                assert forwarded_headers["x-hokusai-user-id"] == "test-user-123"
+                assert forwarded_headers["x-hokusai-api-key-id"] == "test-key-456"
     
     def test_proxy_handles_mlflow_timeout(self, client):
         """Test proxy handles MLflow server timeout."""

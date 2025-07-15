@@ -36,13 +36,20 @@ async def proxy_request(
     # Get the HTTP method
     method = request.method.lower()
     
-    # Prepare headers, removing authentication headers
+    # Prepare headers, keeping track of the authenticated user
     headers = dict(request.headers)
+    
+    # Add user context headers for MLflow tracking
+    if hasattr(request.state, "user_id"):
+        headers["X-Hokusai-User-Id"] = str(request.state.user_id)
+        headers["X-Hokusai-API-Key-Id"] = str(request.state.api_key_id)
+    
+    # Remove sensitive headers that shouldn't be forwarded
     headers_to_remove = [
-        "authorization",
-        "x-api-key",
-        "host",  # We'll use MLflow's host
-        "content-length",  # Will be recalculated
+        "authorization",  # Don't forward Hokusai API key to MLflow
+        "x-api-key",      # Don't forward Hokusai API key to MLflow
+        "host",           # We'll use MLflow's host
+        "content-length", # Will be recalculated
     ]
     for header in headers_to_remove:
         headers.pop(header, None)
@@ -73,6 +80,14 @@ async def proxy_request(
             # Remove transfer encoding header as FastAPI handles it
             response_headers.pop("transfer-encoding", None)
             response_headers.pop("content-encoding", None)
+            
+            # Log the MLflow access for audit trail
+            if hasattr(request.state, "user_id"):
+                logger.info(
+                    f"MLflow access: user_id={request.state.user_id}, "
+                    f"method={method.upper()}, path={path}, "
+                    f"status={response.status_code}"
+                )
             
             # Return the response
             return Response(
