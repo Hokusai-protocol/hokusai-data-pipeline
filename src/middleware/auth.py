@@ -1,19 +1,35 @@
-"""API key authentication middleware."""
+"""API key authentication middleware using external auth service."""
 
 import asyncio
 import json
+import os
 import time
 from typing import Optional, Dict, Any
+from dataclasses import dataclass
 
+import httpx
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 import redis
+import logging
 
-from src.auth.api_key_service import APIKeyService
-from src.database.connection import DatabaseConnection
-from src.database.operations import APIKeyDatabaseOperations
+from src.api.utils.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ValidationResult:
+    """Result from API key validation."""
+    is_valid: bool
+    user_id: Optional[str] = None
+    key_id: Optional[str] = None
+    service_id: Optional[str] = None
+    scopes: Optional[list[str]] = None
+    rate_limit_per_hour: Optional[int] = None
+    error: Optional[str] = None
 
 
 def get_api_key_from_request(request: Request) -> Optional[str]:
@@ -39,38 +55,48 @@ def get_api_key_from_request(request: Request) -> Optional[str]:
 
 
 class APIKeyAuthMiddleware(BaseHTTPMiddleware):
-    """Middleware for API key authentication."""
+    """Middleware for API key authentication using external auth service."""
     
     def __init__(
         self,
         app: ASGIApp,
-        api_key_service: Optional[APIKeyService] = None,
+        auth_service_url: Optional[str] = None,
         cache: Optional[redis.Redis] = None,
-        excluded_paths: Optional[list[str]] = None
+        excluded_paths: Optional[list[str]] = None,
+        timeout: float = 5.0
     ):
-        """Initialize authentication middleware."""
+        """Initialize authentication middleware.
+        
+        Args:
+            app: The ASGI application
+            auth_service_url: URL of the external auth service
+            cache: Optional Redis cache instance
+            excluded_paths: List of paths that don't require authentication
+            timeout: Timeout for auth service requests in seconds
+        """
         super().__init__(app)
         
-        # Initialize services if not provided
-        if api_key_service is None:
-            db_conn = DatabaseConnection()
-            db_ops = APIKeyDatabaseOperations(db_conn)
-            self.api_key_service = APIKeyService(db_ops)
-        else:
-            self.api_key_service = api_key_service
+        # Get settings
+        settings = get_settings()
+        
+        # Configure auth service URL
+        self.auth_service_url = auth_service_url or os.getenv(
+            "HOKUSAI_AUTH_SERVICE_URL",
+            settings.auth_service_url
+        )
+        self.timeout = timeout or settings.auth_service_timeout
         
         # Initialize cache if not provided
         if cache is None:
             try:
-                self.cache = redis.Redis(
-                    host='localhost',
-                    port=6379,
-                    decode_responses=True
-                )
+                redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+                self.cache = redis.from_url(redis_url, decode_responses=True)
                 # Test connection
                 self.cache.ping()
-            except Exception:
+                logger.info("Redis cache connected for auth middleware")
+            except Exception as e:
                 # Cache is optional - continue without it
+                logger.warning(f"Redis cache not available: {e}")
                 self.cache = None
         else:
             self.cache = cache
@@ -83,6 +109,71 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             "/redoc",
             "/favicon.ico"
         ]
+    
+    async def validate_with_auth_service(
+        self, 
+        api_key: str, 
+        client_ip: Optional[str] = None
+    ) -> ValidationResult:
+        """Validate API key with external auth service.
+        
+        Args:
+            api_key: The API key to validate
+            client_ip: Optional client IP for IP-based restrictions
+            
+        Returns:
+            ValidationResult with validation details
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    f"{self.auth_service_url}/api/v1/keys/validate",
+                    json={
+                        "api_key": api_key,
+                        "client_ip": client_ip,
+                        "service_id": "ml-platform"
+                    }
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    return ValidationResult(
+                        is_valid=True,
+                        user_id=data.get("user_id"),
+                        key_id=data.get("key_id"),
+                        service_id=data.get("service_id"),
+                        scopes=data.get("scopes", []),
+                        rate_limit_per_hour=data.get("rate_limit_per_hour", 1000)
+                    )
+                elif response.status_code == 401:
+                    return ValidationResult(
+                        is_valid=False,
+                        error="Invalid or expired API key"
+                    )
+                elif response.status_code == 429:
+                    return ValidationResult(
+                        is_valid=False,
+                        error="Rate limit exceeded"
+                    )
+                else:
+                    logger.error(f"Auth service returned {response.status_code}")
+                    return ValidationResult(
+                        is_valid=False,
+                        error="Authentication service error"
+                    )
+                    
+        except httpx.TimeoutException:
+            logger.error("Auth service request timed out")
+            return ValidationResult(
+                is_valid=False,
+                error="Authentication service timeout"
+            )
+        except Exception as e:
+            logger.error(f"Auth service error: {str(e)}")
+            return ValidationResult(
+                is_valid=False,
+                error="Authentication service unavailable"
+            )
     
     async def dispatch(self, request: Request, call_next):
         """Process the request and validate API key."""
@@ -113,44 +204,34 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             try:
                 cached_data = self.cache.get(cache_key)
                 if cached_data:
-                    validation_result = json.loads(cached_data)
-                    # Convert to proper object
-                    from src.auth.api_key_service import ValidationResult
-                    validation_result = ValidationResult(**validation_result)
-            except Exception:
-                # Continue without cache
-                pass
-        
-        # Validate API key if not cached
-        if validation_result is None:
-            try:
-                validation_result = self.api_key_service.validate_api_key(
-                    api_key,
-                    client_ip=client_ip
-                )
-                
-                # Cache successful validation for 5 minutes
-                if self.cache and validation_result.is_valid:
-                    try:
-                        cache_data = {
-                            "is_valid": validation_result.is_valid,
-                            "key_id": validation_result.key_id,
-                            "user_id": validation_result.user_id,
-                            "rate_limit_per_hour": validation_result.rate_limit_per_hour
-                        }
-                        self.cache.setex(
-                            cache_key,
-                            300,  # 5 minute TTL
-                            json.dumps(cache_data)
-                        )
-                    except Exception:
-                        # Continue without caching
-                        pass
+                    cached_result = json.loads(cached_data)
+                    validation_result = ValidationResult(**cached_result)
+                    logger.debug(f"Using cached validation for key {api_key[:8]}...")
             except Exception as e:
-                return JSONResponse(
-                    status_code=500,
-                    content={"detail": "Internal server error"}
-                )
+                logger.warning(f"Cache read error: {e}")
+        
+        # Validate with auth service if not cached
+        if validation_result is None:
+            validation_result = await self.validate_with_auth_service(api_key, client_ip)
+            
+            # Cache successful validation for 5 minutes
+            if self.cache and validation_result.is_valid:
+                try:
+                    cache_data = {
+                        "is_valid": validation_result.is_valid,
+                        "user_id": validation_result.user_id,
+                        "key_id": validation_result.key_id,
+                        "service_id": validation_result.service_id,
+                        "scopes": validation_result.scopes,
+                        "rate_limit_per_hour": validation_result.rate_limit_per_hour
+                    }
+                    self.cache.setex(
+                        cache_key,
+                        300,  # 5 minute TTL
+                        json.dumps(cache_data)
+                    )
+                except Exception as e:
+                    logger.warning(f"Cache write error: {e}")
         
         # Check validation result
         if not validation_result.is_valid:
@@ -162,6 +243,8 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         # Set request state for downstream use
         request.state.user_id = validation_result.user_id
         request.state.api_key_id = validation_result.key_id
+        request.state.service_id = validation_result.service_id
+        request.state.scopes = validation_result.scopes
         request.state.rate_limit_per_hour = validation_result.rate_limit_per_hour
         
         # Track request start time
@@ -173,58 +256,38 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         # Calculate response time
         response_time_ms = int((time.time() - start_time) * 1000)
         
-        # Log usage asynchronously
+        # Log usage asynchronously (send to auth service)
         if validation_result.key_id:
-            # Create background task for usage logging
             asyncio.create_task(
-                self._log_usage(
+                self._log_usage_to_auth_service(
                     validation_result.key_id,
                     request.url.path,
                     response_time_ms,
                     response.status_code
                 )
             )
-            
-            # Update last used timestamp asynchronously
-            asyncio.create_task(
-                self._update_last_used(validation_result.key_id)
-            )
         
         return response
     
-    async def _log_usage(
+    async def _log_usage_to_auth_service(
         self,
         key_id: str,
         endpoint: str,
         response_time_ms: int,
         status_code: int
     ) -> None:
-        """Log API key usage asynchronously."""
+        """Log API key usage to auth service asynchronously."""
         try:
-            from datetime import datetime, timezone
-            
-            usage_data = {
-                "api_key_id": key_id,
-                "endpoint": endpoint,
-                "timestamp": datetime.now(timezone.utc),
-                "response_time_ms": response_time_ms,
-                "status_code": status_code
-            }
-            
-            # This would normally use the database operations
-            # For now, we'll just log it
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(f"API usage: {usage_data}")
-            
-        except Exception:
-            # Don't fail on logging errors
-            pass
-    
-    async def _update_last_used(self, key_id: str) -> None:
-        """Update last used timestamp asynchronously."""
-        try:
-            self.api_key_service.update_last_used(key_id)
-        except Exception:
-            # Don't fail on update errors
-            pass
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                await client.post(
+                    f"{self.auth_service_url}/api/v1/usage/{key_id}",
+                    json={
+                        "endpoint": endpoint,
+                        "response_time_ms": response_time_ms,
+                        "status_code": status_code,
+                        "service_id": "ml-platform"
+                    }
+                )
+        except Exception as e:
+            # Don't fail on usage logging errors
+            logger.debug(f"Failed to log usage: {e}")
