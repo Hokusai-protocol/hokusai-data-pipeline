@@ -48,7 +48,7 @@ class AuthConfig:
                 return endpoint
         
         # Default endpoint
-        return "https://api.hokus.ai"
+        return "https://registry.hokus.ai/api"
     
     def _load_config_file(self) -> Optional[configparser.ConfigParser]:
         """Load configuration from file."""
