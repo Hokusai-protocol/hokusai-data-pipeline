@@ -1,71 +1,54 @@
-# Product Requirements Document: Fix MLflow Authentication Error
+# Product Requirements Document: Deploy HTTPS for Hokusai
 
 ## Objectives
 
-Resolve the critical MLflow authentication error (HTTP 403) that is preventing third-party users from registering models through the Hokusai ML platform. This blocker prevents production deployment and model registration workflows.
+Enable HTTPS for all Hokusai domains (api.hokus.ai, www.hokus.ai, auth.hokus.ai) to ensure secure communication and meet security requirements for API key transmission and model data protection.
 
 ## Personas
 
-- **Third-party developers**: External users attempting to register and deploy models using the Hokusai platform
-- **Data scientists**: Users who need to track experiments and register models in MLflow
-- **Platform administrators**: Teams managing the Hokusai infrastructure and authentication
+- **DevOps Engineer**: Responsible for infrastructure and certificate management
+- **API Developers**: Need secure endpoints for model registration and data transmission
+- **End Users**: Require secure access to web interfaces and API endpoints
+- **Third-party Integrators**: Need trusted HTTPS connections for production deployments
 
 ## Success Criteria
 
-1. Model registration completes successfully without authentication errors
-2. MLflow tracking server accepts API requests with proper authentication
-3. Both local and remote MLflow deployments are supported
-4. Clear documentation exists for authentication configuration
-5. Fallback mechanisms available when MLflow is unavailable
+1. All Hokusai domains accessible via HTTPS with valid SSL certificates
+2. HTTP traffic automatically redirected to HTTPS
+3. No disruption to existing services during migration
+4. SSL certificates properly configured for auto-renewal
+5. Documentation updated with HTTPS endpoints
 
-## Technical Requirements
+## Tasks
 
-### Authentication Configuration
-- Support multiple authentication methods (API key, OAuth, basic auth)
-- Environment variable configuration for MLflow credentials
-- Secure storage of authentication tokens
-- Automatic retry with authentication refresh
+### Certificate Management
+- Request SSL certificates via AWS Certificate Manager (ACM) for all domains
+- Validate domain ownership through DNS or email validation
+- Configure certificate auto-renewal policies
 
-### MLflow Integration
-- Configure MLflow client with proper authentication headers
-- Support both hosted and self-hosted MLflow servers
-- Handle authentication for all MLflow API endpoints
-- Maintain backward compatibility with existing code
+### Infrastructure Updates
+- Update Terraform configuration with certificate ARNs
+- Configure ALB/ELB listeners for HTTPS (port 443)
+- Set up HTTP to HTTPS redirect rules
+- Apply Terraform changes to production infrastructure
 
-### Error Handling
-- Graceful degradation when MLflow is unavailable
-- Clear error messages indicating authentication issues
-- Logging of authentication attempts for debugging
-- Fallback to local model storage when needed
+### DNS Configuration
+- Update Route53 records to point to HTTPS-enabled load balancers
+- Ensure proper CNAME/A records for all subdomains
+- Configure health checks for HTTPS endpoints
 
-### Documentation
-- Configuration guide for MLflow authentication
-- Environment variable reference
-- Troubleshooting guide for common auth issues
-- Example configurations for different deployment scenarios
-
-## Implementation Tasks
-
-### Core Authentication Fix
-- Diagnose root cause of 403 errors in MLflow client
-- Implement authentication header injection
-- Add configuration for MLflow tracking URI and credentials
-- Create authentication wrapper for MLflow client
-
-### Fallback Mechanisms
-- Implement local model registry fallback
-- Create offline mode for development
-- Add mock MLflow server for testing
-- Enable registry operations without MLflow dependency
+### Cross-Repository Coordination
+- Document HTTPS migration process for repositories not in this codebase
+- Provide implementation guide for auth.hokus.ai team
+- Create shared certificate management strategy
 
 ### Testing and Validation
-- Unit tests for authentication flows
-- Integration tests with MLflow server
-- Mock authentication scenarios
-- End-to-end model registration tests
+- Verify SSL certificate chain validity
+- Test HTTP to HTTPS redirects
+- Confirm API functionality over HTTPS
+- Validate certificate renewal process
 
-### Documentation and Examples
-- Update SDK documentation with auth setup
-- Create authentication quickstart guide
-- Add troubleshooting section
-- Provide example configurations
+### Documentation Updates
+- Update all documentation to use HTTPS URLs
+- Document certificate management procedures
+- Create runbook for SSL certificate issues

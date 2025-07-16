@@ -22,7 +22,7 @@ from hokusai.core import ModelRegistry
 from hokusai.tracking import ExperimentManager
 
 # Initialize Hokusai
-registry = ModelRegistry("http://registry.hokus.ai/mlflow")
+registry = ModelRegistry("https://registry.hokus.ai/mlflow")
 manager = ExperimentManager(registry)
 
 print("✅ Hokusai ML Platform initialized!")
