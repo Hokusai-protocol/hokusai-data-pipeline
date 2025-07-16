@@ -28,7 +28,7 @@ from hokusai import setup
 setup(api_key="hk_live_your_api_key_here")
 
 # Connect to Hokusai
-registry = ModelRegistry("http://registry.hokus.ai/mlflow")
+registry = ModelRegistry("https://registry.hokus.ai/mlflow")
 manager = ExperimentManager(registry)
 
 # Register your model

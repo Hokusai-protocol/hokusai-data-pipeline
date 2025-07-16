@@ -1,21 +1,21 @@
 output "api_endpoint" {
   description = "URL for the API endpoint"
-  value       = "http://registry.hokus.ai/api"
+  value       = var.certificate_arn != "" ? "https://registry.hokus.ai/api" : "http://registry.hokus.ai/api"
 }
 
 output "mlflow_endpoint" {
   description = "URL for the MLflow UI"
-  value       = "http://registry.hokus.ai/mlflow"
+  value       = var.certificate_arn != "" ? "https://registry.hokus.ai/mlflow" : "http://registry.hokus.ai/mlflow"
 }
 
 output "api_endpoint_alb" {
   description = "API endpoint URL via ALB (direct)"
-  value       = "http://${aws_lb.main.dns_name}/api"
+  value       = var.certificate_arn != "" ? "https://${aws_lb.main.dns_name}/api" : "http://${aws_lb.main.dns_name}/api"
 }
 
 output "mlflow_endpoint_alb" {
   description = "MLflow UI endpoint URL via ALB (direct)"
-  value       = "http://${aws_lb.main.dns_name}/mlflow"
+  value       = var.certificate_arn != "" ? "https://${aws_lb.main.dns_name}/mlflow" : "http://${aws_lb.main.dns_name}/mlflow"
 }
 
 output "s3_artifacts_bucket" {

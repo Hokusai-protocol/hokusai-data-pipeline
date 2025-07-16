@@ -13,7 +13,7 @@ The Hokusai ML platform uses MLflow for experiment tracking, model registry, and
 
 The MLflow tracking server is hosted at:
 ```
-http://registry.hokus.ai/mlflow
+https://registry.hokus.ai/mlflow
 ```
 
 This server provides:
@@ -29,13 +29,13 @@ This server provides:
 Set the `MLFLOW_TRACKING_URI` environment variable:
 
 ```bash
-export MLFLOW_TRACKING_URI="http://registry.hokus.ai/mlflow"
+export MLFLOW_TRACKING_URI="https://registry.hokus.ai/mlflow"
 ```
 
 Add this to your `.env` file or shell configuration:
 ```bash
 # .env
-MLFLOW_TRACKING_URI=http://registry.hokus.ai/mlflow
+MLFLOW_TRACKING_URI=https://registry.hokus.ai/mlflow
 ```
 
 ### 2. SDK Configuration
