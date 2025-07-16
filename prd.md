@@ -1,71 +1,71 @@
-# Product Requirements Document: Investigate Registration Issues
+# Product Requirements Document: Fix MLflow Authentication Error
 
 ## Objectives
 
-Resolve critical API mismatches and authentication issues preventing third-party developers from successfully registering models on the Hokusai platform. Ensure the hokusai-ml-platform package provides a consistent, well-documented API that matches implementation.
+Resolve the critical MLflow authentication error (HTTP 403) that is preventing third-party users from registering models through the Hokusai ML platform. This blocker prevents production deployment and model registration workflows.
 
 ## Personas
 
-**Third-Party Developer**: Data scientists and ML engineers integrating their models with Hokusai platform for token-based rewards. They expect clear documentation, predictable APIs, and proper error handling.
-
-**Hokusai Platform Team**: Internal developers maintaining the platform who need visibility into integration issues and ability to support external users.
+- **Third-party developers**: External users attempting to register and deploy models using the Hokusai platform
+- **Data scientists**: Users who need to track experiments and register models in MLflow
+- **Platform administrators**: Teams managing the Hokusai infrastructure and authentication
 
 ## Success Criteria
 
-1. All documented API methods match actual implementation
-2. MLflow authentication is properly configured or made optional
-3. Model registration completes successfully without authentication errors
-4. Missing methods are implemented or documentation is updated
-5. Clear error messages guide users to resolution
-6. Integration test suite validates public API contract
+1. Model registration completes successfully without authentication errors
+2. MLflow tracking server accepts API requests with proper authentication
+3. Both local and remote MLflow deployments are supported
+4. Clear documentation exists for authentication configuration
+5. Fallback mechanisms available when MLflow is unavailable
 
 ## Technical Requirements
 
-### Issue 1: MLflow Authentication Error (Critical)
-- ExperimentManager fails with 403 authentication error when connecting to MLflow
-- API request to /api/2.0/mlflow/experiments/get-by-name returns 403
-- Blocks experiment tracking and model versioning workflows
+### Authentication Configuration
+- Support multiple authentication methods (API key, OAuth, basic auth)
+- Environment variable configuration for MLflow credentials
+- Secure storage of authentication tokens
+- Automatic retry with authentication refresh
 
-### Issue 2: ModelRegistry.register_baseline() API Mismatch
-- Method signature doesn't accept 'model_name' parameter as documented
-- Current implementation has different parameter names than expected
+### MLflow Integration
+- Configure MLflow client with proper authentication headers
+- Support both hosted and self-hosted MLflow servers
+- Handle authentication for all MLflow API endpoints
+- Maintain backward compatibility with existing code
 
-### Issue 3: ModelVersionManager Missing Methods
-- Missing get_latest_version(model_name)
-- Missing list_versions(model_name)
-- Cannot query model versions programmatically
+### Error Handling
+- Graceful degradation when MLflow is unavailable
+- Clear error messages indicating authentication issues
+- Logging of authentication attempts for debugging
+- Fallback to local model storage when needed
 
-### Issue 4: HokusaiInferencePipeline Missing Methods
-- Missing predict_batch(data, model_name, model_version)
-- Limits production use cases requiring batch processing
-
-### Issue 5: PerformanceTracker Missing Methods
-- Missing track_inference(metrics)
-- Cannot monitor model performance in production
+### Documentation
+- Configuration guide for MLflow authentication
+- Environment variable reference
+- Troubleshooting guide for common auth issues
+- Example configurations for different deployment scenarios
 
 ## Implementation Tasks
 
-### Authentication & Configuration
-- Implement MLflow authentication configuration
-- Add support for optional MLflow integration (local mode)
-- Document required environment variables and setup
+### Core Authentication Fix
+- Diagnose root cause of 403 errors in MLflow client
+- Implement authentication header injection
+- Add configuration for MLflow tracking URI and credentials
+- Create authentication wrapper for MLflow client
 
-### API Consistency
-- Audit all public methods against documentation
-- Fix method signatures to match documentation
-- Implement missing methods or update docs
+### Fallback Mechanisms
+- Implement local model registry fallback
+- Create offline mode for development
+- Add mock MLflow server for testing
+- Enable registry operations without MLflow dependency
 
-### Error Handling
-- Add descriptive error messages for common issues
-- Implement fallback mechanisms for MLflow unavailability
-- Guide users to correct configuration
+### Testing and Validation
+- Unit tests for authentication flows
+- Integration tests with MLflow server
+- Mock authentication scenarios
+- End-to-end model registration tests
 
-### Testing & Validation
-- Create integration tests for public API
-- Add contract tests to prevent future breakage
-- Include example scripts demonstrating proper usage
-
-### Documentation
-- Update API reference with correct signatures
-- Add troubleshooting guide for common errors
-- Include complete setup instructions with authentication
+### Documentation and Examples
+- Update SDK documentation with auth setup
+- Create authentication quickstart guide
+- Add troubleshooting section
+- Provide example configurations
