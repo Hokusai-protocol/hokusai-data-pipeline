@@ -1,5 +1,6 @@
 """Model Registry for centralized model management."""
 import json
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime
@@ -10,6 +11,8 @@ from mlflow.tracking import MlflowClient
 
 from .models import HokusaiModel
 from ..auth.client import AuthenticatedClient, get_global_auth
+
+logger = logging.getLogger(__name__)
 
 # Required tags for Hokusai tokenized models
 REQUIRED_HOKUSAI_TAGS = {"hokusai_token_id": str, "benchmark_metric": str, "benchmark_value": str}
@@ -81,12 +84,62 @@ class ModelRegistry(AuthenticatedClient):
         
         self.tracking_uri = tracking_uri
         mlflow.set_tracking_uri(tracking_uri)
-        self.client = MlflowClient(tracking_uri)
+        
+        # Try to create client with retry logic
+        import time
+        max_retries = 3
+        retry_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                self.client = MlflowClient(tracking_uri)
+                # Test connection by listing experiments (with limit=1)
+                self.client.search_experiments(max_results=1)
+                break
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Failed to connect to MLflow (attempt {attempt + 1}/{max_retries}): {e}")
+                    time.sleep(retry_delay * (attempt + 1))
+                else:
+                    logger.error(f"Failed to create MLflow client after {max_retries} attempts")
+                    # Create client anyway - individual operations will handle errors
+                    self.client = MlflowClient(tracking_uri)
 
     def register_baseline(
-        self, model: HokusaiModel, model_type: str, metadata: Optional[Dict[str, Any]] = None
+        self, 
+        model: Optional[HokusaiModel] = None,
+        model_type: Optional[str] = None,
+        model_name: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        **kwargs
     ) -> ModelRegistryEntry:
-        """Register a baseline model."""
+        """Register a baseline model.
+        
+        Args:
+            model: HokusaiModel instance (optional if model_name provided)
+            model_type: Type of model (optional, can be derived from model_name)
+            model_name: Name of the model (for backward compatibility)
+            metadata: Additional metadata
+            **kwargs: Additional parameters for backward compatibility
+            
+        Note:
+            For backward compatibility, supports both:
+            - register_baseline(model=model, model_type="type")
+            - register_baseline(model_name="name", model=model, ...)
+        """
+        # Handle backward compatibility
+        if model_name and not model_type:
+            model_type = model_name
+            
+        # Extract model from kwargs if not provided directly
+        if not model and "model" in kwargs:
+            model = kwargs["model"]
+            
+        # Validate required parameters
+        if not model:
+            raise ValueError("Model parameter is required")
+        if not model_type:
+            raise ValueError("Either model_type or model_name must be provided")
         try:
             # Create or get registered model
             try:

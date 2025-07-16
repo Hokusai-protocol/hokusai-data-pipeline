@@ -258,6 +258,34 @@ class ModelVersionManager:
 
         return previous
 
+    def get_latest_version(self, model_name: str) -> Optional[str]:
+        """Get the latest version for a model.
+        
+        Args:
+            model_name: Name/type of the model
+            
+        Returns:
+            Latest version string or None if no versions exist
+        """
+        return self._get_latest_version_string(model_name)
+    
+    def list_versions(self, model_name: str) -> List[str]:
+        """List all versions for a model.
+        
+        Args:
+            model_name: Name/type of the model
+            
+        Returns:
+            List of version strings, sorted from oldest to newest
+        """
+        entries = self.registry.list_models_by_type(model_name)
+        if not entries:
+            return []
+        
+        # Sort by version and return version strings
+        sorted_entries = sorted(entries, key=lambda e: Version(e.version))
+        return [entry.version for entry in sorted_entries]
+
     def _get_latest_version_string(self, model_type: str) -> Optional[str]:
         """Get the latest version string for a model type."""
         entries = self.registry.list_models_by_type(model_type)

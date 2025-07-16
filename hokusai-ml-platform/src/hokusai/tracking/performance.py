@@ -304,6 +304,74 @@ class PerformanceTracker:
 
         return aggregated
 
+    def track_inference(self, metrics: Dict[str, Any]) -> None:
+        """Track inference metrics for monitoring model performance.
+        
+        Args:
+            metrics: Dictionary of metrics from model inference, including:
+                - model_id: ID of the model used
+                - model_version: Version of the model
+                - latency_ms: Inference latency in milliseconds
+                - confidence: Prediction confidence score
+                - input_size: Size of input data
+                - timestamp: Timestamp of inference
+                - user_id: Optional user identifier
+                - request_id: Optional request identifier
+        """
+        try:
+            # Validate required metrics
+            required_fields = ["model_id", "model_version", "latency_ms"]
+            for field in required_fields:
+                if field not in metrics:
+                    logger.warning(f"Missing required field '{field}' in inference metrics")
+                    return
+            
+            # Add timestamp if not provided
+            if "timestamp" not in metrics:
+                metrics["timestamp"] = datetime.utcnow().isoformat()
+            
+            # Log to MLFlow if available
+            try:
+                # Log metrics with inference prefix
+                mlflow_metrics = {
+                    f"inference.{k}": v for k, v in metrics.items() 
+                    if isinstance(v, (int, float))
+                }
+                mlflow.log_metrics(mlflow_metrics)
+                
+                # Log metadata as parameters
+                mlflow_params = {
+                    f"inference.{k}": str(v) for k, v in metrics.items() 
+                    if not isinstance(v, (int, float))
+                }
+                for key, value in mlflow_params.items():
+                    mlflow.log_param(key, value)
+                    
+            except Exception as e:
+                logger.debug(f"Failed to log inference metrics to MLFlow: {e}")
+            
+            # Calculate and track performance statistics
+            if "latency_ms" in metrics:
+                self._update_latency_stats(metrics["model_id"], metrics["latency_ms"])
+            
+            if "confidence" in metrics:
+                self._update_confidence_stats(metrics["model_id"], metrics["confidence"])
+            
+            logger.debug(f"Tracked inference metrics for model {metrics['model_id']}")
+            
+        except Exception as e:
+            logger.error(f"Failed to track inference metrics: {str(e)}")
+    
+    def _update_latency_stats(self, model_id: str, latency: float) -> None:
+        """Update latency statistics for a model."""
+        # In a production system, this would update a metrics store
+        pass
+    
+    def _update_confidence_stats(self, model_id: str, confidence: float) -> None:
+        """Update confidence statistics for a model."""
+        # In a production system, this would update a metrics store
+        pass
+
     def get_contributor_impact(self, contributor_address: str) -> Dict[str, Any]:
         """Get aggregated impact data for a contributor.
 

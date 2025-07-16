@@ -224,11 +224,54 @@ class HokusaiInferencePipeline:
         except Exception as e:
             raise InferenceException(f"Inference failed: {str(e)}")
 
+    def predict_batch(
+        self,
+        data: Any,
+        model_name: str,
+        model_version: Optional[str] = None
+    ) -> List[Any]:
+        """Run batch prediction with simplified interface.
+        
+        Args:
+            data: Batch of input data (list or array)
+            model_name: Name of the model to use
+            model_version: Specific version to use (optional)
+            
+        Returns:
+            List of predictions
+        """
+        # Convert to internal request format
+        import uuid
+        requests = []
+        
+        if not isinstance(data, list):
+            data = [data]
+            
+        for item in data:
+            req = InferenceRequest(
+                request_id=str(uuid.uuid4()),
+                model_type=model_name,
+                data=item,
+                model_version=model_version
+            )
+            requests.append(req)
+        
+        # Run batch prediction (synchronous wrapper)
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            responses = loop.run_until_complete(self.batch_predict(requests))
+            return [resp.prediction for resp in responses]
+        finally:
+            loop.close()
+
     async def batch_predict(
         self,
         requests: List[InferenceRequest]
     ) -> List[InferenceResponse]:
-        """Run inference for a batch of requests."""
+        """Run inference for a batch of requests (async version)."""
         if not requests:
             return []
 
