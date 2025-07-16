@@ -85,6 +85,23 @@ class ModelRegistry(AuthenticatedClient):
         self.tracking_uri = tracking_uri
         mlflow.set_tracking_uri(tracking_uri)
         
+        # Auto-configure MLFlow authentication if not already set
+        if not os.environ.get("MLFLOW_TRACKING_TOKEN") and not os.environ.get("MLFLOW_TRACKING_USERNAME"):
+            # Try to use Hokusai API key as MLFlow token if available
+            if self._auth and self._auth.api_key:
+                logger.info("Auto-configuring MLFlow authentication using Hokusai API key")
+                os.environ["MLFLOW_TRACKING_TOKEN"] = self._auth.api_key
+                
+                # Try to setup MLFlow auth configuration
+                try:
+                    from ..config import setup_mlflow_auth
+                    setup_mlflow_auth(tracking_uri=tracking_uri, token=self._auth.api_key, validate=False)
+                except ImportError:
+                    # Config module not available, just set the env var
+                    pass
+                except Exception as e:
+                    logger.warning(f"Could not setup MLFlow auth config: {e}")
+        
         # Try to create client with retry logic
         import time
         max_retries = 3
