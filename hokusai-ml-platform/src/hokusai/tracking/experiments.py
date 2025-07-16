@@ -79,17 +79,33 @@ class ExperimentManager:
 
         # Check if mock mode is enabled
         self.mock_mode = os.getenv("HOKUSAI_MOCK_MODE", "false").lower() == "true"
+        
+        # Optional MLflow mode - automatically enable mock mode if MLflow is unavailable
+        self.optional_mlflow = os.getenv("HOKUSAI_OPTIONAL_MLFLOW", "true").lower() == "true"
 
         if not self.mock_mode:
             try:
+                # Try to configure MLflow authentication if available
+                try:
+                    from ..config import setup_mlflow_auth
+                    setup_mlflow_auth(tracking_uri=self.tracking_uri, validate=False)
+                except ImportError:
+                    pass  # Config module not available
+                
                 self._ensure_experiment_exists()
                 mlflow.set_experiment(experiment_name)
                 logger.info(f"Initialized ExperimentManager with experiment: {experiment_name}")
             except Exception as e:
-                logger.error(f"Failed to connect to MLflow server: {str(e)}")
-                logger.info("Consider setting HOKUSAI_MOCK_MODE=true for local development")
-                raise
-        else:
+                if self.optional_mlflow:
+                    logger.warning(f"Failed to connect to MLflow server: {str(e)}")
+                    logger.warning("Switching to mock mode - MLflow operations will be simulated")
+                    self.mock_mode = True
+                else:
+                    logger.error(f"Failed to connect to MLflow server: {str(e)}")
+                    logger.info("Consider setting HOKUSAI_MOCK_MODE=true or HOKUSAI_OPTIONAL_MLFLOW=true")
+                    raise
+        
+        if self.mock_mode:
             logger.info("Running in mock mode - MLflow operations will be simulated")
 
     def start_experiment(self, experiment_name: str) -> Any:
@@ -494,9 +510,20 @@ class ExperimentManager:
                 return
             except Exception as e:
                 if "403" in str(e):
-                    logger.error(f"Authentication error connecting to MLflow server: {str(e)}")
-                    logger.error(f"Please check MLflow server configuration at: {self.tracking_uri}")
-                    logger.error("If running locally, set HOKUSAI_MOCK_MODE=true")
+                    logger.error(f"MLflow authentication error (HTTP 403): {str(e)}")
+                    logger.error(f"MLflow tracking URI: {self.tracking_uri}")
+                    logger.error("\nPossible solutions:")
+                    logger.error("1. Set HOKUSAI_MOCK_MODE=true for local development without MLflow")
+                    logger.error("2. Configure MLflow authentication:")
+                    logger.error("   - Basic auth: MLFLOW_TRACKING_USERNAME and MLFLOW_TRACKING_PASSWORD")
+                    logger.error("   - Token auth: MLFLOW_TRACKING_TOKEN")
+                    logger.error("   - AWS auth: MLFLOW_TRACKING_AWS_SIGV4=true")
+                    logger.error("3. Check if MLflow server requires authentication")
+                    raise
+                elif "401" in str(e):
+                    logger.error(f"MLflow authentication error (HTTP 401): {str(e)}")
+                    logger.error("Invalid or missing credentials for MLflow server")
+                    logger.error("Please check your authentication configuration")
                     raise
                 elif attempt < max_retries - 1:
                     logger.warning(f"Failed to connect to MLflow (attempt {attempt + 1}/{max_retries}): {str(e)}")
