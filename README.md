@@ -78,6 +78,22 @@ from hokusai import setup
 setup(api_key="hk_live_your_key_here")
 ```
 
+### MLflow Integration
+
+The Hokusai API proxy supports standard MLflow clients with Bearer token authentication:
+
+```python
+import mlflow
+import os
+
+# Use your Hokusai API key with MLflow
+os.environ["MLFLOW_TRACKING_URI"] = "https://registry.hokus.ai/api/mlflow"
+os.environ["MLFLOW_TRACKING_TOKEN"] = "hk_live_your_key_here"
+
+# MLflow client works seamlessly
+client = mlflow.tracking.MlflowClient()
+```
+
 See the [Authentication Guide](./documentation/authentication.md) for details.
 
 ## Documentation

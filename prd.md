@@ -1,54 +1,60 @@
-# Product Requirements Document: Deploy HTTPS for Hokusai
+# Product Requirements Document: Update Hokusai API Proxy
 
-## Objectives
+## Objective
+Update the Hokusai API proxy to properly handle authentication by accepting Bearer token headers and forwarding requests to MLflow without authentication requirements. This will enable seamless integration of the standard MLflow client with Hokusai authentication.
 
-Enable HTTPS for all Hokusai domains (api.hokus.ai, www.hokus.ai, auth.hokus.ai) to ensure secure communication and meet security requirements for API key transmission and model data protection.
+## Background
+The current implementation has authentication issues that prevent third-party model registration. Users encounter 403 errors when attempting to use MLflow through the Hokusai platform. The solution requires updating the proxy layer to handle Bearer token authentication and properly forward requests to the MLflow backend.
 
-## Personas
-
-- **DevOps Engineer**: Responsible for infrastructure and certificate management
-- **API Developers**: Need secure endpoints for model registration and data transmission
-- **End Users**: Require secure access to web interfaces and API endpoints
-- **Third-party Integrators**: Need trusted HTTPS connections for production deployments
+## User Personas
+1. **Data Scientists**: Need to register and track models using standard MLflow client
+2. **Third-party Developers**: Require seamless API access for model registration
+3. **Platform Administrators**: Need secure and maintainable authentication flow
 
 ## Success Criteria
+1. API proxy accepts `Authorization: Bearer <api-key>` headers
+2. Bearer tokens are validated as Hokusai API keys
+3. Requests are forwarded to MLflow without authentication headers
+4. Standard MLflow client works without modification
+5. Existing authentication mechanisms remain functional
+6. No breaking changes to current API contracts
 
-1. All Hokusai domains accessible via HTTPS with valid SSL certificates
-2. HTTP traffic automatically redirected to HTTPS
-3. No disruption to existing services during migration
-4. SSL certificates properly configured for auto-renewal
-5. Documentation updated with HTTPS endpoints
+## Technical Requirements
 
-## Tasks
+### Authentication Flow
+1. Receive request with Bearer token in Authorization header
+2. Extract and validate token as Hokusai API key
+3. Strip authentication header before forwarding to MLflow
+4. Return MLflow response to client
 
-### Certificate Management
-- Request SSL certificates via AWS Certificate Manager (ACM) for all domains
-- Validate domain ownership through DNS or email validation
-- Configure certificate auto-renewal policies
+### Implementation Tasks
+1. Locate and analyze current API proxy implementation
+2. Add Bearer token parsing middleware
+3. Implement Hokusai API key validation
+4. Configure request forwarding without auth headers
+5. Add comprehensive error handling
+6. Write unit and integration tests
+7. Update API documentation
+8. Test with real MLflow client scenarios
 
-### Infrastructure Updates
-- Update Terraform configuration with certificate ARNs
-- Configure ALB/ELB listeners for HTTPS (port 443)
-- Set up HTTP to HTTPS redirect rules
-- Apply Terraform changes to production infrastructure
+### Security Considerations
+- Validate all incoming API keys against Hokusai's key store
+- Log authentication attempts for security monitoring
+- Implement rate limiting to prevent abuse
+- Ensure no credentials are leaked in error messages
 
-### DNS Configuration
-- Update Route53 records to point to HTTPS-enabled load balancers
-- Ensure proper CNAME/A records for all subdomains
-- Configure health checks for HTTPS endpoints
+### Testing Requirements
+- Unit tests for token parsing and validation
+- Integration tests with MLflow client
+- End-to-end tests for model registration flow
+- Performance tests under load
+- Security tests for invalid tokens
 
-### Cross-Repository Coordination
-- Document HTTPS migration process for repositories not in this codebase
-- Provide implementation guide for auth.hokus.ai team
-- Create shared certificate management strategy
+## Dependencies
+- Access to current API proxy codebase
+- Understanding of Hokusai API key structure
+- MLflow client for testing
+- Test environment with MLflow backend
 
-### Testing and Validation
-- Verify SSL certificate chain validity
-- Test HTTP to HTTPS redirects
-- Confirm API functionality over HTTPS
-- Validate certificate renewal process
-
-### Documentation Updates
-- Update all documentation to use HTTPS URLs
-- Document certificate management procedures
-- Create runbook for SSL certificate issues
+## Timeline
+This is a high-priority fix that blocks third-party integrations. Implementation should be completed within one development cycle.

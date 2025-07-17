@@ -90,11 +90,17 @@ services:
     depends_on:
       mlflow-server:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       MLFLOW_TRACKING_URI: http://mlflow-server:5000
+      MLFLOW_SERVER_URL: http://mlflow-server:5000
       API_HOST: 0.0.0.0
       API_PORT: 8001
       POSTGRES_URI: postgresql://mlflow:mlflow_password@postgres/mlflow_db
+      REDIS_URL: redis://redis:6379/0
+      HOKUSAI_AUTH_SERVICE_URL: https://auth.hokus.ai
+      AUTH_SERVICE_TIMEOUT: 5.0
     ports:
       - "8001:8001"
     volumes:

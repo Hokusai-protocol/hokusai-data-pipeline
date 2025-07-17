@@ -1,4 +1,4 @@
-"""API key authentication middleware using external auth service."""
+"""API key authentication middleware using external auth service - FIXED VERSION."""
 
 import asyncio
 import json
