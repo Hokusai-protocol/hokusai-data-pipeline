@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # Model Registry API service (deployed version)
+  api:
+    image: hokusai-api:latest  # Or your registry URL
+    container_name: hokusai_api_prod
+    environment:
+      # MLflow Configuration - Using the deployed MLflow at registry.hokus.ai
+      MLFLOW_SERVER_URL: https://registry.hokus.ai/mlflow
+      MLFLOW_TRACKING_URI: https://registry.hokus.ai/mlflow
+      
+      # Authentication Service
+      HOKUSAI_AUTH_SERVICE_URL: https://auth.hokus.ai
+      AUTH_SERVICE_TIMEOUT: 5.0
+      
+      # API Configuration
+      API_HOST: 0.0.0.0
+      API_PORT: 8001
+      
+      # Redis (if using external Redis)
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      
+      # Logging
+      LOG_LEVEL: INFO
+      
+    ports:
+      - "8001:8001"
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    
+    restart: unless-stopped
+
+  # Optional: Local Redis for caching (if not using external)
+  redis:
+    image: redis:7-alpine
+    container_name: hokusai_redis_prod
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+
+networks:
+  default:
+    name: hokusai_prod_network

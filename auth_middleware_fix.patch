@@ -1,0 +1,29 @@
+--- a/src/middleware/auth.py
++++ b/src/middleware/auth.py
+@@ -127,11 +127,20 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
+         """
+         try:
+             async with httpx.AsyncClient(timeout=self.timeout) as client:
++                # FIXED: Send API key in Authorization header, not JSON body
++                headers = {
++                    "Authorization": f"Bearer {api_key}",
++                    "Content-Type": "application/json"
++                }
++                
++                # Only send service_id and client_ip in body
++                body = {
++                    "service_id": "ml-platform"
++                }
++                if client_ip:
++                    body["client_ip"] = client_ip
++                
+                 response = await client.post(
+                     f"{self.auth_service_url}/api/v1/keys/validate",
+-                    json={
+-                        "api_key": api_key,
+-                        "client_ip": client_ip,
+-                        "service_id": "ml-platform"
+-                    }
++                    headers=headers,
++                    json=body
+                 )
