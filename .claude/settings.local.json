@@ -38,7 +38,8 @@
       "Bash(gh run watch:*)",
       "Bash(gh run list:*)",
       "Bash(ruff check:*)",
-      "Bash(aws ecr describe-images:*)"
+      "Bash(aws ecr describe-images:*)",
+      "Bash(nslookup:*)"
     ],
     "deny": []
   }

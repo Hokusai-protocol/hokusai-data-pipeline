@@ -80,27 +80,43 @@ class ModelRegistry(AuthenticatedClient):
         
         # Set tracking URI
         if tracking_uri is None:
-            tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", f"{self.api_endpoint}/mlflow")
+            # MLflow is accessible via Hokusai API proxy for authenticated access
+            # The API endpoint already includes the domain, so we append /mlflow
+            default_mlflow_uri = f"{self.api_endpoint}/mlflow"
+            tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", default_mlflow_uri)
         
         self.tracking_uri = tracking_uri
         mlflow.set_tracking_uri(tracking_uri)
         
-        # Auto-configure MLFlow authentication if not already set
-        if not os.environ.get("MLFLOW_TRACKING_TOKEN") and not os.environ.get("MLFLOW_TRACKING_USERNAME"):
-            # Try to use Hokusai API key as MLFlow token if available
+        # Configure MLflow with automatic fallback
+        try:
+            from ..config import setup_mlflow, get_mlflow_status
+            
+            # Get API key for authentication - prefer auth object, then parameter
+            auth_api_key = None
             if self._auth and self._auth.api_key:
-                logger.info("Auto-configuring MLFlow authentication using Hokusai API key")
-                os.environ["MLFLOW_TRACKING_TOKEN"] = self._auth.api_key
+                auth_api_key = self._auth.api_key
+            elif api_key:  # Use passed api_key parameter
+                auth_api_key = api_key
                 
-                # Try to setup MLFlow auth configuration
-                try:
-                    from ..config import setup_mlflow_auth
-                    setup_mlflow_auth(tracking_uri=tracking_uri, token=self._auth.api_key, validate=False)
-                except ImportError:
-                    # Config module not available, just set the env var
-                    pass
-                except Exception as e:
-                    logger.warning(f"Could not setup MLFlow auth config: {e}")
+            # Setup MLflow with fallback mechanisms
+            mlflow_configured = setup_mlflow(tracking_uri=tracking_uri, api_key=auth_api_key)
+            
+            if mlflow_configured:
+                status = get_mlflow_status()
+                logger.info(f"MLflow configured successfully: {status}")
+                # Update tracking URI to the one actually being used
+                if status.get('tracking_uri'):
+                    self.tracking_uri = status['tracking_uri']
+                    mlflow.set_tracking_uri(self.tracking_uri)
+            else:
+                logger.warning("MLflow configuration failed - some features may be limited")
+                
+        except ImportError:
+            logger.warning("MLflow setup module not available - using basic configuration")
+            # Fallback to basic configuration
+            if self._auth and self._auth.api_key:
+                os.environ["MLFLOW_TRACKING_TOKEN"] = self._auth.api_key
         
         # Try to create client with retry logic
         import time
@@ -109,7 +125,7 @@ class ModelRegistry(AuthenticatedClient):
         
         for attempt in range(max_retries):
             try:
-                self.client = MlflowClient(tracking_uri)
+                self.client = MlflowClient(self.tracking_uri)
                 # Test connection by listing experiments (with limit=1)
                 self.client.search_experiments(max_results=1)
                 break
@@ -120,7 +136,7 @@ class ModelRegistry(AuthenticatedClient):
                 else:
                     logger.error(f"Failed to create MLflow client after {max_retries} attempts")
                     # Create client anyway - individual operations will handle errors
-                    self.client = MlflowClient(tracking_uri)
+                    self.client = MlflowClient(self.tracking_uri)
 
     def register_baseline(
         self, 
