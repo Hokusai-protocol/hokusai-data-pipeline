@@ -1,60 +1,68 @@
-# Product Requirements Document: Update Hokusai API Proxy
+# Product Requirements Document: Test Model Registration
 
 ## Objective
-Update the Hokusai API proxy to properly handle authentication by accepting Bearer token headers and forwarding requests to MLflow without authentication requirements. This will enable seamless integration of the standard MLflow client with Hokusai authentication.
+Verify that the recent fixes to the Hokusai API proxy successfully resolve third-party model registration issues by conducting comprehensive end-to-end testing with a live API key.
 
 ## Background
-The current implementation has authentication issues that prevent third-party model registration. Users encounter 403 errors when attempting to use MLflow through the Hokusai platform. The solution requires updating the proxy layer to handle Bearer token authentication and properly forward requests to the MLflow backend.
+We recently deployed fixes to address authentication issues that prevented third-party model registration. The fixes, outlined in FIXES_APPLIED.md, include:
+- Corrected auth middleware to send API key in Authorization header
+- Updated MLflow server URL to production endpoint
+- Added path translation for MLflow's non-standard ajax-api format
+
+Now we need to verify these fixes work in production with real API credentials.
 
 ## User Personas
-1. **Data Scientists**: Need to register and track models using standard MLflow client
-2. **Third-party Developers**: Require seamless API access for model registration
-3. **Platform Administrators**: Need secure and maintainable authentication flow
+1. **Third-party Developers**: Need confirmation that model registration works with Bearer token authentication
+2. **Platform Team**: Require verification that deployed fixes resolve all authentication issues
+3. **QA Engineers**: Need comprehensive test results to validate the deployment
 
 ## Success Criteria
-1. API proxy accepts `Authorization: Bearer <api-key>` headers
-2. Bearer tokens are validated as Hokusai API keys
-3. Requests are forwarded to MLflow without authentication headers
-4. Standard MLflow client works without modification
-5. Existing authentication mechanisms remain functional
-6. No breaking changes to current API contracts
+1. Successfully authenticate with live API key via Bearer token
+2. Complete end-to-end model registration through Hokusai proxy
+3. Verify model appears in MLflow registry
+4. Confirm no 403/401 authentication errors occur
+5. Document any remaining issues or edge cases
+6. Provide clear pass/fail status for production deployment
 
 ## Technical Requirements
 
-### Authentication Flow
-1. Receive request with Bearer token in Authorization header
-2. Extract and validate token as Hokusai API key
-3. Strip authentication header before forwarding to MLflow
-4. Return MLflow response to client
+### Test Execution Plan
+1. Obtain live API key from user for testing
+2. Run test_real_registration.py with production credentials
+3. Execute additional verification scripts if needed
+4. Document all test results and outputs
+5. Identify any remaining issues or failures
 
-### Implementation Tasks
-1. Locate and analyze current API proxy implementation
-2. Add Bearer token parsing middleware
-3. Implement Hokusai API key validation
-4. Configure request forwarding without auth headers
-5. Add comprehensive error handling
-6. Write unit and integration tests
-7. Update API documentation
-8. Test with real MLflow client scenarios
+### Test Coverage
+- **Authentication**: Verify API key acceptance by auth service
+- **MLflow Proxy**: Test connectivity through proxy endpoint
+- **Model Registration**: Attempt full end-to-end registration
+- **Error Handling**: Capture and analyze any failures
+- **Performance**: Note response times and latency
 
-### Security Considerations
-- Validate all incoming API keys against Hokusai's key store
-- Log authentication attempts for security monitoring
-- Implement rate limiting to prevent abuse
-- Ensure no credentials are leaked in error messages
+### Verification Scripts
+- Primary: `test_real_registration.py` - Comprehensive registration test
+- Quick health check: `verify_api_proxy.py`
+- Bearer token test: `test_bearer_auth.py`
+- Direct auth test: `test_auth_service.py`
 
-### Testing Requirements
-- Unit tests for token parsing and validation
-- Integration tests with MLflow client
-- End-to-end tests for model registration flow
-- Performance tests under load
-- Security tests for invalid tokens
+### Expected Outputs
+Successful execution should produce:
+- API key validation confirmation
+- MLflow client connection success
+- Model training and logging completion
+- Model registration with name and version
+- Final success message with no errors
 
 ## Dependencies
-- Access to current API proxy codebase
-- Understanding of Hokusai API key structure
-- MLflow client for testing
-- Test environment with MLflow backend
+- Live API key from user
+- Access to production environment
+- Python environment with required packages
+- Network access to Hokusai services
 
-## Timeline
-This is a high-priority fix that blocks third-party integrations. Implementation should be completed within one development cycle.
+## Deliverables
+1. Complete test execution report
+2. Pass/fail status for each test component
+3. Documentation of any issues found
+4. Recommendations for fixes if failures occur
+5. Confirmation that third-party registration works

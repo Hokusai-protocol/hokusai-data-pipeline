@@ -102,4 +102,4 @@ def test_bearer_token_auth():
     print("\nThe code implementation is correct and doesn't need changes.")
 
 if __name__ == "__main__":
-    test_bearer_auth()
+    test_bearer_token_auth()

@@ -111,3 +111,25 @@ python test_real_registration.py
 1. **Deploy the updated API service** with these fixes
 2. **Verify with the test scripts** to ensure everything works
 3. **Monitor logs** for any issues during initial usage
+
+## Test Results (2025-07-17)
+
+### ❌ **FAILED** - Authentication Issues Persist
+
+Testing with API key `hk_live_chnn8EMMos4Lcwj3i3C3JeAkoNoDcOWL` revealed:
+
+1. **All endpoints return 401 "Invalid or expired API key"**
+   - The API key is being rejected by the auth service
+   - This happens for both JSON body and Bearer header formats
+
+2. **Possible causes**:
+   - The API key may be expired or invalid
+   - The fixes may not have been deployed to production yet
+   - The auth service may have additional requirements not addressed
+
+3. **Action needed**:
+   - Verify API key validity with the team
+   - Confirm deployment status of PR #49
+   - Check auth service logs for validation failures
+
+See `TEST_REPORT.md` for full test results and analysis.
