@@ -4,6 +4,15 @@
 
 Verify and ensure that third-party model registration through the Hokusai platform Auth service is fully functional by running comprehensive tests using the `test_real_registration.py` script. This includes confirming that recent Auth service changes have resolved authentication issues preventing successful model registration.
 
+## Background
+We recently deployed fixes to address authentication issues that prevented third-party model registration. The fixes include:
+- Corrected auth middleware to send API key in Authorization header
+- Updated MLflow server URL to production endpoint
+- Added path translation for MLflow's non-standard ajax-api format
+- Fixed service_id configuration mismatch (ml-platform vs platform)
+
+Now we need to verify these fixes work in production with real API credentials.
+
 ## Personas
 
 **Third-party Developer**: External developer attempting to register machine learning models with the Hokusai platform using API keys for authentication.
@@ -59,3 +68,16 @@ Confirm the test produces the expected success indicators:
 - Model logging success (✓ Model logged! Run ID: XXXXX)
 - Model registration success (✓ Model registered!)
 - Final success message (✅ SUCCESS: Third-party model registration completed!)
+
+## Dependencies
+- Live API key from user
+- Access to production environment
+- Python environment with required packages
+- Network access to Hokusai services
+
+## Deliverables
+1. Complete test execution report
+2. Pass/fail status for each test component
+3. Documentation of any issues found
+4. Recommendations for fixes if failures occur
+5. Confirmation that third-party registration works
