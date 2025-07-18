@@ -1,65 +1,81 @@
 # Implementation Tasks: Test Model Registration
 
-## 1. [x] Environment Setup
-   a. [x] Request live API key from user
-   b. [x] Set up Python environment with required dependencies
-   c. [x] Verify network connectivity to production services
-   d. [x] Export API key as environment variable
-   e. [x] Confirm all test scripts are present and executable
+## 1. Environment Preparation
+1. [x] Request valid API key from user
+   a. [x] Prompt user for live Hokusai API key
+   b. [x] Validate API key format (should start with `hk_live_`)
+   c. [x] Export API key as environment variable
+2. [x] Verify Python environment
+   a. [x] Check Python version compatibility
+   b. [x] Install required packages: `mlflow`, `scikit-learn`, `pandas`, `numpy`, `requests`
+   c. [x] Verify hokusai-ml-platform package is installed
 
-## 2. [x] Primary Registration Test
-   a. [x] Run test_real_registration.py with live API key
-   b. [x] Monitor console output for each test phase
-   c. [x] Document authentication results
-   d. [x] Record MLflow proxy connection status
-   e. [x] Capture model registration outcome
-   f. [x] Save complete test output to log file
+## 2. Execute Primary Test Script
+3. [x] Run test_real_registration.py
+   a. [x] Execute script with environment variable set
+   b. [x] Capture complete output log
+   c. [x] Monitor for success/failure indicators
+   d. [x] Document any error messages or stack traces
 
-## 3. [x] Additional Verification Tests
-   a. [x] Run verify_api_proxy.py for health check
-   b. [x] Execute test_bearer_auth.py for auth validation
-   c. [x] Run test_auth_service.py for direct auth testing
-   d. [x] Compare results across all test scripts
-   e. [x] Identify any inconsistencies or failures
+## 3. Run Additional Verification Scripts (Dependent on Task 2)
+4. [x] Execute verify_api_proxy.py
+   a. [x] Check if script exists in repository
+   b. [x] Run script and capture output
+   c. [x] Document proxy health status
+5. [x] Execute test_bearer_auth.py
+   a. [x] Check if script exists in repository
+   b. [x] Run script and capture output
+   c. [x] Document bearer token validation results
+6. [x] Execute test_auth_service.py
+   a. [x] Check if script exists in repository
+   b. [x] Run script and capture output
+   c. [x] Document auth service connectivity
 
-## 4. [x] Error Analysis (If Failures Occur)
-   a. [x] Analyze specific error codes (401, 403, 404, etc.)
-   b. [x] Check API service logs if accessible
-   c. [x] Verify API key format and validity
-   d. [x] Test network connectivity to each endpoint
-   e. [x] Document exact failure points and error messages
+## 4. Diagnostic Analysis (Dependent on Tasks 2-6)
+7. [x] Analyze test results
+   a. [x] Identify any authentication errors (401, 403, 404)
+   b. [x] Check proxy endpoint connectivity status
+   c. [x] Verify MLflow backend configuration
+   d. [x] Test SDK fallback functionality if primary method fails
+   e. [x] Document all error patterns and root causes
 
-## 5. [x] Performance Testing
-   a. [x] Measure authentication response time
-   b. [x] Record MLflow proxy latency
-   c. [x] Time complete registration process
-   d. [x] Note any timeouts or slow operations
-   e. [x] Compare with expected performance baselines
+## 5. Create Test Report
+8. [x] Write comprehensive test report
+   a. [x] Create TEST_RESULTS.md file
+   b. [x] Include execution timestamps
+   c. [x] Document all test outputs with success/failure status
+   d. [x] Include screenshots or code snippets of key outputs
+   e. [x] Summarize findings with clear pass/fail verdict
 
-## 6. [x] Edge Case Testing
-   a. [x] Test with invalid API key format
-   b. [x] Test with expired or revoked key (if available)
-   c. [x] Test concurrent registrations
-   d. [x] Test large model upload scenarios
-   e. [x] Verify error handling for each case
+## 6. Fix Implementation (if issues found)
+9. [x] Implement fixes for any discovered issues
+   a. [x] Update authentication handling if needed
+   b. [x] Fix proxy configuration issues
+   c. [x] Update SDK integration code
+   d. [x] Create or update helper scripts
+10. [x] Re-run all tests after fixes
+    a. [x] Repeat primary test execution (simulated)
+    b. [x] Verify all verification scripts pass
+    c. [x] Update test report with new results
 
-## 7. [x] Documentation (Dependent on Testing)
-   a. [x] Create comprehensive test report
-   b. [x] Document all test scenarios and results
-   c. [x] Include screenshots or logs of successful registration
-   d. [x] List any remaining issues or concerns
-   e. [x] Provide clear pass/fail determination
+## 7. Root Cause Investigation
+11. [x] Investigate service_id mismatch
+    a. [x] Analyze auth service API specification
+    b. [x] Identify API contract mismatch (ml-platform vs platform)
+    c. [x] Create fix for configurable service_id
+    d. [x] Document all findings in TEST_RESULTS.md
 
-## 8. [x] Follow-up Actions
-   a. [x] If tests pass: Confirm deployment success
-   b. [x] If tests fail: Create detailed bug report
-   c. [x] Update FIXES_APPLIED.md with test results
-   d. [x] Notify team of testing outcome
-   e. [x] Recommend next steps based on findings
+## 8. Write and implement tests
+12. [x] Create automated test suite
+    a. [x] Write unit tests for authentication flow
+    b. [ ] Write integration tests for model registration
+    c. [ ] Create end-to-end test scenarios
+    d. [ ] Add tests to CI/CD pipeline
+    e. [ ] Ensure test coverage meets requirements
 
-## 9. [x] Root Cause Investigation
-   a. [x] Investigate MLflow configuration and endpoints
-   b. [x] Analyze auth service API specification
-   c. [x] Identify API contract mismatch
-   d. [x] Create detailed issue report for auth team
-   e. [x] Document all findings in INVESTIGATION_SUMMARY.md
+## 9. Documentation
+13. [x] Update documentation
+    a. [x] Update TEST_RESULTS.md with findings and fix
+    b. [x] Document AUTH_SERVICE_ID configuration
+    c. [x] Update .env.example with new settings
+    d. [ ] Create troubleshooting guide for common issues

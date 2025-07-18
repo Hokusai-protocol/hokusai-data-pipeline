@@ -1,58 +1,73 @@
 # Product Requirements Document: Test Model Registration
 
-## Objective
-Verify that the recent fixes to the Hokusai API proxy successfully resolve third-party model registration issues by conducting comprehensive end-to-end testing with a live API key.
+## Objectives
+
+Verify and ensure that third-party model registration through the Hokusai platform Auth service is fully functional by running comprehensive tests using the `test_real_registration.py` script. This includes confirming that recent Auth service changes have resolved authentication issues preventing successful model registration.
 
 ## Background
-We recently deployed fixes to address authentication issues that prevented third-party model registration. The fixes, outlined in FIXES_APPLIED.md, include:
+We recently deployed fixes to address authentication issues that prevented third-party model registration. The fixes include:
 - Corrected auth middleware to send API key in Authorization header
 - Updated MLflow server URL to production endpoint
 - Added path translation for MLflow's non-standard ajax-api format
+- Fixed service_id configuration mismatch (ml-platform vs platform)
 
 Now we need to verify these fixes work in production with real API credentials.
 
-## User Personas
-1. **Third-party Developers**: Need confirmation that model registration works with Bearer token authentication
-2. **Platform Team**: Require verification that deployed fixes resolve all authentication issues
-3. **QA Engineers**: Need comprehensive test results to validate the deployment
+## Personas
+
+**Third-party Developer**: External developer attempting to register machine learning models with the Hokusai platform using API keys for authentication.
+
+**Platform Administrator**: Hokusai team member responsible for verifying platform functionality and ensuring third-party integrations work correctly.
 
 ## Success Criteria
-1. Successfully authenticate with live API key via Bearer token
-2. Complete end-to-end model registration through Hokusai proxy
-3. Verify model appears in MLflow registry
-4. Confirm no 403/401 authentication errors occur
-5. Document any remaining issues or edge cases
-6. Provide clear pass/fail status for production deployment
 
-## Technical Requirements
+1. The `test_real_registration.py` script executes successfully with a valid API key
+2. Authentication passes without 403/401 errors
+3. MLflow proxy endpoint accepts Bearer token authentication
+4. Model training and logging completes successfully
+5. Model registration to MLflow succeeds
+6. Registered model can be retrieved and verified
+7. All diagnostic outputs show green checkmarks (✓) indicating success
 
-### Test Execution Plan
-1. Obtain live API key from user for testing
-2. Run test_real_registration.py with production credentials
-3. Execute additional verification scripts if needed
-4. Document all test results and outputs
-5. Identify any remaining issues or failures
+## Tasks
 
-### Test Coverage
-- **Authentication**: Verify API key acceptance by auth service
-- **MLflow Proxy**: Test connectivity through proxy endpoint
-- **Model Registration**: Attempt full end-to-end registration
-- **Error Handling**: Capture and analyze any failures
-- **Performance**: Note response times and latency
+### 1. Environment Setup
+- Obtain a valid live API key from the user
+- Set up the HOKUSAI_API_KEY environment variable
+- Verify Python dependencies are installed (mlflow, sklearn, pandas, numpy)
 
-### Verification Scripts
-- Primary: `test_real_registration.py` - Comprehensive registration test
-- Quick health check: `verify_api_proxy.py`
-- Bearer token test: `test_bearer_auth.py`
-- Direct auth test: `test_auth_service.py`
+### 2. Execute Primary Test Script
+- Run `python test_real_registration.py` with the provided API key
+- Monitor output for authentication success indicators
+- Document any errors or failures encountered
 
-### Expected Outputs
-Successful execution should produce:
-- API key validation confirmation
-- MLflow client connection success
-- Model training and logging completion
-- Model registration with name and version
-- Final success message with no errors
+### 3. Run Additional Verification Scripts
+- Execute `python verify_api_proxy.py` for quick health check
+- Execute `python test_bearer_auth.py` for bearer token verification
+- Execute `python test_auth_service.py` for direct auth service testing
+- Document results from each verification script
+
+### 4. Diagnose Issues (if any)
+- If authentication fails, identify specific error codes (401, 403, 404)
+- Check proxy endpoint connectivity
+- Verify MLflow backend configuration
+- Test fallback options (SDK registration, direct MLflow access)
+
+### 5. Document Results
+- Create a comprehensive test report with all findings
+- Include successful output examples
+- Document any remaining issues or workarounds needed
+- Provide recommendations for any discovered problems
+
+### 6. Verify Expected Outputs
+Confirm the test produces the expected success indicators:
+- API Key validation (✓ API Key: hk_live_ch...cOWL)
+- Proxy endpoint confirmation (✓ Using proxy endpoint)
+- MLflow client connection (✓ MLflow client connected! Found X experiments)
+- Model training completion (✓ Model trained with accuracy: X.XXX)
+- Model logging success (✓ Model logged! Run ID: XXXXX)
+- Model registration success (✓ Model registered!)
+- Final success message (✅ SUCCESS: Third-party model registration completed!)
 
 ## Dependencies
 - Live API key from user
