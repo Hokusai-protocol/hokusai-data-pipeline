@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # Authentication Service
     auth_service_url: str = "https://auth.hokus.ai"
     auth_service_timeout: float = 5.0
+    auth_service_id: str = "platform"  # Service ID for API key validation
 
     class Config:
         env_file = ".env"
