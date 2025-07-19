@@ -1,83 +1,65 @@
-# Product Requirements Document: Test Model Registration
+# Product Requirements Document: Resolve Routing Conflicts
 
 ## Objectives
 
-Verify and ensure that third-party model registration through the Hokusai platform Auth service is fully functional by running comprehensive tests using the `test_real_registration.py` script. This includes confirming that recent Auth service changes have resolved authentication issues preventing successful model registration.
-
-## Background
-We recently deployed fixes to address authentication issues that prevented third-party model registration. The fixes include:
-- Corrected auth middleware to send API key in Authorization header
-- Updated MLflow server URL to production endpoint
-- Added path translation for MLflow's non-standard ajax-api format
-- Fixed service_id configuration mismatch (ml-platform vs platform)
-
-Now we need to verify these fixes work in production with real API credentials.
+The primary objective is to resolve routing conflicts in the Hokusai API infrastructure that prevent proper MLflow endpoint access through the API proxy. The current routing configuration causes all `/api*` paths to be incorrectly routed to the API service instead of being properly distributed to their intended services, particularly blocking access to MLflow via `/api/mlflow/*` paths.
 
 ## Personas
 
-**Third-party Developer**: External developer attempting to register machine learning models with the Hokusai platform using API keys for authentication.
+### Primary Users
+- **Third-party developers**: External developers integrating with Hokusai who need reliable API access to register models
+- **Data scientists**: Users of the Hokusai ML platform who need MLflow connectivity for model tracking and registration
+- **Platform administrators**: DevOps team managing the Hokusai infrastructure
 
-**Platform Administrator**: Hokusai team member responsible for verifying platform functionality and ensuring third-party integrations work correctly.
+### Secondary Users
+- **Internal developers**: Hokusai team members who need clear routing documentation
+- **API consumers**: Any service or application consuming Hokusai APIs
 
 ## Success Criteria
 
-1. The `test_real_registration.py` script executes successfully with a valid API key
-2. Authentication passes without 403/401 errors
-3. MLflow proxy endpoint accepts Bearer token authentication
-4. Model training and logging completes successfully
-5. Model registration to MLflow succeeds
-6. Registered model can be retrieved and verified
-7. All diagnostic outputs show green checkmarks (✓) indicating success
+1. **Routing Resolution**: All API paths correctly route to their intended services without conflicts
+2. **MLflow Access**: Third-party developers can successfully access MLflow endpoints via the API proxy
+3. **Documentation**: Complete routing documentation that clearly shows which paths go to which services
+4. **Backward Compatibility**: Existing API consumers continue to work without breaking changes
+5. **Test Coverage**: Automated tests verify routing behavior and prevent regression
+6. **Successful Registration**: `test_real_registration.py` runs successfully with a live API key
 
 ## Tasks
 
-### 1. Environment Setup
-- Obtain a valid live API key from the user
-- Set up the HOKUSAI_API_KEY environment variable
-- Verify Python dependencies are installed (mlflow, sklearn, pandas, numpy)
+### 1. Analyze Current Routing Configuration
+- Review ALB routing rules and priorities
+- Document all current routing paths and their destinations
+- Identify all conflicting routes beyond the known `/api*` issue
 
-### 2. Execute Primary Test Script
-- Run `python test_real_registration.py` with the provided API key
-- Monitor output for authentication success indicators
-- Document any errors or failures encountered
+### 2. Design Routing Solution
+- Evaluate the three proposed options from FINAL_TEST_REPORT.md:
+  - Option 1: Make ALB routing rules more specific
+  - Option 2: Remove 'api' from MLflow proxy paths
+  - Option 3: Use direct MLflow paths
+- Select the best approach considering backward compatibility and clarity
+- Create routing design document
 
-### 3. Run Additional Verification Scripts
-- Execute `python verify_api_proxy.py` for quick health check
-- Execute `python test_bearer_auth.py` for bearer token verification
-- Execute `python test_auth_service.py` for direct auth service testing
-- Document results from each verification script
+### 3. Implement Routing Changes
+- Update ALB routing rules or proxy path configurations based on chosen solution
+- Ensure no breaking changes to existing API endpoints
+- Update any hardcoded paths in the codebase
 
-### 4. Diagnose Issues (if any)
-- If authentication fails, identify specific error codes (401, 403, 404)
-- Check proxy endpoint connectivity
-- Verify MLflow backend configuration
-- Test fallback options (SDK registration, direct MLflow access)
+### 4. Update API Documentation
+- Document all API routing paths in a central location
+- Update API reference documentation
+- Create migration guide if paths change
 
-### 5. Document Results
-- Create a comprehensive test report with all findings
-- Include successful output examples
-- Document any remaining issues or workarounds needed
-- Provide recommendations for any discovered problems
+### 5. Create Routing Tests
+- Write automated tests to verify routing behavior
+- Test all API endpoints to ensure correct routing
+- Add tests that would catch routing conflicts
 
-### 6. Verify Expected Outputs
-Confirm the test produces the expected success indicators:
-- API Key validation (✓ API Key: hk_live_ch...cOWL)
-- Proxy endpoint confirmation (✓ Using proxy endpoint)
-- MLflow client connection (✓ MLflow client connected! Found X experiments)
-- Model training completion (✓ Model trained with accuracy: X.XXX)
-- Model logging success (✓ Model logged! Run ID: XXXXX)
-- Model registration success (✓ Model registered!)
-- Final success message (✅ SUCCESS: Third-party model registration completed!)
+### 6. Test Model Registration Flow
+- Run `test_real_registration.py` with a live API key
+- Verify MLflow connectivity through the API proxy
+- Ensure third-party model registration works end-to-end
 
-## Dependencies
-- Live API key from user
-- Access to production environment
-- Python environment with required packages
-- Network access to Hokusai services
-
-## Deliverables
-1. Complete test execution report
-2. Pass/fail status for each test component
-3. Documentation of any issues found
-4. Recommendations for fixes if failures occur
-5. Confirmation that third-party registration works
+### 7. Deploy and Monitor
+- Deploy routing changes to development environment
+- Monitor for any routing errors or issues
+- Deploy to production after verification

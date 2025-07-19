@@ -86,9 +86,13 @@ The Hokusai API proxy supports standard MLflow clients with Bearer token authent
 import mlflow
 import os
 
-# Use your Hokusai API key with MLflow
+# Standard configuration (after routing fix is deployed)
 os.environ["MLFLOW_TRACKING_URI"] = "https://registry.hokus.ai/api/mlflow"
 os.environ["MLFLOW_TRACKING_TOKEN"] = "hk_live_your_key_here"
+
+# Current workaround (until fix is deployed)
+# os.environ["MLFLOW_TRACKING_URI"] = "https://registry.hokus.ai/mlflow"
+# os.environ["MLFLOW_TRACKING_TOKEN"] = "hk_live_your_key_here"
 
 # MLflow client works seamlessly
 client = mlflow.tracking.MlflowClient()

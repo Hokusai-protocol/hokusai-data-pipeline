@@ -1,81 +1,56 @@
-# Implementation Tasks: Test Model Registration
+# Implementation Tasks: Resolve Routing Conflicts
 
-## 1. Environment Preparation
-1. [x] Request valid API key from user
-   a. [x] Prompt user for live Hokusai API key
-   b. [x] Validate API key format (should start with `hk_live_`)
-   c. [x] Export API key as environment variable
-2. [x] Verify Python environment
-   a. [x] Check Python version compatibility
-   b. [x] Install required packages: `mlflow`, `scikit-learn`, `pandas`, `numpy`, `requests`
-   c. [x] Verify hokusai-ml-platform package is installed
+## 1. [x] Analyze Current Routing Configuration
+   a. [x] Review ALB routing rules in Terraform configuration
+   b. [x] Document all current routing paths with their priorities and destinations
+   c. [x] Create a routing map showing all API endpoints and their target services
+   d. [x] Identify additional routing conflicts beyond `/api*` issue
+   e. [x] Document current workarounds being used
 
-## 2. Execute Primary Test Script
-3. [x] Run test_real_registration.py
-   a. [x] Execute script with environment variable set
-   b. [x] Capture complete output log
-   c. [x] Monitor for success/failure indicators
-   d. [x] Document any error messages or stack traces
+## 2. [x] Design Routing Solution
+   a. [x] Analyze pros/cons of each solution option:
+      - Option 1: Make ALB rules more specific (e.g., `/api/v1/*` instead of `/api*`)
+      - Option 2: Change MLflow proxy paths from `/api/mlflow/*` to `/mlflow-proxy/*`
+      - Option 3: Keep current direct MLflow paths (`/mlflow/*`)
+   b. [x] Assess backward compatibility impact for each option
+   c. [x] Create decision matrix with factors: clarity, compatibility, implementation effort
+   d. [x] Select recommended solution with justification
+   e. [x] Create detailed routing design document
 
-## 3. Run Additional Verification Scripts (Dependent on Task 2)
-4. [x] Execute verify_api_proxy.py
-   a. [x] Check if script exists in repository
-   b. [x] Run script and capture output
-   c. [x] Document proxy health status
-5. [x] Execute test_bearer_auth.py
-   a. [x] Check if script exists in repository
-   b. [x] Run script and capture output
-   c. [x] Document bearer token validation results
-6. [x] Execute test_auth_service.py
-   a. [x] Check if script exists in repository
-   b. [x] Run script and capture output
-   c. [x] Document auth service connectivity
+## 3. [x] Implementation (Dependent on Design Solution)
+   a. [x] Update Terraform ALB routing rules if Option 1 selected
+   b. [x] Update API proxy code if Option 2 selected
+   c. [x] Search for hardcoded API paths in codebase
+   d. [x] Update all found hardcoded paths to match new routing
+   e. [x] Update environment configuration files
 
-## 4. Diagnostic Analysis (Dependent on Tasks 2-6)
-7. [x] Analyze test results
-   a. [x] Identify any authentication errors (401, 403, 404)
-   b. [x] Check proxy endpoint connectivity status
-   c. [x] Verify MLflow backend configuration
-   d. [x] Test SDK fallback functionality if primary method fails
-   e. [x] Document all error patterns and root causes
+## 4. [x] Documentation
+   a. [x] Create comprehensive routing documentation in `/docs/ROUTING.md`
+   b. [x] Update API reference documentation with correct paths
+   c. [x] Create migration guide if breaking changes are introduced
+   d. [x] Update README.md with correct API endpoints
+   e. [x] Document routing priorities and conflict resolution
 
-## 5. Create Test Report
-8. [x] Write comprehensive test report
-   a. [x] Create TEST_RESULTS.md file
-   b. [x] Include execution timestamps
-   c. [x] Document all test outputs with success/failure status
-   d. [x] Include screenshots or code snippets of key outputs
-   e. [x] Summarize findings with clear pass/fail verdict
+## 5. [x] Testing (Dependent on Documentation)
+   a. [x] Write unit tests for routing logic
+   b. [x] Create integration tests for all API endpoints
+   c. [x] Write specific tests to detect routing conflicts
+   d. [x] Test backward compatibility if paths change
+   e. [x] Create automated test to verify MLflow proxy access
 
-## 6. Fix Implementation (if issues found)
-9. [x] Implement fixes for any discovered issues
-   a. [x] Update authentication handling if needed
-   b. [x] Fix proxy configuration issues
-   c. [x] Update SDK integration code
-   d. [x] Create or update helper scripts
-10. [x] Re-run all tests after fixes
-    a. [x] Repeat primary test execution (simulated)
-    b. [x] Verify all verification scripts pass
-    c. [x] Update test report with new results
+## 6. [ ] Model Registration Testing (Dependent on Implementation)
+   a. [ ] Set up test environment with API key
+   b. [ ] Run `test_real_registration.py` with live API key
+   c. [ ] Verify authentication passes without errors
+   d. [ ] Confirm MLflow connectivity through API proxy
+   e. [ ] Document any issues encountered
+   f. [ ] Verify model registration completes successfully
+   g. [x] Verify auth service continues to work after routing changes
 
-## 7. Root Cause Investigation
-11. [x] Investigate service_id mismatch
-    a. [x] Analyze auth service API specification
-    b. [x] Identify API contract mismatch (ml-platform vs platform)
-    c. [x] Create fix for configurable service_id
-    d. [x] Document all findings in TEST_RESULTS.md
-
-## 8. Write and implement tests
-12. [x] Create automated test suite
-    a. [x] Write unit tests for authentication flow
-    b. [ ] Write integration tests for model registration
-    c. [ ] Create end-to-end test scenarios
-    d. [ ] Add tests to CI/CD pipeline
-    e. [ ] Ensure test coverage meets requirements
-
-## 9. Documentation
-13. [x] Update documentation
-    a. [x] Update TEST_RESULTS.md with findings and fix
-    b. [x] Document AUTH_SERVICE_ID configuration
-    c. [x] Update .env.example with new settings
-    d. [ ] Create troubleshooting guide for common issues
+## 7. [ ] Deployment and Monitoring
+   a. [ ] Deploy changes to development environment
+   b. [ ] Run full test suite in development
+   c. [ ] Monitor logs for routing errors
+   d. [ ] Create alerts for routing failures
+   e. [ ] Deploy to production after verification
+   f. [ ] Monitor production for 24 hours post-deployment
