@@ -582,7 +582,7 @@ resource "aws_ecs_task_definition" "api" {
         },
         {
           name  = "MLFLOW_TRACKING_URI"
-          value = "http://${aws_lb.mlflow_internal.dns_name}:5000"
+          value = "http://registry.hokus.ai/mlflow"
         },
         {
           name  = "AUTH_SERVICE_ID"
