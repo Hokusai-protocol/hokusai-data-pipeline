@@ -583,6 +583,10 @@ resource "aws_ecs_task_definition" "api" {
         {
           name  = "MLFLOW_TRACKING_URI"
           value = "http://${aws_lb.mlflow_internal.dns_name}:5000"
+        },
+        {
+          name  = "AUTH_SERVICE_ID"
+          value = var.auth_service_id
         }
       ]
       
