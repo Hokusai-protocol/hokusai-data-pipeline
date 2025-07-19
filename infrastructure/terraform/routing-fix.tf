@@ -26,9 +26,10 @@ resource "aws_lb_listener_rule" "auth_service_api" {
 }
 
 # Replace the broad /api* rule with specific API version paths
+# Using priority 95 to avoid conflict with existing rule at 100
 resource "aws_lb_listener_rule" "api_v1" {
   listener_arn = aws_lb_listener.http.arn
-  priority     = 100
+  priority     = 95
   
   action {
     type             = "forward"
@@ -97,7 +98,7 @@ resource "aws_lb_listener_rule" "https_api_v1" {
   count = var.certificate_arn != "" ? 1 : 0
   
   listener_arn = aws_lb_listener.https[0].arn
-  priority     = 100
+  priority     = 95
   
   action {
     type             = "forward"
