@@ -55,6 +55,8 @@ app.include_router(health.router, tags=["health"])
 app.include_router(models.router, prefix="/models", tags=["models"])
 app.include_router(dspy.router, tags=["dspy"])
 app.include_router(mlflow_proxy.router, prefix="/mlflow", tags=["mlflow"])
+# Add /api/mlflow mount point to support standard MLflow client paths
+app.include_router(mlflow_proxy.router, prefix="/api/mlflow", tags=["mlflow"])
 
 
 # Global exception handler

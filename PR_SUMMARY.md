@@ -1,121 +1,64 @@
-# PR Summary: Hokusai API Proxy Bearer Token Support
+# Pull Request: Fix Routing Conflicts for MLflow API Proxy
 
-## Overview
+## Problem
+The ALB routing rule `/api*` at priority 100 was catching ALL paths starting with `/api`, including `/api/mlflow/*`. This prevented MLflow clients from using standard configuration and forced users to use a workaround path.
 
-This PR documents and verifies that the Hokusai API proxy **already supports Bearer token authentication**. No code changes were required - the functionality was already fully implemented.
+## Critical Discovery
+During implementation, we discovered that `auth.hokus.ai` and `registry.hokus.ai` point to the SAME ALB. The `/api*` rule was essential for auth service functionality. Simply changing it would break authentication.
 
-## Important Note
+## Solution
+1. **Added auth-specific routing rules** (Priority 80) to preserve auth service
+2. **Added MLflow proxy rule** (Priority 90) for `/api/mlflow/*`
+3. **Updated general API rule** (Priority 100) from `/api*` to specific paths
+4. **Added `/api/mlflow` mount point** in FastAPI application
 
-While the code implementation is complete and correct, **actual third-party model registration has not been verified** because:
-1. The proxy endpoint may not be deployed
-2. The infrastructure routing may need configuration
-3. We need a valid API key to test the full flow
+## Changes Made
 
-## Key Findings
+### Infrastructure (Terraform)
+- `infrastructure/terraform/routing-fix.tf` - New ALB routing rules
+- `infrastructure/terraform/remove-old-rules.tf` - Instructions for cleanup
 
-### ✅ Already Implemented
+### Application Code
+- `src/api/main.py` - Added `/api/mlflow` router mount point
 
-1. **Authentication Middleware** (`src/middleware/auth.py`):
-   - Extracts Bearer tokens from `Authorization: Bearer <token>` headers
-   - Validates tokens with external auth service
-   - Implements caching and rate limiting
-   - Full test coverage exists
+### Documentation
+- `docs/ROUTING.md` - Comprehensive routing documentation
+- `docs/ROUTING_ANALYSIS.md` - Current state analysis
+- `docs/ROUTING_SOLUTION.md` - Solution design
+- `DEPLOYMENT_GUIDE.md` - Deployment instructions
+- `DEPLOYMENT_STEPS.md` - Step-by-step guide
+- `CRITICAL_ROUTING_DISCOVERY.md` - Auth service findings
 
-2. **MLflow Proxy** (`src/api/routes/mlflow_proxy.py`):
-   - Strips authentication headers before forwarding
-   - Preserves request bodies and other headers
-   - Handles streaming responses
-   - Includes health checks
+### Testing
+- `tests/test_routing.py` - Unit tests for routing
+- `test_routing_behavior.py` - Live endpoint testing script
 
-3. **Infrastructure** (Terraform/AWS ALB):
-   - Routes `/api/*` to API service
-   - Properly configured for proxy access
+## Testing Performed
+- ✅ Verified all API endpoints use `/api/v1/` prefix
+- ✅ Discovered auth service dependency on `/api*` rule
+- ✅ Added auth-specific rules to prevent breaking auth
+- ✅ Created comprehensive test suite
+- ⚠️ Requires live environment testing post-deployment
 
-## What Was Done
+## Deployment Notes
+1. **Deploy new rules FIRST** - Do not remove old rules initially
+2. **Test auth service** - Critical to verify it still works
+3. **Monitor carefully** - Watch for any 404 errors
+4. **Remove old rules** - Only after full verification
 
-1. **Analysis**: Thoroughly investigated the codebase and confirmed Bearer token support exists
-2. **Documentation**: 
-   - Created `API_PROXY_SOLUTION.md` explaining the current implementation
-   - Updated authentication documentation to include MLflow integration
-   - Added MLflow examples to README.md
-   - Created deployment guide
+## Risk Assessment
+- **With auth rules added**: LOW risk
+- **Without auth rules**: HIGH risk (would break authentication)
 
-3. **Testing**:
-   - Created integration tests for MLflow proxy with Bearer tokens
-   - Added verification scripts for deployment validation
+## Backward Compatibility
+- ✅ Existing `/mlflow/*` paths continue to work
+- ✅ Auth service functionality preserved
+- ✅ All existing API endpoints continue to work
 
-4. **Troubleshooting Tools**:
-   - `test_bearer_auth.py` - Test Bearer token authentication
-   - `verify_api_proxy.py` - Comprehensive deployment verification
-   - Clear troubleshooting guides
-
-## For Third-Party Developers
-
-Use your Hokusai API key with standard MLflow client:
-
+## Result
+After deployment, MLflow clients can use standard configuration:
 ```python
-import mlflow
-import os
-
-# Configure MLflow to use Hokusai proxy
 os.environ["MLFLOW_TRACKING_URI"] = "https://registry.hokus.ai/api/mlflow"
-os.environ["MLFLOW_TRACKING_TOKEN"] = "hk_live_your_api_key_here"
-
-# Works seamlessly
-client = mlflow.tracking.MlflowClient()
-experiments = client.search_experiments()
+os.environ["MLFLOW_TRACKING_TOKEN"] = "your_api_key"
 ```
-
-## Files Changed
-
-- `documentation/docs/authentication.md` - Added MLflow integration section
-- `README.md` - Added MLflow authentication example
-- `tests/integration/test_mlflow_proxy_bearer_auth.py` - New integration tests
-- `API_PROXY_SOLUTION.md` - Documentation of existing implementation
-- `DEPLOYMENT_GUIDE.md` - Deployment verification guide
-- `verify_api_proxy.py` - Deployment verification script
-- `test_bearer_auth.py` - Bearer token testing script
-
-## Next Steps
-
-1. **Verify Deployment**: Ensure the API service is deployed and accessible
-2. **Monitor**: Watch for successful MLflow client connections
-3. **Support**: Help users update their MLflow tracking URI to use the proxy
-
-## Testing Scripts Created
-
-To verify third-party model registration works:
-
-1. **`test_real_registration.py`** - Complete end-to-end test that:
-   - Tests proxy endpoints availability
-   - Uses MLflow client with Bearer token
-   - Trains and registers a real model
-   - Includes fallback options and diagnostics
-
-2. **`verify_api_proxy.py`** - Deployment verification script
-3. **`test_bearer_auth.py`** - Bearer token authentication test
-
-## To Verify Implementation
-
-Run this command with a valid API key:
-```bash
-export HOKUSAI_API_KEY="your-api-key"
-python test_real_registration.py
-```
-
-## Conclusion
-
-The Hokusai API proxy code correctly implements Bearer token authentication. However:
-
-1. **Code**: ✅ Complete and correct
-2. **Tests**: ✅ Comprehensive test coverage
-3. **Documentation**: ✅ Updated with MLflow integration
-4. **Deployment**: ❓ Needs verification
-5. **End-to-end Testing**: ❓ Requires valid API key and deployed proxy
-
-The blocking issue is not code but deployment and configuration. The `/api/mlflow` endpoint must be:
-- Deployed and accessible
-- Properly routed through the ALB
-- Tested with a valid Hokusai API key
-
-This PR provides all the tools needed to verify once the infrastructure is ready.
+EOF < /dev/null
