@@ -55,7 +55,7 @@ resource "aws_lb_listener_rule" "api_v1" {
 # Add specific rule for MLflow proxy under /api/mlflow
 resource "aws_lb_listener_rule" "api_mlflow_proxy" {
   listener_arn = aws_lb_listener.http.arn
-  priority     = 90  # Higher priority than api_v1 rule
+  priority     = 85  # Higher priority than api_v1 rule
   
   action {
     type             = "forward"
@@ -124,7 +124,7 @@ resource "aws_lb_listener_rule" "https_api_mlflow_proxy" {
   count = var.certificate_arn != "" ? 1 : 0
   
   listener_arn = aws_lb_listener.https[0].arn
-  priority     = 90
+  priority     = 85
   
   action {
     type             = "forward"
