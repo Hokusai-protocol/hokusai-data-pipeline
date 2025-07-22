@@ -1,88 +1,74 @@
-# Product Requirements Document: Test Model Registration
+# Product Requirements Document: Configure Artifact Storage
 
 ## Objectives
 
-1. Verify that third-party model registration is working correctly with the recent fixes applied to the authentication system
-2. Execute comprehensive testing with a valid API key to confirm all endpoints are functional
-3. Diagnose and document any remaining issues preventing successful model registration
-4. Ensure the model registration workflow functions end-to-end for external users
+Enable successful model registration by configuring MLflow artifact storage to resolve the 404 errors occurring during model file uploads. This will unblock third-party developers attempting to register models with the Hokusai platform.
 
 ## Personas
 
-- **Third-Party Developer**: External developer attempting to register ML models with Hokusai platform using API keys
-- **Platform Engineer**: Responsible for maintaining and fixing the authentication and registration infrastructure
-- **QA Engineer**: Verifying that fixes work as expected and documenting test results
+- **Third-party developers**: External developers integrating their models with Hokusai who need to upload model artifacts
+- **Platform engineers**: Internal team responsible for maintaining the MLflow infrastructure
+- **DevOps engineers**: Team managing AWS infrastructure and proxy configurations
 
 ## Success Criteria
 
-1. **Authentication Success**: API key is validated successfully across all required services
-2. **MLflow Connectivity**: Client can connect to MLflow through the proxy endpoint without errors
-3. **Model Registration**: Complete model training, logging, and registration workflow executes successfully
-4. **Comprehensive Testing**: All test scripts pass with valid API key:
-   - test_real_registration.py
-   - verify_api_proxy.py
-   - test_bearer_auth.py
-   - test_auth_service.py
-5. **Documentation**: Clear report on current status and any remaining issues
+1. Model registration completes successfully without 404 errors on artifact upload
+2. Artifact storage endpoints (`/api/2.0/mlflow-artifacts/*`) are properly routed through the proxy
+3. Uploaded model artifacts are stored persistently in S3
+4. Authentication works correctly for artifact uploads
+5. Documentation is updated with the new configuration
 
 ## Tasks
 
-### 1. Environment Setup and API Key Validation
-- Obtain valid API key from user for testing
-- Set HOKUSAI_API_KEY environment variable
-- Verify API key format matches expected pattern (hk_live_*)
+### Infrastructure Configuration
 
-### 2. Execute Primary Registration Test
-- Run test_real_registration.py with provided API key
-- Capture detailed output including all HTTP requests/responses
-- Document specific error messages and failure points
+1. Configure S3 bucket for MLflow artifact storage
+   - Create or identify existing S3 bucket for model artifacts
+   - Set appropriate IAM policies for read/write access
+   - Configure bucket lifecycle policies if needed
 
-### 3. Run Diagnostic Test Suite
-- Execute verify_api_proxy.py to check proxy health
-- Run test_bearer_auth.py to verify Bearer token authentication
-- Execute test_auth_service.py to test direct auth service validation
-- Run investigate_mlflow.py for comprehensive endpoint testing
+2. Update MLflow server configuration
+   - Add `--default-artifact-root s3://bucket-name` to MLflow server startup
+   - Ensure MLflow server has necessary AWS credentials
+   - Verify artifact storage is properly initialized
 
-### 4. Analyze Test Results
-- Compare results against expected success outputs
-- Identify specific failure points in the authentication flow
-- Determine if failures are due to:
-  - Invalid/expired API key
-  - Service configuration issues
-  - Deployment problems
-  - Code bugs
+3. Update proxy routing configuration
+   - Add routes for `/api/2.0/mlflow-artifacts/*` endpoints
+   - Ensure proxy forwards artifact requests to MLflow server
+   - Maintain authentication headers during forwarding
 
-### 5. Implement Fixes (if needed)
-- If API key is valid but tests fail, identify root cause
-- Implement necessary code fixes
-- Update configuration if deployment issues found
-- Ensure fixes don't break existing functionality
+### Application Updates
 
-### 6. Verify Fix Effectiveness
-- Re-run all test scripts after implementing fixes
-- Confirm all tests pass with green checkmarks
-- Verify model appears in MLflow registry
+4. Update service_id validation
+   - Change validation to accept "platform" instead of "ml-platform"
+   - Update any hardcoded service_id references in the codebase
+   - Ensure backward compatibility if needed
 
-### 7. Update Documentation
-- Document test results in structured format
-- Update FINAL_TEST_REPORT.md with current status
-- Create clear instructions for third-party developers
-- Document any workarounds needed
+5. Implement artifact storage error handling
+   - Add proper error messages for artifact upload failures
+   - Implement retry logic for transient S3 errors
+   - Add logging for debugging artifact storage issues
 
-## Technical Requirements
+### Testing and Verification
 
-- Python environment with hokusai-ml-platform package installed
-- Valid Hokusai API key with model registration permissions
-- Access to production endpoints:
-  - https://api.hokus.ai/mlflow/
-  - https://auth.hokus.ai/validate
-  - https://registry.hokus.ai/mlflow/
+6. Create integration tests
+   - Test full model registration flow including artifact upload
+   - Verify artifacts are stored in S3
+   - Test authentication flow for artifact endpoints
 
-## Expected Outcomes
+7. Update documentation
+   - Document S3 bucket configuration requirements
+   - Add troubleshooting guide for artifact storage issues
+   - Update API documentation with artifact endpoints
 
-Upon successful completion:
-- Third-party developers can register models using standard MLflow client
-- Authentication works seamlessly with Bearer tokens
-- All test scripts show passing results
-- Clear documentation exists for the registration process
-- Any remaining issues are clearly identified with remediation plans
+### Deployment
+
+8. Deploy infrastructure changes
+   - Apply Terraform changes for S3 and IAM configurations
+   - Update MLflow server deployment with new configuration
+   - Deploy updated proxy configuration
+
+9. Verify deployment
+   - Run test_real_registration.py script to verify full flow
+   - Monitor logs for any artifact storage errors
+   - Confirm S3 bucket contains uploaded artifacts

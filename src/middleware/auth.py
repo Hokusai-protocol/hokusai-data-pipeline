@@ -134,7 +134,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 
                 # Only send service_id and client_ip in body
                 body = {
-                    "service_id": "ml-platform"
+                    "service_id": "platform"
                 }
                 if client_ip:
                     body["client_ip"] = client_ip
@@ -295,7 +295,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                         "endpoint": endpoint,
                         "response_time_ms": response_time_ms,
                         "status_code": status_code,
-                        "service_id": "ml-platform"
+                        "service_id": "platform"
                     }
                 )
         except Exception as e:

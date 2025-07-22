@@ -56,7 +56,7 @@ class HokusaiAuth:
                 f"{self.auth_service_url}/api/v1/keys/validate",
                 json={
                     "api_key": self.config.api_key,
-                    "service_id": "ml-platform"
+                    "service_id": "platform"
                 },
                 timeout=5.0
             )

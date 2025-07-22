@@ -36,6 +36,16 @@ async def proxy_request(
         path = path.replace("api/2.0/mlflow/", "ajax-api/2.0/mlflow/")
         logger.info(f"Converted path to MLflow format: {path}")
     
+    # Handle artifact endpoints - these should be proxied directly
+    if path.startswith("api/2.0/mlflow-artifacts/"):
+        logger.info(f"Proxying artifact request: {path}")
+        # Check if MLflow server has artifact serving enabled
+        if not os.getenv("MLFLOW_SERVE_ARTIFACTS", "true").lower() == "true":
+            raise HTTPException(
+                status_code=503,
+                detail="Artifact storage is not configured. Please contact your administrator."
+            )
+    
     # Construct the target URL
     target_url = f"{mlflow_base_url}/{path}"
     
