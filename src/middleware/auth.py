@@ -295,7 +295,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                         "endpoint": endpoint,
                         "response_time_ms": response_time_ms,
                         "status_code": status_code,
-                        "service_id": "ml-platform"
+                        "service_id": self.settings.auth_service_id
                     }
                 )
         except Exception as e:

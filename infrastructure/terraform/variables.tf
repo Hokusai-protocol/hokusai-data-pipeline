@@ -151,6 +151,18 @@ variable "tags" {
   default     = {}
 }
 
+variable "vpc_id" {
+  description = "VPC ID for resources (leave empty to use default VPC)"
+  type        = string
+  default     = ""
+}
+
+variable "route53_zone_id" {
+  description = "Route53 Hosted Zone ID for DNS records"
+  type        = string
+  default     = ""
+}
+
 variable "auth_service_id" {
   description = "Service ID for API key validation (platform or ml-platform)"
   type        = string

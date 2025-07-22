@@ -1,57 +1,76 @@
-# Implementation Tasks: Infrastructure Investigation
+# Implementation Tasks: Configure Artifact Storage
 
-## 1. [x] Investigate RDS Password Changes
-   a. [x] Access AWS CloudTrail and filter for RDS password modification events
-   b. [x] Download and analyze Terraform state files for drift detection
-   c. [x] Review AWS Secrets Manager rotation policies if configured
-   d. [x] Check for any Lambda functions or automation scripts with RDS access
-   e. [x] Document findings in `docs/rds-password-investigation.md`
+## 1. [x] Investigate Current Infrastructure
+   a. [x] Review existing Terraform configuration for MLflow deployment
+   b. [x] Check if S3 bucket already exists for artifacts
+   c. [x] Document current proxy routing configuration
+   d. [x] Identify MLflow server deployment configuration
 
-## 2. [ ] Analyze ECS Task Definition Reversions
-   a. [ ] List all task definition revisions for affected services
-   b. [ ] Compare task definitions between versions 30 and 31
-   c. [ ] Review Terraform configuration for task definition management
-   d. [ ] Check deployment scripts and CI/CD pipeline configurations
-   e. [ ] Create task definition version tracking spreadsheet
+## 2. [x] Configure S3 Bucket for Artifacts
+   a. [x] Create new S3 bucket or identify existing one for MLflow artifacts
+   b. [x] Write Terraform configuration for S3 bucket with proper naming
+   c. [x] Configure bucket policies for MLflow server access
+   d. [x] Set up lifecycle rules for artifact retention
+   e. [x] Enable versioning and encryption on bucket
 
-## 3. [ ] Review S3 Bucket Lifecycle Policies
-   a. [ ] List all S3 buckets with lifecycle policies enabled
-   b. [ ] Export current lifecycle configurations to JSON
-   c. [ ] Analyze CloudWatch metrics for lifecycle transitions
-   d. [ ] Review bucket access logs for unexpected deletions
-   e. [ ] Document lifecycle policy recommendations
+## 3. [x] Update IAM Policies
+   a. [x] Create IAM role for MLflow server with S3 access
+   b. [x] Write policy document allowing read/write to artifact bucket
+   c. [x] Update ECS task role to include S3 permissions
+   d. [x] Test IAM permissions with AWS CLI
 
-## 4. [ ] Terraform State Analysis
-   a. [ ] Check for remote state locking mechanisms
-   b. [ ] Review state file history for unexpected changes
-   c. [ ] Analyze terraform plan outputs for drift
-   d. [ ] Verify workspace configurations if using Terraform workspaces
-   e. [ ] Create state management best practices guide
+## 4. [x] Modify MLflow Server Configuration
+   a. [x] Locate MLflow server startup script or configuration
+   b. [x] Add `--default-artifact-root s3://hokusai-mlflow-artifacts` parameter
+   c. [x] Configure AWS credentials for MLflow server
+   d. [x] Update environment variables for S3 access
+   e. [x] Create health check for artifact storage
 
-## 5. [ ] Create Infrastructure Monitoring
-   a. [ ] Set up CloudWatch alarm for RDS password changes
-   b. [ ] Configure ECS task definition change notifications
-   c. [ ] Create S3 lifecycle transition alerts
-   d. [ ] Implement AWS Config rules for compliance
-   e. [ ] Set up SNS topic for infrastructure alerts
+## 5. [x] Update Proxy Routing (Dependent on Infrastructure)
+   a. [x] Review current nginx/proxy configuration
+   b. [x] Add location block for `/api/2.0/mlflow-artifacts/*`
+   c. [x] Configure proper header forwarding for authentication
+   d. [x] Test proxy configuration syntax
+   e. [x] Document new routing rules
 
-## 6. [x] Write Investigation Scripts
-   a. [x] Create Python script to analyze CloudTrail logs
-   b. [x] Write Terraform drift detection script
-   c. [x] Develop S3 lifecycle audit tool
-   d. [x] Build ECS task definition comparison utility
-   e. [x] Create automated infrastructure health check
+## 6. [x] Fix service_id Validation
+   a. [x] Search codebase for "ml-platform" references
+   b. [x] Update validation to accept "platform" service_id
+   c. [x] Add migration logic for backward compatibility
+   d. [x] Update any hardcoded service_id checks
 
-## 7. [x] Testing (Dependent on Scripts)
-   a. [x] Test CloudTrail log analysis script
-   b. [x] Validate Terraform drift detection accuracy
-   c. [x] Verify monitoring alarm triggers
-   d. [x] Test notification delivery
-   e. [x] Run end-to-end infrastructure audit
+## 7. [x] Implement Error Handling
+   a. [x] Add try-catch blocks for artifact upload operations
+   b. [x] Implement exponential backoff for S3 retries
+   c. [x] Create custom exception classes for artifact errors
+   d. [x] Add detailed logging for debugging
+   e. [x] Create error response formatting
 
-## 8. [x] Documentation
-   a. [x] Create infrastructure investigation report
-   b. [x] Write troubleshooting runbooks
-   c. [x] Update README with monitoring setup
-   d. [x] Document script usage and examples
-   e. [x] Create infrastructure change management process
+## 8. [x] Write Integration Tests (Dependent on Error Handling)
+   a. [x] Create test for full model registration with artifacts
+   b. [x] Write test for artifact upload to S3
+   c. [x] Test authentication flow for artifact endpoints
+   d. [x] Add test for error scenarios (S3 down, auth failure)
+   e. [x] Create fixture data for model artifacts
+
+## 9. [x] Update Documentation (Dependent on Testing)
+   a. [x] Document S3 bucket configuration in README
+   b. [x] Create troubleshooting guide for artifact errors
+   c. [x] Update API documentation with artifact endpoints
+   d. [x] Add example code for model registration with artifacts
+   e. [x] Document required AWS permissions
+
+## 10. [ ] Deploy Infrastructure Changes
+   a. [ ] Review and approve Terraform changes
+   b. [ ] Plan Terraform deployment
+   c. [ ] Apply S3 and IAM changes
+   d. [ ] Update MLflow server with new configuration
+   e. [ ] Deploy updated proxy configuration
+   f. [ ] Verify all services are healthy
+
+## 11. [ ] Verify Deployment (Dependent on Deployment)
+   a. [ ] Run test_real_registration.py with real API key
+   b. [ ] Check S3 bucket for uploaded artifacts
+   c. [ ] Monitor CloudWatch logs for errors
+   d. [ ] Test artifact download functionality
+   e. [ ] Document any issues found
