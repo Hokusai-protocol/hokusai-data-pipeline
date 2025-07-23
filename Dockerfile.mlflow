@@ -21,16 +21,9 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:5000/ || exit 1
 
-# Create entrypoint script to handle environment variables
-RUN echo '#!/bin/bash\n\
-exec mlflow server \\\n\
-    --host 0.0.0.0 \\\n\
-    --port 5000 \\\n\
-    --static-prefix /mlflow \\\n\
-    --backend-store-uri "${BACKEND_STORE_URI}" \\\n\
-    --default-artifact-root "${DEFAULT_ARTIFACT_ROOT}" \\\n\
-    --serve-artifacts' > /app/entrypoint.sh && \
-    chmod +x /app/entrypoint.sh
+# Set environment variables defaults
+ENV BACKEND_STORE_URI=""
+ENV DEFAULT_ARTIFACT_ROOT=""
 
 # Run MLFlow server with environment variable configuration
-ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["sh", "-c", "mlflow server --host 0.0.0.0 --port 5000 --static-prefix /mlflow --backend-store-uri \"${BACKEND_STORE_URI}\" --default-artifact-root \"${DEFAULT_ARTIFACT_ROOT}\" --serve-artifacts"]

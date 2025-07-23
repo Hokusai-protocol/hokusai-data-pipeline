@@ -1,74 +1,56 @@
-# Product Requirements Document: Configure Artifact Storage
+# Product Requirements Document: Test Model Registration Again2
 
-## Objectives
+## Objective
+Complete the deployment of MLflow container with artifact storage support and verify that third-party model registration works end-to-end. This is the final step to resolve persistent model registration issues.
 
-Enable successful model registration by configuring MLflow artifact storage to resolve the 404 errors occurring during model file uploads. This will unblock third-party developers attempting to register models with the Hokusai platform.
-
-## Personas
-
-- **Third-party developers**: External developers integrating their models with Hokusai who need to upload model artifacts
-- **Platform engineers**: Internal team responsible for maintaining the MLflow infrastructure
-- **DevOps engineers**: Team managing AWS infrastructure and proxy configurations
+## Background
+Testing has confirmed that authentication and MLflow connectivity are working correctly, but model registration fails at the artifact upload stage with 404 errors on `/api/2.0/mlflow-artifacts/` endpoints. The root cause is that the MLflow container in ECS is using an old image without the `--serve-artifacts` flag. While the Dockerfile has been updated in the repository, the container hasn't been rebuilt and deployed.
 
 ## Success Criteria
+1. MLflow artifact storage endpoints respond successfully (not 404)
+2. Third-party model registration completes without errors
+3. Verification script `test_model_registration_simple.py` passes all tests
+4. Model artifacts are successfully stored and retrievable
 
-1. Model registration completes successfully without 404 errors on artifact upload
-2. Artifact storage endpoints (`/api/2.0/mlflow-artifacts/*`) are properly routed through the proxy
-3. Uploaded model artifacts are stored persistently in S3
-4. Authentication works correctly for artifact uploads
-5. Documentation is updated with the new configuration
+## Implementation Tasks
 
-## Tasks
+### 1. Deploy MLflow Container
+Deploy the updated MLflow container with artifact storage support using the prepared deployment script `deploy_mlflow_container.sh`.
 
-### Infrastructure Configuration
+### 2. Verify MLflow Deployment
+Confirm the MLflow service is running with artifact storage enabled by:
+- Checking container status in ECS
+- Testing artifact endpoint availability
+- Running `verify_mlflow_deployment.sh`
 
-1. Configure S3 bucket for MLflow artifact storage
-   - Create or identify existing S3 bucket for model artifacts
-   - Set appropriate IAM policies for read/write access
-   - Configure bucket lifecycle policies if needed
+### 3. Test Model Registration
+Execute comprehensive model registration tests with a valid API key:
+- Run `test_model_registration_simple.py`
+- Verify authentication works correctly
+- Confirm artifact upload succeeds
+- Ensure model registration completes
 
-2. Update MLflow server configuration
-   - Add `--default-artifact-root s3://bucket-name` to MLflow server startup
-   - Ensure MLflow server has necessary AWS credentials
-   - Verify artifact storage is properly initialized
+### 4. Document Results
+Record test outcomes including:
+- Any errors encountered
+- Performance metrics
+- Verification steps completed
+- Recommendations for production deployment
 
-3. Update proxy routing configuration
-   - Add routes for `/api/2.0/mlflow-artifacts/*` endpoints
-   - Ensure proxy forwards artifact requests to MLflow server
-   - Maintain authentication headers during forwarding
+## Technical Requirements
+- Access to AWS ECS for container deployment
+- Valid Hokusai API key for testing
+- Python environment with test dependencies
+- Network access to registry.hokus.ai
 
-### Application Updates
+## Dependencies
+- MLflow container image with `--serve-artifacts` flag
+- S3 bucket for artifact storage (already configured)
+- IAM roles with appropriate permissions (already configured)
+- Authentication service (already operational)
 
-4. Update service_id validation
-   - Change validation to accept "platform" instead of "ml-platform"
-   - Update any hardcoded service_id references in the codebase
-   - Ensure backward compatibility if needed
-
-5. Implement artifact storage error handling
-   - Add proper error messages for artifact upload failures
-   - Implement retry logic for transient S3 errors
-   - Add logging for debugging artifact storage issues
-
-### Testing and Verification
-
-6. Create integration tests
-   - Test full model registration flow including artifact upload
-   - Verify artifacts are stored in S3
-   - Test authentication flow for artifact endpoints
-
-7. Update documentation
-   - Document S3 bucket configuration requirements
-   - Add troubleshooting guide for artifact storage issues
-   - Update API documentation with artifact endpoints
-
-### Deployment
-
-8. Deploy infrastructure changes
-   - Apply Terraform changes for S3 and IAM configurations
-   - Update MLflow server deployment with new configuration
-   - Deploy updated proxy configuration
-
-9. Verify deployment
-   - Run test_real_registration.py script to verify full flow
-   - Monitor logs for any artifact storage errors
-   - Confirm S3 bucket contains uploaded artifacts
+## Verification Scripts
+- `deploy_mlflow_container.sh` - Deploys MLflow with artifact storage
+- `verify_mlflow_deployment.sh` - Verifies deployment status
+- `test_model_registration_simple.py` - Tests model registration
+- `test_real_registration.py` - Comprehensive end-to-end test
