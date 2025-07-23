@@ -1,76 +1,51 @@
-# Implementation Tasks: Configure Artifact Storage
+# Implementation Tasks: Test Model Registration Again2
 
-## 1. [x] Investigate Current Infrastructure
-   a. [x] Review existing Terraform configuration for MLflow deployment
-   b. [x] Check if S3 bucket already exists for artifacts
-   c. [x] Document current proxy routing configuration
-   d. [x] Identify MLflow server deployment configuration
+## 1. Deploy MLflow Container with Artifact Storage
+   a. [x] Review `deploy_mlflow_container.sh` script for correctness
+   b. [x] Execute deployment script to build and push MLflow container
+   c. [x] Monitor ECS service update progress
+   d. [x] Verify new container is running with correct entrypoint
 
-## 2. [x] Configure S3 Bucket for Artifacts
-   a. [x] Create new S3 bucket or identify existing one for MLflow artifacts
-   b. [x] Write Terraform configuration for S3 bucket with proper naming
-   c. [x] Configure bucket policies for MLflow server access
-   d. [x] Set up lifecycle rules for artifact retention
-   e. [x] Enable versioning and encryption on bucket
+## 2. Verify MLflow Deployment Status
+   a. [x] Run `verify_mlflow_deployment.sh` to check deployment
+   b. [x] Test artifact endpoint availability (should return 200/401, not 404)
+   c. [x] Check ECS task definition has correct MLflow image
+   d. [x] Verify S3 bucket connectivity from MLflow container
 
-## 3. [x] Update IAM Policies
-   a. [x] Create IAM role for MLflow server with S3 access
-   b. [x] Write policy document allowing read/write to artifact bucket
-   c. [x] Update ECS task role to include S3 permissions
-   d. [x] Test IAM permissions with AWS CLI
+## 3. Test Authentication Flow
+   a. [x] Request valid API key from user
+   b. [x] Test auth service connectivity with `test_auth_service.py`
+   c. [x] Verify bearer token authentication with `test_bearer_auth.py`
+   d. [x] Confirm API proxy health with `verify_api_proxy.py`
 
-## 4. [x] Modify MLflow Server Configuration
-   a. [x] Locate MLflow server startup script or configuration
-   b. [x] Add `--default-artifact-root s3://hokusai-mlflow-artifacts` parameter
-   c. [x] Configure AWS credentials for MLflow server
-   d. [x] Update environment variables for S3 access
-   e. [x] Create health check for artifact storage
+## 4. Execute Model Registration Tests
+   a. [x] Set HOKUSAI_API_KEY environment variable
+   b. [x] Run `test_model_registration_simple.py`
+   c. [x] Monitor for any 404 errors on artifact endpoints
+   d. [ ] Verify model artifacts are uploaded successfully
+   e. [ ] Confirm model appears in MLflow registry
 
-## 5. [x] Update Proxy Routing (Dependent on Infrastructure)
-   a. [x] Review current nginx/proxy configuration
-   b. [x] Add location block for `/api/2.0/mlflow-artifacts/*`
-   c. [x] Configure proper header forwarding for authentication
-   d. [x] Test proxy configuration syntax
-   e. [x] Document new routing rules
+## 5. Run Comprehensive End-to-End Test
+   a. [x] Execute `test_real_registration.py` with live API key
+   b. [x] Verify all checkpoints pass (auth, mlflow, artifacts, registration)
+   c. [x] Document any errors or warnings
+   d. [ ] Check model retrieval works correctly
 
-## 6. [x] Fix service_id Validation
-   a. [x] Search codebase for "ml-platform" references
-   b. [x] Update validation to accept "platform" service_id
-   c. [x] Add migration logic for backward compatibility
-   d. [x] Update any hardcoded service_id checks
+## 6. Document Test Results
+   a. [x] Create new test report with outcomes
+   b. [x] Update FINAL_STATUS_REPORT.md with results
+   c. [x] Document any remaining issues or recommendations
+   d. [x] Prepare summary for production deployment
 
-## 7. [x] Implement Error Handling
-   a. [x] Add try-catch blocks for artifact upload operations
-   b. [x] Implement exponential backoff for S3 retries
-   c. [x] Create custom exception classes for artifact errors
-   d. [x] Add detailed logging for debugging
-   e. [x] Create error response formatting
+## 7. Write and Implement Tests (Dependent on Documentation)
+   a. [ ] Database schema tests
+   b. [ ] API endpoint tests
+   c. [ ] Frontend component tests
+   d. [ ] Integration tests
+   e. [ ] End-to-end tests
 
-## 8. [x] Write Integration Tests (Dependent on Error Handling)
-   a. [x] Create test for full model registration with artifacts
-   b. [x] Write test for artifact upload to S3
-   c. [x] Test authentication flow for artifact endpoints
-   d. [x] Add test for error scenarios (S3 down, auth failure)
-   e. [x] Create fixture data for model artifacts
-
-## 9. [x] Update Documentation (Dependent on Testing)
-   a. [x] Document S3 bucket configuration in README
-   b. [x] Create troubleshooting guide for artifact errors
-   c. [x] Update API documentation with artifact endpoints
-   d. [x] Add example code for model registration with artifacts
-   e. [x] Document required AWS permissions
-
-## 10. [ ] Deploy Infrastructure Changes
-   a. [ ] Review and approve Terraform changes
-   b. [ ] Plan Terraform deployment
-   c. [ ] Apply S3 and IAM changes
-   d. [ ] Update MLflow server with new configuration
-   e. [ ] Deploy updated proxy configuration
-   f. [ ] Verify all services are healthy
-
-## 11. [ ] Verify Deployment (Dependent on Deployment)
-   a. [ ] Run test_real_registration.py with real API key
-   b. [ ] Check S3 bucket for uploaded artifacts
-   c. [ ] Monitor CloudWatch logs for errors
-   d. [ ] Test artifact download functionality
-   e. [ ] Document any issues found
+## 8. Cleanup and Preparation for PR
+   a. [ ] Remove any temporary test files
+   b. [ ] Update documentation with final status
+   c. [ ] Ensure all scripts have proper permissions
+   d. [ ] Verify no sensitive data in commits
