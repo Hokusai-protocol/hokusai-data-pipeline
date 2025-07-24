@@ -300,6 +300,43 @@ Key areas for contribution:
 - Performance optimizations
 - Documentation improvements
 
+## Health Check Endpoints
+
+The platform provides comprehensive health check endpoints for monitoring service status:
+
+### Available Endpoints
+
+- **`GET /health`** - Overall service health status
+  - Returns health status of all dependencies (MLflow, Redis, PostgreSQL)
+  - Add `?detailed=true` for verbose output with error details
+  
+- **`GET /ready`** - Service readiness for traffic
+  - Returns 200 if ready, 503 if not ready
+  - Checks all critical dependencies
+  
+- **`GET /live`** - Service liveness check
+  - Simple check that service is running
+  - Includes memory usage information
+  
+- **`GET /health/mlflow`** - MLflow-specific health status
+  - Circuit breaker state and connectivity details
+  - Returns 503 if circuit breaker is open
+
+### Testing Health Checks
+
+```bash
+# Test locally with Docker Compose
+docker-compose -f docker-compose.health-test.yml up
+
+# Run health check test suite
+python scripts/test_health_checks.py
+
+# Manual health check
+curl http://localhost:8001/health?detailed=true
+```
+
+For deployment troubleshooting, see [Deployment Troubleshooting Guide](./docs/deployment-troubleshooting.md).
+
 ## Security
 
 - All endpoints require API key authentication
