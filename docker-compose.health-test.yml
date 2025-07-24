@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  # API service with health check testing
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8001:8001"
+    environment:
+      - ENVIRONMENT=development
+      - POSTGRES_URI=postgresql://hokusai:password@postgres:5432/hokusai_db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MLFLOW_SERVER_URL=http://mlflow:5000
+      - API_SECRET_KEY=test-secret-key
+    depends_on:
+      - postgres
+      - redis
+      - mlflow
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    networks:
+      - hokusai-network
+
+  # MLflow service with health check testing
+  mlflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.mlflow
+    ports:
+      - "5000:5000"
+    environment:
+      - BACKEND_STORE_URI=postgresql://mlflow:password@postgres:5432/mlflow_db
+      - DEFAULT_ARTIFACT_ROOT=s3://test-bucket/artifacts
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/mlflow"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    networks:
+      - hokusai-network
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:14
+    environment:
+      - POSTGRES_USER=hokusai
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=hokusai_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hokusai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hokusai-network
+
+  # Redis cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hokusai-network
+
+  # Health check monitor - continuously checks service health
+  health-monitor:
+    image: curlimages/curl:latest
+    depends_on:
+      - api
+      - mlflow
+    command: |
+      sh -c "
+        echo 'Starting health check monitoring...'
+        sleep 10
+        while true; do
+          echo '=== Health Check Status ==='
+          echo -n 'API Health: '
+          curl -sf http://api:8001/health > /dev/null && echo 'HEALTHY' || echo 'UNHEALTHY'
+          echo -n 'MLflow Health: '
+          curl -sf http://mlflow:5000/mlflow > /dev/null && echo 'HEALTHY' || echo 'UNHEALTHY'
+          echo -n 'API Ready: '
+          curl -sf http://api:8001/ready > /dev/null && echo 'READY' || echo 'NOT READY'
+          echo -n 'API Live: '
+          curl -sf http://api:8001/live > /dev/null && echo 'LIVE' || echo 'NOT LIVE'
+          echo '=========================='
+          sleep 30
+        done
+      "
+    networks:
+      - hokusai-network
+
+volumes:
+  postgres_data:
+
+networks:
+  hokusai-network:
+    driver: bridge

@@ -1,97 +1,111 @@
-# Product Requirements Document: Update Proxy Routing
+# Product Requirements Document: Fix Deployment Health Check Failures
 
 ## Objective
 
-Fix the API proxy routing configuration to enable successful model registration by properly routing MLflow artifact storage requests. The current routing setup causes 404 errors when attempting to upload model artifacts, preventing third-party model registration from completing successfully.
+Resolve ECS task health check failures that are preventing successful deployments and causing service instability. Multiple tasks are failing with "Task failed container health checks" errors, blocking the deployment pipeline and requiring manual intervention.
 
 ## Current State
 
-The Hokusai platform has successfully deployed MLflow with artifact storage support (`--serve-artifacts` flag), but model registration fails because:
+The Hokusai platform is experiencing deployment failures due to:
 
-1. The API proxy at `registry.hokus.ai` incorrectly routes artifact requests to external URLs instead of the internal MLflow service
-2. MLflow artifact endpoints (`/api/2.0/mlflow-artifacts/*`) return 404 errors
-3. The MLFLOW_SERVER_URL environment variable in the proxy points to `https://registry.hokus.ai/mlflow` instead of the internal MLflow service
+1. ECS tasks consistently failing container health checks during deployment
+2. Mixed running/desired task counts indicating incomplete rollouts
+3. Deployments stuck in IN_PROGRESS state indefinitely
+4. Health check endpoints potentially misconfigured or not responding correctly
+
+Current health check configuration:
+- API service expects `/health` endpoint returning HTTP 200
+- MLflow service expects `/mlflow` endpoint returning HTTP 200 or 308
+- Both services have 60-second start period before health checks begin
 
 ## Target State
 
-Enable end-to-end model registration by:
+Achieve reliable, zero-downtime deployments by:
 
-1. Configuring the API proxy to correctly route artifact requests to the internal MLflow service
-2. Ensuring all MLflow API endpoints (experiments, models, and artifacts) work correctly
-3. Maintaining backward compatibility with existing API paths
-4. Supporting standard MLflow client configuration
+1. Ensuring all ECS tasks pass health checks consistently
+2. Implementing comprehensive health check endpoints that accurately reflect service readiness
+3. Optimizing health check timing parameters for service startup requirements
+4. Providing clear diagnostics when health check failures occur
 
 ## User Personas
 
-1. **Data Scientists**: Need to register models using standard MLflow Python client without custom configuration
-2. **Third-Party Developers**: Require reliable API endpoints for programmatic model registration
-3. **Platform Engineers**: Need clear routing configuration that's maintainable and debuggable
+1. **DevOps Engineers**: Need reliable deployment pipeline with clear failure diagnostics
+2. **Backend Developers**: Require stable deployment process to ship features quickly  
+3. **Platform Users**: Expect zero downtime and consistent service availability
 
 ## Success Criteria
 
-1. Model registration completes successfully using `test_real_registration.py`
-2. All MLflow endpoints respond correctly:
-   - Experiments API: `/api/2.0/mlflow/experiments/*`
-   - Models API: `/api/2.0/mlflow/model-versions/*`
-   - Artifacts API: `/api/2.0/mlflow-artifacts/*`
-3. Standard MLflow client configuration works without modifications
-4. Existing `/mlflow/*` paths continue to work for backward compatibility
-5. No authentication errors or routing conflicts
+1. 100% of ECS tasks pass health checks during deployment
+2. Deployments complete successfully within 10 minutes without manual intervention
+3. Health check endpoints provide accurate service readiness status
+4. CloudWatch logs clearly indicate health check failure reasons
+5. Zero downtime achieved during rolling deployments
 
 ## Tasks
 
-### 1. Update MLflow Server URL Configuration
-- Modify the MLFLOW_SERVER_URL environment variable to point to the internal MLflow service
-- Use ECS service discovery or internal DNS instead of external URLs
-- Ensure the proxy can reach MLflow service internally within the VPC
+### 1. Audit Current Health Check Implementation
+- Verify `/health` endpoint exists and implementation in API service
+- Verify `/mlflow` endpoint exists and implementation in MLflow service
+- Review CloudWatch logs for specific health check failure messages
+- Test health check endpoints locally to ensure correct responses
 
-### 2. Fix Artifact Request Routing
-- Update the proxy_request function to handle artifact endpoints correctly
-- Ensure artifact requests are routed to the MLflow service, not external URLs
-- Maintain proper path translation for ajax-api endpoints
+### 2. Implement Robust Health Check Endpoints
+- Create comprehensive health checks that verify:
+  - Application startup completion
+  - Database connectivity (with timeout)
+  - Critical dependencies availability
+  - Memory and resource availability
+- Return detailed JSON response with component status
+- Implement graceful degradation for non-critical components
 
-### 3. Implement Service Discovery
-- Configure ECS service discovery for the MLflow service
-- Update API service to use internal service names
-- Remove hardcoded external URLs from environment variables
+### 3. Optimize Health Check Timing Parameters
+- Analyze actual service startup times from CloudWatch logs
+- Increase start period if services need more initialization time
+- Adjust interval and timeout for network latency
+- Configure appropriate retry counts
 
-### 4. Update ALB Routing Rules
-- Ensure `/api/mlflow/*` requests are properly forwarded to the API service
-- Verify no conflicts with existing `/api*` rules
-- Maintain auth service routing functionality
+### 4. Add Health Check Diagnostics and Monitoring
+- Implement detailed logging for health check requests/responses
+- Add structured logging with correlation IDs
+- Create CloudWatch metrics for health check success rates
+- Set up alarms for repeated health check failures
 
-### 5. Add Comprehensive Logging
-- Log all routing decisions in the proxy
-- Include request paths, translated paths, and target URLs
-- Add metrics for successful vs failed proxied requests
+### 5. Fix Container Health Check Commands
+- Update container definitions with correct health check commands
+- Ensure curl is available in container images
+- Validate health check URLs match actual endpoints
+- Test commands within running containers
 
-### 6. Create Health Check Endpoints
-- Add endpoint to verify MLflow service connectivity
-- Include checks for all three API types (experiments, models, artifacts)
-- Return detailed status information for debugging
+### 6. Implement Graceful Shutdown
+- Add SIGTERM handlers to services
+- Implement connection draining
+- Ensure in-flight requests complete before shutdown
+- Configure appropriate deregistration delay
 
-### 7. Update Documentation
-- Document the internal routing architecture
-- Provide troubleshooting guide for common routing issues
-- Include examples of successful model registration
+### 7. Create Testing and Validation Process
+- Build local testing environment for health checks
+- Create integration tests for deployment process
+- Implement smoke tests post-deployment
+- Document rollback procedures
 
 ## Technical Constraints
 
-1. Must maintain backward compatibility with existing API paths
-2. Cannot modify MLflow client code (paths are hardcoded)
-3. Must work within AWS ECS networking constraints
-4. Should not expose internal service URLs externally
+1. Must maintain backward compatibility with existing monitoring
+2. Cannot increase container startup time beyond 5 minutes
+3. Must work within ECS Fargate limitations
+4. Should not require infrastructure changes
 
 ## Dependencies
 
-1. MLflow container must be running with `--serve-artifacts` flag (already deployed)
-2. S3 bucket for artifact storage must be accessible (already configured)
-3. IAM roles must have proper permissions (already configured)
-4. Auth service must be operational for API key validation
+1. Container images must include health check tools (curl)
+2. Services must have proper IAM permissions for AWS resources
+3. Database must be accessible from ECS tasks
+4. Load balancers must be properly configured
 
 ## Risk Mitigation
 
 1. Test all changes in development environment first
-2. Implement gradual rollout with monitoring
-3. Maintain rollback plan if issues arise
-4. Ensure comprehensive logging for debugging production issues
+2. Implement changes incrementally with validation
+3. Maintain ability to quickly rollback
+4. Monitor deployment metrics during rollout
+5. Have on-call engineer available during first production deployment

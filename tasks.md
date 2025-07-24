@@ -1,103 +1,64 @@
-# Implementation Tasks: Update Proxy Routing
+# Implementation Tasks for Fixing Deployment Health Check Failures
 
-## 1. Configure ECS Service Discovery for MLflow
-- [x] Review current ECS service configuration
-   a. [x] Check if service discovery is already enabled
-   b. [x] Identify the MLflow service name and namespace
-   c. [x] Document the internal DNS name for MLflow service
-- [x] Update Terraform configuration to enable service discovery if not present
-   a. [x] Add AWS Cloud Map namespace configuration
-   b. [x] Configure service discovery for MLflow service
-   c. [x] Set up proper DNS records
+## 1. [x] Fix MLflow Health Check Configuration
+   a. [x] Update MLflow Dockerfile health check to use `/mlflow` endpoint instead of `/`
+   b. [x] Ensure MLflow server responds correctly on the `/mlflow` path
+   c. [ ] Test health check locally with Docker
+   d. [x] Update start period to 90 seconds to allow for MLflow initialization
 
-## 2. Update Environment Variables
-- [x] Modify API service environment configuration
-   a. [x] Change MLFLOW_SERVER_URL from external URL to internal service discovery URL
-   b. [x] Add fallback configuration for local development
-   c. [x] Ensure environment variables are properly propagated
-- [x] Update ECS task definition
-   a. [x] Modify environment variables in task definition
-   b. [x] Deploy updated task definition
-   c. [x] Verify new environment variables are active
+## 2. [x] Enhance API Service Health Check Endpoint
+   a. [x] Review current `/health` endpoint implementation for potential issues
+   b. [x] Add timeout handling for database connectivity checks
+   c. [ ] Implement retry logic for external service checks
+   d. [x] Add more detailed logging for health check failures
+   e. [ ] Test health check endpoint with simulated failures
 
-## 3. Fix Proxy Routing Logic
-- [x] Update mlflow_proxy.py to handle internal routing
-   a. [x] Modify proxy_request function to use internal MLflow URL
-   b. [x] Fix artifact endpoint routing to prevent external redirects
-   c. [x] Ensure proper path translation for all endpoint types
-- [x] Add robust error handling
-   a. [x] Handle connection errors to internal service
-   b. [x] Provide meaningful error messages for debugging
-   c. [x] Add retry logic for transient failures
+## 3. [x] Update Infrastructure Health Check Timing
+   a. [x] Increase ALB health check start period from 60s to 120s in terraform
+   b. [x] Adjust container health check intervals to reduce false positives
+   c. [x] Ensure ALB and container health checks are properly synchronized
+   d. [x] Update ECS task definition health check grace period
 
-## 4. Enhance Logging and Monitoring
-- [x] Add comprehensive logging to proxy
-   a. [x] Log incoming request paths
-   b. [x] Log translated paths and target URLs
-   c. [x] Log response status codes and errors
-- [x] Add metrics collection
-   a. [x] Track successful vs failed proxy requests
-   b. [x] Monitor response times for each endpoint type
-   c. [ ] Set up CloudWatch metrics
+## 4. [x] Add Comprehensive Health Check Logging
+   a. [x] Implement structured logging for all health check requests
+   b. [ ] Add correlation IDs to track health check sequences
+   c. [x] Log detailed error messages when checks fail
+   d. [ ] Configure CloudWatch log retention and filtering
 
-## 5. Create Health Check Endpoints
-- [x] Implement MLflow connectivity health check
-   a. [x] Add endpoint to test experiments API
-   b. [x] Add endpoint to test models API
-   c. [x] Add endpoint to test artifacts API
-- [x] Create comprehensive health status endpoint
-   a. [x] Return detailed status for each MLflow API type
-   b. [x] Include internal service connectivity status
-   c. [x] Provide debugging information
+## 5. [ ] Fix Container Dependencies and Startup Order
+   a. [ ] Ensure all required system packages are installed (curl confirmed present)
+   b. [ ] Verify environment variables are properly set during startup
+   c. [ ] Check for race conditions during service initialization
+   d. [ ] Add startup scripts to verify dependencies before starting services
 
-## 6. Testing (Dependent on Implementation)
-- [x] Write unit tests for proxy routing logic
-   a. [x] Test path translation for all endpoint types
-   b. [x] Test error handling scenarios
-   c. [x] Test health check endpoints
-- [ ] Create integration tests
-   a. [ ] Test end-to-end model registration flow
-   b. [ ] Test artifact upload and download
-   c. [ ] Test with standard MLflow client
-- [ ] Manual testing with test_real_registration.py
-   a. [ ] Run registration test with updated routing
-   b. [ ] Verify all MLflow operations succeed
-   c. [ ] Document any issues found
+## 6. [x] Create Health Check Testing Suite
+   a. [ ] Write unit tests for health check endpoints
+   b. [ ] Create integration tests for full health check flow
+   c. [x] Implement local Docker Compose setup for testing deployments
+   d. [ ] Add health check validation to CI/CD pipeline
 
-## 7. Documentation
-- [x] Update API documentation
-   a. [x] Document internal routing architecture
-   b. [x] Create troubleshooting guide
-   c. [x] Add examples of correct MLflow client configuration
-- [ ] Update README.md with configuration changes
-   a. [ ] Document new environment variables
-   b. [ ] Explain service discovery setup
-   c. [ ] Add deployment instructions
-- [ ] Create runbook for common issues
-   a. [ ] How to debug routing problems
-   b. [ ] How to verify service connectivity
-   c. [ ] How to rollback if issues arise
+## 7. [x] Update Deployment Configuration
+   a. [x] Configure ECS service deployment circuit breaker settings
+   b. [ ] Set appropriate task definition CPU/memory for service requirements
+   c. [x] Review and update deregistration delay settings
+   d. [ ] Implement blue-green deployment strategy
 
-## 8. Deployment and Verification
-- [x] Deploy changes to development environment
-   a. [x] Update ECS task definitions
-   b. [x] Deploy new API container
-   c. [x] Verify services start correctly
-- [ ] Run comprehensive tests
-   a. [ ] Execute test_real_registration.py
-   b. [ ] Test all MLflow client operations
-   c. [ ] Verify backward compatibility
-- [ ] Monitor deployment
-   a. [ ] Check CloudWatch logs for errors
-   b. [ ] Monitor API response times
-   c. [ ] Verify no increase in error rates
+## 8. [x] Documentation and Monitoring
+   a. [x] Document all health check endpoints and expected responses
+   b. [x] Create runbook for troubleshooting deployment failures
+   c. [ ] Set up CloudWatch dashboard for deployment metrics
+   d. [ ] Configure alerts for health check failure patterns
 
-## 9. Rollback Plan
-- [ ] Document rollback procedure
-   a. [ ] How to revert task definitions
-   b. [ ] How to restore previous environment variables
-   c. [ ] How to verify rollback success
-- [ ] Test rollback procedure
-   a. [ ] Practice rollback in development
-   b. [ ] Document time required for rollback
-   c. [ ] Identify any data migration issues
+## Testing (Dependent on Implementation)
+9. [ ] Write and implement tests
+   a. [ ] Unit tests for health check logic
+   b. [ ] Integration tests for service dependencies
+   c. [ ] End-to-end deployment tests
+   d. [ ] Load tests to verify health checks under stress
+
+## Documentation (Dependent on Testing)
+10. [ ] Update documentation
+    a. [ ] Document health check endpoint specifications in README.md
+    b. [x] Create troubleshooting guide for common health check issues
+    c. [ ] Update deployment documentation with new timing parameters
+    d. [ ] Add architecture diagram showing health check flow
