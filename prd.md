@@ -1,111 +1,67 @@
-# Product Requirements Document: Fix Deployment Health Check Failures
+# Product Requirements Document: Implement PR #60 Recommended Enhancements
 
 ## Objective
+Implement the three recommendations identified during the PR #60 deployment verification to improve the MLflow proxy routing functionality and user experience.
 
-Resolve ECS task health check failures that are preventing successful deployments and causing service instability. Multiple tasks are failing with "Task failed container health checks" errors, blocking the deployment pipeline and requiring manual intervention.
+## Background
+PR #60 successfully fixed MLflow proxy routing for model registration, but during testing we identified three areas for improvement:
+1. Documentation needs updating to reflect the working endpoints
+2. ALB routing configuration prevents `/mlflow/*` paths from working
+3. Health check endpoints return 404 due to routing issues
 
-## Current State
-
-The Hokusai platform is experiencing deployment failures due to:
-
-1. ECS tasks consistently failing container health checks during deployment
-2. Mixed running/desired task counts indicating incomplete rollouts
-3. Deployments stuck in IN_PROGRESS state indefinitely
-4. Health check endpoints potentially misconfigured or not responding correctly
-
-Current health check configuration:
-- API service expects `/health` endpoint returning HTTP 200
-- MLflow service expects `/mlflow` endpoint returning HTTP 200 or 308
-- Both services have 60-second start period before health checks begin
-
-## Target State
-
-Achieve reliable, zero-downtime deployments by:
-
-1. Ensuring all ECS tasks pass health checks consistently
-2. Implementing comprehensive health check endpoints that accurately reflect service readiness
-3. Optimizing health check timing parameters for service startup requirements
-4. Providing clear diagnostics when health check failures occur
-
-## User Personas
-
-1. **DevOps Engineers**: Need reliable deployment pipeline with clear failure diagnostics
-2. **Backend Developers**: Require stable deployment process to ship features quickly  
-3. **Platform Users**: Expect zero downtime and consistent service availability
+## Personas
+- **Third-party developers**: Need clear documentation on how to integrate with Hokusai's MLflow endpoint
+- **DevOps engineers**: Need working health check endpoints for monitoring
+- **Internal developers**: Need consistent routing patterns across all endpoints
 
 ## Success Criteria
+- Third-party developers can easily find and use the correct MLflow tracking URI
+- `/mlflow/*` paths work alongside `/api/mlflow/*` paths
+- Health check endpoints return proper status codes and information
+- All changes are backward compatible with existing integrations
 
-1. 100% of ECS tasks pass health checks during deployment
-2. Deployments complete successfully within 10 minutes without manual intervention
-3. Health check endpoints provide accurate service readiness status
-4. CloudWatch logs clearly indicate health check failure reasons
-5. Zero downtime achieved during rolling deployments
+## Scope
+
+### In Scope
+1. Update documentation to specify `https://registry.hokus.ai/api/mlflow` as the MLflow tracking URI
+2. Fix ALB routing rules to properly route `/mlflow/*` requests
+3. Deploy health check endpoints to accessible paths
+
+### Out of Scope
+- Changes to authentication mechanisms
+- Modifications to the core proxy logic
+- Updates to non-MLflow related endpoints
 
 ## Tasks
 
-### 1. Audit Current Health Check Implementation
-- Verify `/health` endpoint exists and implementation in API service
-- Verify `/mlflow` endpoint exists and implementation in MLflow service
-- Review CloudWatch logs for specific health check failure messages
-- Test health check endpoints locally to ensure correct responses
+### 1. Update Documentation
+- Update README.md with MLflow integration instructions
+- Create a dedicated MLflow integration guide in the documentation
+- Update API documentation to reflect correct endpoints
+- Add examples for common MLflow operations
 
-### 2. Implement Robust Health Check Endpoints
-- Create comprehensive health checks that verify:
-  - Application startup completion
-  - Database connectivity (with timeout)
-  - Critical dependencies availability
-  - Memory and resource availability
-- Return detailed JSON response with component status
-- Implement graceful degradation for non-critical components
+### 2. Fix ALB Routing
+- Analyze current ALB routing rules and priorities
+- Update terraform configuration to fix routing conflicts
+- Ensure `/mlflow/*` routes to MLflow service correctly
+- Test both `/mlflow/*` and `/api/mlflow/*` paths work
 
-### 3. Optimize Health Check Timing Parameters
-- Analyze actual service startup times from CloudWatch logs
-- Increase start period if services need more initialization time
-- Adjust interval and timeout for network latency
-- Configure appropriate retry counts
+### 3. Deploy Health Check Endpoints
+- Move health check endpoints to working paths (e.g., `/api/health/mlflow`)
+- Ensure health checks work through ALB routing
+- Add comprehensive health check information
+- Update monitoring configurations to use new endpoints
 
-### 4. Add Health Check Diagnostics and Monitoring
-- Implement detailed logging for health check requests/responses
-- Add structured logging with correlation IDs
-- Create CloudWatch metrics for health check success rates
-- Set up alarms for repeated health check failures
+## Technical Considerations
+- Maintain backward compatibility for existing `/api/mlflow/*` integrations
+- Ensure terraform changes can be safely applied without downtime
+- Test all changes in development before production deployment
+- Consider ALB rule priorities to avoid routing conflicts
 
-### 5. Fix Container Health Check Commands
-- Update container definitions with correct health check commands
-- Ensure curl is available in container images
-- Validate health check URLs match actual endpoints
-- Test commands within running containers
-
-### 6. Implement Graceful Shutdown
-- Add SIGTERM handlers to services
-- Implement connection draining
-- Ensure in-flight requests complete before shutdown
-- Configure appropriate deregistration delay
-
-### 7. Create Testing and Validation Process
-- Build local testing environment for health checks
-- Create integration tests for deployment process
-- Implement smoke tests post-deployment
-- Document rollback procedures
-
-## Technical Constraints
-
-1. Must maintain backward compatibility with existing monitoring
-2. Cannot increase container startup time beyond 5 minutes
-3. Must work within ECS Fargate limitations
-4. Should not require infrastructure changes
-
-## Dependencies
-
-1. Container images must include health check tools (curl)
-2. Services must have proper IAM permissions for AWS resources
-3. Database must be accessible from ECS tasks
-4. Load balancers must be properly configured
-
-## Risk Mitigation
-
-1. Test all changes in development environment first
-2. Implement changes incrementally with validation
-3. Maintain ability to quickly rollback
-4. Monitor deployment metrics during rollout
-5. Have on-call engineer available during first production deployment
+## Rollout Plan
+1. Implement and test documentation changes (no deployment needed)
+2. Test ALB routing changes in development environment
+3. Deploy health check endpoint changes
+4. Apply ALB routing fixes during maintenance window
+5. Verify all endpoints work correctly
+6. Update monitoring systems to use new health check endpoints

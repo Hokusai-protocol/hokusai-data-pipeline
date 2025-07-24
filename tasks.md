@@ -1,64 +1,81 @@
-# Implementation Tasks for Fixing Deployment Health Check Failures
+# Implementation Tasks: PR #60 Recommended Enhancements
 
-## 1. [x] Fix MLflow Health Check Configuration
-   a. [x] Update MLflow Dockerfile health check to use `/mlflow` endpoint instead of `/`
-   b. [x] Ensure MLflow server responds correctly on the `/mlflow` path
-   c. [ ] Test health check locally with Docker
-   d. [x] Update start period to 90 seconds to allow for MLflow initialization
+## 1. Documentation Updates
 
-## 2. [x] Enhance API Service Health Check Endpoint
-   a. [x] Review current `/health` endpoint implementation for potential issues
-   b. [x] Add timeout handling for database connectivity checks
-   c. [ ] Implement retry logic for external service checks
-   d. [x] Add more detailed logging for health check failures
-   e. [ ] Test health check endpoint with simulated failures
+### 1. [x] Update README.md with MLflow integration instructions
+   a. [x] Add MLflow integration section to main README
+   b. [x] Include correct tracking URI: `https://registry.hokus.ai/api/mlflow`
+   c. [x] Add authentication setup instructions
+   d. [x] Include quick start example
 
-## 3. [x] Update Infrastructure Health Check Timing
-   a. [x] Increase ALB health check start period from 60s to 120s in terraform
-   b. [x] Adjust container health check intervals to reduce false positives
-   c. [x] Ensure ALB and container health checks are properly synchronized
-   d. [x] Update ECS task definition health check grace period
+### 2. [x] Create MLflow integration guide in documentation
+   a. [x] Create `documentation/ml-platform/mlflow-integration.md`
+   b. [x] Document endpoint structure and available paths
+   c. [x] Explain authentication requirements
+   d. [x] Add troubleshooting section
 
-## 4. [x] Add Comprehensive Health Check Logging
-   a. [x] Implement structured logging for all health check requests
-   b. [ ] Add correlation IDs to track health check sequences
-   c. [x] Log detailed error messages when checks fail
-   d. [ ] Configure CloudWatch log retention and filtering
+### 3. [x] Update API documentation with correct endpoints
+   a. [x] Update `documentation/api/endpoints.md` with MLflow routes
+   b. [x] Document both `/api/mlflow/*` and future `/mlflow/*` paths
+   c. [x] Add response examples
+   d. [x] Include error handling guidance
 
-## 5. [ ] Fix Container Dependencies and Startup Order
-   a. [ ] Ensure all required system packages are installed (curl confirmed present)
-   b. [ ] Verify environment variables are properly set during startup
-   c. [ ] Check for race conditions during service initialization
-   d. [ ] Add startup scripts to verify dependencies before starting services
+### 4. [x] Add MLflow operation examples to docs
+   a. [x] Create Python SDK examples
+   b. [x] Add curl command examples
+   c. [x] Include model registration workflow
+   d. [x] Add metric logging examples
 
-## 6. [x] Create Health Check Testing Suite
-   a. [ ] Write unit tests for health check endpoints
-   b. [ ] Create integration tests for full health check flow
-   c. [x] Implement local Docker Compose setup for testing deployments
-   d. [ ] Add health check validation to CI/CD pipeline
+## 2. ALB Routing Configuration
 
-## 7. [x] Update Deployment Configuration
-   a. [x] Configure ECS service deployment circuit breaker settings
-   b. [ ] Set appropriate task definition CPU/memory for service requirements
-   c. [x] Review and update deregistration delay settings
-   d. [ ] Implement blue-green deployment strategy
+### 5. [x] Analyze current ALB routing rules
+   a. [x] Review current terraform ALB configuration
+   b. [x] Document existing routing priorities
+   c. [x] Identify routing conflicts
+   d. [x] Plan new routing structure
 
-## 8. [x] Documentation and Monitoring
-   a. [x] Document all health check endpoints and expected responses
-   b. [x] Create runbook for troubleshooting deployment failures
-   c. [ ] Set up CloudWatch dashboard for deployment metrics
-   d. [ ] Configure alerts for health check failure patterns
+### 6. [x] Update terraform ALB configuration
+   a. [x] Add specific rule for `/mlflow/*` paths
+   b. [x] Adjust rule priorities to prevent conflicts
+   c. [x] Ensure `/api*` rule doesn't catch `/api/mlflow/*`
+   d. [x] Add path-based routing for health checks
 
-## Testing (Dependent on Implementation)
-9. [ ] Write and implement tests
-   a. [ ] Unit tests for health check logic
-   b. [ ] Integration tests for service dependencies
-   c. [ ] End-to-end deployment tests
-   d. [ ] Load tests to verify health checks under stress
+### 7. [ ] Test ALB routing changes in development
+   a. [ ] Apply terraform changes to development
+   b. [ ] Test `/mlflow/*` endpoints work correctly
+   c. [ ] Verify `/api/mlflow/*` remains functional
+   d. [ ] Check for any routing regressions
 
-## Documentation (Dependent on Testing)
-10. [ ] Update documentation
-    a. [ ] Document health check endpoint specifications in README.md
-    b. [x] Create troubleshooting guide for common health check issues
-    c. [ ] Update deployment documentation with new timing parameters
-    d. [ ] Add architecture diagram showing health check flow
+## 3. Health Check Endpoints
+
+### 8. [x] Move health check endpoints to /api/health/mlflow
+   a. [x] Update health check route in `mlflow_proxy_improved.py`
+   b. [x] Change from `/health/mlflow` to `/api/health/mlflow`
+   c. [x] Update detailed health check path similarly
+   d. [x] Ensure backward compatibility
+
+### 9. [x] Update health check implementation
+   a. [x] Add more comprehensive health checks
+   b. [x] Include MLflow service connectivity status
+   c. [x] Add database connectivity check
+   d. [x] Include version information
+
+### 10. [ ] Test health check endpoints
+   a. [ ] Verify endpoints accessible through ALB
+   b. [ ] Test response format and content
+   c. [ ] Ensure proper HTTP status codes
+   d. [ ] Validate monitoring integration
+
+## 4. Testing and Deployment
+
+### 11. [x] Write automated tests
+   a. [x] Add tests for new health check endpoints
+   b. [ ] Create integration tests for routing
+   c. [ ] Add documentation validation tests
+   d. [ ] Ensure existing tests still pass
+
+### 12. [ ] Update monitoring configurations
+   a. [ ] Update CloudWatch alarms to use new health endpoints
+   b. [ ] Modify any external monitoring tools
+   c. [ ] Update dashboards with new endpoints
+   d. [ ] Document monitoring changes
