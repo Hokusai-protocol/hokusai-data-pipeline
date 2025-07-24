@@ -11,7 +11,8 @@ from slowapi.util import get_remote_address
 
 from src.middleware.auth import APIKeyAuthMiddleware
 from src.middleware.rate_limiter import RateLimitMiddleware
-from src.api.routes import dspy, health, models, mlflow_proxy
+from src.api.routes import dspy, health, models
+from src.api.routes import mlflow_proxy_improved as mlflow_proxy
 from src.api.utils.config import get_settings
 
 # Configure logging
