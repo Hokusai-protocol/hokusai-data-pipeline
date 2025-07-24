@@ -1,56 +1,97 @@
-# Product Requirements Document: Test Model Registration Again2
+# Product Requirements Document: Update Proxy Routing
 
 ## Objective
-Complete the deployment of MLflow container with artifact storage support and verify that third-party model registration works end-to-end. This is the final step to resolve persistent model registration issues.
 
-## Background
-Testing has confirmed that authentication and MLflow connectivity are working correctly, but model registration fails at the artifact upload stage with 404 errors on `/api/2.0/mlflow-artifacts/` endpoints. The root cause is that the MLflow container in ECS is using an old image without the `--serve-artifacts` flag. While the Dockerfile has been updated in the repository, the container hasn't been rebuilt and deployed.
+Fix the API proxy routing configuration to enable successful model registration by properly routing MLflow artifact storage requests. The current routing setup causes 404 errors when attempting to upload model artifacts, preventing third-party model registration from completing successfully.
+
+## Current State
+
+The Hokusai platform has successfully deployed MLflow with artifact storage support (`--serve-artifacts` flag), but model registration fails because:
+
+1. The API proxy at `registry.hokus.ai` incorrectly routes artifact requests to external URLs instead of the internal MLflow service
+2. MLflow artifact endpoints (`/api/2.0/mlflow-artifacts/*`) return 404 errors
+3. The MLFLOW_SERVER_URL environment variable in the proxy points to `https://registry.hokus.ai/mlflow` instead of the internal MLflow service
+
+## Target State
+
+Enable end-to-end model registration by:
+
+1. Configuring the API proxy to correctly route artifact requests to the internal MLflow service
+2. Ensuring all MLflow API endpoints (experiments, models, and artifacts) work correctly
+3. Maintaining backward compatibility with existing API paths
+4. Supporting standard MLflow client configuration
+
+## User Personas
+
+1. **Data Scientists**: Need to register models using standard MLflow Python client without custom configuration
+2. **Third-Party Developers**: Require reliable API endpoints for programmatic model registration
+3. **Platform Engineers**: Need clear routing configuration that's maintainable and debuggable
 
 ## Success Criteria
-1. MLflow artifact storage endpoints respond successfully (not 404)
-2. Third-party model registration completes without errors
-3. Verification script `test_model_registration_simple.py` passes all tests
-4. Model artifacts are successfully stored and retrievable
 
-## Implementation Tasks
+1. Model registration completes successfully using `test_real_registration.py`
+2. All MLflow endpoints respond correctly:
+   - Experiments API: `/api/2.0/mlflow/experiments/*`
+   - Models API: `/api/2.0/mlflow/model-versions/*`
+   - Artifacts API: `/api/2.0/mlflow-artifacts/*`
+3. Standard MLflow client configuration works without modifications
+4. Existing `/mlflow/*` paths continue to work for backward compatibility
+5. No authentication errors or routing conflicts
 
-### 1. Deploy MLflow Container
-Deploy the updated MLflow container with artifact storage support using the prepared deployment script `deploy_mlflow_container.sh`.
+## Tasks
 
-### 2. Verify MLflow Deployment
-Confirm the MLflow service is running with artifact storage enabled by:
-- Checking container status in ECS
-- Testing artifact endpoint availability
-- Running `verify_mlflow_deployment.sh`
+### 1. Update MLflow Server URL Configuration
+- Modify the MLFLOW_SERVER_URL environment variable to point to the internal MLflow service
+- Use ECS service discovery or internal DNS instead of external URLs
+- Ensure the proxy can reach MLflow service internally within the VPC
 
-### 3. Test Model Registration
-Execute comprehensive model registration tests with a valid API key:
-- Run `test_model_registration_simple.py`
-- Verify authentication works correctly
-- Confirm artifact upload succeeds
-- Ensure model registration completes
+### 2. Fix Artifact Request Routing
+- Update the proxy_request function to handle artifact endpoints correctly
+- Ensure artifact requests are routed to the MLflow service, not external URLs
+- Maintain proper path translation for ajax-api endpoints
 
-### 4. Document Results
-Record test outcomes including:
-- Any errors encountered
-- Performance metrics
-- Verification steps completed
-- Recommendations for production deployment
+### 3. Implement Service Discovery
+- Configure ECS service discovery for the MLflow service
+- Update API service to use internal service names
+- Remove hardcoded external URLs from environment variables
 
-## Technical Requirements
-- Access to AWS ECS for container deployment
-- Valid Hokusai API key for testing
-- Python environment with test dependencies
-- Network access to registry.hokus.ai
+### 4. Update ALB Routing Rules
+- Ensure `/api/mlflow/*` requests are properly forwarded to the API service
+- Verify no conflicts with existing `/api*` rules
+- Maintain auth service routing functionality
+
+### 5. Add Comprehensive Logging
+- Log all routing decisions in the proxy
+- Include request paths, translated paths, and target URLs
+- Add metrics for successful vs failed proxied requests
+
+### 6. Create Health Check Endpoints
+- Add endpoint to verify MLflow service connectivity
+- Include checks for all three API types (experiments, models, artifacts)
+- Return detailed status information for debugging
+
+### 7. Update Documentation
+- Document the internal routing architecture
+- Provide troubleshooting guide for common routing issues
+- Include examples of successful model registration
+
+## Technical Constraints
+
+1. Must maintain backward compatibility with existing API paths
+2. Cannot modify MLflow client code (paths are hardcoded)
+3. Must work within AWS ECS networking constraints
+4. Should not expose internal service URLs externally
 
 ## Dependencies
-- MLflow container image with `--serve-artifacts` flag
-- S3 bucket for artifact storage (already configured)
-- IAM roles with appropriate permissions (already configured)
-- Authentication service (already operational)
 
-## Verification Scripts
-- `deploy_mlflow_container.sh` - Deploys MLflow with artifact storage
-- `verify_mlflow_deployment.sh` - Verifies deployment status
-- `test_model_registration_simple.py` - Tests model registration
-- `test_real_registration.py` - Comprehensive end-to-end test
+1. MLflow container must be running with `--serve-artifacts` flag (already deployed)
+2. S3 bucket for artifact storage must be accessible (already configured)
+3. IAM roles must have proper permissions (already configured)
+4. Auth service must be operational for API key validation
+
+## Risk Mitigation
+
+1. Test all changes in development environment first
+2. Implement gradual rollout with monitoring
+3. Maintain rollback plan if issues arise
+4. Ensure comprehensive logging for debugging production issues
