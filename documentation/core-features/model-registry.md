@@ -17,6 +17,13 @@ The Model Registry serves as the central hub for:
 - Managing model versions and metadata
 - Enabling reward distribution for contributors
 
+### Prerequisites
+
+Before using the Model Registry, you need:
+1. **Hokusai API Key**: Obtain from https://hokus.ai/settings/api
+2. **Python 3.8+**: Required for the SDK
+3. **Trained Model**: Your ML model ready for registration
+
 ## Key Concepts
 
 ### Token-Aware Registration
@@ -24,7 +31,13 @@ The Model Registry serves as the central hub for:
 Every model in Hokusai is associated with a token that represents ownership and enables rewards:
 
 ```python
+import os
 from hokusai.core import ModelRegistry
+
+# Ensure API key is set
+api_key = os.getenv("HOKUSAI_API_KEY")
+if not api_key:
+    raise ValueError("Please set HOKUSAI_API_KEY environment variable")
 
 registry = ModelRegistry()
 
@@ -52,7 +65,21 @@ When registering a tokenized model, you must provide:
 
 ```python
 import mlflow
+import os
 from hokusai.core import ModelRegistry
+
+# Set up authentication
+api_key = os.getenv("HOKUSAI_API_KEY")
+if not api_key:
+    print("To get your API key:")
+    print("1. Log in to https://hokus.ai")
+    print("2. Go to Settings → API Keys")
+    print("3. Click 'Generate New Key'")
+    raise ValueError("HOKUSAI_API_KEY not set")
+
+# Configure MLflow
+mlflow.set_tracking_uri("https://registry.hokus.ai/api/mlflow")
+os.environ["MLFLOW_TRACKING_TOKEN"] = api_key
 
 # Initialize registry
 registry = ModelRegistry()

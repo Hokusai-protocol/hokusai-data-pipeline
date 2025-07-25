@@ -26,13 +26,9 @@ pip install "git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#s
 pip install "git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform[pipeline]"
 ```
 
-### Install from PyPI (Coming Soon)
+### Install from PyPI
 
-Once published to PyPI, you will be able to install with:
-
-```bash
-pip install hokusai-ml-platform
-```
+**Note**: PyPI package is coming soon. For now, please install from GitHub.
 
 ### Development Installation
 
@@ -49,15 +45,33 @@ For more installation options, see the [Installation Guide](docs/installation.md
 
 ## Quick Start
 
-### 1. Initialize the Platform
+### 1. Set Up Authentication
+
+```bash
+# Set your Hokusai API key as an environment variable
+export HOKUSAI_API_KEY="your-api-key-here"
+```
+
+To obtain your API key:
+1. Log in to https://hokus.ai
+2. Navigate to Settings → API Keys
+3. Click "Generate New Key"
+4. Copy and save the key securely
+
+### 2. Initialize the Platform
 
 ```python
+import os
 from hokusai.core import ModelRegistry, ModelVersionManager
 from hokusai.core.ab_testing import ModelTrafficRouter
 from hokusai.core.inference import HokusaiInferencePipeline
 
+# Verify API key is set
+if not os.getenv("HOKUSAI_API_KEY"):
+    raise ValueError("Please set HOKUSAI_API_KEY environment variable")
+
 # Initialize core components
-registry = ModelRegistry(tracking_uri="http://mlflow-server:5000")
+registry = ModelRegistry(tracking_uri="https://registry.hokus.ai/api/mlflow")
 version_manager = ModelVersionManager(registry)
 traffic_router = ModelTrafficRouter()
 
@@ -69,7 +83,7 @@ inference_pipeline = HokusaiInferencePipeline(
 )
 ```
 
-### 2. Register a Model
+### 3. Register a Model
 
 ```python
 from hokusai.core.models import ModelFactory, ModelType
@@ -93,7 +107,7 @@ entry = registry.register_baseline(
 )
 ```
 
-### 3. Track Model Improvements
+### 4. Track Model Improvements
 
 ```python
 from hokusai.tracking import ExperimentManager, PerformanceTracker
@@ -123,7 +137,7 @@ with experiment_manager.start_experiment("lead_scoring_improvement"):
     )
 ```
 
-### 4. Run A/B Tests
+### 5. Run A/B Tests
 
 ```python
 from hokusai.core.ab_testing import ABTestConfig
@@ -144,7 +158,7 @@ traffic_router.create_ab_test(config)
 model_to_use = traffic_router.route_request("lead-scoring-v2-test", user_id)
 ```
 
-### 5. Run Inference
+### 6. Run Inference
 
 ```python
 from hokusai.core.inference import InferenceRequest
@@ -217,9 +231,11 @@ Key endpoints:
 ### Environment Variables
 
 ```bash
-# MLflow Configuration
-MLFLOW_TRACKING_URI=http://mlflow-server:5000
-MLFLOW_ARTIFACT_ROOT=s3://hokusai-artifacts
+# API Configuration
+HOKUSAI_API_KEY=your-api-key-here
+
+# MLflow Configuration (automatically configured when using Hokusai API)
+MLFLOW_TRACKING_URI=https://registry.hokus.ai/api/mlflow
 
 # Redis Configuration  
 REDIS_HOST=localhost
