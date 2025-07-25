@@ -1,81 +1,135 @@
-# Implementation Tasks: PR #60 Recommended Enhancements
+# Infrastructure Consolidation - Implementation Tasks
 
-## 1. Documentation Updates
+## 1. Infrastructure Audit and Analysis
+1. [x] Audit all Terraform files in infrastructure/terraform/
+   a. [x] Review main.tf for shared resources
+   b. [x] Review dedicated-albs.tf for ALB configurations
+   c. [x] Review routing-fix.tf and alb-routing-fix.tf for routing rules
+   d. [x] Review https-updates.tf for SSL configurations
+   e. [x] Review variables.tf and outputs.tf
 
-### 1. [x] Update README.md with MLflow integration instructions
-   a. [x] Add MLflow integration section to main README
-   b. [x] Include correct tracking URI: `https://registry.hokus.ai/api/mlflow`
-   c. [x] Add authentication setup instructions
-   d. [x] Include quick start example
+2. [x] Create comprehensive resource inventory
+   a. [x] List all ALBs and their configurations
+   b. [x] Document all listener rules and priorities
+   c. [x] Map target groups to services
+   d. [x] Identify Route53 DNS records
+   e. [x] Catalog IAM roles and policies
 
-### 2. [x] Create MLflow integration guide in documentation
-   a. [x] Create `documentation/ml-platform/mlflow-integration.md`
-   b. [x] Document endpoint structure and available paths
-   c. [x] Explain authentication requirements
-   d. [x] Add troubleshooting section
+3. [x] Analyze cross-service dependencies
+   a. [x] Map service-to-service communications
+   b. [x] Identify shared security groups
+   c. [x] Document VPC and subnet usage
+   d. [x] Review service discovery configurations
 
-### 3. [x] Update API documentation with correct endpoints
-   a. [x] Update `documentation/api/endpoints.md` with MLflow routes
-   b. [x] Document both `/api/mlflow/*` and future `/mlflow/*` paths
-   c. [x] Add response examples
-   d. [x] Include error handling guidance
+## 2. Module Structure Creation
+4. [x] Create terraform_module directory structure
+   a. [x] Create terraform_module/data-pipeline/ directory
+   b. [x] Create standard terraform files (main.tf, variables.tf, outputs.tf)
+   c. [x] Create specialized files (alb.tf, dns.tf, iam.tf)
+   d. [x] Create README.md with usage examples
+   e. [x] Add .gitignore for terraform files
 
-### 4. [x] Add MLflow operation examples to docs
-   a. [x] Create Python SDK examples
-   b. [x] Add curl command examples
-   c. [x] Include model registration workflow
-   d. [x] Add metric logging examples
+## 3. ALB Module Extraction
+5. [x] Extract main ALB configuration
+   a. [x] Move aws_lb.main resource to alb.tf
+   b. [x] Extract all associated listener rules
+   c. [x] Move target group definitions
+   d. [x] Convert environment-specific values to variables
+   e. [x] Define outputs for ALB DNS and ARN
 
-## 2. ALB Routing Configuration
+6. [x] Extract dedicated ALBs (auth and registry)
+   a. [x] Move aws_lb.auth configuration
+   b. [x] Move aws_lb.registry configuration
+   c. [x] Extract HTTPS listeners and rules
+   d. [x] Document routing priorities
+   e. [x] Create variable for certificate ARN
 
-### 5. [x] Analyze current ALB routing rules
-   a. [x] Review current terraform ALB configuration
-   b. [x] Document existing routing priorities
-   c. [x] Identify routing conflicts
-   d. [x] Plan new routing structure
+## 4. DNS Module Extraction
+7. [x] Extract Route53 configurations
+   a. [x] Move auth.hokus.ai A record
+   b. [x] Move registry.hokus.ai A record
+   c. [x] Parameterize zone_id as variable
+   d. [x] Add outputs for DNS names
+   e. [x] Document TTL considerations
 
-### 6. [x] Update terraform ALB configuration
-   a. [x] Add specific rule for `/mlflow/*` paths
-   b. [x] Adjust rule priorities to prevent conflicts
-   c. [x] Ensure `/api*` rule doesn't catch `/api/mlflow/*`
-   d. [x] Add path-based routing for health checks
+## 5. IAM Module Extraction
+8. [x] Extract shared IAM roles
+   a. [x] Move ECS task execution role
+   b. [x] Move ECS task role
+   c. [x] Extract S3 access policies
+   d. [x] Parameterize role names
+   e. [x] Output role ARNs
 
-### 7. [ ] Test ALB routing changes in development
-   a. [ ] Apply terraform changes to development
-   b. [ ] Test `/mlflow/*` endpoints work correctly
-   c. [ ] Verify `/api/mlflow/*` remains functional
-   d. [ ] Check for any routing regressions
+## 6. Resource Registry Documentation
+9. [x] Create resource registry entry
+   a. [x] Document all path prefixes owned
+   b. [x] List DNS domains managed
+   c. [x] Enumerate AWS resources
+   d. [x] Add team contact information
+   e. [x] Include SLA and support details
 
-## 3. Health Check Endpoints
+## 7. Local Terraform Refactoring (Dependent on Module Extraction)
+10. [ ] Add remote state configuration
+    a. [ ] Create data source for infrastructure state
+    b. [ ] Configure S3 backend details
+    c. [ ] Add required provider versions
+    d. [ ] Document state bucket location
+    e. [ ] Test state connectivity
 
-### 8. [x] Move health check endpoints to /api/health/mlflow
-   a. [x] Update health check route in `mlflow_proxy_improved.py`
-   b. [x] Change from `/health/mlflow` to `/api/health/mlflow`
-   c. [x] Update detailed health check path similarly
-   d. [x] Ensure backward compatibility
+11. [ ] Replace resource references with data lookups
+    a. [ ] Update ALB references to use data sources
+    b. [ ] Replace IAM role references
+    c. [ ] Update security group references
+    d. [ ] Modify target group attachments
+    e. [ ] Update DNS record references
 
-### 9. [x] Update health check implementation
-   a. [x] Add more comprehensive health checks
-   b. [x] Include MLflow service connectivity status
-   c. [x] Add database connectivity check
-   d. [x] Include version information
+## 8. Testing and Validation
+12. [ ] Create test environment
+    a. [ ] Set up mock remote state
+    b. [ ] Validate module syntax with terraform validate
+    c. [ ] Run terraform plan to check changes
+    d. [ ] Test module outputs
+    e. [ ] Verify no resource recreation
 
-### 10. [ ] Test health check endpoints
-   a. [ ] Verify endpoints accessible through ALB
-   b. [ ] Test response format and content
-   c. [ ] Ensure proper HTTP status codes
-   d. [ ] Validate monitoring integration
+13. [ ] Integration testing
+    a. [ ] Test service connectivity
+    b. [ ] Verify routing rules work
+    c. [ ] Check DNS resolution
+    d. [ ] Validate IAM permissions
+    e. [ ] Test rollback procedures
 
-## 4. Testing and Deployment
+## 9. Migration Preparation
+14. [x] Create migration runbook
+    a. [x] Document pre-migration checklist
+    b. [x] Write state migration commands
+    c. [x] Create backup procedures
+    d. [x] Define rollback steps
+    e. [x] Include validation tests
 
-### 11. [x] Write automated tests
-   a. [x] Add tests for new health check endpoints
-   b. [ ] Create integration tests for routing
-   c. [ ] Add documentation validation tests
-   d. [ ] Ensure existing tests still pass
+15. [ ] Prepare PR for hokusai-infrastructure
+    a. [ ] Create PR template with module
+    b. [ ] Include usage examples
+    c. [ ] Add migration notes
+    d. [ ] Request infrastructure team review
+    e. [ ] Schedule migration window
 
-### 12. [ ] Update monitoring configurations
-   a. [ ] Update CloudWatch alarms to use new health endpoints
-   b. [ ] Modify any external monitoring tools
-   c. [ ] Update dashboards with new endpoints
-   d. [ ] Document monitoring changes
+## 10. Documentation
+16. [ ] Update repository documentation
+    a. [ ] Update README.md with new structure
+    b. [ ] Document remote state usage
+    c. [ ] Add troubleshooting guide
+    d. [ ] Create architecture diagrams
+    e. [ ] Update CI/CD documentation
+
+## 11. Post-Migration Cleanup (Dependent on Successful Migration)
+17. [ ] Remove migrated resources
+    a. [ ] Delete moved ALB configurations
+    b. [ ] Remove DNS records
+    c. [ ] Clean up IAM roles
+    d. [ ] Update .gitignore
+    e. [ ] Archive old configurations
+
+## Dependencies
+- Tasks 7-8 depend on completing tasks 5-6
+- Task 11 depends on completing task 10
+- Task 17 depends on successful completion of all previous tasks and migration confirmation
