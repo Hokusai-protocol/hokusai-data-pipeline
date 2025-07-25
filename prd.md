@@ -1,67 +1,181 @@
-# Product Requirements Document: Implement PR #60 Recommended Enhancements
+# Infrastructure Consolidation - Product Requirements Document
 
-## Objective
-Implement the three recommendations identified during the PR #60 deployment verification to improve the MLflow proxy routing functionality and user experience.
+## Objectives
 
-## Background
-PR #60 successfully fixed MLflow proxy routing for model registration, but during testing we identified three areas for improvement:
-1. Documentation needs updating to reflect the working endpoints
-2. ALB routing configuration prevents `/mlflow/*` paths from working
-3. Health check endpoints return 404 due to routing issues
+Extract and prepare all shared infrastructure resources from the hokusai-data-pipeline repository for migration to a centralized hokusai-infrastructure repository. This consolidation will eliminate routing conflicts, reduce operational drift, and establish standardized infrastructure management.
 
 ## Personas
-- **Third-party developers**: Need clear documentation on how to integrate with Hokusai's MLflow endpoint
-- **DevOps engineers**: Need working health check endpoints for monitoring
-- **Internal developers**: Need consistent routing patterns across all endpoints
+
+- **Infrastructure Team**: Will manage the centralized hokusai-infrastructure repository and approve provisioning requests
+- **Data Pipeline Team**: Currently owns infrastructure in this repository that needs to be migrated
+- **DevOps Engineers**: Will execute the extraction and migration process
+- **Platform Teams**: Other Hokusai services that will benefit from centralized infrastructure
 
 ## Success Criteria
-- Third-party developers can easily find and use the correct MLflow tracking URI
-- `/mlflow/*` paths work alongside `/api/mlflow/*` paths
-- Health check endpoints return proper status codes and information
-- All changes are backward compatible with existing integrations
 
-## Scope
-
-### In Scope
-1. Update documentation to specify `https://registry.hokus.ai/api/mlflow` as the MLflow tracking URI
-2. Fix ALB routing rules to properly route `/mlflow/*` requests
-3. Deploy health check endpoints to accessible paths
-
-### Out of Scope
-- Changes to authentication mechanisms
-- Modifications to the core proxy logic
-- Updates to non-MLflow related endpoints
+1. All shared infrastructure resources identified and documented
+2. Terraform modules created for data-pipeline infrastructure
+3. Resource registry entries prepared with clear ownership
+4. Local terraform refactored to use remote state references
+5. Zero disruption to existing services during preparation
+6. Complete migration plan with rollback procedures
 
 ## Tasks
 
-### 1. Update Documentation
-- Update README.md with MLflow integration instructions
-- Create a dedicated MLflow integration guide in the documentation
-- Update API documentation to reflect correct endpoints
-- Add examples for common MLflow operations
+### Phase 1: Infrastructure Audit
+- Identify all ALB resources, listeners, and routing rules
+- Document Route53 DNS records (registry.hokus.ai, auth.hokus.ai)
+- Catalog shared IAM roles and policies
+- Review VPC and networking components for shared usage
+- Identify cross-service dependencies and integrations
 
-### 2. Fix ALB Routing
-- Analyze current ALB routing rules and priorities
-- Update terraform configuration to fix routing conflicts
-- Ensure `/mlflow/*` routes to MLflow service correctly
-- Test both `/mlflow/*` and `/api/mlflow/*` paths work
+### Phase 2: Module Extraction
+- Create terraform_module/data-pipeline/ directory structure
+- Extract ALB configuration (main and dedicated ALBs)
+- Extract Route53 DNS records for *.hokus.ai domains
+- Extract shared IAM roles (ECS execution, task roles)
+- Convert hardcoded values to variables
 
-### 3. Deploy Health Check Endpoints
-- Move health check endpoints to working paths (e.g., `/api/health/mlflow`)
-- Ensure health checks work through ALB routing
-- Add comprehensive health check information
-- Update monitoring configurations to use new endpoints
+### Phase 3: Resource Documentation
+- Create resource registry entry for data-pipeline service
+- Document path ownership (/api/*, /mlflow/*, /auth/*)
+- List all provisioned AWS resources
+- Define service contact information
+- Document integration points with other services
 
-## Technical Considerations
-- Maintain backward compatibility for existing `/api/mlflow/*` integrations
-- Ensure terraform changes can be safely applied without downtime
-- Test all changes in development before production deployment
-- Consider ALB rule priorities to avoid routing conflicts
+### Phase 4: Local Refactoring
+- Add remote state data source configuration
+- Replace local resource references with data lookups
+- Update service configurations for remote outputs
+- Test connectivity with mock remote state
+- Document all required outputs from central infrastructure
 
-## Rollout Plan
-1. Implement and test documentation changes (no deployment needed)
-2. Test ALB routing changes in development environment
-3. Deploy health check endpoint changes
-4. Apply ALB routing fixes during maintenance window
-5. Verify all endpoints work correctly
-6. Update monitoring systems to use new health check endpoints
+### Phase 5: Migration Preparation
+- Create detailed migration runbook
+- Define terraform state migration commands
+- Prepare PR template for hokusai-infrastructure
+- Create rollback procedures
+- Define success validation criteria
+
+## Shared Infrastructure Components
+
+Based on terraform audit, these resources should move to hokusai-infrastructure:
+
+### Load Balancers and Routing
+- Main ALB (hokusai-development)
+- Auth ALB (hokusai-auth-development)
+- Registry ALB (hokusai-registry-development)
+- All ALB listeners and routing rules
+- Target groups for cross-service routing
+
+### DNS and Domains
+- Route53 A records for auth.hokus.ai
+- Route53 A records for registry.hokus.ai
+- Any other *.hokus.ai subdomain records
+
+### Cross-Service IAM Roles
+- Shared ECS task execution roles
+- Cross-service assume roles
+- S3 bucket policies for shared access
+
+### Networking (if shared)
+- VPC configuration (if used by multiple services)
+- Public/private subnets
+- NAT gateways
+- Internet gateways
+
+## Service-Specific Components (Stay Local)
+
+These resources remain in the data-pipeline repository:
+
+- ECS cluster and services
+- Service-specific task definitions
+- RDS instances (MLflow database)
+- S3 buckets (mlflow-artifacts, pipeline-data)
+- Service-specific security groups
+- CloudWatch log groups and alarms
+- ECR repositories
+- Secrets Manager entries
+
+## Technical Requirements
+
+### Module Structure
+```
+terraform_module/data-pipeline/
+├── main.tf           # Core infrastructure resources
+├── alb.tf           # Load balancer configurations
+├── dns.tf           # Route53 records
+├── iam.tf           # Shared IAM roles
+├── variables.tf     # Input variables
+├── outputs.tf       # Exported values
+└── README.md        # Usage documentation
+```
+
+### Required Outputs
+- ALB ARNs and DNS names
+- Target group ARNs
+- IAM role ARNs
+- Route53 zone IDs
+- Security group IDs
+
+### Variable Requirements
+- Environment (development/staging/production)
+- Project name
+- AWS region
+- Certificate ARN
+- Route53 zone ID
+
+## Resource Registry Entry
+
+```markdown
+### Service: data-pipeline
+
+**Path Prefixes**: 
+- `/api/*` - Main API endpoints
+- `/api/mlflow/*` - MLflow proxy endpoints
+- `/mlflow/*` - Direct MLflow access
+
+**DNS**: 
+- `registry.hokus.ai` - Model registry and API
+- Internal MLflow endpoint
+
+**Provisioned Resources**:
+- ALB: hokusai-development (shared main ALB)
+- ALB: hokusai-registry-development (dedicated registry ALB)
+- Target Groups: api, mlflow, registry_api, registry_mlflow
+- Route53 A record: registry.hokus.ai
+- IAM Roles: ecs-execution-role, ecs-task-role
+
+**Owner**: `data-pipeline-team@hokusai.ai`  
+**Contact**: `slack: #hokusai-data-pipeline`
+```
+
+## Migration Timeline
+
+### Week 1: Preparation
+- Complete infrastructure audit
+- Extract terraform modules
+- Create documentation
+
+### Week 2: Module Submission
+- Submit PR to hokusai-infrastructure
+- Add registry entry
+- Review with infrastructure team
+
+### Week 3-4: Testing and Migration
+- Test with remote state references
+- Execute state migration
+- Validate all services functional
+
+### Week 5: Finalization
+- Remove migrated resources from local repo
+- Update all documentation
+- Monitor for issues
+
+## Risk Mitigation
+
+1. **Service Disruption**: Test all changes in staging first
+2. **State Corruption**: Backup terraform state before migration
+3. **Missing Dependencies**: Comprehensive dependency mapping
+4. **DNS Propagation**: Plan for DNS TTL during migration
+5. **Rollback Complexity**: Keep original resources until migration validated
