@@ -15,7 +15,7 @@ This guide shows how to integrate your applications with Hokusai to train and re
 - Any programming language with HTTP client
 - Ethereum account (for authentication) or API key
 - MLflow client library (optional): `pip install mlflow`
-- Hokusai API endpoint: `http://registry.hokus.ai/api`
+- Hokusai API endpoint: `https://registry.hokus.ai/api`
 
 ## Approach 1: Using Python SDK (Recommended)
 
@@ -30,7 +30,7 @@ from sklearn.ensemble import RandomForestClassifier
 import pandas as pd
 
 # Initialize Hokusai
-registry = ModelRegistry("http://registry.hokus.ai/mlflow")
+registry = ModelRegistry("https://registry.hokus.ai/api/mlflow")
 experiment_manager = ExperimentManager(registry)
 performance_tracker = PerformanceTracker()
 
@@ -63,7 +63,7 @@ from hokusai.core import ModelRegistry
 from hokusai.tracking import ExperimentManager, PerformanceTracker
 
 # Connect to Hokusai platform
-registry = ModelRegistry("http://registry.hokus.ai/mlflow")
+registry = ModelRegistry("https://registry.hokus.ai/api/mlflow")
 experiment_manager = ExperimentManager(registry)
 performance_tracker = PerformanceTracker()
 ```
@@ -154,7 +154,7 @@ from datetime import datetime
 class HokusaiAuth:
     def __init__(self, private_key: str):
         self.account = Account.from_key(private_key)
-        self.api_base = "http://registry.hokus.ai/api"
+        self.api_base = "https://registry.hokus.ai/api"
     
     def get_auth_headers(self):
         """Generate authentication headers for API requests."""
@@ -191,31 +191,28 @@ headers = {
 ### Quick API Example
 
 ```python
-import requests
+import os
 import mlflow
 
-# Configure MLflow
-mlflow.set_tracking_uri("http://registry.hokus.ai/mlflow")
+# Configure MLflow with authentication
+mlflow.set_tracking_uri("https://registry.hokus.ai/api/mlflow")
+# Set authentication headers
+os.environ["MLFLOW_TRACKING_TOKEN"] = "your_api_key_here"
 
 # Train model with MLflow tracking
 with mlflow.start_run() as run:
     # Train your model
     model = train_model(data)
-    mlflow.sklearn.log_model(model, "model")
+    
+    # Log model with automatic registration
+    mlflow.sklearn.log_model(
+        model, 
+        "model",
+        registered_model_name="my_classifier"  # This automatically registers the model
+    )
     mlflow.log_metric("accuracy", 0.89)
     
-    # Register via API
-    response = requests.post(
-        "http://registry.hokus.ai/api/models/register",
-        headers=headers,
-        json={
-            "model_name": "my_classifier",
-            "mlflow_run_id": run.info.run_id,
-            "model_uri": f"runs:/{run.info.run_id}/model",
-            "metrics": {"accuracy": 0.89}
-        }
-    )
-    print(f"Model registered: {response.json()}")
+    print(f"Model registered with run ID: {run.info.run_id}")
 ```
 
 ### Detailed API Usage
@@ -227,7 +224,11 @@ import mlflow
 import mlflow.sklearn  # or mlflow.pytorch, mlflow.tensorflow, etc.
 
 # Set MLflow tracking URI to Hokusai's MLflow server
-mlflow.set_tracking_uri("http://registry.hokus.ai/mlflow")
+mlflow.set_tracking_uri("https://registry.hokus.ai/api/mlflow")
+
+# Configure authentication
+import os
+os.environ["MLFLOW_TRACKING_TOKEN"] = your_api_key
 
 # Set experiment name
 mlflow.set_experiment("third_party_models")
@@ -310,82 +311,94 @@ def train_model(data_path: str, contributor_address: str = None):
 #### Step 3: Register Model with Hokusai API
 
 ```python
-def register_model_with_hokusai(auth: HokusaiAuth, training_result: dict):
-    """Register the trained model with Hokusai API."""
+def register_model_with_hokusai(mlflow_run_id: str, model_name: str):
+    """Register the trained model with Hokusai through MLflow."""
+    # Model registration happens through MLflow's model registry
+    # The model is already registered if you used registered_model_name
+    # in mlflow.sklearn.log_model()
     
-    # Prepare registration data
-    registration_data = {
-        "model_name": "third_party_classifier",
-        "model_type": "classification",
-        "mlflow_run_id": training_result["run_id"],
-        "model_uri": training_result["model_uri"],
-        "metrics": training_result["metrics"],
-        "metadata": {
-            "framework": "scikit-learn",
-            "algorithm": "RandomForest",
-            "description": "Customer churn prediction model",
-            "training_data_size": 10000,
-            "features": ["feature1", "feature2", "feature3"]
-        },
-        "contributor_address": auth.account.address,
-        "baseline_model_id": None  # Set if this improves an existing model
+    # Alternatively, create a model version:
+    client = mlflow.tracking.MlflowClient()
+    
+    # Create registered model if it doesn't exist
+    try:
+        client.create_registered_model(model_name)
+    except Exception:
+        pass  # Model already exists
+    
+    # Create model version
+    model_version = client.create_model_version(
+        name=model_name,
+        source=f"runs:/{mlflow_run_id}/model",
+        run_id=mlflow_run_id
+    )
+    
+    return {
+        "model_name": model_name,
+        "version": model_version.version,
+        "run_id": mlflow_run_id
     }
-    
-    # Register model
-    response = auth.make_request("POST", "/models/register", json=registration_data)
-    return response
 ```
 
 ## Step 5: Track Contributor Impact (if applicable)
 
 ```python
-def track_contributor_impact(auth: HokusaiAuth, improved_model_id: str, baseline_model_id: str):
+def track_contributor_impact(baseline_run_id: str, improved_run_id: str):
     """Track the impact of contributed data on model performance."""
+    client = mlflow.tracking.MlflowClient()
     
-    # Compare models
-    comparison_data = {
-        "model1": baseline_model_id,
-        "model2": improved_model_id
-    }
+    # Get metrics from both runs
+    baseline_run = client.get_run(baseline_run_id)
+    improved_run = client.get_run(improved_run_id)
     
-    comparison = auth.make_request("GET", "/models/compare", params=comparison_data)
+    baseline_metrics = baseline_run.data.metrics
+    improved_metrics = improved_run.data.metrics
     
-    # Get contributor impact
-    contributor_impact = auth.make_request(
-        "GET", 
-        f"/contributors/{auth.account.address}/impact"
-    )
+    # Calculate improvement
+    comparison = {}
+    for metric_name in baseline_metrics:
+        if metric_name in improved_metrics:
+            baseline_value = baseline_metrics[metric_name]
+            improved_value = improved_metrics[metric_name]
+            comparison[metric_name] = {
+                "baseline": baseline_value,
+                "improved": improved_value,
+                "delta": improved_value - baseline_value,
+                "delta_percent": ((improved_value - baseline_value) / baseline_value) * 100
+            }
     
-    return {
-        "comparison": comparison,
-        "impact": contributor_impact
-    }
+    return comparison
 ```
 
 ## Step 6: Generate Attestation
 
 ```python
-def generate_attestation(auth: HokusaiAuth, model_id: str, baseline_id: str = None):
-    """Generate attestation for model improvement."""
+def generate_attestation(model_name: str, version: str, metrics: dict):
+    """Generate attestation data for model improvement."""
+    # Note: Full attestation generation would require Hokusai SDK
+    # This is a simplified version showing the data structure
+    
+    from datetime import datetime
+    import hashlib
+    import json
     
     attestation_data = {
-        "model_id": model_id,
-        "baseline_model_id": baseline_id,
-        "attestation_type": "performance_improvement",
-        "metadata": {
-            "timestamp": datetime.utcnow().isoformat(),
-            "contributor": auth.account.address
-        }
+        "model_name": model_name,
+        "model_version": version,
+        "metrics": metrics,
+        "timestamp": datetime.utcnow().isoformat(),
+        "attestation_type": "performance_improvement"
     }
     
-    # This endpoint would generate a ZK-proof ready attestation
-    attestation = auth.make_request(
-        "POST", 
-        f"/models/{model_id}/attestation", 
-        json=attestation_data
-    )
+    # Generate hash for attestation
+    data_string = json.dumps(attestation_data, sort_keys=True)
+    attestation_hash = hashlib.sha256(data_string.encode()).hexdigest()
     
-    return attestation
+    return {
+        "data": attestation_data,
+        "hash": attestation_hash,
+        "note": "For full ZK-proof attestation, use Hokusai SDK"
+    }
 ```
 
 ## Choosing Between SDK and API
@@ -413,7 +426,7 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 
 # Initialize
-registry = ModelRegistry("http://registry.hokus.ai/mlflow")
+registry = ModelRegistry("https://registry.hokus.ai/api/mlflow")
 experiment_manager = ExperimentManager(registry)
 
 # Full workflow
@@ -454,9 +467,10 @@ with experiment_manager.start_experiment("complete_example"):
 
 ```python
 def main():
-    # Initialize authentication
-    private_key = "0x..."  # Your Ethereum private key
-    auth = HokusaiAuth(private_key)
+    # Configure MLflow authentication
+    import os
+    os.environ["MLFLOW_TRACKING_TOKEN"] = "your_api_key_here"
+    mlflow.set_tracking_uri("https://registry.hokus.ai/api/mlflow")
     
     # Step 1: Train baseline model (first time)
     print("Training baseline model...")
@@ -464,33 +478,45 @@ def main():
     
     # Step 2: Register baseline model
     print("Registering baseline model...")
-    baseline_registration = register_model_with_hokusai(auth, baseline_result)
-    baseline_model_id = baseline_registration["model_id"]
+    baseline_registration = register_model_with_hokusai(
+        baseline_result["run_id"],
+        "third_party_classifier"
+    )
     
     # Step 3: Train improved model with contributed data
     print("Training improved model with contributed data...")
     improved_result = train_model(
         "contributed_data.csv", 
-        contributor_address=auth.account.address
+        contributor_address="0x742d35Cc6634C0532925a3b844Bc9e7595f62341"
     )
     
     # Step 4: Register improved model
     print("Registering improved model...")
-    improved_registration = register_model_with_hokusai(auth, improved_result)
-    improved_model_id = improved_registration["model_id"]
+    improved_registration = register_model_with_hokusai(
+        improved_result["run_id"],
+        "third_party_classifier"
+    )
     
     # Step 5: Track contributor impact
     print("Tracking contributor impact...")
-    impact = track_contributor_impact(auth, improved_model_id, baseline_model_id)
+    impact = track_contributor_impact(
+        baseline_result["run_id"],
+        improved_result["run_id"]
+    )
     
     # Step 6: Generate attestation
     print("Generating attestation...")
-    attestation = generate_attestation(auth, improved_model_id, baseline_model_id)
+    attestation = generate_attestation(
+        "third_party_classifier",
+        improved_registration["version"],
+        improved_result["metrics"]
+    )
     
     print(f"Model registered successfully!")
-    print(f"Baseline Model ID: {baseline_model_id}")
-    print(f"Improved Model ID: {improved_model_id}")
-    print(f"Performance Delta: {impact['comparison']['performance_delta']}")
+    print(f"Baseline Run ID: {baseline_result['run_id']}")
+    print(f"Improved Run ID: {improved_result['run_id']}")
+    print(f"Model Version: {improved_registration['version']}")
+    print(f"Performance Impact: {impact}")
     print(f"Attestation Hash: {attestation['hash']}")
 
 if __name__ == "__main__":
@@ -515,13 +541,14 @@ pip install git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#su
 ### SDK Usage
 ```python
 from hokusai.core import ModelRegistry
-registry = ModelRegistry("http://registry.hokus.ai/mlflow")
+registry = ModelRegistry("https://registry.hokus.ai/api/mlflow")
 ```
 
 ### API Endpoints
-- `POST /api/models/register` - Register models
-- `GET /api/models/{name}/{version}` - Get model details
-- `GET /api/contributors/{address}/impact` - Track contributor impact
+All model operations go through the MLflow API proxy:
+- Base URL: `https://registry.hokus.ai/api/mlflow`
+- Use standard MLflow REST API endpoints
+- Authentication: Include API key in MLFLOW_TRACKING_TOKEN environment variable
 
 ### Rate Limits
 - SDK: Handles rate limiting automatically
@@ -531,5 +558,5 @@ registry = ModelRegistry("http://registry.hokus.ai/mlflow")
 
 - **Documentation**: https://docs.hokus.ai
 - **SDK Examples**: See `examples/` in the repository
-- **API Reference**: http://registry.hokus.ai/api/docs
+- **API Reference**: https://registry.hokus.ai/api/mlflow/api/2.0/mlflow/help
 - **Support**: Join our Discord at https://discord.gg/hokusai
