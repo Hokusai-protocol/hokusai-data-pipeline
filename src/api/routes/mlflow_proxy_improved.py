@@ -1,6 +1,7 @@
 """MLflow proxy router to forward requests to MLflow server with improved routing."""
 
 import os
+import json
 import httpx
 from fastapi import APIRouter, Request, Response, HTTPException
 import logging
@@ -51,15 +52,21 @@ async def proxy_request(
             # Internal MLflow uses standard api path
             logger.info(f"Using standard API path for internal MLflow: {path}")
     
-    # Handle artifact endpoints
+    # Handle artifact endpoints with proper path translation
     if path.startswith("api/2.0/mlflow-artifacts/"):
         logger.info(f"Proxying artifact request: {path}")
-        # For internal routing, artifact paths remain the same
+        
+        # Apply the same ajax-api conversion for external MLflow
+        if "registry.hokus.ai" in mlflow_base_url:
+            path = path.replace("api/2.0/mlflow-artifacts/", "ajax-api/2.0/mlflow-artifacts/")
+            logger.info(f"Converted artifact path for external MLflow: {original_path} -> {path}")
+        
+        # Check if artifact serving is enabled
         if not os.getenv("MLFLOW_SERVE_ARTIFACTS", "true").lower() == "true":
             logger.warning("Artifact storage is disabled by configuration")
             raise HTTPException(
                 status_code=503,
-                detail="Artifact storage is not configured. Please contact your administrator."
+                detail={"error": "ARTIFACTS_DISABLED", "message": "Artifact storage is not configured. Please contact your administrator."}
             )
     
     # Construct the target URL
@@ -131,6 +138,20 @@ async def proxy_request(
                     f"MLflow error response: status={response.status_code}, "
                     f"path={original_path}, response_text={response.text[:500]}"
                 )
+                
+                # Check if response is HTML error page and convert to JSON
+                content_type = response.headers.get("Content-Type", "")
+                if "text/html" in content_type and response.status_code == 404:
+                    # Convert HTML 404 to JSON response for API consistency
+                    json_error = {
+                        "error_code": "RESOURCE_NOT_FOUND",
+                        "message": f"The requested resource was not found: {original_path}"
+                    }
+                    return Response(
+                        content=json.dumps(json_error),
+                        status_code=404,
+                        headers={"Content-Type": "application/json"}
+                    )
             
             # Return the response
             return Response(
@@ -237,12 +258,30 @@ async def mlflow_health_check():
                     "message": str(e)
                 }
             
-            # Check if artifact serving is enabled
+            # Check artifact API endpoint
             if os.getenv("MLFLOW_SERVE_ARTIFACTS", "true").lower() == "true":
-                health_status["checks"]["artifacts_api"] = {
-                    "status": "enabled",
-                    "message": "Artifact serving is configured"
-                }
+                try:
+                    # Use appropriate API path based on server type
+                    artifact_path = "ajax-api" if "registry.hokus.ai" in MLFLOW_SERVER_URL else "api"
+                    response = await client.get(
+                        f"{MLFLOW_SERVER_URL}/{artifact_path}/2.0/mlflow-artifacts/artifacts"
+                    )
+                    # A 200 with empty response or 404 for non-existent artifact is OK
+                    if response.status_code in [200, 404]:
+                        health_status["checks"]["artifacts_api"] = {
+                            "status": "healthy",
+                            "message": "Artifact API is accessible"
+                        }
+                    else:
+                        health_status["checks"]["artifacts_api"] = {
+                            "status": "unhealthy",
+                            "message": f"Artifact API returned status {response.status_code}"
+                        }
+                except Exception as e:
+                    health_status["checks"]["artifacts_api"] = {
+                        "status": "unhealthy",
+                        "message": f"Artifact API error: {str(e)}"
+                    }
             else:
                 health_status["checks"]["artifacts_api"] = {
                     "status": "disabled",
@@ -282,6 +321,7 @@ async def mlflow_detailed_health_check():
         {"name": "experiments_list", "path": "/api/2.0/mlflow/experiments/search", "method": "GET"},
         {"name": "models_list", "path": "/api/2.0/mlflow/registered-models/search", "method": "GET"},
         {"name": "metrics_history", "path": "/api/2.0/mlflow/metrics/get-history", "method": "GET"},
+        {"name": "artifacts_api", "path": "/api/2.0/mlflow-artifacts/artifacts", "method": "GET"},
     ]
     
     async with httpx.AsyncClient(timeout=5.0) as client:
@@ -290,7 +330,9 @@ async def mlflow_detailed_health_check():
                 # Adjust path for external vs internal MLflow
                 path = test["path"]
                 if "registry.hokus.ai" in MLFLOW_SERVER_URL:
-                    path = path.replace("/api/2.0/", "/ajax-api/2.0/")
+                    # Convert both regular API and artifact paths
+                    path = path.replace("/api/2.0/mlflow/", "/ajax-api/2.0/mlflow/")
+                    path = path.replace("/api/2.0/mlflow-artifacts/", "/ajax-api/2.0/mlflow-artifacts/")
                 
                 url = f"{MLFLOW_SERVER_URL}{path}"
                 response = await client.request(method=test["method"], url=url)
