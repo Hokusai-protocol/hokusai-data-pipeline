@@ -61,6 +61,7 @@ Access local services at:
 - **REST API**: Language-agnostic integration
 - **Attestations**: Blockchain-ready proof of improvements
 - **API Key Authentication**: Secure access with configurable rate limits
+- **Event Messaging**: Automatic notifications when models are ready for token deployment
 
 ## Authentication
 
@@ -294,6 +295,16 @@ pytest
 # Start development server
 uvicorn src.api.main:app --reload
 ```
+
+## Event-Driven Model Deployment
+
+When models are registered and meet baseline performance requirements, the platform automatically emits `model_ready_to_deploy` messages to a Redis queue. This enables:
+
+- **Automated Token Deployment**: Downstream systems can listen for these events to trigger token minting
+- **Real-time Notifications**: Get notified immediately when models are deployment-ready
+- **Audit Trail**: Track all deployment-ready models through the message queue
+
+See [Message Queue Setup Guide](./docs/message-queue-setup.md) for configuration details.
 
 ## Contributing
 

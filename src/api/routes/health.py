@@ -106,6 +106,21 @@ async def health_check(detailed: bool = False):
         logger.error(f"Redis health check failed: {str(e)}")
         if detailed:
             services_status["redis_error"] = str(e)
+    
+    # Check Message Queue health
+    try:
+        from src.events.publishers.factory import get_publisher
+        publisher = get_publisher()
+        queue_health = publisher.health_check()
+        services_status["message_queue"] = queue_health.get("status", "unknown")
+        if detailed:
+            services_status["message_queue_details"] = queue_health
+        logger.debug(f"Message queue health: {services_status['message_queue']}")
+    except Exception as e:
+        services_status["message_queue"] = "unhealthy"
+        logger.error(f"Message queue health check failed: {str(e)}")
+        if detailed:
+            services_status["message_queue_error"] = str(e)
 
     # Check PostgreSQL with timeout
     try:

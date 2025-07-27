@@ -1,135 +1,97 @@
-# Infrastructure Consolidation - Implementation Tasks
+# Implementation Tasks: Model Ready to Deploy Message
 
-## 1. Infrastructure Audit and Analysis
-1. [x] Audit all Terraform files in infrastructure/terraform/
-   a. [x] Review main.tf for shared resources
-   b. [x] Review dedicated-albs.tf for ALB configurations
-   c. [x] Review routing-fix.tf and alb-routing-fix.tf for routing rules
-   d. [x] Review https-updates.tf for SSL configurations
-   e. [x] Review variables.tf and outputs.tf
+## 1. Message Queue Infrastructure Analysis
+1. [x] Research Redis vs SQS tradeoffs for Hokusai use case
+   a. [x] Evaluate Redis: persistence, pub/sub capabilities, existing usage in codebase
+   b. [x] Evaluate SQS: managed service benefits, retry handling, dead letter queues
+   c. [x] Document recommendation with pros/cons matrix
+   d. [x] Get team approval on queue selection
 
-2. [x] Create comprehensive resource inventory
-   a. [x] List all ALBs and their configurations
-   b. [x] Document all listener rules and priorities
-   c. [x] Map target groups to services
-   d. [x] Identify Route53 DNS records
-   e. [x] Catalog IAM roles and policies
+## 2. Infrastructure Requirements Definition
+2. [x] Define infrastructure requirements for message queue
+   a. [x] Create infrastructure requirements document
+   b. [x] Specify Redis/SQS configuration parameters
+   c. [x] Define networking and security requirements
+   d. [x] Create PR template for hokusai-infrastructure repo
 
-3. [x] Analyze cross-service dependencies
-   a. [x] Map service-to-service communications
-   b. [x] Identify shared security groups
-   c. [x] Document VPC and subnet usage
-   d. [x] Review service discovery configurations
+## 3. Message Schema Implementation
+3. [x] Design and implement message schema
+   a. [x] Create `src/events/schemas.py` with message data classes
+   b. [x] Define ModelReadyToDeployMessage with required fields
+   c. [x] Add JSON schema validation using existing schema_validator
+   d. [x] Create schema documentation in docs/
 
-## 2. Module Structure Creation
-4. [x] Create terraform_module directory structure
-   a. [x] Create terraform_module/data-pipeline/ directory
-   b. [x] Create standard terraform files (main.tf, variables.tf, outputs.tf)
-   c. [x] Create specialized files (alb.tf, dns.tf, iam.tf)
-   d. [x] Create README.md with usage examples
-   e. [x] Add .gitignore for terraform files
+## 4. Message Publisher Interface
+4. [x] Create abstract message publisher interface
+   a. [x] Create `src/events/publishers/base.py` with AbstractPublisher
+   b. [x] Define publish(), health_check(), and close() methods
+   c. [x] Add configuration management for publisher selection
+   d. [x] Implement publisher factory pattern
 
-## 3. ALB Module Extraction
-5. [x] Extract main ALB configuration
-   a. [x] Move aws_lb.main resource to alb.tf
-   b. [x] Extract all associated listener rules
-   c. [x] Move target group definitions
-   d. [x] Convert environment-specific values to variables
-   e. [x] Define outputs for ALB DNS and ARN
+## 5. Redis Publisher Implementation
+5. [x] Implement Redis message publisher
+   a. [x] Create `src/events/publishers/redis_publisher.py`
+   b. [x] Implement connection pooling with redis-py
+   c. [x] Add retry logic with exponential backoff
+   d. [x] Implement health check for Redis connectivity
+   e. [x] Add comprehensive error handling and logging
 
-6. [x] Extract dedicated ALBs (auth and registry)
-   a. [x] Move aws_lb.auth configuration
-   b. [x] Move aws_lb.registry configuration
-   c. [x] Extract HTTPS listeners and rules
-   d. [x] Document routing priorities
-   e. [x] Create variable for certificate ARN
+## 6. SQS Publisher Implementation  
+6. [ ] Implement SQS message publisher (Future Enhancement)
+   a. [ ] Create `src/events/publishers/sqs_publisher.py`
+   b. [ ] Implement boto3 SQS client with retry configuration
+   c. [ ] Add message batching for efficiency
+   d. [ ] Implement dead letter queue handling
+   e. [ ] Add IAM permission requirements documentation
 
-## 4. DNS Module Extraction
-7. [x] Extract Route53 configurations
-   a. [x] Move auth.hokus.ai A record
-   b. [x] Move registry.hokus.ai A record
-   c. [x] Parameterize zone_id as variable
-   d. [x] Add outputs for DNS names
-   e. [x] Document TTL considerations
+## 7. MLflow Integration
+7. [x] Integrate message emission with MLflow registration
+   a. [x] Locate model registration success points in codebase
+   b. [x] Add hook after successful baseline validation
+   c. [x] Extract required metadata from MLflow model
+   d. [x] Ensure transactional consistency with registration
+   e. [x] Add feature flag for gradual rollout
 
-## 5. IAM Module Extraction
-8. [x] Extract shared IAM roles
-   a. [x] Move ECS task execution role
-   b. [x] Move ECS task role
-   c. [x] Extract S3 access policies
-   d. [x] Parameterize role names
-   e. [x] Output role ARNs
+## 8. Configuration Management
+8. [x] Add configuration for message queue selection
+   a. [x] Update `src/utils/config.py` with MESSAGE_QUEUE_TYPE
+   b. [x] Add queue-specific configuration parameters
+   c. [x] Update `.env.example` with new variables
+   d. [x] Document configuration in deployment guide
 
-## 6. Resource Registry Documentation
-9. [x] Create resource registry entry
-   a. [x] Document all path prefixes owned
-   b. [x] List DNS domains managed
-   c. [x] Enumerate AWS resources
-   d. [x] Add team contact information
-   e. [x] Include SLA and support details
+## 9. Error Handling and Monitoring
+9. [x] Implement comprehensive error handling
+   a. [x] Add custom exceptions for message publishing failures
+   b. [x] Implement circuit breaker pattern for queue failures
+   c. [ ] Add Prometheus metrics for publish success/failure rates (Future)
+   d. [ ] Create alerts for queue health issues (Future)
 
-## 7. Local Terraform Refactoring (Dependent on Module Extraction)
-10. [ ] Add remote state configuration
-    a. [ ] Create data source for infrastructure state
-    b. [ ] Configure S3 backend details
-    c. [ ] Add required provider versions
-    d. [ ] Document state bucket location
-    e. [ ] Test state connectivity
+## 10. Health Check Endpoint
+10. [x] Add message queue health check endpoint
+    a. [x] Extend `/health` endpoint with queue status
+    b. [x] Implement queue connectivity check
+    c. [x] Add queue lag/depth monitoring
+    d. [x] Document health check response format
 
-11. [ ] Replace resource references with data lookups
-    a. [ ] Update ALB references to use data sources
-    b. [ ] Replace IAM role references
-    c. [ ] Update security group references
-    d. [ ] Modify target group attachments
-    e. [ ] Update DNS record references
+## 11. Testing
+11. [x] Write comprehensive tests
+    a. [x] Unit tests for message schema validation
+    b. [x] Unit tests for Redis publisher with mocked Redis
+    c. [ ] Unit tests for SQS publisher with mocked boto3 (Future)
+    d. [ ] Integration tests with test containers (Future)
+    e. [x] End-to-end test of full registration flow
+    f. [ ] Load tests for message throughput (Future)
 
-## 8. Testing and Validation
-12. [ ] Create test environment
-    a. [ ] Set up mock remote state
-    b. [ ] Validate module syntax with terraform validate
-    c. [ ] Run terraform plan to check changes
-    d. [ ] Test module outputs
-    e. [ ] Verify no resource recreation
-
-13. [ ] Integration testing
-    a. [ ] Test service connectivity
-    b. [ ] Verify routing rules work
-    c. [ ] Check DNS resolution
-    d. [ ] Validate IAM permissions
-    e. [ ] Test rollback procedures
-
-## 9. Migration Preparation
-14. [x] Create migration runbook
-    a. [x] Document pre-migration checklist
-    b. [x] Write state migration commands
-    c. [x] Create backup procedures
-    d. [x] Define rollback steps
-    e. [x] Include validation tests
-
-15. [ ] Prepare PR for hokusai-infrastructure
-    a. [ ] Create PR template with module
-    b. [ ] Include usage examples
-    c. [ ] Add migration notes
-    d. [ ] Request infrastructure team review
-    e. [ ] Schedule migration window
-
-## 10. Documentation
-16. [ ] Update repository documentation
-    a. [ ] Update README.md with new structure
-    b. [ ] Document remote state usage
-    c. [ ] Add troubleshooting guide
-    d. [ ] Create architecture diagrams
-    e. [ ] Update CI/CD documentation
-
-## 11. Post-Migration Cleanup (Dependent on Successful Migration)
-17. [ ] Remove migrated resources
-    a. [ ] Delete moved ALB configurations
-    b. [ ] Remove DNS records
-    c. [ ] Clean up IAM roles
-    d. [ ] Update .gitignore
-    e. [ ] Archive old configurations
+## 12. Documentation
+12. [x] Create comprehensive documentation
+    a. [x] Update README.md with message queue feature
+    b. [x] Create docs/message-queue-setup.md guide
+    c. [ ] Add architecture diagram showing message flow (Future)
+    d. [x] Create troubleshooting guide for queue issues
+    e. [x] Update API documentation with new endpoints
 
 ## Dependencies
-- Tasks 7-8 depend on completing tasks 5-6
-- Task 11 depends on completing task 10
-- Task 17 depends on successful completion of all previous tasks and migration confirmation
+- Task 7 depends on Tasks 3-6 completion
+- Task 9 depends on Tasks 5-6 completion  
+- Task 11 depends on all implementation tasks
+- Task 12 can be done in parallel with implementation

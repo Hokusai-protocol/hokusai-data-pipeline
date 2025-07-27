@@ -46,6 +46,13 @@ class PipelineConfig:
     sample_size: Optional[int] = None
     stratify_column: Optional[str] = None
     test_size: float = 0.2
+    
+    # Message queue settings
+    message_queue_type: str = "redis"
+    redis_url: str = "redis://localhost:6379/0"
+    message_queue_name: str = "hokusai:model_ready_queue"
+    message_retry_max: int = 3
+    message_retry_base_delay: float = 1.0
 
     def __post_init__(self):
         """Load configuration from environment variables and create directories."""
@@ -73,6 +80,13 @@ class PipelineConfig:
         # Model evaluation settings
         self.confidence_threshold = float(os.getenv("CONFIDENCE_THRESHOLD", str(self.confidence_threshold)))
         
+        # Message queue settings
+        self.message_queue_type = os.getenv("MESSAGE_QUEUE_TYPE", self.message_queue_type)
+        self.redis_url = os.getenv("REDIS_URL", self.redis_url)
+        self.message_queue_name = os.getenv("MESSAGE_QUEUE_NAME", self.message_queue_name)
+        self.message_retry_max = int(os.getenv("MESSAGE_RETRY_MAX", str(self.message_retry_max)))
+        self.message_retry_base_delay = float(os.getenv("MESSAGE_RETRY_BASE_DELAY", str(self.message_retry_base_delay)))
+        
         # Create directories if they don't exist
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.model_dir.mkdir(parents=True, exist_ok=True)
@@ -96,6 +110,11 @@ class PipelineConfig:
             "sample_size": self.sample_size,
             "stratify_column": self.stratify_column,
             "test_size": self.test_size,
+            "message_queue_type": self.message_queue_type,
+            "redis_url": self.redis_url,
+            "message_queue_name": self.message_queue_name,
+            "message_retry_max": self.message_retry_max,
+            "message_retry_base_delay": self.message_retry_base_delay,
         }
 
 
