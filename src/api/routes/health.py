@@ -1,6 +1,7 @@
 """Health check endpoints."""
 
 from datetime import datetime
+import logging
 
 from fastapi import APIRouter
 
@@ -9,6 +10,7 @@ from src.api.utils.config import get_settings
 
 router = APIRouter()
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 # Import these only when needed to avoid issues in tests
 def _get_mlflow():
@@ -77,6 +79,7 @@ except ImportError:
 @router.get("/health", response_model=HealthCheckResponse)
 async def health_check(detailed: bool = False):
     """Check health status of the API and dependent services."""
+    logger.info("Health check requested", extra={"detailed": detailed})
     services_status = {}
 
     # Check MLFlow using enhanced status function
@@ -86,31 +89,59 @@ async def health_check(detailed: bool = False):
         services_status["mlflow"] = "healthy" if mlflow_status["connected"] else "unhealthy"
         if detailed:
             services_status["mlflow_details"] = mlflow_status
-    except Exception:
+        logger.debug(f"MLflow health check: {services_status['mlflow']}")
+    except Exception as e:
         services_status["mlflow"] = "unhealthy"
+        logger.error(f"MLflow health check failed: {str(e)}")
 
-    # Check Redis
+    # Check Redis with timeout
     try:
         redis = _get_redis()
-        r = redis.Redis(host=settings.redis_host, port=settings.redis_port)
+        r = redis.Redis(host=settings.redis_host, port=settings.redis_port, 
+                       socket_connect_timeout=5, socket_timeout=5)
         r.ping()
         services_status["redis"] = "healthy"
-    except Exception:
+    except Exception as e:
         services_status["redis"] = "unhealthy"
+        logger.error(f"Redis health check failed: {str(e)}")
+        if detailed:
+            services_status["redis_error"] = str(e)
+    
+    # Check Message Queue health
+    try:
+        from src.events.publishers.factory import get_publisher
+        publisher = get_publisher()
+        queue_health = publisher.health_check()
+        services_status["message_queue"] = queue_health.get("status", "unknown")
+        if detailed:
+            services_status["message_queue_details"] = queue_health
+        logger.debug(f"Message queue health: {services_status['message_queue']}")
+    except Exception as e:
+        services_status["message_queue"] = "unhealthy"
+        logger.error(f"Message queue health check failed: {str(e)}")
+        if detailed:
+            services_status["message_queue_error"] = str(e)
 
-    # Check PostgreSQL
+    # Check PostgreSQL with timeout
     try:
         psycopg2 = _get_psycopg2()
-        conn = psycopg2.connect(settings.postgres_uri)
+        # Add connection timeout
+        conn = psycopg2.connect(settings.postgres_uri, connect_timeout=5)
         conn.close()
         services_status["postgres"] = "healthy"
-    except Exception:
+    except Exception as e:
         services_status["postgres"] = "unhealthy"
+        logger.error(f"PostgreSQL health check failed: {str(e)}")
+        if detailed:
+            services_status["postgres_error"] = str(e)
 
     # Overall status
     overall_status = (
         "healthy" if all(s == "healthy" for s in services_status.values()) else "degraded"
     )
+    
+    logger.info(f"Health check completed: {overall_status}", 
+                extra={"services": services_status})
 
     # Add external service check
     external_status = check_external_service()

@@ -1,88 +1,59 @@
-# Product Requirements Document: Test Model Registration
+# Product Requirements Document: Model Ready to Deploy Message
 
 ## Objectives
 
-1. Verify that third-party model registration is working correctly with the recent fixes applied to the authentication system
-2. Execute comprehensive testing with a valid API key to confirm all endpoints are functional
-3. Diagnose and document any remaining issues preventing successful model registration
-4. Ensure the model registration workflow functions end-to-end for external users
+Enable the Hokusai ML platform to automatically notify downstream systems when a model has been successfully registered and validated, making it ready for token deployment. This feature will emit a standardized message to a message queue (Redis or SQS) containing all necessary information for the token deployment process.
 
 ## Personas
 
-- **Third-Party Developer**: External developer attempting to register ML models with Hokusai platform using API keys
-- **Platform Engineer**: Responsible for maintaining and fixing the authentication and registration infrastructure
-- **QA Engineer**: Verifying that fixes work as expected and documenting test results
+1. **ML Engineers**: Need automatic notification when their models pass validation and are ready for deployment
+2. **Token Deployment System**: Requires structured messages with model metadata to initiate token minting
+3. **DevOps Teams**: Need to monitor message queue health and troubleshoot failed deployments
+4. **Platform Administrators**: Need to configure and maintain the message queue infrastructure
 
 ## Success Criteria
 
-1. **Authentication Success**: API key is validated successfully across all required services
-2. **MLflow Connectivity**: Client can connect to MLflow through the proxy endpoint without errors
-3. **Model Registration**: Complete model training, logging, and registration workflow executes successfully
-4. **Comprehensive Testing**: All test scripts pass with valid API key:
-   - test_real_registration.py
-   - verify_api_proxy.py
-   - test_bearer_auth.py
-   - test_auth_service.py
-5. **Documentation**: Clear report on current status and any remaining issues
+1. Successfully emit messages to Redis/SQS when models pass all validation checks
+2. Include all required metadata (model_id, token_symbol, metric, baseline) in messages
+3. Handle message emission failures gracefully with proper logging
+4. Support configurable message queue backends (Redis or SQS)
+5. Maintain backward compatibility with existing model registration flow
+6. Achieve 99.9% message delivery reliability
 
 ## Tasks
 
-### 1. Environment Setup and API Key Validation
-- Obtain valid API key from user for testing
-- Set HOKUSAI_API_KEY environment variable
-- Verify API key format matches expected pattern (hk_live_*)
+### 1. Message Queue Infrastructure Setup
+- Evaluate Redis vs SQS for message queue implementation
+- Define message queue configuration requirements
+- Create infrastructure PR for hokusai-infrastructure repo if new services needed
+- Document deployment requirements for message queue
 
-### 2. Execute Primary Registration Test
-- Run test_real_registration.py with provided API key
-- Capture detailed output including all HTTP requests/responses
-- Document specific error messages and failure points
+### 2. Message Schema Definition
+- Define standardized message format for model_ready_to_deploy events
+- Include required fields: model_id, token_symbol, metric, baseline
+- Add optional metadata fields for extensibility
+- Create message validation schema
 
-### 3. Run Diagnostic Test Suite
-- Execute verify_api_proxy.py to check proxy health
-- Run test_bearer_auth.py to verify Bearer token authentication
-- Execute test_auth_service.py to test direct auth service validation
-- Run investigate_mlflow.py for comprehensive endpoint testing
+### 3. Message Publisher Implementation
+- Create message publisher interface supporting multiple backends
+- Implement Redis publisher with connection pooling
+- Implement SQS publisher with retry logic
+- Add configuration management for queue selection
 
-### 4. Analyze Test Results
-- Compare results against expected success outputs
-- Identify specific failure points in the authentication flow
-- Determine if failures are due to:
-  - Invalid/expired API key
-  - Service configuration issues
-  - Deployment problems
-  - Code bugs
+### 4. MLflow Registration Integration
+- Modify MLflow registration process to detect successful validation
+- Extract model metadata after baseline validation passes
+- Emit message to configured queue after successful registration
+- Ensure atomic operation with registration transaction
 
-### 5. Implement Fixes (if needed)
-- If API key is valid but tests fail, identify root cause
-- Implement necessary code fixes
-- Update configuration if deployment issues found
-- Ensure fixes don't break existing functionality
+### 5. Error Handling and Monitoring
+- Implement retry mechanism for failed message emissions
+- Add comprehensive logging for debugging
+- Create health check endpoint for message queue status
+- Add metrics for message emission success/failure rates
 
-### 6. Verify Fix Effectiveness
-- Re-run all test scripts after implementing fixes
-- Confirm all tests pass with green checkmarks
-- Verify model appears in MLflow registry
-
-### 7. Update Documentation
-- Document test results in structured format
-- Update FINAL_TEST_REPORT.md with current status
-- Create clear instructions for third-party developers
-- Document any workarounds needed
-
-## Technical Requirements
-
-- Python environment with hokusai-ml-platform package installed
-- Valid Hokusai API key with model registration permissions
-- Access to production endpoints:
-  - https://api.hokus.ai/mlflow/
-  - https://auth.hokus.ai/validate
-  - https://registry.hokus.ai/mlflow/
-
-## Expected Outcomes
-
-Upon successful completion:
-- Third-party developers can register models using standard MLflow client
-- Authentication works seamlessly with Bearer tokens
-- All test scripts show passing results
-- Clear documentation exists for the registration process
-- Any remaining issues are clearly identified with remediation plans
+### 6. Testing and Documentation
+- Write unit tests for message publishers
+- Create integration tests with test queues
+- Document configuration options and deployment steps
+- Add usage examples to developer documentation

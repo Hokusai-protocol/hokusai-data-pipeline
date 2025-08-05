@@ -39,7 +39,11 @@
       "Bash(gh run list:*)",
       "Bash(ruff check:*)",
       "Bash(aws ecr describe-images:*)",
-      "Bash(nslookup:*)"
+      "Bash(nslookup:*)",
+      "Bash(aws logs tail:*)",
+      "Bash(aws ecs describe-task-definition:*)",
+      "Bash(aws ecs describe-services:*)",
+      "Bash(docker-compose:*)"
     ],
     "deny": []
   }

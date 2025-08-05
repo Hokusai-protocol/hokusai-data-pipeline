@@ -77,14 +77,14 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         
         # Get settings
-        settings = get_settings()
+        self.settings = get_settings()
         
         # Configure auth service URL
         self.auth_service_url = auth_service_url or os.getenv(
             "HOKUSAI_AUTH_SERVICE_URL",
-            settings.auth_service_url
+            self.settings.auth_service_url
         )
-        self.timeout = timeout or settings.auth_service_timeout
+        self.timeout = timeout or self.settings.auth_service_timeout
         
         # Initialize cache if not provided
         if cache is None:
@@ -134,7 +134,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 
                 # Only send service_id and client_ip in body
                 body = {
-                    "service_id": "ml-platform"
+                    "service_id": self.settings.auth_service_id  # Configurable service ID
                 }
                 if client_ip:
                     body["client_ip"] = client_ip
@@ -295,7 +295,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                         "endpoint": endpoint,
                         "response_time_ms": response_time_ms,
                         "status_code": status_code,
-                        "service_id": "ml-platform"
+                        "service_id": self.settings.auth_service_id
                     }
                 )
         except Exception as e:

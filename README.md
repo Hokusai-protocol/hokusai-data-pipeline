@@ -28,7 +28,7 @@ from hokusai import setup
 setup(api_key="hk_live_your_api_key_here")
 
 # Connect to Hokusai
-registry = ModelRegistry("https://registry.hokus.ai/mlflow")
+registry = ModelRegistry("https://registry.hokus.ai/api/mlflow")
 manager = ExperimentManager(registry)
 
 # Register your model
@@ -61,6 +61,7 @@ Access local services at:
 - **REST API**: Language-agnostic integration
 - **Attestations**: Blockchain-ready proof of improvements
 - **API Key Authentication**: Secure access with configurable rate limits
+- **Event Messaging**: Automatic notifications when models are ready for token deployment
 
 ## Authentication
 
@@ -80,19 +81,29 @@ setup(api_key="hk_live_your_key_here")
 
 ### MLflow Integration
 
-The Hokusai API proxy supports standard MLflow clients with Bearer token authentication:
+Hokusai provides a fully integrated MLflow tracking server accessible through our API proxy. This allows you to use standard MLflow clients with your Hokusai API key:
 
 ```python
 import mlflow
 import os
 
-# Use your Hokusai API key with MLflow
+# Configure MLflow to use Hokusai's tracking server
 os.environ["MLFLOW_TRACKING_URI"] = "https://registry.hokus.ai/api/mlflow"
 os.environ["MLFLOW_TRACKING_TOKEN"] = "hk_live_your_key_here"
 
-# MLflow client works seamlessly
+# Standard MLflow operations work seamlessly
+mlflow.set_experiment("my-experiment")
+with mlflow.start_run():
+    mlflow.log_param("model_type", "random_forest")
+    mlflow.log_metric("accuracy", 0.92)
+    mlflow.sklearn.log_model(model, "model")
+
+# Use MLflow client for advanced operations
 client = mlflow.tracking.MlflowClient()
+models = client.search_registered_models()
 ```
+
+**Note**: The MLflow UI is not directly accessible. Use the API endpoints for all operations.
 
 See the [Authentication Guide](./documentation/authentication.md) for details.
 
@@ -121,9 +132,9 @@ See [DOCUMENTATION_MAP.md](./DOCUMENTATION_MAP.md) for details on our documentat
 ## Production Access
 
 The platform is deployed and accessible at:
-- **Web**: http://registry.hokus.ai
-- **API**: http://registry.hokus.ai/api
-- **MLflow**: http://registry.hokus.ai/mlflow
+- **Web**: https://registry.hokus.ai
+- **API**: https://registry.hokus.ai/api
+- **MLflow**: https://registry.hokus.ai/api/mlflow
 
 ## Example Usage
 
@@ -285,6 +296,16 @@ pytest
 uvicorn src.api.main:app --reload
 ```
 
+## Event-Driven Model Deployment
+
+When models are registered and meet baseline performance requirements, the platform automatically emits `model_ready_to_deploy` messages to a Redis queue. This enables:
+
+- **Automated Token Deployment**: Downstream systems can listen for these events to trigger token minting
+- **Real-time Notifications**: Get notified immediately when models are deployment-ready
+- **Audit Trail**: Track all deployment-ready models through the message queue
+
+See [Message Queue Setup Guide](./docs/message-queue-setup.md) for configuration details.
+
 ## Contributing
 
 We welcome contributions! Please see our [Contributing Guide](./CONTRIBUTING.md) for details.
@@ -295,6 +316,47 @@ Key areas for contribution:
 - Integration with more ML frameworks
 - Performance optimizations
 - Documentation improvements
+
+## MLflow Endpoint Structure
+
+All MLflow operations are proxied through the Hokusai API at `/api/mlflow/*`. The following endpoints are available:
+
+### Experiments
+- `GET /api/mlflow/api/2.0/mlflow/experiments/search` - List experiments
+- `POST /api/mlflow/api/2.0/mlflow/experiments/create` - Create experiment
+- `GET /api/mlflow/api/2.0/mlflow/experiments/get` - Get experiment details
+
+### Runs
+- `POST /api/mlflow/api/2.0/mlflow/runs/create` - Create a new run
+- `POST /api/mlflow/api/2.0/mlflow/runs/update` - Update run status
+- `POST /api/mlflow/api/2.0/mlflow/runs/log-metric` - Log metrics
+- `POST /api/mlflow/api/2.0/mlflow/runs/log-parameter` - Log parameters
+
+### Models
+- `POST /api/mlflow/api/2.0/mlflow/registered-models/create` - Register model
+- `GET /api/mlflow/api/2.0/mlflow/registered-models/search` - Search models
+- `POST /api/mlflow/api/2.0/mlflow/model-versions/create` - Create version
+
+### Artifacts
+- `GET /api/mlflow/api/2.0/mlflow-artifacts/artifacts/*` - Download artifacts
+- `PUT /api/mlflow/api/2.0/mlflow-artifacts/artifacts/*` - Upload artifacts
+
+All endpoints require Bearer token authentication using your Hokusai API key.
+
+### Testing Health Checks
+
+```bash
+# Test locally with Docker Compose
+docker-compose -f docker-compose.health-test.yml up
+
+# Run health check test suite
+python scripts/test_health_checks.py
+
+# Manual health check
+curl http://localhost:8001/health?detailed=true
+```
+
+For deployment troubleshooting, see [Deployment Troubleshooting Guide](./docs/deployment-troubleshooting.md).
 
 ## Security
 

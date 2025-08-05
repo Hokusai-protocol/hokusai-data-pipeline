@@ -1,0 +1,76 @@
+# Terraform Configuration Update for AUTH_SERVICE_ID
+
+## Option 1: Add directly to main.tf
+
+In the `aws_ecs_task_definition.api` resource, add to the environment array:
+
+```hcl
+{
+  name  = "AUTH_SERVICE_ID"
+  value = "platform"
+}
+```
+
+## Option 2: Add as a variable (recommended)
+
+### Step 1: Add to variables.tf
+
+```hcl
+variable "auth_service_id" {
+  description = "Service ID for API key validation (platform or ml-platform)"
+  type        = string
+  default     = "platform"
+}
+```
+
+### Step 2: Update main.tf
+
+In the `aws_ecs_task_definition.api` resource, add to the environment array:
+
+```hcl
+{
+  name  = "AUTH_SERVICE_ID"
+  value = var.auth_service_id
+}
+```
+
+## Full example of where to add it in main.tf:
+
+```hcl
+environment = [
+  {
+    name  = "ENVIRONMENT"
+    value = var.environment
+  },
+  {
+    name  = "API_HOST"
+    value = "0.0.0.0"
+  },
+  {
+    name  = "API_PORT"
+    value = "8001"
+  },
+  {
+    name  = "MLFLOW_TRACKING_URI"
+    value = "http://${aws_lb.mlflow_internal.dns_name}:5000"
+  },
+  {
+    name  = "AUTH_SERVICE_ID"
+    value = "platform"  # or var.auth_service_id if using variable
+  }
+]
+```
+
+## Deployment Steps
+
+1. Update the Terraform configuration with one of the above options
+2. Run `terraform plan` to verify changes
+3. Run `terraform apply` to deploy
+4. The ECS service will automatically restart with the new environment variable
+
+## GitHub Actions/Variables Note
+
+GitHub repository variables/secrets are NOT automatically picked up by the deployed application. They need to be:
+1. Passed through your CI/CD pipeline
+2. Added to Terraform configuration
+3. Or stored in AWS Secrets Manager and referenced in Terraform

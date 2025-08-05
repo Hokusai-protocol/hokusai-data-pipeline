@@ -1,0 +1,184 @@
+# Updated ECS Services to use centralized infrastructure resources
+
+# Update ECS Task Definitions to use centralized IAM roles
+resource "aws_ecs_task_definition" "api_updated" {
+  family                   = "${var.project_name}-api-${var.environment}"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = var.api_cpu
+  memory                   = var.api_memory
+  execution_role_arn       = local.ecs_execution_role_arn
+  task_role_arn           = local.ecs_task_role_arn
+  
+  container_definitions = jsonencode([
+    {
+      name  = "${var.project_name}-api"
+      image = "${aws_ecr_repository.api.repository_url}:${var.api_image_tag}"
+      
+      portMappings = [
+        {
+          containerPort = 8001
+          protocol      = "tcp"
+        }
+      ]
+      
+      environment = [
+        {
+          name  = "ENVIRONMENT"
+          value = var.environment
+        },
+        {
+          name  = "API_HOST"
+          value = "0.0.0.0"
+        },
+        {
+          name  = "API_PORT"
+          value = "8001"
+        },
+        {
+          name  = "MLFLOW_TRACKING_URI"
+          value = "http://registry.hokus.ai/mlflow"
+        },
+        {
+          name  = "AUTH_SERVICE_ID"
+          value = var.auth_service_id
+        }
+      ]
+      
+      secrets = [
+        {
+          name      = "SECRET_KEY"
+          valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:secret_key::"
+        },
+        {
+          name      = "DATABASE_PASSWORD"
+          valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:database_password::"
+        }
+      ]
+      
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.api.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
+      
+      healthCheck = {
+        command     = ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
+    }
+  ])
+}
+
+resource "aws_ecs_task_definition" "mlflow_updated" {
+  family                   = "${var.project_name}-mlflow-${var.environment}"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = var.mlflow_cpu
+  memory                   = var.mlflow_memory
+  execution_role_arn       = local.ecs_execution_role_arn
+  task_role_arn           = local.ecs_task_role_arn
+  
+  container_definitions = jsonencode([
+    {
+      name  = "${var.project_name}-mlflow"
+      image = "${aws_ecr_repository.mlflow.repository_url}:${var.mlflow_image_tag}"
+      
+      portMappings = [
+        {
+          containerPort = 5000
+          protocol      = "tcp"
+        }
+      ]
+      
+      environment = [
+        {
+          name  = "ENVIRONMENT"
+          value = var.environment
+        },
+        {
+          name  = "BACKEND_STORE_URI"
+          value = "postgresql://mlflow:${var.database_password}@${aws_db_instance.mlflow.endpoint}/mlflow_db"
+        },
+        {
+          name  = "DEFAULT_ARTIFACT_ROOT"
+          value = "s3://${aws_s3_bucket.mlflow_artifacts.id}/artifacts"
+        }
+      ]
+      
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.mlflow.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
+      
+      healthCheck = {
+        command     = ["CMD-SHELL", "curl -f http://localhost:5000/mlflow || exit 1"]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
+    }
+  ])
+}
+
+# Updated ECS Services to use centralized target groups
+resource "aws_ecs_service" "api_updated" {
+  name            = "${var.project_name}-api"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.api_updated.arn
+  desired_count   = var.api_desired_count
+  
+  launch_type = "FARGATE"
+  
+  network_configuration {
+    subnets          = module.vpc.private_subnets
+    security_groups  = [aws_security_group.ecs_tasks.id]
+    assign_public_ip = false
+  }
+  
+  load_balancer {
+    target_group_arn = local.api_tg_arn
+    container_name   = "${var.project_name}-api"
+    container_port   = 8001
+  }
+  
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+}
+
+resource "aws_ecs_service" "mlflow_updated" {
+  name            = "${var.project_name}-mlflow"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.mlflow_updated.arn
+  desired_count   = var.mlflow_desired_count
+  
+  launch_type = "FARGATE"
+  
+  network_configuration {
+    subnets          = module.vpc.private_subnets
+    security_groups  = [aws_security_group.ecs_tasks.id]
+    assign_public_ip = false
+  }
+  
+  load_balancer {
+    target_group_arn = local.mlflow_tg_arn
+    container_name   = "${var.project_name}-mlflow"
+    container_port   = 5000
+  }
+  
+  lifecycle {
+    ignore_changes = [task_definition]
+  }
+}

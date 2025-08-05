@@ -4,7 +4,14 @@ The Hokusai ML Platform provides a command-line interface for registering AI mod
 
 ## Overview
 
-When users create tokens on the Hokusai site, they start in "Draft" status. The model registration process links a trained model to its token, validates performance metrics, and prepares the model for deployment.
+The Hokusai model registration CLI provides a simple way to register your trained models with the Hokusai platform. It uses the Hokusai API to:
+
+- Upload your model to MLflow 
+- Validate performance metrics
+- Associate the model with a Hokusai token
+- Prepare the model for deployment
+
+When users create tokens on the Hokusai site, they start in "Draft" status. The model registration process links a trained model to its token and validates performance metrics.
 
 ## Prerequisites
 
@@ -13,16 +20,11 @@ Before registering a model, ensure you have:
 1. Created a token on the Hokusai site (token must be in "Draft" status)
 2. Trained your model and saved it to disk
 3. Calculated your model's performance metric
-4. Access to the Hokusai database (via configuration file or environment variables)
-5. MLflow tracking server (optional but recommended)
+4. A Hokusai API key (obtain from https://hokus.ai/settings/api)
 
 ## Installation
 
-```bash
-pip install hokusai-ml-platform
-```
-
-Or install from the repository:
+Install from the repository:
 
 ```bash
 cd /path/to/hokusai-data-pipeline
@@ -59,7 +61,7 @@ This command will:
 | `--metric` | Yes | Performance metric name | `auroc`, `accuracy`, `f1` |
 | `--baseline` | Yes | Baseline performance requirement | `0.82` |
 | `--mlflow-uri` | No | MLflow tracking server URI | `http://localhost:5000` |
-| `--db-config` | No | Path to database config file | `./db_config.json` |
+| `--db-config` | No | Path to database config file (for local dev) | `./db_config.json` |
 | `--webhook-url` | No | Webhook URL for events | `https://api.example.com/webhook` |
 
 ## Supported Metrics
@@ -86,54 +88,43 @@ The platform supports various metrics for different model types:
 
 ## Configuration
 
-### Database Configuration
+### API Authentication
 
-You can configure database access in three ways:
+Hokusai uses API key authentication. Set your API key as an environment variable:
 
-1. **Environment Variables**:
 ```bash
+export HOKUSAI_API_KEY="your-api-key-here"
+```
+
+You can obtain your API key from:
+1. Log in to https://hokus.ai
+2. Navigate to Settings → API Keys  
+3. Click "Generate New Key"
+4. Copy the key and store it securely
+
+### Database Configuration (Optional)
+
+**Note**: Most users don't need database configuration as the CLI uses the Hokusai API. Database configuration is only needed for advanced use cases or local development.
+
+For local development, you can configure a local database:
+
+```bash
+# For local development only
 export HOKUSAI_DB_HOST=localhost
 export HOKUSAI_DB_PORT=5432
-export HOKUSAI_DB_NAME=hokusai
-export HOKUSAI_DB_USER=hokusai_user
-export HOKUSAI_DB_PASSWORD=secure_password
-export HOKUSAI_DB_TYPE=postgresql
+export HOKUSAI_DB_NAME=hokusai_dev
 ```
-
-2. **Configuration File** (JSON):
-```json
-{
-  "host": "localhost",
-  "port": 5432,
-  "database": "hokusai",
-  "username": "hokusai_user",
-  "password": "secure_password",
-  "db_type": "postgresql"
-}
-```
-
-3. **Configuration File** (YAML):
-```yaml
-host: localhost
-port: 5432
-database: hokusai
-username: hokusai_user
-password: secure_password
-db_type: postgresql
-```
-
-Then use with: `--db-config /path/to/config.json`
 
 ### MLflow Configuration
 
-The Hokusai platform uses MLflow for model tracking and registry. The MLflow server is hosted at `http://registry.hokus.ai/mlflow`.
+The Hokusai platform uses MLflow for model tracking and registry. The MLflow server is accessed through the API proxy at `https://registry.hokus.ai/api/mlflow`.
 
 #### Default Configuration
 
 The SDK automatically configures MLflow to use the Hokusai server:
 
 ```bash
-# MLflow is automatically configured to use registry.hokus.ai/mlflow
+# MLflow is automatically configured to use registry.hokus.ai/api/mlflow
 hokusai model register \
   --token-id XRAY \
   --model-path ./model.pkl \
@@ -241,7 +232,7 @@ hokusai model register \
   --metric reply_rate \
   --baseline 0.134 \
   --db-config ./config/production.json \
-  --mlflow-uri http://registry.hokus.ai/mlflow \
+  --mlflow-uri https://registry.hokus.ai/api/mlflow \
   --webhook-url https://api.hokus.ai/webhooks/model-events
 ```
 
@@ -250,7 +241,7 @@ hokusai model register \
 ```bash
 export HOKUSAI_DB_HOST=prod-db.hokus.ai
 export HOKUSAI_DB_USER=ml_platform_user
-export MLFLOW_TRACKING_URI=http://registry.hokus.ai/mlflow
+export MLFLOW_TRACKING_URI=https://registry.hokus.ai/api/mlflow
 
 hokusai model register \
   --token-id SENTIMENT-V3 \

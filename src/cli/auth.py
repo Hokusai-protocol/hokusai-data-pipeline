@@ -121,7 +121,7 @@ def create_key(
     # Prepare request data
     data = {
         "name": name,
-        "service_id": "ml-platform",
+        "service_id": "platform",
         "environment": environment,
         "rate_limit_per_hour": rate_limit,
         "scopes": list(scope)
@@ -379,7 +379,7 @@ def validate_key(key: Optional[str]):
             f"{config['auth_service_url']}/api/v1/keys/validate",
             json={
                 "api_key": api_key,
-                "service_id": "ml-platform"
+                "service_id": "platform"
             },
             timeout=10
         )

@@ -11,7 +11,8 @@ from slowapi.util import get_remote_address
 
 from src.middleware.auth import APIKeyAuthMiddleware
 from src.middleware.rate_limiter import RateLimitMiddleware
-from src.api.routes import dspy, health, models, mlflow_proxy
+from src.api.routes import dspy, health, models, health_mlflow
+from src.api.routes import mlflow_proxy_improved as mlflow_proxy
 from src.api.utils.config import get_settings
 
 # Configure logging
@@ -55,6 +56,10 @@ app.include_router(health.router, tags=["health"])
 app.include_router(models.router, prefix="/models", tags=["models"])
 app.include_router(dspy.router, tags=["dspy"])
 app.include_router(mlflow_proxy.router, prefix="/mlflow", tags=["mlflow"])
+# Add /api/mlflow mount point to support standard MLflow client paths
+app.include_router(mlflow_proxy.router, prefix="/api/mlflow", tags=["mlflow"])
+# Add MLflow health check endpoints at /api/health
+app.include_router(health_mlflow.router, prefix="/api/health", tags=["health"])
 
 
 # Global exception handler

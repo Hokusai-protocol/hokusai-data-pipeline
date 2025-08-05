@@ -18,8 +18,12 @@ RUN pip install --no-cache-dir \
 EXPOSE 5000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:5000/ || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+    CMD curl -f http://localhost:5000/mlflow || exit 1
 
-# Run MLFlow server with static prefix for ALB routing
-CMD ["mlflow", "server", "--host", "0.0.0.0", "--port", "5000", "--static-prefix", "/mlflow"]
+# Set environment variables defaults
+ENV BACKEND_STORE_URI=""
+ENV DEFAULT_ARTIFACT_ROOT=""
+
+# Run MLFlow server with environment variable configuration
+CMD ["sh", "-c", "mlflow server --host 0.0.0.0 --port 5000 --static-prefix /mlflow --backend-store-uri \"${BACKEND_STORE_URI}\" --default-artifact-root \"${DEFAULT_ARTIFACT_ROOT}\" --serve-artifacts"]
