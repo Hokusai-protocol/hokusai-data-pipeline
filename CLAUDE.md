@@ -49,9 +49,9 @@ See `DOCUMENTATION_MAP.md` for detailed guidelines on what content belongs where
 Common prompts: 
 @~/.claude/my-common-prompts.md
 
-**IMPORTANT**: When working in the hokusai-data-pipeline repository, always use the "Hokusai data platform" project in Linear (NOT "Hokusai infrastructure"). The correct command is:
+**IMPORTANT**: When working in the hokusai-data-pipeline repository, always use the "Hokusai data pipeline" project in Linear (NOT "Hokusai data platform" or "Hokusai infrastructure"). The correct command is:
 ```bash
-npx tsx ~/.claude/tools/get-backlog.ts "Hokusai data platform"
+npx tsx ~/.claude/tools/get-backlog.ts "Hokusai data pipeline"
 ```
 
 ### Quick Start for New Users
