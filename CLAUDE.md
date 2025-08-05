@@ -6,6 +6,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is the Hokusai data evaluation pipeline - a system for evaluating machine learning models with reproducible, attestation-ready outputs. The project is in early development stages with focus on workflow automation tooling.
 
+## Related Repositories
+
+The Hokusai platform consists of multiple repositories that work together:
+
+### `../hokusai-infrastructure/` - Centralized Infrastructure Repository
+- **Purpose**: Contains the main Terraform configuration for all Hokusai services
+- **Content**: ALB configurations, ECS services, RDS databases, security groups, networking
+- **Key Files**: Main terraform modules for production infrastructure
+- **Note**: This is where most infrastructure changes should be made
+
+### `../hokusai-auth-service/` - Authentication Service Repository  
+- **Purpose**: Contains the Hokusai authentication service code
+- **Content**: API key validation, authentication middleware, user management
+- **Key Components**: Auth API endpoints, key generation, validation logic
+- **Note**: Changes to auth logic should be made here
+
+When working on infrastructure issues:
+1. Check `../hokusai-infrastructure/` for main Terraform configs
+2. Check `../hokusai-auth-service/` for auth-specific code
+3. Local `infrastructure/terraform/` may contain pipeline-specific configs
+
 ## Documentation Structure
 
 The project maintains two separate documentation directories for different audiences:
@@ -28,7 +49,10 @@ See `DOCUMENTATION_MAP.md` for detailed guidelines on what content belongs where
 Common prompts: 
 @~/.claude/my-common-prompts.md
 
-For this repo, use the "Hokusai data platform" project in Linear to pull the backlog list.
+**IMPORTANT**: When working in the hokusai-data-pipeline repository, always use the "Hokusai data platform" project in Linear (NOT "Hokusai infrastructure"). The correct command is:
+```bash
+npx tsx ~/.claude/tools/get-backlog.ts "Hokusai data platform"
+```
 
 ### Quick Start for New Users
 ```bash

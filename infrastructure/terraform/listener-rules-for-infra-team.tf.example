@@ -1,0 +1,139 @@
+# Data Pipeline ECS ALB Integration - Listener Rules
+# 
+# This file should replace the disabled file in hokusai-infrastructure repo:
+# environments/data-pipeline-ecs-alb-integration.tf.disabled
+#
+# These listener rules route traffic from the centralized ALBs to the data pipeline services
+
+# API Service Listener Rule - Main ALB HTTPS
+resource "aws_lb_listener_rule" "data_pipeline_api_https" {
+  listener_arn = aws_lb_listener.main_https.arn
+  priority     = 100
+  
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn  # hokusai-api-tg-development
+  }
+  
+  condition {
+    path_pattern {
+      values = ["/api/*"]
+    }
+  }
+}
+
+# API Service Listener Rule - Main ALB HTTP (redirect)
+resource "aws_lb_listener_rule" "data_pipeline_api_http" {
+  listener_arn = aws_lb_listener.main_http.arn
+  priority     = 100
+  
+  action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+  
+  condition {
+    path_pattern {
+      values = ["/api/*"]
+    }
+  }
+}
+
+# MLflow Service Listener Rule - Data Pipeline ALB HTTPS
+resource "aws_lb_listener_rule" "data_pipeline_mlflow_https" {
+  listener_arn = aws_lb_listener.dp_https.arn
+  priority     = 100
+  
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.mlflow.arn  # hokusai-mlflow-tg-development
+  }
+  
+  condition {
+    path_pattern {
+      values = ["/mlflow", "/mlflow/*"]
+    }
+  }
+}
+
+# MLflow Service Listener Rule - Data Pipeline ALB HTTP (redirect)
+resource "aws_lb_listener_rule" "data_pipeline_mlflow_http" {
+  listener_arn = aws_lb_listener.dp_http.arn
+  priority     = 100
+  
+  action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
+  
+  condition {
+    path_pattern {
+      values = ["/mlflow", "/mlflow/*"]
+    }
+  }
+}
+
+# Registry MLflow Rules - Registry ALB HTTPS
+resource "aws_lb_listener_rule" "registry_mlflow_https" {
+  listener_arn = aws_lb_listener.registry_https.arn
+  priority     = 100  # Higher priority for specific path
+  
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.registry_mlflow.arn  # hokusai-reg-mlflow-development
+  }
+  
+  condition {
+    host_header {
+      values = ["registry.hokus.ai", "registry.hokusai.ai"]
+    }
+  }
+  
+  condition {
+    path_pattern {
+      values = ["/mlflow", "/mlflow/*"]
+    }
+  }
+}
+
+# Registry API Rules - Registry ALB HTTPS (catch-all)
+resource "aws_lb_listener_rule" "registry_api_https" {
+  listener_arn = aws_lb_listener.registry_https.arn
+  priority     = 200  # Lower priority - catches all other paths
+  
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.registry_api.arn  # hokusai-reg-api-development
+  }
+  
+  condition {
+    host_header {
+      values = ["registry.hokus.ai", "registry.hokusai.ai"]
+    }
+  }
+}
+
+# Health check endpoint for Data Pipeline ALB
+resource "aws_lb_listener_rule" "data_pipeline_health" {
+  listener_arn = aws_lb_listener.dp_https.arn
+  priority     = 50  # Higher priority for health checks
+  
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn  # hokusai-api-tg-development
+  }
+  
+  condition {
+    path_pattern {
+      values = ["/health", "/api/health"]
+    }
+  }
+}

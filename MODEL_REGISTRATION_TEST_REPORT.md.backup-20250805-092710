@@ -1,0 +1,177 @@
+# Model Registration Test Report
+
+**Date**: 2025-07-30  
+**Tester**: Hokusai Data Pipeline Team  
+**API Key Used**: hk_live_chnn8EMMos4Lcwj3i3C3JeAkoNoDcOWL
+
+## Executive Summary
+
+Model registration testing was conducted following the infrastructure migration to a centralized repository. The testing revealed that **all model registration functionality is currently non-operational** due to service unavailability (503 errors) across all MLflow endpoints.
+
+### Overall Status: ❌ FAILED
+- **Infrastructure Health Score**: 27.3% (3/11 checks passed)
+- **Authentication Success Rate**: 15.0% (3/20 tests passed)
+- **Model Registration Success**: 0% (all attempts failed with 503)
+- **Test Suite Success Rate**: 22.2% (2/9 test scripts passed)
+
+## Critical Issues for Infrastructure Team
+
+### 1. Service Unavailable (503) - CRITICAL
+**Impact**: Complete failure of model registration functionality  
+**Affected Endpoints**: All endpoints at `https://registry.hokus.ai`
+- `/api/mlflow/*` - All MLflow proxy endpoints
+- `/api/models/*` - Direct model API endpoints  
+- `/api/health/*` - Health check endpoints
+
+**Root Cause**: The API service (hokusai-api-development) appears to be either:
+- Not deployed in ECS
+- Misconfigured in the ALB target group
+- Experiencing container health check failures
+
+**Recommendation**: 
+1. Check ECS service deployment status for hokusai-api-development
+2. Verify ALB target group configuration and health checks
+3. Review container logs for startup failures
+
+### 2. Missing ECS Services
+**Impact**: Core services not found in cluster  
+**Missing Services**:
+- `hokusai-api-development` - Main API service
+- `hokusai-mlflow-development` - MLflow service
+
+**Recommendation**: Deploy these services to the ECS cluster or update service names if they've changed
+
+### 3. ALB Routing Configuration
+**Impact**: Even when services are deployed, routing may fail  
+**Issues Found**:
+- Registry health endpoint returns 404 (should be 200)
+- API health endpoint returns 404 (should be 200)
+- MLflow health endpoints not configured
+
+**Recommendation**: Review and update ALB listener rules for proper path routing
+
+## Working Components
+
+✅ **Auth Service**: 
+- Health endpoint working (200 OK)
+- Service running with 1/1 tasks
+- Response times acceptable (~130ms)
+
+✅ **Network Infrastructure**:
+- ALBs are accessible
+- SSL certificates working
+- DNS resolution functioning
+
+✅ **Basic Connectivity**:
+- All endpoints reachable (though returning errors)
+- No timeout issues
+- Latency within acceptable range
+
+## Test Results Summary
+
+### Infrastructure Health Checks
+| Component | Status | Details |
+|-----------|--------|---------|
+| Auth ALB | ✅ Partial | Health endpoint OK, root returns unexpected 200 |
+| Registry ALB | ❌ Failed | All endpoints return 503 |
+| API ALB | ❌ Failed | Health endpoint returns 404 |
+| ECS Services | ❌ Critical | 2/3 services not found |
+| MLflow | ❌ Failed | All endpoints return 503 |
+
+### Authentication Tests
+| Test Type | Result | Details |
+|-----------|--------|---------|
+| Bearer Token | ❌ Failed | 503 errors prevent validation |
+| X-API-Key Header | ❌ Failed | 503 errors prevent validation |
+| Auth Service | ✅ Passed | Service healthy but can't validate through API |
+| Rate Limiting | ✅ Passed | No rate limiting detected (20 requests) |
+
+### Model Registration Flow
+| Stage | Result | Details |
+|-------|--------|---------|
+| Model Creation | ✅ Passed | Local model creation successful |
+| Experiment Creation | ❌ Failed | 503 Service Unavailable |
+| Model Logging | ❌ Failed | 503 Service Unavailable |
+| Model Registration | ❌ Failed | 503 Service Unavailable |
+
+## Detailed Test Execution
+
+### Scripts Executed
+1. `test_infrastructure_health.py` - Infrastructure verification
+2. `test_authentication.py` - Auth mechanism testing
+3. `test_model_registration_flow.py` - End-to-end workflow
+4. `test_endpoint_availability.py` - Endpoint discovery
+5. `test_mlflow_routing.py` - MLflow proxy testing
+6. `test_health_endpoints.py` - Health check validation
+7. `test_auth_registration.py` - Auth integration
+8. `test_real_registration.py` - Real-world scenario
+9. `test_mlflow_proxy_integration.py` - Proxy integration
+
+### Test Artifacts Generated
+- `infrastructure_health_report.json` - Detailed infrastructure status
+- `authentication_test_report.json` - Auth test results
+- `endpoint_availability_report.json` - Endpoint discovery results
+- `test_execution_summary.json` - Complete test summary
+- `INFRASTRUCTURE_ISSUES.md` - Issues summary for infra team
+
+## Action Items for Infrastructure Team
+
+### Immediate Actions (P0)
+1. **Deploy Missing Services**
+   ```bash
+   # Check service status
+   aws ecs list-services --cluster hokusai-development
+   
+   # Deploy hokusai-api-development service
+   # Deploy hokusai-mlflow-development service
+   ```
+
+2. **Fix ALB Target Groups**
+   - Verify target group health checks
+   - Ensure correct port mappings (8000)
+   - Check security group rules
+
+3. **Review Container Health**
+   - Check ECS task logs for startup failures
+   - Verify environment variables
+   - Ensure database connectivity
+
+### Short-term Actions (P1)
+1. **Configure Health Endpoints**
+   - Add `/health` endpoint to API service
+   - Configure MLflow health checks
+   - Update ALB health check paths
+
+2. **Update Routing Rules**
+   - Fix `/api/mlflow/*` routing to MLflow service
+   - Configure `/api/models/*` routing
+   - Add fallback rules for 404s
+
+3. **Enable Monitoring**
+   - Set up CloudWatch alarms for 503 errors
+   - Monitor ECS task failures
+   - Track ALB unhealthy target counts
+
+### Medium-term Actions (P2)
+1. **Improve Resilience**
+   - Implement circuit breakers
+   - Add retry logic
+   - Configure auto-scaling
+
+2. **Documentation**
+   - Update infrastructure diagrams
+   - Document routing configuration
+   - Create runbooks for common issues
+
+## Next Steps
+
+1. **Infrastructure team** should address the immediate P0 issues
+2. **Data Pipeline team** will re-run tests once services are deployed
+3. **Schedule follow-up** testing session after fixes are applied
+4. **Update Linear ticket** with current status and blockers
+
+## Conclusion
+
+The model registration functionality is completely blocked due to infrastructure issues. The primary problem is that the API service is not available (503 errors), which prevents any model registration operations. Once the infrastructure team deploys the missing services and fixes the routing configuration, we can proceed with functional testing of the model registration workflow.
+
+The good news is that the authentication service is working correctly, and the network infrastructure (ALBs, DNS, SSL) is properly configured. This should allow for quick resolution once the services are deployed.

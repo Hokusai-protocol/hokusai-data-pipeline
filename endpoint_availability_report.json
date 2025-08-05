@@ -1,0 +1,75 @@
+{
+  "test_time": "2025-08-05T09:27:44.718655",
+  "base_url": "https://registry.hokus.ai",
+  "total_tested": 11,
+  "available": 6,
+  "unavailable": 5,
+  "results": [
+    {
+      "endpoint": "/api/mlflow/api/2.0/mlflow/experiments/search",
+      "status_code": 404,
+      "content_type": "text/html; charset=utf-8",
+      "is_available": false
+    },
+    {
+      "endpoint": "/api/mlflow/api/2.0/mlflow/runs/create",
+      "status_code": 404,
+      "content_type": "text/html; charset=utf-8",
+      "is_available": false
+    },
+    {
+      "endpoint": "/api/mlflow/api/2.0/mlflow/model-versions/create",
+      "status_code": 404,
+      "content_type": "text/html; charset=utf-8",
+      "is_available": false
+    },
+    {
+      "endpoint": "/api/mlflow/api/2.0/mlflow/experiments/get-by-name?experiment_name=Default",
+      "status_code": 404,
+      "content_type": "text/html; charset=utf-8",
+      "is_available": false
+    },
+    {
+      "endpoint": "/api/models/register",
+      "status_code": 401,
+      "content_type": "application/json",
+      "is_available": true
+    },
+    {
+      "endpoint": "/api/models",
+      "status_code": 401,
+      "content_type": "application/json",
+      "is_available": true
+    },
+    {
+      "endpoint": "/api/health/mlflow",
+      "status_code": 401,
+      "content_type": "application/json",
+      "is_available": true
+    },
+    {
+      "endpoint": "/api/health/mlflow/detailed",
+      "status_code": 401,
+      "content_type": "application/json",
+      "is_available": true
+    },
+    {
+      "endpoint": "/api/health",
+      "status_code": 401,
+      "content_type": "application/json",
+      "is_available": true
+    },
+    {
+      "endpoint": "/mlflow/api/2.0/mlflow/experiments/search",
+      "status_code": 404,
+      "content_type": "text/plain; charset=utf-8",
+      "is_available": false
+    },
+    {
+      "endpoint": "/api/2.0/mlflow/experiments/search",
+      "status_code": 401,
+      "content_type": "application/json",
+      "is_available": true
+    }
+  ]
+}
