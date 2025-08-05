@@ -27,10 +27,28 @@ resource "aws_service_discovery_service" "mlflow" {
   }
 }
 
-# Note: To enable service discovery on the existing MLflow service,
-# we need to update the aws_ecs_service.mlflow resource in main.tf
-# to add the service_registries block. This cannot be done by creating
-# a duplicate service with the same name.
+# Service discovery for API service
+resource "aws_service_discovery_service" "api" {
+  name = "api"
+
+  dns_config {
+    namespace_id = aws_service_discovery_private_dns_namespace.internal.id
+
+    dns_records {
+      ttl  = 10
+      type = "A"
+    }
+
+    routing_policy = "MULTIVALUE"
+  }
+
+  health_check_custom_config {
+    failure_threshold = 1
+  }
+}
+
+# Note: The ECS services in main.tf need to be updated with service_registries blocks
+# to register with these service discovery services.
 
 # Output the internal DNS name for MLflow
 output "mlflow_internal_dns" {

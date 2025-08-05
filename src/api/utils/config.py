@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["*"]  # In production, specify allowed origins
 
     # MLFlow
-    mlflow_tracking_uri: str = "http://mlflow-server:5000"
+    mlflow_tracking_uri: str = "http://mlflow.hokusai-development.local:5000"
 
     # Database
     postgres_uri: str = "postgresql://mlflow:mlflow_password@postgres/mlflow_db"

@@ -133,8 +133,9 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 }
                 
                 # Only send service_id and client_ip in body
+                # Use "platform" as the service_id (not "ml-platform")
                 body = {
-                    "service_id": "ml-platform"
+                    "service_id": "platform"
                 }
                 if client_ip:
                     body["client_ip"] = client_ip
