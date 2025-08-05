@@ -1,0 +1,244 @@
+{
+  "timestamp": "2025-08-05T09:27:30.891166",
+  "tests": {
+    "bearer_token": {
+      "method": "Bearer Token",
+      "tests": {
+        "valid_bearer": {
+          "status_code": 404,
+          "success": false,
+          "response_time": 111.46000000000001,
+          "error": null
+        },
+        "invalid_missing_bearer": {
+          "status_code": 404,
+          "success": false,
+          "format_tested": "hk_live_chnn8EMMos4Lcwj3i3C3JeAkoNoDcOWL"
+        },
+        "invalid_lowercase_bearer": {
+          "status_code": 404,
+          "success": false,
+          "format_tested": "bearer hk_live_chnn8EMMos4Lcwj3i3C3JeAkoNoDcOWL"
+        },
+        "invalid_no_space": {
+          "status_code": 404,
+          "success": false,
+          "format_tested": "Bearerhk_live_chnn8EMMos4Lcwj3i3C3JeAkoNoDcOWL"
+        },
+        "invalid_extra_space": {
+          "status_code": 404,
+          "success": false,
+          "format_tested": "Bearer  hk_live_chnn8EMMos4Lcwj3i3C3JeAkoNoDcOWL"
+        }
+      }
+    },
+    "x_api_key": {
+      "method": "X-API-Key Header",
+      "tests": {
+        "valid_x_api_key": {
+          "status_code": 404,
+          "success": false,
+          "response_time": 108.643,
+          "error": null
+        },
+        "case_lowercase": {
+          "status_code": 404,
+          "success": false,
+          "header_tested": "x-api-key"
+        },
+        "case_mixed_case": {
+          "status_code": 404,
+          "success": false,
+          "header_tested": "X-Api-Key"
+        },
+        "case_uppercase": {
+          "status_code": 404,
+          "success": false,
+          "header_tested": "X-API-KEY"
+        }
+      }
+    },
+    "auth_service": {
+      "service": "auth.hokus.ai",
+      "tests": {
+        "auth_service_health": {
+          "status_code": 502,
+          "success": false
+        },
+        "key_validation": {
+          "status_code": 401,
+          "success": false,
+          "authenticated": false,
+          "response_time": 165.585
+        }
+      }
+    },
+    "invalid_key_handling": {
+      "type": "invalid_key_handling",
+      "tests": {
+        "malformed_short": {
+          "status_code": 404,
+          "success": false,
+          "key_tested": "hk_live_12..."
+        },
+        "malformed_no_prefix": {
+          "status_code": 404,
+          "success": false,
+          "key_tested": "1234567890..."
+        },
+        "empty_key": {
+          "status_code": 404,
+          "success": false,
+          "key_tested": ""
+        },
+        "null_string": {
+          "status_code": 404,
+          "success": false,
+          "key_tested": "null"
+        },
+        "invalid_prefix": {
+          "status_code": 404,
+          "success": false,
+          "key_tested": "sk_live_12..."
+        },
+        "expired_format": {
+          "status_code": 404,
+          "success": false,
+          "key_tested": "hk_expired..."
+        }
+      }
+    },
+    "auth_caching": {
+      "type": "auth_caching",
+      "tests": {
+        "first_request": {
+          "status_code": 404,
+          "response_time_ms": 121.64,
+          "success": false
+        },
+        "cached_request": {
+          "status_code": 404,
+          "response_time_ms": 113.34,
+          "success": true,
+          "likely_cached": false
+        }
+      }
+    },
+    "rate_limiting": {
+      "type": "rate_limiting",
+      "tests": {
+        "rate_limit_triggered": {
+          "triggered": false,
+          "total_requests": 20
+        },
+        "request_details": [
+          {
+            "request_num": 1,
+            "status_code": 404,
+            "response_time_ms": 112.78
+          },
+          {
+            "request_num": 2,
+            "status_code": 404,
+            "response_time_ms": 117.31
+          },
+          {
+            "request_num": 3,
+            "status_code": 404,
+            "response_time_ms": 107.92
+          },
+          {
+            "request_num": 4,
+            "status_code": 404,
+            "response_time_ms": 115.95
+          },
+          {
+            "request_num": 5,
+            "status_code": 404,
+            "response_time_ms": 113.28
+          },
+          {
+            "request_num": 6,
+            "status_code": 404,
+            "response_time_ms": 119.51
+          },
+          {
+            "request_num": 7,
+            "status_code": 404,
+            "response_time_ms": 126.67
+          },
+          {
+            "request_num": 8,
+            "status_code": 404,
+            "response_time_ms": 120.31
+          },
+          {
+            "request_num": 9,
+            "status_code": 404,
+            "response_time_ms": 110.01
+          },
+          {
+            "request_num": 10,
+            "status_code": 404,
+            "response_time_ms": 115.06
+          },
+          {
+            "request_num": 11,
+            "status_code": 404,
+            "response_time_ms": 115.94
+          },
+          {
+            "request_num": 12,
+            "status_code": 404,
+            "response_time_ms": 113.25
+          },
+          {
+            "request_num": 13,
+            "status_code": 404,
+            "response_time_ms": 115.53
+          },
+          {
+            "request_num": 14,
+            "status_code": 404,
+            "response_time_ms": 111.5
+          },
+          {
+            "request_num": 15,
+            "status_code": 404,
+            "response_time_ms": 122.6
+          },
+          {
+            "request_num": 16,
+            "status_code": 404,
+            "response_time_ms": 108.66
+          },
+          {
+            "request_num": 17,
+            "status_code": 404,
+            "response_time_ms": 125.21
+          },
+          {
+            "request_num": 18,
+            "status_code": 404,
+            "response_time_ms": 120.73
+          },
+          {
+            "request_num": 19,
+            "status_code": 404,
+            "response_time_ms": 111.1
+          },
+          {
+            "request_num": 20,
+            "status_code": 404,
+            "response_time_ms": 109.11
+          }
+        ]
+      }
+    }
+  },
+  "summary": {
+    "total": 20,
+    "passed": 1,
+    "failed": 19
+  }
+}

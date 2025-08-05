@@ -28,7 +28,10 @@ See `DOCUMENTATION_MAP.md` for detailed guidelines on what content belongs where
 Common prompts: 
 @~/.claude/my-common-prompts.md
 
-For this repo, use the "Hokusai data platform" project in Linear to pull the backlog list.
+**IMPORTANT**: When working in the hokusai-data-pipeline repository, always use the "Hokusai data platform" project in Linear (NOT "Hokusai infrastructure"). The correct command is:
+```bash
+npx tsx ~/.claude/tools/get-backlog.ts "Hokusai data platform"
+```
 
 ### Quick Start for New Users
 ```bash
