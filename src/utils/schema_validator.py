@@ -13,6 +13,31 @@ from typing import Any, Optional
 from jsonschema import Draft202012Validator, ValidationError, validate
 
 
+def validate_json_schema(data: Any, schema: Optional[dict] = None) -> bool:
+    """Simple validation function for JSON schema compatibility.
+    
+    Args:
+        data: The data to validate
+        schema: Optional schema to validate against
+        
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    if schema is None:
+        # If no schema provided, just check if it's valid JSON-serializable
+        try:
+            json.dumps(data)
+            return True
+        except (TypeError, ValueError):
+            return False
+    
+    try:
+        validate(instance=data, schema=schema)
+        return True
+    except ValidationError:
+        return False
+
+
 class SchemaValidator:
     """Validates Hokusai pipeline outputs against the ZK-compatible schema."""
 

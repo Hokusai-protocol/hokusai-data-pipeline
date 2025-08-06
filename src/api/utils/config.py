@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # Support both old (mlflow) and new (mlflow_db) database names for backward compatibility
     database_host: str = "hokusai-mlflow-development.cmqduyfpzmbr.us-east-1.rds.amazonaws.com"
     database_port: int = 5432
-    database_user: str = "postgres"
+    database_user: str = "mlflow"  # Changed to match MLflow RDS configuration
     database_password: str = "postgres"
     database_name: str = "mlflow_db"  # Updated to match infrastructure
     database_fallback_name: str = "mlflow"  # Fallback for backward compatibility
