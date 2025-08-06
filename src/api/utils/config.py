@@ -1,7 +1,16 @@
 """Configuration settings for the API."""
 
 import os
+import logging
 from functools import lru_cache
+from typing import Optional
+
+try:
+    import boto3
+    import botocore.exceptions
+except ImportError:
+    boto3 = None
+    botocore = None
 
 from pydantic_settings import BaseSettings
 
@@ -29,7 +38,7 @@ class Settings(BaseSettings):
     database_host: str = "hokusai-mlflow-development.cmqduyfpzmbr.us-east-1.rds.amazonaws.com"
     database_port: int = 5432
     database_user: str = "mlflow"  # Changed to match MLflow RDS configuration
-    database_password: str = "postgres"
+    database_password: Optional[str] = None  # Must come from environment or AWS Secrets Manager
     database_name: str = "mlflow_db"  # Updated to match infrastructure
     database_fallback_name: str = "mlflow"  # Fallback for backward compatibility
     
@@ -51,8 +60,61 @@ class Settings(BaseSettings):
     
     @property
     def effective_database_password(self) -> str:
-        # Support both DB_PASSWORD and DATABASE_PASSWORD
-        return os.getenv("DB_PASSWORD", os.getenv("DATABASE_PASSWORD", self.database_password))
+        """Get database password from environment variables or AWS Secrets Manager."""
+        logger = logging.getLogger(__name__)
+        
+        # First try environment variables (both supported for backward compatibility)
+        env_password = os.getenv("DB_PASSWORD", os.getenv("DATABASE_PASSWORD"))
+        if env_password:
+            logger.info("Database password loaded from environment variable")
+            return env_password
+        
+        # Try AWS Secrets Manager if boto3 is available
+        if boto3 is not None:
+            try:
+                secret_name = os.getenv("DB_SECRET_NAME", "hokusai/database/credentials")
+                region_name = os.getenv("AWS_REGION", "us-east-1")
+                
+                session = boto3.session.Session()
+                client = session.client('secretsmanager', region_name=region_name)
+                
+                response = client.get_secret_value(SecretId=secret_name)
+                import json
+                secret_data = json.loads(response['SecretString'])
+                
+                # Try different possible keys for password
+                password = secret_data.get('password') or secret_data.get('PASSWORD') or secret_data.get('db_password')
+                if password:
+                    logger.info(f"Database password loaded from AWS Secrets Manager (secret: {secret_name})")
+                    return password
+                else:
+                    logger.warning(f"Password not found in secret {secret_name}. Available keys: {list(secret_data.keys())}")
+                    
+            except botocore.exceptions.ClientError as e:
+                error_code = e.response['Error']['Code']
+                if error_code == 'ResourceNotFoundException':
+                    logger.warning(f"Secret not found in AWS Secrets Manager: {secret_name}")
+                elif error_code == 'UnauthorizedOperation':
+                    logger.warning("Insufficient permissions to access AWS Secrets Manager")
+                else:
+                    logger.error(f"AWS Secrets Manager error: {error_code} - {e}")
+            except Exception as e:
+                logger.error(f"Error retrieving password from AWS Secrets Manager: {e}")
+        else:
+            logger.debug("boto3 not available, skipping AWS Secrets Manager")
+        
+        # If we have a fallback password from class defaults, use it but warn
+        if self.database_password:
+            logger.warning("Using hardcoded database password - this should only be used in development")
+            return self.database_password
+        
+        # No password found anywhere - this is an error condition
+        error_msg = (
+            "Database password not found. Please set DB_PASSWORD or DATABASE_PASSWORD environment variable, "
+            "or configure AWS Secrets Manager with secret 'hokusai/database/credentials'"
+        )
+        logger.error(error_msg)
+        raise ValueError(error_msg)
     
     @property
     def effective_database_name(self) -> str:
@@ -68,12 +130,18 @@ class Settings(BaseSettings):
     @property
     def postgres_uri(self) -> str:
         """Generate PostgreSQL connection URI with new database name using environment variables."""
-        return f"postgresql://{self.effective_database_user}:{self.effective_database_password}@{self.effective_database_host}:{self.effective_database_port}/{self.effective_database_name}"
+        from urllib.parse import quote_plus
+        # URL-encode the password to handle special characters
+        encoded_password = quote_plus(self.effective_database_password)
+        return f"postgresql://{self.effective_database_user}:{encoded_password}@{self.effective_database_host}:{self.effective_database_port}/{self.effective_database_name}"
     
     @property
     def postgres_uri_fallback(self) -> str:
         """Generate fallback PostgreSQL connection URI with old database name."""
-        return f"postgresql://{self.effective_database_user}:{self.effective_database_password}@{self.effective_database_host}:{self.effective_database_port}/{self.database_fallback_name}"
+        from urllib.parse import quote_plus
+        # URL-encode the password to handle special characters
+        encoded_password = quote_plus(self.effective_database_password)
+        return f"postgresql://{self.effective_database_user}:{encoded_password}@{self.effective_database_host}:{self.effective_database_port}/{self.database_fallback_name}"
 
     # Redis (optional - not currently deployed)
     redis_host: str = "localhost"
@@ -97,6 +165,27 @@ class Settings(BaseSettings):
     mlflow_cb_recovery_timeout: int = 30
     mlflow_cb_max_recovery_attempts: int = 3
 
+    def validate_required_credentials(self) -> None:
+        """Validate that all required credentials are available at startup."""
+        logger = logging.getLogger(__name__)
+        
+        try:
+            # Test that we can get the database password
+            # Use a direct check to avoid infinite recursion
+            env_password = os.getenv("DB_PASSWORD", os.getenv("DATABASE_PASSWORD"))
+            secret_name = os.getenv("DB_SECRET_NAME")
+            
+            if not env_password and not secret_name and not self.database_password:
+                raise ValueError(
+                    "Database password not found. Please set DB_PASSWORD or DATABASE_PASSWORD environment variable, "
+                    "or configure AWS Secrets Manager with secret 'hokusai/database/credentials'"
+                )
+            logger.info("Database credentials validation successful")
+        except Exception as e:
+            error_msg = f"Failed to validate database credentials: {e}"
+            logger.error(error_msg)
+            raise ValueError(error_msg) from e
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
@@ -105,5 +194,14 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings():
-    """Get cached settings instance."""
-    return Settings()
+    """Get cached settings instance with credential validation."""
+    settings = Settings()
+    # Validate credentials on first access
+    try:
+        settings.validate_required_credentials()
+    except ValueError as e:
+        logger = logging.getLogger(__name__)
+        logger.error(f"Settings validation failed: {e}")
+        # Re-raise to ensure the application doesn't start with invalid config
+        raise
+    return settings
