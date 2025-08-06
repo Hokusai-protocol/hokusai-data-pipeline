@@ -1,0 +1,130 @@
+{
+  "timestamp": "2025-08-05T18:01:09.749425",
+  "services": {
+    "alb_health": {
+      "auth_alb_root": {
+        "url": "https://auth.hokus.ai/",
+        "status": "unhealthy",
+        "response_time": 160.99,
+        "status_code": 200,
+        "error": "Expected status 404, got 200",
+        "checked_at": "2025-08-05T18:01:09.749439"
+      },
+      "auth_alb_health": {
+        "url": "https://auth.hokus.ai/health",
+        "status": "healthy",
+        "response_time": 118.8,
+        "status_code": 200,
+        "error": null,
+        "checked_at": "2025-08-05T18:01:09.910690"
+      },
+      "registry_alb_root": {
+        "url": "https://registry.hokus.ai/",
+        "status": "unhealthy",
+        "response_time": 176.47,
+        "status_code": 401,
+        "error": "Expected status 404, got 401",
+        "checked_at": "2025-08-05T18:01:10.030032"
+      },
+      "registry_alb_health": {
+        "url": "https://registry.hokus.ai/health",
+        "status": "timeout",
+        "response_time": null,
+        "status_code": null,
+        "error": "Request timed out after 10s",
+        "checked_at": "2025-08-05T18:01:10.206877"
+      },
+      "api_alb_health": {
+        "url": "https://api.hokus.ai/health",
+        "status": "unhealthy",
+        "response_time": 141.43,
+        "status_code": 404,
+        "error": "Expected status 200, got 404",
+        "checked_at": "2025-08-05T18:01:20.297341"
+      }
+    },
+    "ecs_services": {
+      "hokusai-auth-development": {
+        "status": "ACTIVE",
+        "desired_count": 1,
+        "running_count": 1,
+        "pending_count": 0,
+        "deployments": 2,
+        "health": "healthy"
+      },
+      "hokusai-api-development": {
+        "status": "ACTIVE",
+        "desired_count": 1,
+        "running_count": 1,
+        "pending_count": 0,
+        "deployments": 2,
+        "health": "healthy"
+      },
+      "hokusai-mlflow-development": {
+        "status": "ACTIVE",
+        "desired_count": 1,
+        "running_count": 1,
+        "pending_count": 0,
+        "deployments": 1,
+        "health": "healthy"
+      }
+    },
+    "mlflow_service": {
+      "mlflow_health": {
+        "url": "https://registry.hokus.ai/api/mlflow/health",
+        "status": "timeout",
+        "response_time": null,
+        "status_code": null,
+        "error": "Request timed out after 10s",
+        "checked_at": "2025-08-05T18:01:22.225238"
+      },
+      "mlflow_version": {
+        "url": "https://registry.hokus.ai/api/mlflow/version",
+        "status": "timeout",
+        "response_time": null,
+        "status_code": null,
+        "error": "Request timed out after 10s",
+        "checked_at": "2025-08-05T18:01:32.311146"
+      },
+      "mlflow_experiments_api": {
+        "url": "https://registry.hokus.ai/api/mlflow/api/2.0/mlflow/experiments/search",
+        "status": "timeout",
+        "response_time": null,
+        "status_code": null,
+        "error": "Request timed out after 10s",
+        "checked_at": "2025-08-05T18:01:42.405425"
+      }
+    },
+    "redis": {
+      "status": "not_tested",
+      "note": "Redis is internal to VPC and not directly accessible. Auth caching functionality will be tested via API endpoints.",
+      "recommendation": "Test Redis functionality through auth endpoint behavior"
+    },
+    "latency_stats": {
+      "auth_health": {
+        "samples": 5,
+        "min_ms": 120.26,
+        "max_ms": 167.57,
+        "avg_ms": 134.35,
+        "failures": 0
+      },
+      "registry_health": {
+        "error": "All requests failed",
+        "failures": 5
+      },
+      "api_health": {
+        "samples": 5,
+        "min_ms": 113.89,
+        "max_ms": 124.32,
+        "avg_ms": 118.82,
+        "failures": 0
+      }
+    }
+  },
+  "summary": {
+    "total_checks": 11,
+    "passed": 4,
+    "failed": 7,
+    "warnings": 0
+  }
+}

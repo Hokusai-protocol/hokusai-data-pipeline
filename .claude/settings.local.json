@@ -43,7 +43,9 @@
       "Bash(aws logs tail:*)",
       "Bash(aws ecs describe-task-definition:*)",
       "Bash(aws ecs describe-services:*)",
-      "Bash(docker-compose:*)"
+      "Bash(docker-compose:*)",
+      "Bash(aws logs tail:*)",
+      "Bash(aws:*)"
     ],
     "deny": []
   }
