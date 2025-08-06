@@ -36,23 +36,28 @@ class Settings(BaseSettings):
     # Environment variable overrides for flexibility
     @property
     def effective_database_host(self) -> str:
-        return os.getenv("DATABASE_HOST", self.database_host)
+        # Support both DB_HOST and DATABASE_HOST
+        return os.getenv("DB_HOST", os.getenv("DATABASE_HOST", self.database_host))
     
     @property
     def effective_database_port(self) -> int:
-        return int(os.getenv("DATABASE_PORT", str(self.database_port)))
+        # Support both DB_PORT and DATABASE_PORT
+        return int(os.getenv("DB_PORT", os.getenv("DATABASE_PORT", str(self.database_port))))
     
     @property
     def effective_database_user(self) -> str:
-        return os.getenv("DATABASE_USER", self.database_user)
+        # Support both DB_USER and DATABASE_USER
+        return os.getenv("DB_USER", os.getenv("DATABASE_USER", self.database_user))
     
     @property
     def effective_database_password(self) -> str:
-        return os.getenv("DATABASE_PASSWORD", self.database_password)
+        # Support both DB_PASSWORD and DATABASE_PASSWORD
+        return os.getenv("DB_PASSWORD", os.getenv("DATABASE_PASSWORD", self.database_password))
     
     @property
     def effective_database_name(self) -> str:
-        return os.getenv("DATABASE_NAME", self.database_name)
+        # Support both DB_NAME and DATABASE_NAME
+        return os.getenv("DB_NAME", os.getenv("DATABASE_NAME", self.database_name))
     
     # Connection settings
     database_connect_timeout: int = 10  # Increased from 5 seconds
