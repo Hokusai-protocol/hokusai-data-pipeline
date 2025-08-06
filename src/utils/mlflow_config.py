@@ -139,7 +139,7 @@ class MLFlowConfig:
     """Configuration manager for MLFlow tracking."""
 
     def __init__(self) -> None:
-        self.tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://10.0.1.173:5000")
+        self.tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow.hokusai-development.local:5000")
         self.experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", "hokusai-pipeline")
         self.artifact_root = os.getenv("MLFLOW_ARTIFACT_ROOT", None)
 
@@ -340,7 +340,7 @@ def get_mlflow_status() -> dict:
         "circuit_breaker_state": cb_status["state"],
         "circuit_breaker_details": cb_status,
         "connected": False,
-        "tracking_uri": os.getenv("MLFLOW_TRACKING_URI", "http://10.0.1.173:5000"),
+        "tracking_uri": os.getenv("MLFLOW_TRACKING_URI", "http://mlflow.hokusai-development.local:5000"),
         "connection_timeout": connection_timeout,
         "error": None,
         "last_check_time": datetime.now().isoformat()
