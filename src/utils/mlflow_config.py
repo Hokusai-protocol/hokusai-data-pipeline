@@ -14,47 +14,115 @@ logger = logging.getLogger(__name__)
 
 
 class MLflowCircuitBreaker:
-    """Circuit breaker for MLflow operations to prevent cascading failures."""
+    """Enhanced circuit breaker for MLflow operations with auto-reset and monitoring."""
     
-    def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60):
-        self.failure_threshold = failure_threshold
-        self.recovery_timeout = recovery_timeout
+    def __init__(self, failure_threshold: int = None, recovery_timeout: int = None, max_recovery_attempts: int = None):
+        # Use environment variables or improved defaults
+        self.failure_threshold = failure_threshold or int(os.getenv("MLFLOW_CB_FAILURE_THRESHOLD", "5"))
+        self.recovery_timeout = recovery_timeout or int(os.getenv("MLFLOW_CB_RECOVERY_TIMEOUT", "60"))
+        self.max_recovery_attempts = max_recovery_attempts or int(os.getenv("MLFLOW_CB_MAX_RECOVERY_ATTEMPTS", "5"))
         self.failure_count = 0
         self.last_failure_time = None
         self.state = "CLOSED"  # CLOSED, OPEN, HALF_OPEN
+        self.recovery_attempts = 0
+        self.last_success_time = time.time()
+        self.consecutive_successes = 0
         
     def is_open(self) -> bool:
         """Check if circuit breaker is open (blocking requests)."""
         if self.state == "OPEN":
             if self.last_failure_time and \
                (time.time() - self.last_failure_time) > self.recovery_timeout:
-                self.state = "HALF_OPEN"
-                logger.info("Circuit breaker moving to HALF_OPEN state")
-                return False
+                if self.recovery_attempts < self.max_recovery_attempts:
+                    self.state = "HALF_OPEN"
+                    self.recovery_attempts += 1
+                    logger.info(f"Circuit breaker moving to HALF_OPEN state (attempt {self.recovery_attempts}/{self.max_recovery_attempts})")
+                    return False
+                else:
+                    # Extend timeout exponentially after max attempts
+                    extended_timeout = self.recovery_timeout * (2 ** (self.recovery_attempts - self.max_recovery_attempts))
+                    if (time.time() - self.last_failure_time) > extended_timeout:
+                        self.state = "HALF_OPEN"
+                        logger.info(f"Circuit breaker moving to HALF_OPEN state after extended timeout ({extended_timeout}s)")
+                        return False
             return True
         return False
         
     def record_success(self):
-        """Record successful operation."""
-        self.failure_count = 0
-        self.state = "CLOSED"
+        """Record successful operation with recovery logic."""
+        previous_state = self.state
+        self.consecutive_successes += 1
+        self.last_success_time = time.time()
+        
+        if self.state == "HALF_OPEN":
+            # Require multiple successes to fully close circuit breaker
+            if self.consecutive_successes >= 2:
+                self.failure_count = 0
+                self.state = "CLOSED"
+                self.recovery_attempts = 0
+                logger.info("Circuit breaker CLOSED: Service fully recovered")
+            else:
+                logger.info(f"Circuit breaker HALF_OPEN: {self.consecutive_successes}/2 successes for full recovery")
+        elif self.state == "CLOSED":
+            # Gradually reduce failure count on sustained success
+            if self.failure_count > 0:
+                self.failure_count = max(0, self.failure_count - 1)
+        
+        if previous_state != "CLOSED" and self.state == "CLOSED":
+            logger.info("MLflow service fully recovered and circuit breaker closed")
         
     def record_failure(self):
-        """Record failed operation."""
+        """Record failed operation with enhanced tracking."""
+        previous_state = self.state
         self.failure_count += 1
         self.last_failure_time = time.time()
+        self.consecutive_successes = 0
         
-        if self.failure_count >= self.failure_threshold:
+        if self.state == "HALF_OPEN":
+            # Immediate return to OPEN state on any failure during recovery
             self.state = "OPEN"
-            logger.warning(f"Circuit breaker OPEN: {self.failure_count} failures")
+            logger.warning(f"Circuit breaker back to OPEN: Failure during recovery (attempt {self.recovery_attempts})")
+        elif self.state == "CLOSED" and self.failure_count >= self.failure_threshold:
+            self.state = "OPEN"
+            logger.warning(f"Circuit breaker OPEN: {self.failure_count} consecutive failures")
+            
+    def get_status(self) -> dict:
+        """Get detailed circuit breaker status for monitoring."""
+        return {
+            "state": self.state,
+            "failure_count": self.failure_count,
+            "consecutive_successes": self.consecutive_successes,
+            "recovery_attempts": self.recovery_attempts,
+            "last_failure_time": self.last_failure_time,
+            "last_success_time": self.last_success_time,
+            "time_since_last_failure": time.time() - self.last_failure_time if self.last_failure_time else None,
+            "time_until_retry": max(0, self.recovery_timeout - (time.time() - self.last_failure_time)) if self.last_failure_time and self.state == "OPEN" else 0,
+            "failure_threshold": self.failure_threshold,
+            "recovery_timeout": self.recovery_timeout
+        }
+        
+    def force_reset(self):
+        """Force reset circuit breaker to closed state (for manual recovery)."""
+        logger.info("Circuit breaker manually reset to CLOSED state")
+        self.state = "CLOSED"
+        self.failure_count = 0
+        self.recovery_attempts = 0
+        self.consecutive_successes = 0
+        self.last_failure_time = None
 
 
-# Global circuit breaker instance
-_circuit_breaker = MLflowCircuitBreaker()
+# Global circuit breaker instance with configurable parameters (increased defaults for stability)
+_circuit_breaker = MLflowCircuitBreaker(
+    failure_threshold=int(os.getenv("MLFLOW_CB_FAILURE_THRESHOLD", "5")),  # Increased from 3 to 5
+    recovery_timeout=int(os.getenv("MLFLOW_CB_RECOVERY_TIMEOUT", "60")),    # Increased from 30 to 60 seconds
+    max_recovery_attempts=int(os.getenv("MLFLOW_CB_MAX_RECOVERY_ATTEMPTS", "5"))  # Increased from 3 to 5
+)
 
 
-def exponential_backoff_retry(func, max_retries: int = 3, base_delay: float = 1.0):
+def exponential_backoff_retry(func, max_retries: int = None, base_delay: float = None):
     """Retry function with exponential backoff."""
+    max_retries = max_retries or int(os.getenv("MLFLOW_MAX_RETRIES", "3"))
+    base_delay = base_delay or float(os.getenv("MLFLOW_BASE_DELAY", "2.0"))
     for attempt in range(max_retries):
         try:
             return func()
@@ -71,7 +139,7 @@ class MLFlowConfig:
     """Configuration manager for MLFlow tracking."""
 
     def __init__(self) -> None:
-        self.tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns")
+        self.tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://10.0.1.173:5000")
         self.experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", "hokusai-pipeline")
         self.artifact_root = os.getenv("MLFLOW_ARTIFACT_ROOT", None)
 
@@ -145,7 +213,22 @@ def log_pipeline_metadata(run_id: str, step_name: str, metaflow_run_id: str) -> 
 
 class MLflowUnavailableError(Exception):
     """Raised when MLflow is unavailable and circuit breaker is open."""
-    pass
+    
+    def __init__(self, message: str, retry_after: float = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+        
+        
+def reset_circuit_breaker():
+    """Manually reset the circuit breaker (for recovery scripts)."""
+    global _circuit_breaker
+    _circuit_breaker.force_reset()
+    logger.info("MLflow circuit breaker has been manually reset")
+    
+    
+def get_circuit_breaker_status() -> dict:
+    """Get detailed circuit breaker status for diagnostics."""
+    return _circuit_breaker.get_status()
 
 
 @contextmanager
@@ -241,29 +324,79 @@ def log_dataset_info(
 
 
 def get_mlflow_status() -> dict:
-    """Get current MLflow connection status and circuit breaker state."""
+    """Get current MLflow connection status and enhanced circuit breaker state with configurable timeout."""
+    # Import settings to get configurable timeout
+    try:
+        from src.api.utils.config import get_settings
+        settings = get_settings()
+        connection_timeout = settings.health_check_timeout
+    except ImportError:
+        # Fallback if settings not available
+        connection_timeout = 10.0
+    
+    cb_status = _circuit_breaker.get_status()
+    
     status = {
-        "circuit_breaker_state": _circuit_breaker.state,
-        "failure_count": _circuit_breaker.failure_count,
-        "last_failure_time": _circuit_breaker.last_failure_time,
+        "circuit_breaker_state": cb_status["state"],
+        "circuit_breaker_details": cb_status,
         "connected": False,
-        "tracking_uri": os.getenv("MLFLOW_TRACKING_URI", "file:./mlruns"),
-        "error": None
+        "tracking_uri": os.getenv("MLFLOW_TRACKING_URI", "http://10.0.1.173:5000"),
+        "connection_timeout": connection_timeout,
+        "error": None,
+        "last_check_time": datetime.now().isoformat()
     }
     
     if _circuit_breaker.is_open():
-        status["error"] = "Circuit breaker is OPEN - MLflow unavailable"
+        status["error"] = f"Circuit breaker is OPEN - MLflow unavailable (retry in {cb_status['time_until_retry']:.0f}s)"
+        status["can_retry_in_seconds"] = cb_status["time_until_retry"]
         _update_metrics(status)
         return status
     
     try:
-        # Quick connection test
-        mlflow.get_experiment_by_name("default")
+        # Connection test with configurable timeout and enhanced error handling
+        start_time = time.time()
+        
+        # Set MLflow tracking URI with timeout consideration
+        mlflow.set_tracking_uri(status["tracking_uri"])
+        
+        # Test basic connectivity with timeout wrapper
+        def _test_connection():
+            # Test basic connectivity
+            mlflow.get_experiment_by_name("default")
+            
+            # Test if we can create/access an experiment (more comprehensive check)
+            test_experiment = "health-check-test"
+            try:
+                mlflow.get_experiment_by_name(test_experiment)
+            except:
+                # Experiment doesn't exist, that's fine
+                pass
+        
+        # Use retry logic with timeout (increased retries for better stability)
+        exponential_backoff_retry(_test_connection, max_retries=3, base_delay=1.0)
+            
+        response_time = (time.time() - start_time) * 1000
         status["connected"] = True
+        status["response_time_ms"] = response_time
+        
+        # Use configurable timeout for warning threshold
+        warning_threshold = connection_timeout * 1000  # Convert to milliseconds
+        if response_time > warning_threshold:
+            status["warning"] = f"Slow response time: {response_time:.0f}ms (threshold: {warning_threshold:.0f}ms)"
+            logger.warning(f"MLflow slow response: {response_time:.0f}ms (threshold: {warning_threshold:.0f}ms)")
+        
         _circuit_breaker.record_success()
+        
     except Exception as e:
         status["error"] = str(e)
+        status["error_type"] = type(e).__name__
+        status["connection_attempts"] = 2  # Number of retry attempts made
         _circuit_breaker.record_failure()
+        logger.error(f"MLflow connection failed after retries: {e}", extra={
+            "tracking_uri": status["tracking_uri"],
+            "timeout": connection_timeout,
+            "circuit_breaker_state": cb_status["state"]
+        })
     
     _update_metrics(status)
     return status

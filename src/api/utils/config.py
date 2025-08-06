@@ -1,5 +1,6 @@
 """Configuration settings for the API."""
 
+import os
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings
@@ -23,12 +24,56 @@ class Settings(BaseSettings):
     # MLFlow
     mlflow_tracking_uri: str = "http://mlflow.hokusai-development.local:5000"
 
-    # Database
-    postgres_uri: str = "postgresql://mlflow:mlflow_password@postgres/mlflow_db"
+    # Database Configuration
+    # Support both old (mlflow) and new (mlflow_db) database names for backward compatibility
+    database_host: str = "hokusai-mlflow-development.cmqduyfpzmbr.us-east-1.rds.amazonaws.com"
+    database_port: int = 5432
+    database_user: str = "postgres"
+    database_password: str = "postgres"
+    database_name: str = "mlflow_db"  # Updated to match infrastructure
+    database_fallback_name: str = "mlflow"  # Fallback for backward compatibility
+    
+    # Environment variable overrides for flexibility
+    @property
+    def effective_database_host(self) -> str:
+        return os.getenv("DATABASE_HOST", self.database_host)
+    
+    @property
+    def effective_database_port(self) -> int:
+        return int(os.getenv("DATABASE_PORT", str(self.database_port)))
+    
+    @property
+    def effective_database_user(self) -> str:
+        return os.getenv("DATABASE_USER", self.database_user)
+    
+    @property
+    def effective_database_password(self) -> str:
+        return os.getenv("DATABASE_PASSWORD", self.database_password)
+    
+    @property
+    def effective_database_name(self) -> str:
+        return os.getenv("DATABASE_NAME", self.database_name)
+    
+    # Connection settings
+    database_connect_timeout: int = 10  # Increased from 5 seconds
+    database_max_retries: int = 3
+    database_retry_delay: float = 1.0  # Base delay for exponential backoff
+    
+    # Legacy property for backward compatibility
+    @property
+    def postgres_uri(self) -> str:
+        """Generate PostgreSQL connection URI with new database name using environment variables."""
+        return f"postgresql://{self.effective_database_user}:{self.effective_database_password}@{self.effective_database_host}:{self.effective_database_port}/{self.effective_database_name}"
+    
+    @property
+    def postgres_uri_fallback(self) -> str:
+        """Generate fallback PostgreSQL connection URI with old database name."""
+        return f"postgresql://{self.effective_database_user}:{self.effective_database_password}@{self.effective_database_host}:{self.effective_database_port}/{self.database_fallback_name}"
 
-    # Redis
-    redis_host: str = "redis"
+    # Redis (optional - not currently deployed)
+    redis_host: str = "localhost"
     redis_port: int = 6379
+    redis_enabled: bool = False  # Redis is optional and not deployed
 
     # Rate limiting
     rate_limit_requests: int = 100
@@ -36,8 +81,16 @@ class Settings(BaseSettings):
     
     # Authentication Service
     auth_service_url: str = "https://auth.hokus.ai"
-    auth_service_timeout: float = 5.0
+    auth_service_timeout: float = 10.0  # Increased from 5 seconds
     auth_service_id: str = "platform"  # Service ID for API key validation
+    
+    # Health Check Configuration
+    health_check_timeout: float = 10.0  # Increased from 5 seconds
+    
+    # Circuit Breaker Configuration
+    mlflow_cb_failure_threshold: int = 3
+    mlflow_cb_recovery_timeout: int = 30
+    mlflow_cb_max_recovery_attempts: int = 3
 
     class Config:
         env_file = ".env"

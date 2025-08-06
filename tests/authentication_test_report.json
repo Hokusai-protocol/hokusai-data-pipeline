@@ -1,0 +1,231 @@
+{
+  "timestamp": "2025-08-05T18:03:05.877891",
+  "tests": {
+    "bearer_token": {
+      "method": "Bearer Token",
+      "tests": {
+        "valid_bearer": {
+          "success": false,
+          "error": "HTTPSConnectionPool(host='registry.hokus.ai', port=443): Read timed out. (read timeout=10)"
+        },
+        "invalid_missing_bearer": {
+          "success": false,
+          "error": "HTTPSConnectionPool(host='registry.hokus.ai', port=443): Read timed out. (read timeout=5)"
+        },
+        "invalid_lowercase_bearer": {
+          "success": false,
+          "error": "HTTPSConnectionPool(host='registry.hokus.ai', port=443): Read timed out. (read timeout=5)"
+        },
+        "invalid_no_space": {
+          "success": false,
+          "error": "HTTPSConnectionPool(host='registry.hokus.ai', port=443): Read timed out. (read timeout=5)"
+        },
+        "invalid_extra_space": {
+          "success": false,
+          "error": "HTTPSConnectionPool(host='registry.hokus.ai', port=443): Read timed out. (read timeout=5)"
+        }
+      }
+    },
+    "x_api_key": {
+      "method": "X-API-Key Header",
+      "tests": {
+        "valid_x_api_key": {
+          "success": false,
+          "error": "HTTPSConnectionPool(host='registry.hokus.ai', port=443): Read timed out. (read timeout=10)"
+        },
+        "case_lowercase": {
+          "success": false,
+          "error": "HTTPSConnectionPool(host='registry.hokus.ai', port=443): Read timed out. (read timeout=5)"
+        },
+        "case_mixed_case": {
+          "success": false,
+          "error": "HTTPSConnectionPool(host='registry.hokus.ai', port=443): Read timed out. (read timeout=5)"
+        },
+        "case_uppercase": {
+          "success": false,
+          "error": "HTTPSConnectionPool(host='registry.hokus.ai', port=443): Read timed out. (read timeout=5)"
+        }
+      }
+    },
+    "auth_service": {
+      "service": "auth.hokus.ai",
+      "tests": {
+        "auth_service_health": {
+          "status_code": 200,
+          "success": true
+        },
+        "key_validation": {
+          "success": false,
+          "error": "HTTPSConnectionPool(host='registry.hokus.ai', port=443): Read timed out. (read timeout=10)"
+        }
+      }
+    },
+    "invalid_key_handling": {
+      "type": "invalid_key_handling",
+      "tests": {
+        "malformed_short": {
+          "status_code": 503,
+          "success": false,
+          "key_tested": "hk_live_12..."
+        },
+        "malformed_no_prefix": {
+          "status_code": 503,
+          "success": false,
+          "key_tested": "1234567890..."
+        },
+        "empty_key": {
+          "status_code": 503,
+          "success": false,
+          "key_tested": ""
+        },
+        "null_string": {
+          "status_code": 503,
+          "success": false,
+          "key_tested": "null"
+        },
+        "invalid_prefix": {
+          "status_code": 503,
+          "success": false,
+          "key_tested": "sk_live_12..."
+        },
+        "expired_format": {
+          "status_code": 503,
+          "success": false,
+          "key_tested": "hk_expired..."
+        }
+      }
+    },
+    "auth_caching": {
+      "type": "auth_caching",
+      "tests": {
+        "first_request": {
+          "status_code": 503,
+          "response_time_ms": 116.84,
+          "success": false
+        },
+        "cached_request": {
+          "status_code": 503,
+          "response_time_ms": 123.19,
+          "success": true,
+          "likely_cached": false
+        }
+      }
+    },
+    "rate_limiting": {
+      "type": "rate_limiting",
+      "tests": {
+        "rate_limit_triggered": {
+          "triggered": false,
+          "total_requests": 20
+        },
+        "request_details": [
+          {
+            "request_num": 1,
+            "status_code": 503,
+            "response_time_ms": 115.43
+          },
+          {
+            "request_num": 2,
+            "status_code": 503,
+            "response_time_ms": 117.44
+          },
+          {
+            "request_num": 3,
+            "status_code": 503,
+            "response_time_ms": 112.21
+          },
+          {
+            "request_num": 4,
+            "status_code": 503,
+            "response_time_ms": 143.08
+          },
+          {
+            "request_num": 5,
+            "status_code": 503,
+            "response_time_ms": 107.67
+          },
+          {
+            "request_num": 6,
+            "status_code": 503,
+            "response_time_ms": 112.53
+          },
+          {
+            "request_num": 7,
+            "status_code": 503,
+            "response_time_ms": 111.13
+          },
+          {
+            "request_num": 8,
+            "status_code": 503,
+            "response_time_ms": 116.44
+          },
+          {
+            "request_num": 9,
+            "status_code": 503,
+            "response_time_ms": 132.25
+          },
+          {
+            "request_num": 10,
+            "status_code": 503,
+            "response_time_ms": 115.57
+          },
+          {
+            "request_num": 11,
+            "status_code": 503,
+            "response_time_ms": 123.43
+          },
+          {
+            "request_num": 12,
+            "status_code": 503,
+            "response_time_ms": 119.86
+          },
+          {
+            "request_num": 13,
+            "status_code": 503,
+            "response_time_ms": 114.52
+          },
+          {
+            "request_num": 14,
+            "status_code": 503,
+            "response_time_ms": 125.27
+          },
+          {
+            "request_num": 15,
+            "status_code": 503,
+            "response_time_ms": 114.07
+          },
+          {
+            "request_num": 16,
+            "status_code": 503,
+            "response_time_ms": 112.75
+          },
+          {
+            "request_num": 17,
+            "status_code": 503,
+            "response_time_ms": 120.84
+          },
+          {
+            "request_num": 18,
+            "status_code": 503,
+            "response_time_ms": 122.02
+          },
+          {
+            "request_num": 19,
+            "status_code": 503,
+            "response_time_ms": 115.66
+          },
+          {
+            "request_num": 20,
+            "status_code": 503,
+            "response_time_ms": 120.19
+          }
+        ]
+      }
+    }
+  },
+  "summary": {
+    "total": 20,
+    "passed": 2,
+    "failed": 18
+  }
+}
