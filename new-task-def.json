@@ -2,7 +2,7 @@
   "containerDefinitions": [
     {
       "name": "hokusai-api",
-      "image": "932100697590.dkr.ecr.us-east-1.amazonaws.com/hokusai-api:fix-db-auth",
+      "image": "932100697590.dkr.ecr.us-east-1.amazonaws.com/hokusai-api:fix-mlflow-uri",
       "cpu": 0,
       "portMappings": [
         {
@@ -19,7 +19,7 @@
         },
         {
           "name": "MLFLOW_SERVER_URL",
-          "value": "http://mlflow.hokusai.local:5000"
+          "value": "http://mlflow.hokusai-development.local:5000"
         },
         {
           "name": "DB_PORT",

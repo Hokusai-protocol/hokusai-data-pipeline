@@ -23,7 +23,7 @@ class HokusaiModelRegistry:
 
     VALID_MODEL_TYPES = ["lead_scoring", "classification", "regression", "ranking"]
 
-    def __init__(self, tracking_uri: str = "http://mlflow-server:5000") -> None:
+    def __init__(self, tracking_uri: str = "http://mlflow.hokusai-development.local:5000") -> None:
         """Initialize the model registry with MLFlow tracking.
 
         Args:
