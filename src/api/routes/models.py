@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from src.api.middleware.auth import require_auth
+from src.middleware.auth import require_auth
 from src.api.models import (
     ContributorImpactResponse,
     ErrorResponse,
@@ -35,7 +35,7 @@ registry = HokusaiModelRegistry(tracking_uri=settings.mlflow_tracking_uri)
 tracker = PerformanceTracker()
 
 
-@router.get("/models")
+@router.get("/")
 async def list_models(name: str = None):
     """List all registered models."""
     # Mock implementation for tests
@@ -138,7 +138,7 @@ async def register_model(
         ) from e
 
 
-@router.get("/models/{model_name}/{version}")
+@router.get("/{model_name}/{version}")
 async def get_model_by_id(model_name: str, version: str):
     """Get specific model details by name and version."""
     if not mlflow:
@@ -160,7 +160,7 @@ async def get_model_by_id(model_name: str, version: str):
         raise HTTPException(status_code=404, detail=f"Model not found: {model_name}:{version}")
 
 
-@router.patch("/models/{model_name}/{version}")
+@router.patch("/{model_name}/{version}")
 async def update_model_metadata(model_name: str, version: str, update_data: dict):
     """Update model metadata (description, tags)."""
     if not mlflow:
@@ -188,7 +188,7 @@ async def update_model_metadata(model_name: str, version: str, update_data: dict
         raise HTTPException(status_code=500, detail="Failed to update model")
 
 
-@router.delete("/models/{model_name}/{version}")
+@router.delete("/{model_name}/{version}")
 async def delete_model_version(model_name: str, version: str):
     """Delete a specific model version."""
     if not mlflow:
@@ -203,7 +203,7 @@ async def delete_model_version(model_name: str, version: str):
         raise HTTPException(status_code=500, detail="Failed to delete model version")
 
 
-@router.post("/models/{model_name}/{version}/transition")
+@router.post("/{model_name}/{version}/transition")
 async def transition_model_stage(model_name: str, version: str, transition_data: dict):
     """Transition model to different stage."""
     if not mlflow:
@@ -227,7 +227,7 @@ async def transition_model_stage(model_name: str, version: str, transition_data:
         raise HTTPException(status_code=500, detail="Failed to transition model stage")
 
 
-@router.get("/models/compare")
+@router.get("/compare")
 async def compare_models(model1: str, model2: str):
     """Compare two model versions."""
     # Parse model specs (format: ModelName:Version)
@@ -255,7 +255,7 @@ async def compare_models(model1: str, model2: str):
         }
 
 
-@router.post("/models/evaluate")
+@router.post("/evaluate")
 async def evaluate_model(eval_request: dict):
     """Evaluate model performance on a dataset."""
     model_name = eval_request.get("model_name")
@@ -283,7 +283,7 @@ async def evaluate_model(eval_request: dict):
         }
 
 
-@router.get("/models/{model_name}/{version}/metrics")
+@router.get("/{model_name}/{version}/metrics")
 async def get_model_metrics_endpoint(model_name: str, version: str):
     """Get model metrics (training, validation, production)."""
     # Check if get_model_metrics helper is being mocked
@@ -299,7 +299,7 @@ async def get_model_metrics_endpoint(model_name: str, version: str):
         }
 
 
-@router.get("/models/{model_name}/{version}/lineage") 
+@router.get("/{model_name}/{version}/lineage") 
 async def get_model_lineage_by_version(model_name: str, version: str):
     """Get model lineage endpoint."""
     # Mock lineage data
@@ -311,7 +311,7 @@ async def get_model_lineage_by_version(model_name: str, version: str):
     }
 
 
-@router.get("/models/{model_name}/{version}/download")
+@router.get("/{model_name}/{version}/download")
 async def download_model(model_name: str, version: str):
     """Download model artifact file."""
     # Check if helper functions are being mocked
@@ -324,7 +324,7 @@ async def download_model(model_name: str, version: str):
         return {"message": "Download endpoint - would return FileResponse"}
 
 
-@router.get("/models/{model_name}/{version}/predictions")
+@router.get("/{model_name}/{version}/predictions")
 async def get_predictions_history_endpoint(model_name: str, version: str):
     """Get model prediction history and statistics."""
     # Check if get_predictions_history helper is being mocked
@@ -340,7 +340,7 @@ async def get_predictions_history_endpoint(model_name: str, version: str):
         }
 
 
-@router.post("/models/batch")
+@router.post("/batch")
 async def batch_model_operations(batch_request: dict):
     """Perform batch operations on multiple models."""
     operations = batch_request.get("operations", [])
@@ -357,7 +357,7 @@ async def batch_model_operations(batch_request: dict):
     return {"results": results}
 
 
-@router.get("/models/production")
+@router.get("/production")
 async def get_production_models():
     """List all models currently in production."""
     try:

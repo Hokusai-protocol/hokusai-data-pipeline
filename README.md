@@ -317,29 +317,40 @@ Key areas for contribution:
 - Performance optimizations
 - Documentation improvements
 
-## MLflow Endpoint Structure
+## Recent Fixes and Improvements
 
-All MLflow operations are proxied through the Hokusai API at `/api/mlflow/*`. The following endpoints are available:
+The platform has undergone significant improvements to ensure reliable API connectivity:
 
-### Experiments
-- `GET /api/mlflow/api/2.0/mlflow/experiments/search` - List experiments
-- `POST /api/mlflow/api/2.0/mlflow/experiments/create` - Create experiment
-- `GET /api/mlflow/api/2.0/mlflow/experiments/get` - Get experiment details
+### ✅ Resolved Issues
 
-### Runs
-- `POST /api/mlflow/api/2.0/mlflow/runs/create` - Create a new run
-- `POST /api/mlflow/api/2.0/mlflow/runs/update` - Update run status
-- `POST /api/mlflow/api/2.0/mlflow/runs/log-metric` - Log metrics
-- `POST /api/mlflow/api/2.0/mlflow/runs/log-parameter` - Log parameters
+1. **MLflow Proxy Routing Fixed** - Resolved 404 errors when registering models by implementing proper internal service discovery
+2. **Database Authentication Enhanced** - Fixed PostgreSQL connection issues with improved retry logic and fallback support
+3. **Service Discovery Implemented** - Added AWS Cloud Map for internal service communication
+4. **Health Check Improvements** - Enhanced monitoring with circuit breaker patterns and detailed diagnostics
+5. **Artifact Storage Fixed** - Resolved S3 artifact upload/download issues for model registration
 
-### Models
-- `POST /api/mlflow/api/2.0/mlflow/registered-models/create` - Register model
-- `GET /api/mlflow/api/2.0/mlflow/registered-models/search` - Search models
-- `POST /api/mlflow/api/2.0/mlflow/model-versions/create` - Create version
+### API Endpoint Fixes
 
-### Artifacts
-- `GET /api/mlflow/api/2.0/mlflow-artifacts/artifacts/*` - Download artifacts
-- `PUT /api/mlflow/api/2.0/mlflow-artifacts/artifacts/*` - Upload artifacts
+All MLflow operations are now properly proxied through the Hokusai API at `/mlflow/*`. Key improvements:
+
+- **Fixed 404 Errors**: Model registration and artifact uploads now work reliably
+- **Enhanced Path Translation**: Automatic handling of internal vs external MLflow routing  
+- **Improved Error Handling**: Better error messages and debugging information
+- **Circuit Breaker Protection**: Automatic recovery from temporary service disruptions
+
+### Endpoints Available
+
+- **MLflow API**: `/mlflow/api/2.0/mlflow/*` - All standard MLflow operations
+- **MLflow Artifacts**: `/mlflow/api/2.0/mlflow-artifacts/*` - Model artifact management
+- **Health Checks**: `/mlflow/health/mlflow` - Comprehensive service diagnostics
+- **Model Management**: `/models/*` - Hokusai-specific model operations
+- **DSPy Pipeline**: `/api/v1/dspy/*` - DSPy program execution
+
+📖 **Complete Documentation**: 
+- **[API Endpoint Reference](./docs/API_ENDPOINT_REFERENCE.md)** - Comprehensive endpoint documentation
+- **[Authentication Guide](./docs/AUTHENTICATION_GUIDE.md)** - Authentication setup and requirements
+- **[404 Troubleshooting Guide](./docs/404_TROUBLESHOOTING_GUIDE.md)** - Common error resolution
+- **[API Migration Guide](./docs/API_MIGRATION_GUIDE.md)** - Upgrade guide for recent changes
 
 All endpoints require Bearer token authentication using your Hokusai API key.
 

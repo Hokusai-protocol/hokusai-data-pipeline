@@ -1,10 +1,19 @@
-"""Tests for API authentication system."""
+"""Tests for API authentication system.
+
+DEPRECATED: These tests are for the old local authentication system.
+The system has been migrated to use external auth service middleware.
+See test_auth_middleware_fix.py for tests of the new system.
+"""
+
+import pytest
+
+# Skip all tests in this file as they test deprecated functionality
+pytestmark = pytest.mark.skip("Deprecated - migrated to external auth service")
 
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 
 import jwt
-import pytest
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from fastapi import HTTPException

@@ -17,13 +17,13 @@ class TestModelsAPI:
         from fastapi import FastAPI
 
         self.app = FastAPI()
-        self.app.include_router(router)
+        self.app.include_router(router, prefix="/models")
         
         # Mock authentication for tests
         async def mock_require_auth():
             return {"sub": "test-user", "email": "test@example.com"}
         
-        from src.api.middleware.auth import require_auth
+        from src.middleware.auth import require_auth
         self.app.dependency_overrides[require_auth] = mock_require_auth
         
         self.client = TestClient(self.app)
@@ -121,7 +121,7 @@ class TestModelsAPI:
         """Test register model with validation error."""
         request_data = {"description": "Missing name field"}
 
-        response = self.client.post("/register", json=request_data)
+        response = self.client.post("/models/register", json=request_data)
 
         assert response.status_code == 422
 

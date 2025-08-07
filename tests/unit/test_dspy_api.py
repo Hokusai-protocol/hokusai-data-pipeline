@@ -26,7 +26,7 @@ def mock_auth_dependencies():
         return {"sub": "test-user", "email": "test@example.com"}
     
     # Override the dependency in the app
-    from src.api.middleware.auth import require_auth
+    from src.middleware.auth import require_auth
     app.dependency_overrides[require_auth] = mock_require_auth
     
     yield
