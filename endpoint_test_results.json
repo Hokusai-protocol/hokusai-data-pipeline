@@ -1,0 +1,92 @@
+{
+  "timestamp": "2025-08-07T13:44:46.203799",
+  "base_url": "https://registry.hokus.ai",
+  "tests": [
+    {
+      "endpoint": "/docs",
+      "description": "FastAPI documentation",
+      "status": 404,
+      "expected": "200",
+      "success": false,
+      "content_type": "text/plain"
+    },
+    {
+      "endpoint": "/redoc",
+      "description": "ReDoc documentation",
+      "status": 404,
+      "expected": "200",
+      "success": false,
+      "content_type": "text/plain"
+    },
+    {
+      "endpoint": "/openapi.json",
+      "description": "OpenAPI schema",
+      "status": 404,
+      "expected": "200",
+      "success": false,
+      "content_type": "text/plain"
+    },
+    {
+      "endpoint": "/health",
+      "description": "Health check",
+      "status": 200,
+      "expected": "200",
+      "success": true,
+      "content_type": "application/json",
+      "health_status": "degraded"
+    },
+    {
+      "endpoint": "/ready",
+      "description": "Readiness check",
+      "status": 404,
+      "expected": "200",
+      "success": false,
+      "content_type": "text/plain"
+    },
+    {
+      "endpoint": "/live",
+      "description": "Liveness check",
+      "status": 404,
+      "expected": "200",
+      "success": false,
+      "content_type": "text/plain"
+    },
+    {
+      "endpoint": "/models",
+      "description": "List models",
+      "status": 404,
+      "expected": "one of [200, 401]",
+      "success": false,
+      "content_type": "text/plain"
+    },
+    {
+      "endpoint": "/models/test/1",
+      "description": "Get model by ID",
+      "status": 404,
+      "expected": "one of [200, 404, 401]",
+      "success": true,
+      "content_type": "text/plain"
+    },
+    {
+      "endpoint": "/models/compare",
+      "description": "Compare models",
+      "status": 404,
+      "expected": "one of [200, 401]",
+      "success": false,
+      "content_type": "text/plain"
+    },
+    {
+      "endpoint": "/api/health/mlflow",
+      "description": "MLflow health check",
+      "status": 401,
+      "expected": "200",
+      "success": false,
+      "content_type": "application/json"
+    }
+  ],
+  "summary": {
+    "total": 10,
+    "passed": 2,
+    "failed": 8
+  }
+}

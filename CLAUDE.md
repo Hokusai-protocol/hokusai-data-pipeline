@@ -1,222 +1,308 @@
-# CLAUDE.md
+# Hokusai Data Pipeline - Claude Configuration
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+<!-- START: SHARED ARCHITECTURE SECTION - DO NOT MODIFY -->
+# Hokusai Multi-Repository Architecture
 
-## Project Overview
+## System Overview
+Hokusai is a distributed AI model serving platform consisting of five interconnected repositories. When working on ANY feature or fix, you MUST consider cross-repository dependencies and impacts.
 
-This is the Hokusai data evaluation pipeline - a system for evaluating machine learning models with reproducible, attestation-ready outputs. The project is in early development stages with focus on workflow automation tooling.
+## Repository Map
 
-## Related Repositories
+| Repository | Purpose | Location | Primary Domain |
+|------------|---------|----------|----------------|
+| hokusai-infrastructure | Shared AWS infrastructure (Terraform) | `../hokusai-infrastructure` | N/A - Infrastructure only |
+| hokusai-data-pipeline | ML tooling, MLFlow registry, model serving | `../hokusai-data-pipeline` | `api.hokus.ai`, `registry.hokus.ai` |
+| hokusai-auth-service | Authentication, authorization, billing | `../hokusai-auth-service` | `auth.hokus.ai` |
+| hokusai-site | Public website, model marketplace | `../hokusai-site` | `hokus.ai` |
+| hokusai-docs | Documentation (Docusaurus) | `../hokusai-docs` | `docs.hokus.ai` |
 
-The Hokusai platform consists of multiple repositories that work together:
+## Cross-Repository Dependencies
 
-### `../hokusai-infrastructure/` - Centralized Infrastructure Repository
-- **Purpose**: Contains the main Terraform configuration for all Hokusai services
-- **Content**: ALB configurations, ECS services, RDS databases, security groups, networking
-- **Key Files**: Main terraform modules for production infrastructure
-- **Note**: This is where most infrastructure changes should be made
-
-### `../hokusai-auth-service/` - Authentication Service Repository  
-- **Purpose**: Contains the Hokusai authentication service code
-- **Content**: API key validation, authentication middleware, user management
-- **Key Components**: Auth API endpoints, key generation, validation logic
-- **Note**: Changes to auth logic should be made here
-
-When working on infrastructure issues:
-1. Check `../hokusai-infrastructure/` for main Terraform configs
-2. Check `../hokusai-auth-service/` for auth-specific code
-3. Local `infrastructure/terraform/` may contain pipeline-specific configs
-
-## Documentation Structure
-
-The project maintains two separate documentation directories for different audiences:
-
-### `/docs` - Internal Developer Documentation
-- **Purpose**: Technical documentation for contributors and developers working on Hokusai
-- **Content**: Architecture decisions, implementation details, advanced configuration, debugging guides
-- **Format**: Standard Markdown
-- **Audience**: Hokusai contributors, developers extending the platform
-
-### `/documentation` - Public User Documentation  
-- **Purpose**: User-facing documentation for docs.hokus.ai (Docusaurus format)
-- **Content**: Getting started guides, tutorials, API reference, best practices
-- **Format**: Docusaurus-compatible with frontmatter
-- **Audience**: Data scientists using Hokusai, third-party developers
-
-See `DOCUMENTATION_MAP.md` for detailed guidelines on what content belongs where.
-
-## Common Commands
-Common prompts: 
-@~/.claude/my-common-prompts.md
-
-**IMPORTANT**: When working in the hokusai-data-pipeline repository, always use the "Hokusai data pipeline" project in Linear (NOT "Hokusai data platform" or "Hokusai infrastructure"). The correct command is:
-```bash
-npx tsx ~/.claude/tools/get-backlog.ts "Hokusai data pipeline"
+```mermaid
+graph TD
+    I[hokusai-infrastructure] --> DP[hokusai-data-pipeline]
+    I --> AS[hokusai-auth-service]
+    I --> S[hokusai-site]
+    I --> D[hokusai-docs]
+    AS --> DP
+    AS --> S
+    DP --> S
+    S --> D
 ```
 
-### Quick Start for New Users
-```bash
-# Install the Python SDK (recommended approach)
-pip install git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform
+## Service Communication
 
-# Or run local services with Docker
-docker compose -f docker-compose.minimal.yml up -d
-``` 
+### Internal Services (ECS/Service Discovery)
+- Auth Service: `http://auth.hokusai-development.local:8000`
+- MLFlow Service: `http://mlflow.hokusai-development.local:5000`
+- API Service: `http://api.hokusai-development.local:8001`
 
-## Development Commands
+### External Endpoints (via ALB)
+- Auth API: `https://auth.hokus.ai`
+- Data Pipeline API: `https://api.hokus.ai`
+- Model Registry: `https://registry.hokus.ai`
+- Main Site: `https://hokus.ai`
+- Documentation: `https://docs.hokus.ai`
 
-### Python Environment Setup
-```bash
-# Create virtual environment
-python -m venv venv
+## Before Making Changes - CRITICAL CHECKLIST
 
-# Activate virtual environment
-source venv/bin/activate  # On macOS/Linux
-# or
-venv\Scripts\activate  # On Windows
+1. **Check Infrastructure Dependencies**
+   ```bash
+   # From any repo, check infrastructure configuration
+   grep -r "your-change" ../hokusai-infrastructure/environments/
+   ```
 
-# Install dependencies (once requirements.txt exists)
-pip install -r requirements.txt
+2. **Verify Service Communication**
+   - Will this break any API contracts?
+   - Do other services depend on this endpoint?
+   - Are there hardcoded URLs that need updating?
+
+3. **Database Impact**
+   - Does this require schema changes?
+   - Will this affect other services using the same database?
+
+4. **Authentication Flow**
+   - Does this change require auth service updates?
+   - Will this affect JWT token validation?
+
+## Deployment Order (ALWAYS FOLLOW)
+1. Infrastructure changes (Terraform)
+2. Database migrations
+3. Auth service (if changed)
+4. Data pipeline services (if changed)
+5. Site updates
+6. Documentation updates
+
+## Hokusai Architect Agent
+
+When planning features that span multiple repositories, ALWAYS use the hokusai-architect agent:
+
+```typescript
+await Task({
+  subagent_type: "hokusai-architect",
+  description: "Plan multi-repo feature",
+  prompt: `
+    Analyze and plan: ${feature_description}
+    
+    Current repository: hokusai-data-pipeline
+    
+    Requirements:
+    1. Identify ALL affected repositories
+    2. Check for breaking changes
+    3. Define implementation order
+    4. Create tasks for each repository
+    5. Document API changes
+    6. Plan rollback strategy
+  `
+});
 ```
 
-### Running Workflow Tools
+### When to Use hokusai-architect Agent
+- Adding new features that touch multiple services
+- Changing API contracts
+- Modifying authentication/authorization
+- Adding new infrastructure components
+- Planning major refactoring
+- Implementing new ML model serving capabilities
+- Adding billing/payment features
+
+## Environment Variables (Consistent Across Services)
+
 ```bash
-# Run the main workflow automation
-node tools/workflow.js
+# Standard across all services
+ENVIRONMENT=development|staging|production
+AWS_REGION=us-east-1
 
-# Get Linear backlog
-npx tsx ~/.claude/tools/get-backlog.ts "Hokusai data pipeline"
+# Service discovery
+MLFLOW_SERVER_URL=http://mlflow.hokusai-development.local:5000
+AUTH_SERVICE_URL=https://auth.hokus.ai  # External
+AUTH_SERVICE_INTERNAL_URL=http://auth.hokusai-development.local:8000  # Internal
 
-# Environment setup
-# Ensure .env file contains LINEAR_API_KEY
+# Database connections (from Secrets Manager)
+DATABASE_URL=postgresql://[user]@[host]:5432/[database]
 ```
 
-### TypeScript Execution
-Since there's no formal build system yet, TypeScript files are run directly:
+## Common Pitfalls to Avoid
+
+1. **Never hardcode service URLs** - Use environment variables
+2. **Don't skip infrastructure repo** when adding AWS resources
+3. **Always update service discovery** when changing internal endpoints
+4. **Check ALB routing rules** before adding new paths
+5. **Verify CORS settings** for cross-domain requests
+6. **Test inter-service auth** after any auth changes
+7. **Update docs repo** for any API changes
+
+## Quick Commands for Cross-Repo Work
+
 ```bash
-# Run TypeScript files with tsx or ts-node
-npx tsx tools/get-backlog.ts
+# Check all repos for a specific string/configuration
+for repo in infrastructure data-pipeline auth-service site docs; do
+  echo "=== hokusai-$repo ==="
+  grep -r "search-term" ../hokusai-$repo/ --include="*.ts" --include="*.tf" --include="*.yml"
+done
+
+# Check service health across all endpoints
+for endpoint in auth.hokus.ai api.hokus.ai registry.hokus.ai; do
+  echo "=== $endpoint ==="
+  curl -s https://$endpoint/health | jq .
+done
+
+# View logs for all ECS services
+aws logs tail /ecs/hokusai-auth-development --follow &
+aws logs tail /ecs/hokusai-api-development --follow &
+aws logs tail /ecs/hokusai-mlflow-development --follow &
+```
+<!-- END: SHARED ARCHITECTURE SECTION -->
+
+# Data Pipeline Service Specific Configuration
+
+## This Repository (hokusai-data-pipeline)
+
+### Primary Responsibilities
+- MLFlow server for model registry and tracking
+- API service for model serving and inference
+- Data processing pipelines
+- Model deployment and versioning
+- Integration with S3 for model storage
+
+### Key Services
+
+#### 1. MLFlow Service
+- **Port**: 5000
+- **Internal URL**: `http://mlflow.hokusai-development.local:5000`
+- **External URL**: `https://registry.hokus.ai`
+- **Database**: PostgreSQL (mlflow_db)
+- **ECS Service**: `hokusai-mlflow-development`
+
+#### 2. API Service
+- **Port**: 8001
+- **Internal URL**: `http://api.hokusai-development.local:8001`
+- **External URL**: `https://api.hokus.ai`
+- **ECS Service**: `hokusai-api-development`
+- **Depends on**: MLFlow service, Auth service
+
+### Infrastructure Dependencies
+- **ECS Cluster**: `hokusai-development`
+- **ALBs**: 
+  - Main ALB: `hokusai-main-development`
+  - Registry ALB: `hokusai-registry-development`
+  - Data Pipeline ALB: `hokusai-dp-development`
+- **Database**: RDS PostgreSQL instance `hokusai-mlflow-development`
+- **S3 Buckets**: Model artifacts storage
+- **Service Discovery Namespace**: `hokusai-development.local`
+
+### API Endpoints
+
+#### Public API (`api.hokus.ai`)
+- `/api/v1/models` - List available models
+- `/api/v1/models/{id}` - Get model details
+- `/api/v1/models/{id}/predict` - Run inference
+- `/api/v1/health` - Health check
+
+#### Registry API (`registry.hokus.ai`)
+- `/api/2.0/mlflow/*` - MLFlow tracking API
+- `/api/2.0/preview/mlflow/*` - MLFlow model registry API
+- `/health` - Health check
+
+### Authentication Integration
+- All API endpoints require JWT tokens from auth service
+- Internal service-to-service auth uses shared secrets
+- MLFlow UI authentication integrated with auth service
+
+### Database Schema
+- MLFlow tables (experiments, runs, models, etc.)
+- Custom tables for model metadata
+- Audit logs for predictions
+
+### Environment-Specific Configuration
+
+```bash
+# Development
+MLFLOW_SERVER_URL=http://mlflow.hokusai-development.local:5000
+AUTH_SERVICE_URL=https://auth.hokus.ai
+DB_HOST=hokusai-mlflow-development.cmqduyfpzmbr.us-east-1.rds.amazonaws.com
+DB_NAME=mlflow_db
+
+# Production (when deployed)
+MLFLOW_SERVER_URL=http://mlflow.hokusai-production.local:5000
+AUTH_SERVICE_URL=https://auth.hokus.ai
+DB_HOST=hokusai-mlflow-production.xxxxx.rds.amazonaws.com
+DB_NAME=mlflow_db
 ```
 
-## Architecture Overview
+### Common Tasks
 
-### Core Pipeline Components (To Be Implemented in Python)
-1. **Data Preparation Module**: Processes golden query dataset with stratified sampling
-2. **Inference Module**: Uses Metaflow for distributed processing
-3. **Evaluation Module**: Computes metrics (precision, recall, F1)
-4. **Reporting Module**: Generates JSON reports and visualizations
-5. **Comparison Module**: Compares current vs baseline models
-6. **Attestation Module**: Produces zk/attestation-ready proofs
-7. **Monitoring Module**: Tracks processing and errors
+#### Deploy New Model
+1. Train and register model with MLFlow
+2. Update model metadata in database
+3. Deploy to S3
+4. Update API service configuration
+5. Test inference endpoint
+6. Update documentation
 
-### Current Implementation: Workflow Automation
-- **Linear Integration**: `tools/linear-tasks.ts` manages task retrieval from Linear
-- **Git Automation**: `tools/git.ts` handles branch creation
-- **GitHub Integration**: `tools/github.ts` manages PR creation
-- **Workflow Runner**: `tools/workflow.js` orchestrates the development process
+#### Update API Endpoints
+1. Check if infrastructure changes needed (ALB rules)
+2. Update API service code
+3. Test with auth service integration
+4. Update hokusai-site for UI changes
+5. Update API documentation in hokusai-docs
 
-### Key Architectural Decisions
-- **Python SDK**: All pipeline implementation will use Python
-- **Metaflow**: Python-based framework for pipeline orchestration
-- **MLFlow**: For experiment tracking and metrics storage
-- **Deterministic Execution**: Fixed random seeds for reproducibility
-- **Modular Design**: Each pipeline step as a separate Metaflow step
-- **Error Handling**: Comprehensive error tracking with structured logging
+#### Database Migrations
+```bash
+# Run migrations
+python manage.py migrate
 
-## Development Workflow
+# Check migration status
+python manage.py showmigrations
+```
 
-The project uses a structured 7-step workflow (defined in `tools/prompts/workflow-prompt.md`):
-1. Retrieve task from Linear
-2. Generate PRD from task description
-3. Create detailed implementation tasks
-4. Create feature branch
-5. Update TODO.md with tasks
-6. Implement features (AI-assisted)
-7. Create pull request
+### Testing
+```bash
+# Unit tests
+pytest tests/
 
-## Important Context
+# Integration tests (requires running services)
+pytest tests/integration/
 
-### Pipeline Requirements (from hokusai_evaluation_pipeline.md)
-- Must handle golden query datasets with 10k-100k queries
-- Stratified sampling required to reduce dataset size
-- Results must be deterministic and reproducible
-- Output includes zk-proof ready attestations
-- Support for A/B testing between model versions
+# Test MLFlow connection
+curl http://localhost:5000/health
 
-### Technology Stack
-- **Pipeline Language**: Python
-- **Pipeline Framework**: Metaflow (Python)
-- **Metrics**: MLFlow (Python)
-- **Workflow Automation**: TypeScript/Node.js
-- **Task Management**: Linear API
-- **Version Control**: Git/GitHub
+# Test API service
+curl http://localhost:8001/api/v1/health
+```
 
-### Token-Aware MLflow Model Registry
-The project now includes token-aware model registration capabilities:
-- **register_tokenized_model()**: Register models with Hokusai token metadata
-- **validate_hokusai_tags()**: Ensure required token metadata is present
-- **get_tokenized_model()**: Retrieve models by name and version
-- **list_models_by_token()**: Find all models associated with a token
-- **validate_token_id()**: Enforce token ID naming conventions
+### Deployment
+```bash
+# Build and push Docker images
+docker build -t hokusai/api:latest -f Dockerfile.api .
+docker build -t hokusai/mlflow:latest -f Dockerfile.mlflow .
 
-Required tags for tokenized models:
-- `hokusai_token_id`: Token identifier (e.g., "msg-ai")
-- `benchmark_metric`: Performance metric name
-- `benchmark_value`: Baseline performance value
+# Push to ECR
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_REGISTRY
+docker tag hokusai/api:latest $ECR_REGISTRY/hokusai/api:latest
+docker push $ECR_REGISTRY/hokusai/api:latest
 
-### Metric Logging Convention
-The project now uses standardized metric logging with categories:
-- **usage:** - User metrics (e.g., `usage:reply_rate`)
-- **model:** - Model metrics (e.g., `model:accuracy`)
-- **pipeline:** - Pipeline metrics (e.g., `pipeline:duration_seconds`)
-- **custom:** - Custom metrics (e.g., `custom:delta_one_score`)
+# Update ECS service
+aws ecs update-service --cluster hokusai-development --service hokusai-api-development --force-new-deployment
+```
 
-Use the helper functions in `src/utils/metrics.py`:
-- `log_usage_metrics()` - Automatically prefixes with "usage:"
-- `log_model_metrics()` - Automatically prefixes with "model:"
-- `log_pipeline_metrics()` - Automatically prefixes with "pipeline:"
+### Monitoring
+- CloudWatch Logs: `/ecs/hokusai-api-development`, `/ecs/hokusai-mlflow-development`
+- CloudWatch Metrics: ECS service metrics, RDS metrics
+- Application metrics: Custom CloudWatch metrics for predictions, latency
 
-### Python Dependencies (To Be Added)
-- `metaflow`: Pipeline orchestration
-- `mlflow`: Experiment tracking
-- `pandas`: Data manipulation
-- `numpy`: Numerical operations
-- `scikit-learn`: For stratified sampling
-- `pytest`: Testing framework
+### Critical Files
+- `src/api/` - API service code
+- `src/mlflow/` - MLFlow configuration
+- `migrations/` - Database migrations
+- `docker/` - Dockerfile definitions
+- `terraform/` - Service-specific infrastructure (if any)
+- `.env.example` - Environment variable template
 
-### Environment Variables
-- `LINEAR_API_KEY`: Required for Linear API access
-
-## Notes for Implementation
-
-When implementing the actual pipeline in Python:
-- Follow the 7-step module structure in hokusai_evaluation_pipeline.md
-- Use Python's `random.seed()` and `numpy.random.seed()` for reproducibility
-- Implement comprehensive error logging with Python's logging module
-- Create pytest unit tests for each module
-- Use Metaflow's @step decorators for each pipeline stage
-- Store all metrics in MLFlow for tracking
-- Follow PEP 8 style guidelines for Python code
-
-## Documentation Guidelines
-
-When updating documentation:
-
-### For User-Facing Features
-- Update `/documentation` directory (Docusaurus format)
-- Include frontmatter with id, title, sidebar_label, sidebar_position
-- Focus on how to use features, not implementation details
-- Add to appropriate section in `documentation/sidebars.js`
-
-### For Technical Implementation
-- Update `/docs` directory (standard Markdown)
-- Include architecture diagrams and technical details
-- Document design decisions and trade-offs
-- Link to relevant code sections
-
-### Documentation Best Practices
-- Use the Python SDK as the primary example in user docs
-- Show REST API as alternative for non-Python users
-- Keep installation instructions simple (2 methods max)
-- Move complex options to advanced sections
-- Test all code examples before documenting
+### Before Making Changes
+1. Check if infrastructure changes needed in `../hokusai-infrastructure`
+2. Verify auth token validation still works
+3. Test MLFlow connectivity
+4. Ensure model serving performance acceptable
+5. Update API documentation
+6. Coordinate with hokusai-site for UI changes

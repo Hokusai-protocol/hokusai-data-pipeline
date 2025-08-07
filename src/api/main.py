@@ -11,8 +11,9 @@ from slowapi.util import get_remote_address
 
 from src.middleware.auth import APIKeyAuthMiddleware
 from src.middleware.rate_limiter import RateLimitMiddleware
-from src.api.routes import dspy, health, models, health_mlflow
-from src.api.routes import mlflow_proxy_improved as mlflow_proxy
+from src.api.routes import dspy, health, models, health_mlflow, mlflow_proxy_improved as mlflow_proxy
+# TODO: Fix missing APIKeyModel dependency before enabling auth
+# from src.api import auth
 from src.api.utils.config import get_settings
 
 # Configure logging
@@ -55,10 +56,13 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(health.router, tags=["health"])
 app.include_router(models.router, prefix="/models", tags=["models"])
 app.include_router(dspy.router, tags=["dspy"])
+# TODO: Enable auth router after fixing APIKeyModel dependency
+# app.include_router(auth.router, tags=["authentication"])
+
+# MLflow proxy - single mount point at /mlflow (remove duplicate)
 app.include_router(mlflow_proxy.router, prefix="/mlflow", tags=["mlflow"])
-# Add /api/mlflow mount point to support standard MLflow client paths
-app.include_router(mlflow_proxy.router, prefix="/api/mlflow", tags=["mlflow"])
-# Add MLflow health check endpoints at /api/health
+
+# MLflow health check endpoints at /api/health
 app.include_router(health_mlflow.router, prefix="/api/health", tags=["health"])
 
 
