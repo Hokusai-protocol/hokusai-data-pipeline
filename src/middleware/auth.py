@@ -107,7 +107,8 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             "/docs",
             "/openapi.json",
             "/redoc",
-            "/favicon.ico"
+            "/favicon.ico",
+            "/api/v1/dspy/health"
         ]
     
     async def validate_with_auth_service(
@@ -301,3 +302,39 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         except Exception as e:
             # Don't fail on usage logging errors
             logger.debug(f"Failed to log usage: {e}")
+
+
+# Compatibility functions for routes that expect these functions
+from typing import Dict, Any
+from fastapi import Depends, HTTPException, status, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+security = HTTPBearer()
+
+
+async def require_auth(request: Request) -> Dict[str, Any]:
+    """Dependency for requiring authentication.
+    
+    This function is used by routes and expects the APIKeyAuthMiddleware
+    to have already validated the API key and set request.state attributes.
+    """
+    # Check if middleware has validated the request
+    if not hasattr(request.state, 'user_id'):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required"
+        )
+    
+    # Return user information from request state
+    return {
+        "user_id": request.state.user_id,
+        "api_key_id": getattr(request.state, 'api_key_id', None),
+        "service_id": getattr(request.state, 'service_id', None),
+        "scopes": getattr(request.state, 'scopes', []),
+        "rate_limit_per_hour": getattr(request.state, 'rate_limit_per_hour', None)
+    }
+
+
+async def get_current_user(request: Request) -> Dict[str, Any]:
+    """Get current authenticated user - same as require_auth."""
+    return await require_auth(request)

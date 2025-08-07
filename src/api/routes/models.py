@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from src.api.middleware.auth import require_auth
+from src.middleware.auth import require_auth
 from src.api.models import (
     ContributorImpactResponse,
     ErrorResponse,

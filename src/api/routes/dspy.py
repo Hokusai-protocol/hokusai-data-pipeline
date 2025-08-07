@@ -4,10 +4,10 @@ import logging
 import uuid
 from typing import Any, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from src.api.middleware.auth import require_auth
+from src.middleware.auth import require_auth
 from src.services.dspy_pipeline_executor import DSPyPipelineExecutor, ExecutionMode
 from src.utils.config import get_config
 
@@ -113,7 +113,8 @@ class DSPyProgramInfo(BaseModel):
 
 @router.post("/execute", response_model=DSPyExecutionResponse)
 async def execute_dspy_program(
-    request: DSPyExecutionRequest,
+    request_data: DSPyExecutionRequest,
+    request: Request,
     background_tasks: BackgroundTasks,
     token_data: dict = Depends(require_auth),
 ):
@@ -127,19 +128,19 @@ async def execute_dspy_program(
 
         # Parse execution mode
         mode = ExecutionMode.NORMAL
-        if request.mode:
-            mode = ExecutionMode[request.mode.upper()]
+        if request_data.mode:
+            mode = ExecutionMode[request_data.mode.upper()]
 
         # Execute program
-        result = executor.execute(model_id=request.program_id, inputs=request.inputs, mode=mode)
+        result = executor.execute(model_id=request_data.program_id, inputs=request_data.inputs, mode=mode)
 
         # Generate execution ID
         execution_id = str(uuid.uuid4())
 
         # Log execution for tracking
         logger.info(
-            f"DSPy execution {execution_id} for user {token_data.get('sub')}: "
-            f"program={request.program_id}, success={result.success}"
+            f"DSPy execution {execution_id} for user {token_data.get('user_id')}: "
+            f"program={request_data.program_id}, success={result.success}"
         )
 
         return DSPyExecutionResponse(
@@ -161,7 +162,8 @@ async def execute_dspy_program(
 
 @router.post("/execute/batch", response_model=DSPyBatchExecutionResponse)
 async def execute_dspy_batch(
-    request: DSPyBatchExecutionRequest,
+    request_data: DSPyBatchExecutionRequest,
+    request: Request,
     background_tasks: BackgroundTasks,
     token_data: dict = Depends(require_auth),
 ):
@@ -175,7 +177,7 @@ async def execute_dspy_batch(
 
         # Execute batch
         results = executor.execute_batch(
-            model_id=request.program_id, inputs_list=request.inputs_list
+            model_id=request_data.program_id, inputs_list=request_data.inputs_list
         )
 
         # Generate batch ID
@@ -201,8 +203,8 @@ async def execute_dspy_batch(
             )
 
         logger.info(
-            f"DSPy batch execution {batch_id} for user {token_data.get('sub')}: "
-            f"program={request.program_id}, total={len(results)}, "
+            f"DSPy batch execution {batch_id} for user {token_data.get('user_id')}: "
+            f"program={request_data.program_id}, total={len(results)}, "
             f"successful={successful}, failed={failed}"
         )
 
@@ -222,7 +224,7 @@ async def execute_dspy_batch(
 
 
 @router.get("/programs", response_model=list[DSPyProgramInfo])
-async def list_dspy_programs(token_data: dict = Depends(require_auth)):
+async def list_dspy_programs(request: Request, token_data: dict = Depends(require_auth)):
     """List available DSPy programs.
 
     Returns a list of all registered DSPy programs that can be executed.
@@ -248,7 +250,7 @@ async def list_dspy_programs(token_data: dict = Depends(require_auth)):
                 )
             )
 
-        logger.info(f"Listed {len(programs)} DSPy programs for user {token_data.get('sub')}")
+        logger.info(f"Listed {len(programs)} DSPy programs for user {token_data.get('user_id')}")
 
         return programs
 
@@ -259,7 +261,7 @@ async def list_dspy_programs(token_data: dict = Depends(require_auth)):
 
 @router.get("/execution/{execution_id}")
 async def get_execution_details(
-    execution_id: str, token_data: dict = Depends(require_auth)
+    execution_id: str, request: Request, token_data: dict = Depends(require_auth)
 ) -> dict[str, Any]:
     """Get details of a specific execution.
 
@@ -271,7 +273,7 @@ async def get_execution_details(
 
 
 @router.get("/stats")
-async def get_execution_stats(token_data: dict = Depends(require_auth)):
+async def get_execution_stats(request: Request, token_data: dict = Depends(require_auth)):
     """Get execution statistics for the DSPy pipeline executor.
 
     Returns aggregated statistics about DSPy executions including
@@ -293,7 +295,7 @@ async def get_execution_stats(token_data: dict = Depends(require_auth)):
 
 
 @router.post("/cache/clear")
-async def clear_cache(token_data: dict = Depends(require_auth)):
+async def clear_cache(request: Request, token_data: dict = Depends(require_auth)):
     """Clear the DSPy program cache.
 
     This endpoint clears cached programs and results, forcing fresh loads
@@ -303,7 +305,7 @@ async def clear_cache(token_data: dict = Depends(require_auth)):
         executor = get_executor()
         executor.clear_cache()
 
-        logger.info(f"DSPy cache cleared by user {token_data.get('sub')}")
+        logger.info(f"DSPy cache cleared by user {token_data.get('user_id')}")
 
         return {"message": "Cache cleared successfully"}
 
