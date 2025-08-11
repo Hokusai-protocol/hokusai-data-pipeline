@@ -95,15 +95,38 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                     redis_host = os.getenv("REDIS_HOST", "localhost")
                     redis_port = os.getenv("REDIS_PORT", "6379")
                     redis_auth_token = os.getenv("REDIS_AUTH_TOKEN")
-                    if redis_auth_token:
-                        redis_url = f"redis://:{redis_auth_token}@{redis_host}:{redis_port}/0"
+                    
+                    # Check if we need TLS (ElastiCache with encryption)
+                    if redis_host.startswith("master.hokusai") or redis_host.endswith(".cache.amazonaws.com"):
+                        # ElastiCache with transit encryption requires rediss://
+                        if redis_auth_token:
+                            redis_url = f"rediss://:{redis_auth_token}@{redis_host}:{redis_port}/0"
+                        else:
+                            # ElastiCache without auth but with TLS
+                            redis_url = f"rediss://{redis_host}:{redis_port}/0"
+                        logger.info(f"Using TLS connection to Redis at {redis_host}")
                     else:
-                        redis_url = f"redis://{redis_host}:{redis_port}/0"
+                        # Local Redis without TLS
+                        if redis_auth_token:
+                            redis_url = f"redis://:{redis_auth_token}@{redis_host}:{redis_port}/0"
+                        else:
+                            redis_url = f"redis://{redis_host}:{redis_port}/0"
                 
-                self.cache = redis.from_url(redis_url, decode_responses=True)
-                # Test connection
-                self.cache.ping()
-                logger.info("Redis cache connected for auth middleware")
+                # Only try to connect if not localhost (avoid hanging on local dev)
+                if "localhost" not in redis_url and "127.0.0.1" not in redis_url:
+                    self.cache = redis.from_url(
+                        redis_url, 
+                        decode_responses=True,
+                        socket_connect_timeout=2,  # 2 second connection timeout
+                        socket_timeout=2,  # 2 second operation timeout
+                        ssl_cert_reqs=None  # Allow self-signed certs for ElastiCache
+                    )
+                    # Test connection with timeout
+                    self.cache.ping()
+                    logger.info("Redis cache connected for auth middleware")
+                else:
+                    logger.info("Skipping Redis connection for localhost")
+                    self.cache = None
             except Exception as e:
                 # Cache is optional - continue without it
                 logger.warning(f"Redis cache not available: {e}")
