@@ -104,11 +104,16 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         # Paths that don't require authentication
         self.excluded_paths = excluded_paths or [
             "/health",
+            "/ready",
+            "/live",
+            "/version",
+            "/metrics",
             "/docs",
             "/openapi.json",
             "/redoc",
             "/favicon.ico",
-            "/api/v1/dspy/health"
+            "/api/v1/dspy/health",
+            "/api/health/mlflow"
         ]
     
     async def validate_with_auth_service(
