@@ -89,7 +89,17 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         # Initialize cache if not provided
         if cache is None:
             try:
-                redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+                # Build Redis URL from components or use REDIS_URL directly
+                redis_url = os.getenv("REDIS_URL")
+                if not redis_url:
+                    redis_host = os.getenv("REDIS_HOST", "localhost")
+                    redis_port = os.getenv("REDIS_PORT", "6379")
+                    redis_auth_token = os.getenv("REDIS_AUTH_TOKEN")
+                    if redis_auth_token:
+                        redis_url = f"redis://:{redis_auth_token}@{redis_host}:{redis_port}/0"
+                    else:
+                        redis_url = f"redis://{redis_host}:{redis_port}/0"
+                
                 self.cache = redis.from_url(redis_url, decode_responses=True)
                 # Test connection
                 self.cache.ping()
