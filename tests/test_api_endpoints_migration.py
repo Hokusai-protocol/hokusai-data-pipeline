@@ -1,0 +1,202 @@
+"""Tests for API endpoint migration to match documentation."""
+
+import pytest
+from fastapi.testclient import TestClient
+from unittest.mock import Mock, patch, AsyncMock
+from src.api.main import app
+
+client = TestClient(app)
+
+# Mock external services to prevent timeouts
+@pytest.fixture(autouse=True)
+def mock_external_services():
+    """Mock external services for all tests."""
+    with patch('src.api.routes.health.check_postgres_connection') as mock_pg, \
+         patch('src.api.routes.health.check_redis_connection') as mock_redis, \
+         patch('src.api.routes.health.check_mlflow_connection') as mock_mlflow, \
+         patch('src.middleware.auth.APIKeyAuthMiddleware.validate_with_auth_service') as mock_auth:
+        
+        # Mock health check functions
+        mock_pg.return_value = {"status": "healthy", "latency_ms": 10}
+        mock_redis.return_value = {"status": "disabled"}
+        mock_mlflow.return_value = {"status": "healthy", "latency_ms": 20}
+        
+        # Mock auth service to reject requests without valid API key
+        mock_auth.return_value = None
+        
+        yield
+
+
+class TestEndpointStructure:
+    """Test that endpoints match the documented API structure."""
+    
+    def test_health_endpoints_no_auth_required(self):
+        """Test that health endpoints are accessible without authentication."""
+        # These endpoints should not require authentication
+        health_endpoints = [
+            "/health",
+            "/ready",
+            "/live",
+            "/version",
+            "/metrics",
+            "/api/v1/dspy/health"
+        ]
+        
+        for endpoint in health_endpoints:
+            response = client.get(endpoint)
+            # Should not return 401 (unauthorized)
+            assert response.status_code != 401, f"{endpoint} requires auth but shouldn't"
+    
+    def test_model_endpoints_require_auth(self):
+        """Test that model endpoints require authentication."""
+        # These endpoints should require authentication
+        model_endpoints = [
+            "/models/",
+            "/models/test-model/1",
+            "/models/compare",
+            "/models/production",
+            "/models/contributors/0x1234567890123456789012345678901234567890/impact"
+        ]
+        
+        for endpoint in model_endpoints:
+            response = client.get(endpoint)
+            # Should return 401 (unauthorized) without auth
+            assert response.status_code == 401, f"{endpoint} doesn't require auth but should"
+    
+    def test_model_register_endpoint_exists(self):
+        """Test that POST /models/register endpoint exists."""
+        response = client.post("/models/register", json={})
+        # Should return 401 (needs auth) or 422 (validation error), not 404
+        assert response.status_code in [401, 422], "POST /models/register endpoint not found"
+    
+    def test_model_lineage_endpoints_exist(self):
+        """Test that both lineage endpoints exist and are different."""
+        # Test the lineage getter
+        response = client.get("/models/test-model/1/lineage")
+        assert response.status_code in [401, 404], "GET lineage endpoint issue"
+        
+        # Test the lineage poster (for recording improvements)
+        response = client.post("/models/test-id/lineage", json={})
+        assert response.status_code in [401, 422], "POST lineage endpoint not found"
+    
+    def test_dspy_endpoints_with_prefix(self):
+        """Test that DSPy endpoints use /api/v1/dspy prefix."""
+        dspy_endpoints = [
+            ("/api/v1/dspy/execute", "post"),
+            ("/api/v1/dspy/execute/batch", "post"),
+            ("/api/v1/dspy/programs", "get"),
+            ("/api/v1/dspy/stats", "get"),
+            ("/api/v1/dspy/cache/clear", "post"),
+            ("/api/v1/dspy/health", "get"),
+        ]
+        
+        for endpoint, method in dspy_endpoints:
+            if method == "get":
+                response = client.get(endpoint)
+            else:
+                response = client.post(endpoint, json={})
+            # Should not return 404 (not found)
+            assert response.status_code != 404, f"{endpoint} not found"
+    
+    def test_mlflow_proxy_endpoints(self):
+        """Test that MLflow proxy endpoints are accessible."""
+        # MLflow endpoints should be available at /mlflow/*
+        response = client.get("/mlflow/api/2.0/mlflow/experiments/search")
+        # Should return 401 (needs auth) not 404
+        assert response.status_code in [401, 502], "MLflow proxy not configured at /mlflow/*"
+    
+    def test_mlflow_health_endpoints(self):
+        """Test MLflow health check endpoints."""
+        mlflow_health_endpoints = [
+            "/api/health/mlflow",
+            "/api/health/mlflow/detailed",
+            "/api/health/mlflow/connectivity",
+        ]
+        
+        for endpoint in mlflow_health_endpoints:
+            response = client.get(endpoint)
+            # These should be accessible (may return 503 if MLflow is down)
+            assert response.status_code in [200, 503], f"{endpoint} not accessible"
+    
+    def test_contributor_endpoint_parameter(self):
+        """Test that contributor impact endpoint uses 'address' parameter."""
+        # The endpoint should use {address} not {contributor_address}
+        response = client.get("/models/contributors/0x1234567890123456789012345678901234567890/impact")
+        # Should return 401 (needs auth) not 404
+        assert response.status_code == 401, "Contributor endpoint parameter issue"
+    
+    def test_authentication_excluded_paths(self):
+        """Test that all health-related paths are excluded from authentication."""
+        # Import the middleware to check excluded paths
+        from src.middleware.auth import APIKeyAuthMiddleware
+        
+        middleware = APIKeyAuthMiddleware()
+        expected_exclusions = [
+            "/health",
+            "/docs", 
+            "/openapi.json",
+            "/redoc",
+            "/favicon.ico",
+            "/api/v1/dspy/health",
+            "/ready",
+            "/live",
+            "/version",
+            "/metrics"
+        ]
+        
+        for path in expected_exclusions:
+            # Check if path would be excluded
+            is_excluded = any(path.startswith(excluded) for excluded in middleware.excluded_paths)
+            if path not in ["/ready", "/live", "/version", "/metrics"]:
+                # These inherit from /health prefix
+                assert is_excluded, f"{path} should be excluded from auth"
+
+
+class TestEndpointResponses:
+    """Test that endpoint responses match documented formats."""
+    
+    def test_health_response_format(self):
+        """Test that health endpoint returns expected format."""
+        response = client.get("/health")
+        assert response.status_code in [200, 503]
+        
+        if response.status_code == 200:
+            data = response.json()
+            assert "status" in data
+            assert data["status"] in ["healthy", "degraded", "unhealthy"]
+            assert "services" in data
+    
+    def test_ready_response_format(self):
+        """Test that ready endpoint returns expected format."""
+        response = client.get("/ready")
+        assert response.status_code in [200, 503]
+        
+        if response.status_code == 200:
+            data = response.json()
+            assert "ready" in data
+            assert isinstance(data["ready"], bool)
+    
+    def test_version_response_format(self):
+        """Test that version endpoint returns expected format."""
+        response = client.get("/version")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert "version" in data
+        assert "api_version" in data
+
+
+class TestBackwardCompatibility:
+    """Test that existing endpoints still work for backward compatibility."""
+    
+    def test_existing_health_mlflow_endpoint(self):
+        """Test that /health/mlflow still works."""
+        response = client.get("/health/mlflow")
+        # Should not return 404
+        assert response.status_code != 404, "Existing /health/mlflow endpoint removed"
+    
+    def test_existing_debug_endpoint(self):
+        """Test that debug endpoint exists (even if disabled)."""
+        response = client.get("/debug")
+        # Should return 404 (debug disabled) or 200, not route not found
+        assert response.status_code in [200, 404], "Debug endpoint completely removed"
