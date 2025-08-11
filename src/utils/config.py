@@ -50,6 +50,9 @@ class PipelineConfig:
     # Message queue settings
     message_queue_type: str = "redis"
     redis_url: str = "redis://localhost:6379/0"
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_auth_token: Optional[str] = None
     message_queue_name: str = "hokusai:model_ready_queue"
     message_retry_max: int = 3
     message_retry_base_delay: float = 1.0
@@ -82,7 +85,20 @@ class PipelineConfig:
         
         # Message queue settings
         self.message_queue_type = os.getenv("MESSAGE_QUEUE_TYPE", self.message_queue_type)
-        self.redis_url = os.getenv("REDIS_URL", self.redis_url)
+        self.redis_host = os.getenv("REDIS_HOST", self.redis_host)
+        self.redis_port = int(os.getenv("REDIS_PORT", str(self.redis_port)))
+        self.redis_auth_token = os.getenv("REDIS_AUTH_TOKEN", self.redis_auth_token)
+        
+        # Build Redis URL if not explicitly provided
+        if os.getenv("REDIS_URL"):
+            self.redis_url = os.getenv("REDIS_URL", self.redis_url)
+        elif self.redis_auth_token:
+            # Use authenticated connection for ElastiCache
+            self.redis_url = f"redis://:{self.redis_auth_token}@{self.redis_host}:{self.redis_port}/0"
+        else:
+            # Use unauthenticated connection for local development
+            self.redis_url = f"redis://{self.redis_host}:{self.redis_port}/0"
+            
         self.message_queue_name = os.getenv("MESSAGE_QUEUE_NAME", self.message_queue_name)
         self.message_retry_max = int(os.getenv("MESSAGE_RETRY_MAX", str(self.message_retry_max)))
         self.message_retry_base_delay = float(os.getenv("MESSAGE_RETRY_BASE_DELAY", str(self.message_retry_base_delay)))
@@ -112,6 +128,9 @@ class PipelineConfig:
             "test_size": self.test_size,
             "message_queue_type": self.message_queue_type,
             "redis_url": self.redis_url,
+            "redis_host": self.redis_host,
+            "redis_port": self.redis_port,
+            "redis_auth_token": self.redis_auth_token,
             "message_queue_name": self.message_queue_name,
             "message_retry_max": self.message_retry_max,
             "message_retry_base_delay": self.message_retry_base_delay,

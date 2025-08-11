@@ -298,13 +298,22 @@ uvicorn src.api.main:app --reload
 
 ## Event-Driven Model Deployment
 
-When models are registered and meet baseline performance requirements, the platform automatically emits `model_ready_to_deploy` messages to a Redis queue. This enables:
+When models are registered and meet baseline performance requirements, the platform automatically emits `model_ready_to_deploy` messages to a Redis ElastiCache queue. This enables:
 
 - **Automated Token Deployment**: Downstream systems can listen for these events to trigger token minting
 - **Real-time Notifications**: Get notified immediately when models are deployment-ready
 - **Audit Trail**: Track all deployment-ready models through the message queue
+- **Cross-Service Communication**: Events are published to the centralized Redis ElastiCache cluster for consumption by hokusai-site and hokusai-token services
 
-See [Message Queue Setup Guide](./docs/message-queue-setup.md) for configuration details.
+### Redis Queue Configuration
+
+The platform is integrated with the deployed Redis ElastiCache infrastructure:
+- **Endpoint**: `master.hokusai-redis-development.lenvj6.use1.cache.amazonaws.com:6379`
+- **Authentication**: Secured with auth tokens from AWS Secrets Manager
+- **Queue Name**: `hokusai:model_ready_queue`
+- **Message Format**: JSON envelopes containing model metadata, metrics, and deployment information
+
+See [Redis Queue Deployment Guide](./docs/REDIS_QUEUE_DEPLOYMENT.md) for configuration details.
 
 ## Contributing
 

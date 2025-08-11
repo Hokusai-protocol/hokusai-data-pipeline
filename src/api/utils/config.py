@@ -143,11 +143,6 @@ class Settings(BaseSettings):
         encoded_password = quote_plus(self.effective_database_password)
         return f"postgresql://{self.effective_database_user}:{encoded_password}@{self.effective_database_host}:{self.effective_database_port}/{self.database_fallback_name}"
 
-    # Redis (optional - not currently deployed)
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    redis_enabled: bool = False  # Redis is optional and not deployed
-
     # Rate limiting
     rate_limit_requests: int = 100
     rate_limit_period: int = 60  # seconds
@@ -164,6 +159,35 @@ class Settings(BaseSettings):
     mlflow_cb_failure_threshold: int = 3
     mlflow_cb_recovery_timeout: int = 30
     mlflow_cb_max_recovery_attempts: int = 3
+    
+    # Redis Queue Configuration
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_auth_token: Optional[str] = None
+    
+    @property
+    def redis_enabled(self) -> bool:
+        """Check if Redis is enabled (when auth token is present or REDIS_URL is set)."""
+        return bool(os.getenv("REDIS_URL") or os.getenv("REDIS_AUTH_TOKEN") or os.getenv("REDIS_HOST", "").startswith("master.hokusai"))
+    
+    @property
+    def redis_url(self) -> str:
+        """Build Redis URL from components or environment variables."""
+        # Check for explicit REDIS_URL first
+        if redis_url := os.getenv("REDIS_URL"):
+            return redis_url
+            
+        # Build from components
+        host = os.getenv("REDIS_HOST", self.redis_host)
+        port = os.getenv("REDIS_PORT", str(self.redis_port))
+        auth_token = os.getenv("REDIS_AUTH_TOKEN", self.redis_auth_token)
+        
+        if auth_token:
+            # ElastiCache authenticated connection
+            return f"redis://:{auth_token}@{host}:{port}/0"
+        else:
+            # Local development connection
+            return f"redis://{host}:{port}/0"
 
     def validate_required_credentials(self) -> None:
         """Validate that all required credentials are available at startup."""
