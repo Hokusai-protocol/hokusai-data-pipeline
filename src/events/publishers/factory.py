@@ -31,9 +31,24 @@ def create_publisher(
         publisher_type = os.getenv("MESSAGE_QUEUE_TYPE", "redis").lower()
     
     if publisher_type == "redis":
-        redis_url = kwargs.get("redis_url") or os.getenv(
-            "REDIS_URL", "redis://localhost:6379/0"
-        )
+        # Check if explicit Redis URL is provided
+        redis_url = kwargs.get("redis_url") or os.getenv("REDIS_URL")
+        
+        # If no explicit URL, build from components
+        if not redis_url:
+            redis_host = os.getenv("REDIS_HOST", "localhost")
+            redis_port = os.getenv("REDIS_PORT", "6379")
+            redis_auth_token = os.getenv("REDIS_AUTH_TOKEN")
+            
+            if redis_auth_token:
+                # ElastiCache authenticated connection
+                redis_url = f"redis://:{redis_auth_token}@{redis_host}:{redis_port}/0"
+                logger.info(f"Using authenticated Redis connection to {redis_host}:{redis_port}")
+            else:
+                # Local development connection
+                redis_url = f"redis://{redis_host}:{redis_port}/0"
+                logger.info(f"Using unauthenticated Redis connection to {redis_host}:{redis_port}")
+        
         return RedisPublisher(redis_url=redis_url, **kwargs)
     
     elif publisher_type == "sqs":

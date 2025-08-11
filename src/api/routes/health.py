@@ -170,10 +170,10 @@ async def health_check(detailed: bool = False):
         try:
             redis = _get_redis()
             redis_timeout = settings.health_check_timeout
-            r = redis.Redis(
-                host=settings.redis_host, 
-                port=settings.redis_port,
-                socket_connect_timeout=redis_timeout, 
+            # Use Redis URL which includes authentication if configured
+            r = redis.Redis.from_url(
+                settings.redis_url,
+                socket_connect_timeout=redis_timeout,
                 socket_timeout=redis_timeout
             )
             r.ping()

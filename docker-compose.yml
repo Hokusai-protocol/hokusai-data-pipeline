@@ -98,7 +98,11 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 8001
       POSTGRES_URI: postgresql://mlflow:mlflow_password@postgres/mlflow_db
-      REDIS_URL: redis://redis:6379/0
+      # Redis configuration - uses local Redis by default, override with .env for ElastiCache
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_AUTH_TOKEN: ${REDIS_AUTH_TOKEN:-}
       HOKUSAI_AUTH_SERVICE_URL: https://auth.hokus.ai
       AUTH_SERVICE_TIMEOUT: 5.0
     ports:
