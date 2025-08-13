@@ -198,6 +198,59 @@ class RedisPublisher(AbstractPublisher):
                     "dlq": None
                 }
             }
+
+
+class RedisPublisherWithCircuitBreaker(RedisPublisher):
+    """Redis publisher enhanced with circuit breaker pattern."""
+    
+    def __init__(
+        self,
+        redis_url: str = "redis://localhost:6379/0",
+        connection_pool_kwargs: Optional[Dict[str, Any]] = None,
+        retry_config: Optional[Dict[str, Any]] = None,
+        circuit_breaker_config: Optional[Dict[str, Any]] = None
+    ):
+        """Initialize Redis publisher with circuit breaker.
+        
+        Args:
+            redis_url: Redis connection URL
+            connection_pool_kwargs: Additional connection pool parameters
+            retry_config: Retry configuration
+            circuit_breaker_config: Circuit breaker configuration
+        """
+        # Initialize parent class
+        super().__init__(redis_url, connection_pool_kwargs, retry_config)
+        
+        # Initialize circuit breaker
+        from src.utils.circuit_breaker import get_redis_circuit_breaker
+        self.circuit_breaker = get_redis_circuit_breaker()
+        
+        logger.info("Redis publisher initialized with circuit breaker support")
+    
+    def publish(self, message: Dict[str, Any], queue_name: Optional[str] = None) -> bool:
+        """Publish message with circuit breaker protection."""
+        try:
+            with self.circuit_breaker:
+                return super().publish(message, queue_name)
+        except Exception as e:
+            from src.utils.circuit_breaker import CircuitBreakerError
+            if isinstance(e, CircuitBreakerError):
+                logger.warning(f"Message publish blocked by circuit breaker: {e}")
+                return False
+            raise
+    
+    def health_check(self) -> Dict[str, Any]:
+        """Enhanced health check with circuit breaker state."""
+        health = super().health_check()
+        
+        # Add circuit breaker information
+        cb_stats = self.circuit_breaker.get_stats()
+        health.update({
+            "circuit_breaker_state": cb_stats["state"],
+            "circuit_breaker_stats": cb_stats
+        })
+        
+        return health
     
     def get_queue_depth(self, queue_name: str) -> Optional[int]:
         """Get number of messages in queue."""

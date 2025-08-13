@@ -97,6 +97,48 @@ def check_mlflow_connection():
         return (False, str(e))
 
 
+def check_redis_connection(timeout: float = None) -> tuple[bool, str]:
+    """
+    Check Redis connection status with timeout protection.
+    
+    Args:
+        timeout: Connection timeout in seconds (defaults to settings.health_check_timeout)
+        
+    Returns:
+        Tuple of (success: bool, error_message: str or None)
+    """
+    if not settings.redis_enabled:
+        return (True, "Redis disabled - skipping check")
+    
+    timeout = timeout or settings.health_check_timeout
+    
+    try:
+        redis = _get_redis()
+        
+        # Create Redis client with timeouts
+        r = redis.Redis.from_url(
+            settings.redis_url,
+            socket_connect_timeout=timeout,
+            socket_timeout=timeout,
+            health_check_interval=30  # Enable connection health checking
+        )
+        
+        # Test connection with ping
+        result = r.ping()
+        if result:
+            logger.debug("Redis health check successful")
+            return (True, None)
+        else:
+            error_msg = "Redis ping returned False"
+            logger.warning(error_msg)
+            return (False, error_msg)
+            
+    except Exception as e:
+        error_msg = f"Redis connection failed: {str(e)}"
+        logger.error(error_msg)
+        return (False, error_msg)
+
+
 def get_git_commit():
     """Get current git commit."""
     return "unknown"
@@ -165,24 +207,18 @@ async def health_check(detailed: bool = False):
         if detailed:
             services_status["mlflow_error"] = str(e)
 
-    # Check Redis with configurable timeout (optional service)
+    # Check Redis with timeout protection (optional service)
+    redis_status, redis_error = check_redis_connection(timeout=2.0)  # Shorter timeout for health checks
     if settings.redis_enabled:
-        try:
-            redis = _get_redis()
-            redis_timeout = settings.health_check_timeout
-            # Use Redis URL which includes authentication if configured
-            r = redis.Redis.from_url(
-                settings.redis_url,
-                socket_connect_timeout=redis_timeout,
-                socket_timeout=redis_timeout
-            )
-            r.ping()
+        if redis_status:
             services_status["redis"] = "healthy"
-        except Exception as e:
+            if redis_error and "disabled" in redis_error:
+                services_status["redis"] = "disabled"
+        else:
             services_status["redis"] = "unhealthy"
-            logger.error(f"Redis health check failed: {str(e)}")
+            logger.error(f"Redis health check failed: {redis_error}")
             if detailed:
-                services_status["redis_error"] = str(e)
+                services_status["redis_error"] = redis_error
     else:
         services_status["redis"] = "disabled"
         logger.debug("Redis health check skipped - service disabled")
