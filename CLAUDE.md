@@ -1,5 +1,12 @@
 # Hokusai Data Pipeline - Claude Configuration
 
+## IMPORTANT: Linear Backlog Configuration
+When fetching Linear backlog items:
+- **ALWAYS use "Hokusai data pipeline" (not "Hokusai infrastructure")**
+- This repository works on DATA PIPELINE tasks only
+- Infrastructure tasks belong to the hokusai-infrastructure repository
+- Command: `npx tsx ~/.claude/tools/get-backlog.ts "Hokusai data pipeline"`
+
 <!-- START: SHARED ARCHITECTURE SECTION - DO NOT MODIFY -->
 # Hokusai Multi-Repository Architecture
 

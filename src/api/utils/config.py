@@ -160,15 +160,19 @@ class Settings(BaseSettings):
     mlflow_cb_recovery_timeout: int = 30
     mlflow_cb_max_recovery_attempts: int = 3
     
-    # Redis Queue Configuration
-    redis_host: str = "localhost"
+    # Redis Queue Configuration - No defaults, must be configured via environment
+    redis_host: Optional[str] = None
     redis_port: int = 6379
     redis_auth_token: Optional[str] = None
     
     @property
     def redis_enabled(self) -> bool:
-        """Check if Redis is enabled (when auth token is present or REDIS_URL is set)."""
-        return bool(os.getenv("REDIS_URL") or os.getenv("REDIS_AUTH_TOKEN") or os.getenv("REDIS_HOST", "").startswith("master.hokusai"))
+        """Check if Redis is enabled (explicit configuration required)."""
+        return bool(
+            os.getenv("REDIS_URL") or 
+            os.getenv("REDIS_AUTH_TOKEN") or 
+            (os.getenv("REDIS_HOST") and not os.getenv("REDIS_HOST").startswith("localhost"))
+        )
     
     @property
     def redis_url(self) -> str:
@@ -177,16 +181,27 @@ class Settings(BaseSettings):
         if redis_url := os.getenv("REDIS_URL"):
             return redis_url
             
-        # Build from components
-        host = os.getenv("REDIS_HOST", self.redis_host)
+        # Build from components - require explicit configuration
+        host = os.getenv("REDIS_HOST")
+        if not host:
+            raise ValueError(
+                "Redis configuration missing: REDIS_HOST or REDIS_URL must be set. "
+                "Redis will not fall back to localhost - explicit configuration required."
+            )
+            
         port = os.getenv("REDIS_PORT", str(self.redis_port))
-        auth_token = os.getenv("REDIS_AUTH_TOKEN", self.redis_auth_token)
+        auth_token = os.getenv("REDIS_AUTH_TOKEN")
         
         if auth_token:
             # ElastiCache authenticated connection
             return f"redis://:{auth_token}@{host}:{port}/0"
         else:
-            # Local development connection
+            # Unauthenticated connection (development only)
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Redis connection without authentication to {host}:{port} - "
+                "this should only be used in development"
+            )
             return f"redis://{host}:{port}/0"
 
     def validate_required_credentials(self) -> None:
