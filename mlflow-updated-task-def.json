@@ -1,0 +1,81 @@
+{
+  "containerDefinitions": [
+    {
+      "name": "hokusai-mlflow",
+      "image": "932100697590.dkr.ecr.us-east-1.amazonaws.com/hokusai/mlflow:latest",
+      "cpu": 0,
+      "portMappings": [
+        {
+          "containerPort": 5000,
+          "hostPort": 5000,
+          "protocol": "tcp"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "REDIS_HOST",
+          "value": "master.hokusai-redis-development.lenvj6.use1.cache.amazonaws.com"
+        },
+        {
+          "name": "MLFLOW_PORT",
+          "value": "5000"
+        },
+        {
+          "name": "REDIS_TLS_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "REDIS_PORT",
+          "value": "6379"
+        },
+        {
+          "name": "ENVIRONMENT",
+          "value": "development"
+        },
+        {
+          "name": "MLFLOW_HOST",
+          "value": "0.0.0.0"
+        }
+      ],
+      "mountPoints": [],
+      "volumesFrom": [],
+      "secrets": [
+        {
+          "name": "REDIS_AUTH_TOKEN",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:932100697590:secret:hokusai/redis/development/auth-token:auth_token::"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/hokusai-mlflow-development",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:5000/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "systemControls": []
+    }
+  ],
+  "family": "hokusai-mlflow-development",
+  "taskRoleArn": "arn:aws:iam::932100697590:role/hokusai-data-pipeline-ecs-task-development",
+  "executionRoleArn": "arn:aws:iam::932100697590:role/hokusai-data-pipeline-ecs-execution-development",
+  "networkMode": "awsvpc",
+  "volumes": [],
+  "placementConstraints": [],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "cpu": "1024",
+  "memory": "2048"
+}

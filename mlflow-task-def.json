@@ -1,84 +1,56 @@
 {
-    "taskDefinitionArn": "arn:aws:ecs:us-east-1:932100697590:task-definition/hokusai-api-development:92",
+    "taskDefinitionArn": "arn:aws:ecs:us-east-1:932100697590:task-definition/hokusai-mlflow-development:19",
     "containerDefinitions": [
         {
-            "name": "hokusai-api",
-            "image": "932100697590.dkr.ecr.us-east-1.amazonaws.com/hokusai/api:latest",
+            "name": "hokusai-mlflow",
+            "image": "932100697590.dkr.ecr.us-east-1.amazonaws.com/hokusai/mlflow:latest",
             "cpu": 0,
             "portMappings": [
                 {
-                    "containerPort": 8001,
-                    "hostPort": 8001,
+                    "containerPort": 5000,
+                    "hostPort": 5000,
                     "protocol": "tcp"
                 }
             ],
             "essential": true,
             "environment": [
                 {
-                    "name": "API_HOST",
-                    "value": "0.0.0.0"
-                },
-                {
                     "name": "REDIS_HOST",
                     "value": "master.hokusai-redis-development.lenvj6.use1.cache.amazonaws.com"
+                },
+                {
+                    "name": "MLFLOW_PORT",
+                    "value": "5000"
                 },
                 {
                     "name": "REDIS_TLS_ENABLED",
                     "value": "true"
                 },
                 {
-                    "name": "MLFLOW_SERVER_URL",
-                    "value": "http://mlflow.hokusai-development.local:5000"
-                },
-                {
                     "name": "REDIS_PORT",
                     "value": "6379"
-                },
-                {
-                    "name": "DB_PORT",
-                    "value": "5432"
-                },
-                {
-                    "name": "API_PORT",
-                    "value": "8001"
-                },
-                {
-                    "name": "DB_USER",
-                    "value": "mlflow"
                 },
                 {
                     "name": "ENVIRONMENT",
                     "value": "development"
                 },
                 {
-                    "name": "AUTH_SERVICE_URL",
-                    "value": "https://auth.hokus.ai"
-                },
-                {
-                    "name": "DB_NAME",
-                    "value": "mlflow_db"
-                },
-                {
-                    "name": "DB_HOST",
-                    "value": "hokusai-mlflow-development.cmqduyfpzmbr.us-east-1.rds.amazonaws.com"
+                    "name": "MLFLOW_HOST",
+                    "value": "0.0.0.0"
                 }
             ],
             "mountPoints": [],
             "volumesFrom": [],
             "secrets": [
                 {
-                    "name": "DB_PASSWORD",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:932100697590:secret:hokusai/app-secrets/development-G9l4vD:database_password::"
-                },
-                {
                     "name": "REDIS_AUTH_TOKEN",
-                    "valueFrom": "arn:aws:secretsmanager:us-east-1:932100697590:secret:hokusai/redis/development/auth-token:auth_token::"
+                    "valueFrom": "arn:aws:secretsmanager:us-east-1:932100697590:secret:hokusai/redis/development/auth-token-0GWWJx:auth_token::"
                 }
             ],
             "logConfiguration": {
                 "logDriver": "awslogs",
                 "options": {
-                    "awslogs-group": "/ecs/hokusai-api-development",
+                    "awslogs-group": "/ecs/hokusai-mlflow-development",
                     "awslogs-region": "us-east-1",
                     "awslogs-stream-prefix": "ecs"
                 }
@@ -86,7 +58,7 @@
             "healthCheck": {
                 "command": [
                     "CMD-SHELL",
-                    "curl -f http://localhost:8001/health || exit 1"
+                    "curl -f http://localhost:5000/health || exit 1"
                 ],
                 "interval": 30,
                 "timeout": 5,
@@ -96,11 +68,11 @@
             "systemControls": []
         }
     ],
-    "family": "hokusai-api-development",
+    "family": "hokusai-mlflow-development",
     "taskRoleArn": "arn:aws:iam::932100697590:role/hokusai-data-pipeline-ecs-task-development",
     "executionRoleArn": "arn:aws:iam::932100697590:role/hokusai-data-pipeline-ecs-execution-development",
     "networkMode": "awsvpc",
-    "revision": 92,
+    "revision": 19,
     "volumes": [],
     "status": "ACTIVE",
     "requiresAttributes": [
@@ -146,8 +118,8 @@
     "requiresCompatibilities": [
         "FARGATE"
     ],
-    "cpu": "512",
-    "memory": "1024",
-    "registeredAt": "2025-08-12T11:38:07.451000-04:00",
+    "cpu": "1024",
+    "memory": "2048",
+    "registeredAt": "2025-08-12T11:38:07.439000-04:00",
     "registeredBy": "arn:aws:iam::932100697590:user/togilvie"
 }

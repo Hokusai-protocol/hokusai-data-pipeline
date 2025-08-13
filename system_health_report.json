@@ -1,0 +1,64 @@
+{
+  "timestamp": "2025-08-13T12:07:49.415078",
+  "results": [
+    {
+      "name": "registry_health",
+      "url": "https://registry.hokus.ai/health",
+      "status": "timeout",
+      "response_time": null,
+      "status_code": null,
+      "error": "Request timed out",
+      "details": {}
+    },
+    {
+      "name": "registry_mlflow",
+      "url": "https://registry.hokus.ai/api/mlflow/version",
+      "status": "timeout",
+      "response_time": null,
+      "status_code": null,
+      "error": "Request timed out",
+      "details": {}
+    },
+    {
+      "name": "api_health",
+      "url": "https://api.hokus.ai/health",
+      "status": "not_found",
+      "response_time": "162ms",
+      "status_code": 404,
+      "error": null,
+      "details": {}
+    },
+    {
+      "name": "auth_health",
+      "url": "https://auth.hokus.ai/health",
+      "status": "healthy",
+      "response_time": "145ms",
+      "status_code": 200,
+      "error": null,
+      "details": {
+        "status": "healthy",
+        "service": "hokusai-auth-service",
+        "version": "1.0.0",
+        "timestamp": "2025-08-13T16:07:39.093568+00:00"
+      }
+    },
+    {
+      "name": "mlflow_ui",
+      "url": "https://registry.hokus.ai/mlflow",
+      "status": "healthy",
+      "response_time": "215ms",
+      "status_code": 200,
+      "error": null,
+      "details": {
+        "text": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,shrink-to-fit=no\"/><link rel=\"shortcut icon\" href=\"./static-files/favicon."
+      }
+    }
+  ],
+  "summary": {
+    "healthy": 2,
+    "auth_required": 0,
+    "degraded": 0,
+    "failed": 3,
+    "total": 5
+  }
+}

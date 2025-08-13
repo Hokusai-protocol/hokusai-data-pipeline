@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # MLflow server configuration with fallback for local development
-MLFLOW_SERVER_URL = os.getenv("MLFLOW_SERVER_URL", "http://mlflow.hokusai-development.local:5000")
+MLFLOW_SERVER_URL = os.getenv("MLFLOW_SERVER_URL", "http://10.0.1.88:5000"  # TEMPORARY: Direct IP until service discovery fixed)
 PROXY_TIMEOUT = 30.0  # seconds
 ENABLE_DEBUG_LOGGING = os.getenv("MLFLOW_PROXY_DEBUG", "false").lower() == "true"
 
