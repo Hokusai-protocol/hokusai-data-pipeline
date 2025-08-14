@@ -195,25 +195,25 @@ jobs:
         
         # Update services only if task definitions exist
         if [ "$API_AVAILABLE" = "true" ]; then
-          if aws ecs describe-services --cluster hokusai-development --services hokusai-api --query 'services[0].serviceName' >/dev/null 2>&1; then
+          if aws ecs describe-services --cluster hokusai-development --services hokusai-api-development --query 'services[0].serviceName' >/dev/null 2>&1; then
             echo "✅ Updating API service..."
             aws ecs update-service \
               --cluster hokusai-development \
-              --service hokusai-api \
+              --service hokusai-api-development \
               --task-definition $API_TASK_ARN \
               --force-new-deployment \
-              --desired-count 2
+              --desired-count 1
           else
             echo "⚠️  API service not found. Skipping service update."
           fi
         fi
         
         if [ "$MLFLOW_AVAILABLE" = "true" ]; then
-          if aws ecs describe-services --cluster hokusai-development --services hokusai-mlflow --query 'services[0].serviceName' >/dev/null 2>&1; then
+          if aws ecs describe-services --cluster hokusai-development --services hokusai-mlflow-development --query 'services[0].serviceName' >/dev/null 2>&1; then
             echo "✅ Updating MLflow service..."
             aws ecs update-service \
               --cluster hokusai-development \
-              --service hokusai-mlflow \
+              --service hokusai-mlflow-development \
               --task-definition $MLFLOW_TASK_ARN \
               --force-new-deployment \
               --desired-count 1
@@ -245,33 +245,33 @@ jobs:
         echo "Checking service stability..."
         
         # Only wait for services that exist
-        if aws ecs describe-services --cluster hokusai-development --services hokusai-api --query 'services[0].serviceName' >/dev/null 2>&1; then
+        if aws ecs describe-services --cluster hokusai-development --services hokusai-api-development --query 'services[0].serviceName' >/dev/null 2>&1; then
           echo "Waiting for API service to stabilize..."
           aws ecs wait services-stable \
             --cluster hokusai-development \
-            --services hokusai-api \
+            --services hokusai-api-development \
             --region ${{ env.AWS_REGION }} || {
               echo "⚠️  API service did not stabilize within timeout period"
               # Check service events for debugging
               aws ecs describe-services \
                 --cluster hokusai-development \
-                --services hokusai-api \
+                --services hokusai-api-development \
                 --region ${{ env.AWS_REGION }} \
                 --query 'services[0].events[:5]' || true
             }
         fi
         
-        if aws ecs describe-services --cluster hokusai-development --services hokusai-mlflow --query 'services[0].serviceName' >/dev/null 2>&1; then
+        if aws ecs describe-services --cluster hokusai-development --services hokusai-mlflow-development --query 'services[0].serviceName' >/dev/null 2>&1; then
           echo "Waiting for MLflow service to stabilize..."
           aws ecs wait services-stable \
             --cluster hokusai-development \
-            --services hokusai-mlflow \
+            --services hokusai-mlflow-development \
             --region ${{ env.AWS_REGION }} || {
               echo "⚠️  MLflow service did not stabilize within timeout period"
               # Check service events for debugging
               aws ecs describe-services \
                 --cluster hokusai-development \
-                --services hokusai-mlflow \
+                --services hokusai-mlflow-development \
                 --region ${{ env.AWS_REGION }} \
                 --query 'services[0].events[:5]' || true
             }
