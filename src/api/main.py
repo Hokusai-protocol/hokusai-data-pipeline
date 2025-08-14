@@ -54,6 +54,31 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Include routers
 app.include_router(health.router, tags=["health"])
+
+# Add explicit root health endpoint for ALB
+@app.get("/health")
+async def root_health_check():
+    """Root-level health check endpoint for ALB."""
+    from src.api.routes.health import health_check
+    return await health_check()
+
+# Add root endpoint that returns available health paths
+@app.get("/")
+async def root():
+    """Root endpoint with service information."""
+    return {
+        "service": "Hokusai Data Pipeline API",
+        "version": "1.0.0",
+        "health_check": "/health",
+        "health_endpoints": [
+            "/health",
+            "/ready",
+            "/live",
+            "/health/mlflow",
+            "/health/status"
+        ],
+        "documentation": "/docs"
+    }
 app.include_router(models.router, prefix="/models", tags=["models"])
 app.include_router(dspy.router, tags=["dspy"])
 # TODO: Enable auth router after fixing APIKeyModel dependency
