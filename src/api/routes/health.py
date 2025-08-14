@@ -4,7 +4,7 @@ from datetime import datetime
 import logging
 import os
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
 
 from src.api.models import HealthCheckResponse
 from src.api.utils.config import get_settings
@@ -170,7 +170,7 @@ except ImportError:
 
 
 @router.get("/health", response_model=HealthCheckResponse)
-async def health_check(detailed: bool = False):
+async def health_check(detailed: bool = False, response: Response = None):
     """Check health status of the API and dependent services."""
     logger.info("Health check requested", extra={"detailed": detailed})
     services_status = {}
@@ -304,7 +304,26 @@ async def health_check(detailed: bool = False):
                 "memory_percent": 0.0
             }
     
+    # Set appropriate HTTP status code based on health status
+    if response:
+        if overall_status == "unhealthy":
+            response.status_code = 503  # Service Unavailable
+        elif overall_status == "degraded":
+            response.status_code = 200  # OK but degraded (ALB will consider this healthy)
+        else:
+            response.status_code = 200  # OK
+    
     return HealthCheckResponse(**response_data)
+
+
+@router.get("/health/alb")
+async def alb_health_check():
+    """Simple health check for ALB that only checks if the service is running.
+    
+    This endpoint is specifically for ALB health checks and doesn't check 
+    dependencies to avoid cascading failures.
+    """
+    return {"status": "healthy", "timestamp": datetime.utcnow()}
 
 
 @router.get("/ready")

@@ -139,7 +139,7 @@ class MLFlowConfig:
     """Configuration manager for MLFlow tracking."""
 
     def __init__(self) -> None:
-        self.tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://10.0.1.88:5000"  # TEMPORARY: Direct IP until service discovery fixed)
+        self.tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://10.0.1.88:5000")  # TEMPORARY: Direct IP until service discovery fixed
         self.experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", "hokusai-pipeline")
         self.artifact_root = os.getenv("MLFLOW_ARTIFACT_ROOT", None)
 
