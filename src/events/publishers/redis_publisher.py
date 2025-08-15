@@ -10,8 +10,13 @@ from typing import Any, Dict, Optional
 import redis
 from redis.exceptions import ConnectionError, RedisError
 
-from ..schemas import MessageEnvelope, ModelReadyToDeployMessage
-from .base import AbstractPublisher, PublisherException
+try:
+    from ..schemas import MessageEnvelope, ModelReadyToDeployMessage
+    from .base import AbstractPublisher, PublisherException
+except ImportError:
+    # Fallback for when running tests
+    from src.events.schemas import MessageEnvelope, ModelReadyToDeployMessage
+    from src.events.publishers.base import AbstractPublisher, PublisherException
 
 logger = logging.getLogger(__name__)
 

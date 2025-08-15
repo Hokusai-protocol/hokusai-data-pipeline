@@ -165,13 +165,40 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     redis_auth_token: Optional[str] = None
     
+    # Webhook Configuration
+    webhook_url: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    webhook_timeout: int = 30
+    webhook_max_retries: int = 5
+    webhook_retry_delay: int = 2
+    enable_redis_fallback: bool = False
+    webhook_circuit_breaker_failure_threshold: int = 5
+    webhook_circuit_breaker_recovery_time: int = 60
+    
+    @property
+    def webhook_enabled(self) -> bool:
+        """Check if webhook is enabled."""
+        return bool(os.getenv("WEBHOOK_URL"))
+    
+    @property
+    def effective_webhook_url(self) -> Optional[str]:
+        """Get webhook URL from environment."""
+        return os.getenv("WEBHOOK_URL", self.webhook_url)
+    
+    @property
+    def effective_webhook_secret(self) -> Optional[str]:
+        """Get webhook secret from environment."""
+        return os.getenv("WEBHOOK_SECRET", self.webhook_secret)
+    
     @property
     def redis_enabled(self) -> bool:
         """Check if Redis is enabled (explicit configuration required)."""
+        # Redis is enabled if explicitly configured OR if webhook fallback is enabled
         return bool(
             os.getenv("REDIS_URL") or 
             os.getenv("REDIS_AUTH_TOKEN") or 
-            (os.getenv("REDIS_HOST") and not os.getenv("REDIS_HOST").startswith("localhost"))
+            (os.getenv("REDIS_HOST") and not os.getenv("REDIS_HOST").startswith("localhost")) or
+            (self.enable_redis_fallback and self.webhook_enabled)
         )
     
     @property

@@ -7,6 +7,7 @@ from typing import Optional
 from .base import AbstractPublisher
 from .redis_publisher import RedisPublisher, RedisPublisherWithCircuitBreaker
 from .fallback_publisher import FallbackPublisher
+from .webhook_publisher import WebhookPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ def create_publisher(
     """Create a message publisher based on configuration.
     
     Args:
-        publisher_type: Type of publisher ("redis", "sqs", etc.)
+        publisher_type: Type of publisher ("redis", "webhook", "sqs", etc.)
         **kwargs: Additional arguments for the publisher
         
     Returns:
@@ -47,6 +48,24 @@ def create_publisher(
         except Exception as e:
             logger.error(f"Failed to create Redis publisher: {e}")
             raise
+    
+    elif publisher_type == "webhook":
+        webhook_url = kwargs.get("webhook_url")
+        if not webhook_url:
+            webhook_url = os.getenv("WEBHOOK_URL")
+        
+        if not webhook_url:
+            raise ValueError("webhook_url is required for webhook publisher")
+        
+        secret_key = kwargs.get("secret_key") or os.getenv("WEBHOOK_SECRET_KEY")
+        config = kwargs.get("config", {})
+        
+        logger.info(f"Creating webhook publisher for URL: {webhook_url}")
+        return WebhookPublisher(
+            webhook_url=webhook_url,
+            secret_key=secret_key,
+            config=config
+        )
     
     elif publisher_type == "fallback":
         return FallbackPublisher(**kwargs)
@@ -119,15 +138,55 @@ _publisher_instance: Optional[AbstractPublisher] = None
 
 
 def get_publisher() -> AbstractPublisher:
-    """Get the singleton publisher instance with fallback support.
+    """Get the singleton publisher instance.
+    
+    Priority order:
+    1. Webhook (if configured) - PRIMARY
+    2. Redis (if webhook not configured and Redis available) - LEGACY
+    3. Fallback (if nothing else available)
     
     Returns:
-        Publisher instance (Redis or Fallback)
+        Publisher instance (Webhook, Redis, or Fallback)
     """
     global _publisher_instance
     
     if _publisher_instance is None:
-        _publisher_instance = create_publisher_with_fallback()
+        # Check for webhook configuration first (this is the new preferred method)
+        webhook_url = os.getenv("WEBHOOK_URL")
+        if webhook_url:
+            try:
+                webhook_secret = os.getenv("WEBHOOK_SECRET")
+                _publisher_instance = WebhookPublisher(
+                    webhook_url=webhook_url,
+                    secret_key=webhook_secret,
+                    config={
+                        "timeout": int(os.getenv("WEBHOOK_TIMEOUT", "30")),
+                        "max_retries": int(os.getenv("WEBHOOK_MAX_RETRIES", "5")),
+                        "retry_delay": int(os.getenv("WEBHOOK_RETRY_DELAY", "2")),
+                        "circuit_breaker_failure_threshold": int(
+                            os.getenv("WEBHOOK_CIRCUIT_BREAKER_FAILURE_THRESHOLD", "5")
+                        ),
+                        "circuit_breaker_recovery_time": int(
+                            os.getenv("WEBHOOK_CIRCUIT_BREAKER_RECOVERY_TIME", "60")
+                        ),
+                    }
+                )
+                logger.info(f"Created webhook publisher for: {webhook_url}")
+                
+            except Exception as e:
+                logger.error(f"Failed to create webhook publisher: {e}")
+                # Fall back to fallback publisher (not Redis since no consumers exist)
+                logger.info("Using fallback publisher due to webhook failure")
+                _publisher_instance = FallbackPublisher()
+        else:
+            # No webhook configured, try Redis for backward compatibility
+            # Note: Since no Redis consumers exist in production, this is temporary
+            logger.warning(
+                "No WEBHOOK_URL configured. Please configure webhooks as Redis pub/sub "
+                "is deprecated and has no active consumers."
+            )
+            _publisher_instance = create_publisher_with_fallback()
+        
         logger.info(f"Created publisher instance: {type(_publisher_instance).__name__}")
     
     return _publisher_instance

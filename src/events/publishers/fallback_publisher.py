@@ -15,7 +15,11 @@ from collections import deque
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .base import AbstractPublisher
+try:
+    from .base import AbstractPublisher
+except ImportError:
+    # Fallback for when running tests
+    from src.events.publishers.base import AbstractPublisher
 
 logger = logging.getLogger(__name__)
 
