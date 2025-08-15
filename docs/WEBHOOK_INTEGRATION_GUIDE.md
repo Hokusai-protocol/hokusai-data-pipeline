@@ -160,29 +160,24 @@ Requests timeout after 30 seconds by default. Ensure your endpoint responds with
 
 ## Migration from Redis
 
-### Phase 1: Dual Publishing (Current)
+**Note**: Since there are no active Redis consumers in production, the migration is straightforward:
 
-Enable both webhook and Redis publishing during migration:
+### Step 1: Configure Webhooks
+
+Set the webhook configuration in your environment:
 
 ```bash
 WEBHOOK_URL=https://your-endpoint.com/api/models/ready
 WEBHOOK_SECRET=your_secret
-ENABLE_REDIS_FALLBACK=true
 ```
 
-Both systems will receive notifications, allowing gradual migration.
+### Step 2: Deploy and Test
 
-### Phase 2: Webhook Only
+Deploy the webhook-enabled version and verify notifications are being received at your endpoint.
 
-Once webhook consumers are stable, disable Redis fallback:
+### Step 3: Remove Redis Configuration (Future)
 
-```bash
-ENABLE_REDIS_FALLBACK=false
-```
-
-### Phase 3: Redis Removal
-
-After all consumers migrate, Redis configuration can be removed entirely.
+Once webhook delivery is confirmed working, Redis configuration can be removed entirely in a future update. The system will automatically use webhooks when configured, falling back to a no-op publisher if webhooks fail.
 
 ## Testing Your Webhook
 

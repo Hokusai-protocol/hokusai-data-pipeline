@@ -138,12 +138,12 @@ _publisher_instance: Optional[AbstractPublisher] = None
 
 
 def get_publisher() -> AbstractPublisher:
-    """Get the singleton publisher instance with fallback support.
+    """Get the singleton publisher instance.
     
     Priority order:
-    1. Webhook (if configured)
-    2. Redis with fallback
-    3. Fallback only
+    1. Webhook (if configured) - PRIMARY
+    2. Redis (if webhook not configured and Redis available) - LEGACY
+    3. Fallback (if nothing else available)
     
     Returns:
         Publisher instance (Webhook, Redis, or Fallback)
@@ -151,7 +151,7 @@ def get_publisher() -> AbstractPublisher:
     global _publisher_instance
     
     if _publisher_instance is None:
-        # Check for webhook configuration first
+        # Check for webhook configuration first (this is the new preferred method)
         webhook_url = os.getenv("WEBHOOK_URL")
         if webhook_url:
             try:
@@ -173,25 +173,18 @@ def get_publisher() -> AbstractPublisher:
                 )
                 logger.info(f"Created webhook publisher for: {webhook_url}")
                 
-                # Check if Redis fallback is enabled
-                if os.getenv("ENABLE_REDIS_FALLBACK", "false").lower() == "true":
-                    try:
-                        redis_publisher = create_publisher_with_fallback()
-                        # Create a composite publisher that publishes to both
-                        from .composite_publisher import CompositePublisher
-                        _publisher_instance = CompositePublisher(
-                            [_publisher_instance, redis_publisher]
-                        )
-                        logger.info("Created composite publisher (webhook + Redis fallback)")
-                    except Exception as e:
-                        logger.warning(f"Could not enable Redis fallback: {e}")
-                
             except Exception as e:
                 logger.error(f"Failed to create webhook publisher: {e}")
-                # Fall back to Redis
-                _publisher_instance = create_publisher_with_fallback()
+                # Fall back to fallback publisher (not Redis since no consumers exist)
+                logger.info("Using fallback publisher due to webhook failure")
+                _publisher_instance = FallbackPublisher()
         else:
-            # No webhook configured, use Redis with fallback
+            # No webhook configured, try Redis for backward compatibility
+            # Note: Since no Redis consumers exist in production, this is temporary
+            logger.warning(
+                "No WEBHOOK_URL configured. Please configure webhooks as Redis pub/sub "
+                "is deprecated and has no active consumers."
+            )
             _publisher_instance = create_publisher_with_fallback()
         
         logger.info(f"Created publisher instance: {type(_publisher_instance).__name__}")
