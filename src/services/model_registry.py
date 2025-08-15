@@ -23,7 +23,7 @@ class HokusaiModelRegistry:
 
     VALID_MODEL_TYPES = ["lead_scoring", "classification", "regression", "ranking"]
 
-    def __init__(self, tracking_uri: str = "http://10.0.1.88:5000") -> None:  # TEMPORARY: Direct IP until service discovery fixed
+    def __init__(self, tracking_uri: str = "http://10.0.3.219:5000") -> None:  # Updated to current MLflow service IP
         """Initialize the model registry with MLFlow tracking.
 
         Args:

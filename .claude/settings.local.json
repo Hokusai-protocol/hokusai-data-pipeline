@@ -45,8 +45,13 @@
       "Bash(aws ecs describe-services:*)",
       "Bash(docker-compose:*)",
       "Bash(aws logs tail:*)",
-      "Bash(aws:*)"
+      "Bash(aws:*)",
+      "Bash(terraform apply:*)"
     ],
-    "deny": []
+    "deny": [],
+    "defaultMode": "acceptEdits",
+    "additionalDirectories": [
+      "/Users/timothyogilvie/Dropbox/Hokusai/hokusai-infrastructure/environments"
+    ]
   }
 }

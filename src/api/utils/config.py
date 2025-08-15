@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["*"]  # In production, specify allowed origins
 
     # MLFlow
-    mlflow_tracking_uri: str = "http://10.0.1.88:5000"  # TEMPORARY: Direct IP until service discovery fixed
+    mlflow_tracking_uri: str = "http://10.0.3.219:5000"  # Updated to current MLflow service IP
 
     # Database Configuration
     # Support both old (mlflow) and new (mlflow_db) database names for backward compatibility
