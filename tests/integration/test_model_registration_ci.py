@@ -288,6 +288,8 @@ def run_ci_tests():
     print("=" * 60)
     print("Running Model Registration Integration Tests for CI")
     print("=" * 60)
+    print("Testing auth header forwarding to MLflow...")
+    print("=" * 60)
     
     # Run with pytest
     exit_code = pytest.main([
