@@ -128,5 +128,6 @@ jobs:
         echo "✓ Both /mlflow and /api/mlflow routes work"
         echo "✓ Complete model registration flow functions"
         echo "✓ Various auth header formats are supported"
+        echo "✓ CI/CD pipeline properly tests critical auth flow"
         echo "================================================"
 
