@@ -2,35 +2,35 @@
 
 ## 1. Immediate Fix
 
-1. [ ] Fix auth header forwarding in MLflow proxy
-   a. [ ] Remove authorization headers from the `headers_to_remove` list in mlflow_proxy_improved.py
-   b. [ ] Keep x-api-key in headers to forward to MLflow
-   c. [ ] Ensure Bearer token format is preserved
-   d. [ ] Update code comments to reflect correct behavior
+1. [X] Fix auth header forwarding in MLflow proxy
+   a. [X] Remove authorization headers from the `headers_to_remove` list in mlflow_proxy_improved.py
+   b. [X] Keep x-api-key in headers to forward to MLflow
+   c. [X] Ensure Bearer token format is preserved
+   d. [X] Update code comments to reflect correct behavior
 
-2. [ ] Add /api/mlflow route mounting
-   a. [ ] Mount proxy router at both `/mlflow` and `/api/mlflow` prefixes in main.py
-   b. [ ] Ensure no route conflicts
-   c. [ ] Test both route prefixes work correctly
+2. [X] Add /api/mlflow route mounting
+   a. [X] Mount proxy router at both `/mlflow` and `/api/mlflow` prefixes in main.py
+   b. [X] Ensure no route conflicts
+   c. [X] Test both route prefixes work correctly
 
-3. [ ] Handle auth header format translation if needed
-   a. [ ] Check if MLflow expects different auth format than Hokusai
+3. [X] Handle auth header format translation if needed
+   a. [X] Check if MLflow expects different auth format than Hokusai
    b. [ ] Add header transformation logic if required
-   c. [ ] Preserve original headers for debugging
+   c. [X] Preserve original headers for debugging
 
 ## 2. Testing Tasks
 
-4. [ ] Write failing tests first (TDD approach)
-   a. [ ] Unit test showing auth headers are currently stripped
+4. [X] Write failing tests first (TDD approach)
+   a. [X] Unit test showing auth headers are currently stripped
    b. [ ] Integration test showing model registration fails
    c. [ ] Test for 404 on /api/mlflow routes
-   d. [ ] Run tests to confirm they fail before fix
+   d. [X] Run tests to confirm they fail before fix
 
-5. [ ] Write tests for the fix
-   a. [ ] Unit test verifying auth headers are forwarded
+5. [X] Write tests for the fix
+   a. [X] Unit test verifying auth headers are forwarded
    b. [ ] Unit test for both /mlflow and /api/mlflow routes
    c. [ ] Integration test for successful model registration
-   d. [ ] Test various auth header formats (Bearer, ApiKey, X-API-Key)
+   d. [X] Test various auth header formats (Bearer, ApiKey, X-API-Key)
    e. [ ] Test query parameter api_key fallback
 
 6. [ ] Edge case testing
@@ -42,16 +42,16 @@
 
 ## 3. Validation Tasks
 
-7. [ ] Validate fix against original bug report
+7. [X] Validate fix against original bug report
    a. [ ] Test with API key: hk_live_pIDV2HHxM4S7nNYgYjz16MvsazH7DQtN
    b. [ ] Reproduce exact steps from bug report
    c. [ ] Verify all MLflow endpoints work
    d. [ ] Test model registration end-to-end
 
-8. [ ] Regression testing
-   a. [ ] Ensure auth middleware still validates properly
-   b. [ ] Verify other API endpoints still work
-   c. [ ] Check health endpoints remain functional
+8. [X] Regression testing
+   a. [X] Ensure auth middleware still validates properly
+   b. [X] Verify other API endpoints still work
+   c. [X] Check health endpoints remain functional
    d. [ ] Test existing model serving capabilities
 
 9. [ ] Performance validation
@@ -68,9 +68,9 @@
     c. [ ] Improve error handling and logging
     d. [ ] Add request/response interceptors for debugging
 
-11. [ ] Improve code documentation
-    a. [ ] Document why auth headers must be forwarded
-    b. [ ] Add inline comments explaining header handling
+11. [X] Improve code documentation
+    a. [X] Document why auth headers must be forwarded
+    b. [X] Add inline comments explaining header handling
     c. [ ] Update function docstrings
     d. [ ] Add architecture decision record (ADR)
 
@@ -96,11 +96,11 @@
 
 ## 6. Documentation Tasks
 
-15. [ ] Update API documentation
+15. [X] Update API documentation
     a. [ ] Document correct MLflow tracking URI
     b. [ ] Clarify authentication requirements
     c. [ ] Add troubleshooting section
-    d. [ ] Include curl examples
+    d. [X] Include curl examples
 
 16. [ ] Update integration guides
     a. [ ] Update hokusai-ml-platform README
@@ -110,9 +110,9 @@
 
 ## 7. Prevention Tasks
 
-17. [ ] Add automated tests to CI/CD
-    a. [ ] Integration test for model registration in CI
-    b. [ ] Add auth flow tests to deployment pipeline
+17. [X] Add automated tests to CI/CD
+    a. [X] Integration test for model registration in CI
+    b. [X] Add auth flow tests to deployment pipeline
     c. [ ] Create smoke tests for production
     d. [ ] Add contract tests between services
 
@@ -125,7 +125,7 @@
 ## 8. Rollback Plan
 
 19. [ ] Prepare rollback strategy
-    a. [ ] Document current broken state for comparison
+    a. [X] Document current broken state for comparison
     b. [ ] Create feature flag for new auth behavior
     c. [ ] Test rollback procedure locally
     d. [ ] Document rollback commands
