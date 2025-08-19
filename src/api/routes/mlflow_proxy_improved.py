@@ -87,12 +87,14 @@ async def proxy_request(
         headers["X-Hokusai-API-Key-Id"] = str(request.state.api_key_id)
         logger.info(f"Adding user context: user_id={request.state.user_id}")
     
-    # Remove sensitive headers that shouldn't be forwarded
+    # Remove only headers that shouldn't be forwarded
+    # CRITICAL: We MUST forward authentication headers to MLflow
+    # MLflow requires authentication to authorize requests
     headers_to_remove = [
-        "authorization",  # Don't forward Hokusai API key to MLflow
-        "x-api-key",      # Don't forward Hokusai API key to MLflow
         "host",           # We'll use MLflow's host
         "content-length", # Will be recalculated
+        # NOTE: We intentionally keep authorization and x-api-key headers
+        # They are required for MLflow authentication
     ]
     for header in headers_to_remove:
         headers.pop(header, None)

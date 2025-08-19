@@ -84,8 +84,9 @@ app.include_router(dspy.router, tags=["dspy"])
 # TODO: Enable auth router after fixing APIKeyModel dependency
 # app.include_router(auth.router, tags=["authentication"])
 
-# MLflow proxy - single mount point at /mlflow (remove duplicate)
+# MLflow proxy - mount at both /mlflow and /api/mlflow for compatibility
 app.include_router(mlflow_proxy.router, prefix="/mlflow", tags=["mlflow"])
+app.include_router(mlflow_proxy.router, prefix="/api/mlflow", tags=["mlflow"])
 
 # MLflow health check endpoints at /api/health
 app.include_router(health_mlflow.router, prefix="/api/health", tags=["health"])
