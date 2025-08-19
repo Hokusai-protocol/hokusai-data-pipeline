@@ -1,0 +1,209 @@
+name: Model Registration Integration Test
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+    paths:
+      - 'src/api/routes/mlflow_proxy*.py'
+      - 'src/api/main.py'
+      - 'src/middleware/auth.py'
+      - 'tests/integration/test_model_registration*.py'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'src/api/routes/mlflow_proxy*.py'
+      - 'src/api/main.py'
+      - 'src/middleware/auth.py'
+      - 'tests/integration/test_model_registration*.py'
+
+jobs:
+  test-model-registration:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-asyncio pytest-cov pytest-mock
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+    
+    - name: Run Model Registration Integration Tests
+      run: |
+        pytest tests/integration/test_model_registration_ci.py \
+          -v \
+          -m ci \
+          --tb=short \
+          --cov=src/api/routes \
+          --cov-report=term-missing \
+          --cov-report=xml
+      env:
+        MLFLOW_SERVER_URL: http://localhost:5000
+        PYTHONPATH: ${{ github.workspace }}
+    
+    - name: Run Auth Header Forwarding Tests
+      run: |
+        pytest tests/unit/test_mlflow_proxy_auth_fix.py \
+          tests/unit/test_mlflow_proxy_fix_verification.py \
+          -v \
+          --tb=short
+      env:
+        PYTHONPATH: ${{ github.workspace }}
+    
+    - name: Upload Coverage Report
+      if: matrix.python-version == '3.11'
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: integration
+        name: model-registration
+    
+    - name: Check MLflow Proxy Routes
+      run: |
+        python -c "
+        import sys
+        sys.path.insert(0, '.')
+        from src.api.main import app
+        
+        # Verify routes are mounted
+        routes = [str(route.path) for route in app.routes]
+        
+        # Check for both route prefixes
+        assert any('/mlflow' in route for route in routes), 'Missing /mlflow routes'
+        assert any('/api/mlflow' in route for route in routes), 'Missing /api/mlflow routes'
+        
+        print('✅ Route configuration verified')
+        print('Routes found:')
+        for route in routes:
+            if 'mlflow' in route:
+                print(f'  - {route}')
+        "
+    
+    - name: Validate Auth Header Configuration
+      run: |
+        python -c "
+        import sys
+        sys.path.insert(0, '.')
+        
+        # Check that auth headers are not in removal list
+        with open('src/api/routes/mlflow_proxy_improved.py', 'r') as f:
+            content = f.read()
+            
+        # These should NOT be in headers_to_remove
+        assert '\"authorization\"' not in content or 'headers_to_remove' not in content.split('\"authorization\"')[0].split('\\n')[-1], \
+            'Authorization header should not be removed'
+        
+        print('✅ Auth header forwarding configuration verified')
+        "
+    
+    - name: Test Summary
+      if: always()
+      run: |
+        echo "================================================"
+        echo "Model Registration Integration Test Summary"
+        echo "================================================"
+        echo "Python Version: ${{ matrix.python-version }}"
+        echo "Test Status: ${{ job.status }}"
+        echo ""
+        echo "This CI test validates:"
+        echo "✓ Authentication headers are forwarded to MLflow"
+        echo "✓ Both /mlflow and /api/mlflow routes work"
+        echo "✓ Complete model registration flow functions"
+        echo "✓ Various auth header formats are supported"
+        echo "================================================"
+
+  test-with-mock-mlflow:
+    runs-on: ubuntu-latest
+    
+    services:
+      # Mock MLflow service for more realistic testing
+      mlflow-mock:
+        image: python:3.11-slim
+        ports:
+          - 5555:5555
+        options: >-
+          --health-cmd "curl -f http://localhost:5555/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        env:
+          MOCK_MLFLOW: true
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-asyncio httpx fastapi
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    
+    - name: Start Mock MLflow Server
+      run: |
+        # Create a simple mock MLflow server for testing
+        cat > mock_mlflow_server.py << 'EOF'
+        from fastapi import FastAPI, Request
+        import json
+        
+        app = FastAPI()
+        
+        @app.get("/health")
+        def health():
+            return {"status": "healthy"}
+        
+        @app.post("/api/2.0/mlflow/{path:path}")
+        @app.get("/api/2.0/mlflow/{path:path}")
+        async def mlflow_endpoint(request: Request, path: str):
+            # Check if auth header is present
+            auth = request.headers.get("authorization")
+            if not auth:
+                return {"error": "API key required"}, 401
+            
+            # Return mock responses
+            if "experiments/create" in path:
+                return {"experiment_id": "mock-exp-123"}
+            elif "runs/create" in path:
+                return {"run": {"info": {"run_id": "mock-run-456"}}}
+            elif "registered-models/create" in path:
+                return {"registered_model": {"name": "mock-model"}}
+            else:
+                return {"status": "success"}
+        
+        if __name__ == "__main__":
+            import uvicorn
+            uvicorn.run(app, host="0.0.0.0", port=5555)
+        EOF
+        
+        python mock_mlflow_server.py &
+        sleep 5  # Wait for server to start
+    
+    - name: Run Integration Test with Mock Server
+      run: |
+        export MLFLOW_SERVER_URL=http://localhost:5555
+        pytest tests/integration/test_model_registration_ci.py -v -k "test_full_model_registration_flow"
+      env:
+        PYTHONPATH: ${{ github.workspace }}
