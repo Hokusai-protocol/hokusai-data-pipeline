@@ -130,4 +130,3 @@ jobs:
         echo "✓ Various auth header formats are supported"
         echo "✓ CI/CD pipeline properly tests critical auth flow"
         echo "================================================"
-
