@@ -1,0 +1,43 @@
+repos:
+  # Python code quality checks
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.5.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # Custom auth-related hooks
+  - repo: local
+    hooks:
+      - id: check-auth-headers
+        name: Check Authentication Headers
+        entry: scripts/hooks/check-auth-headers.sh
+        language: script
+        files: '\.(py|ts|js)$'
+        pass_filenames: true
+        description: Ensure auth headers are properly forwarded in API calls
+      
+      - id: validate-proxy-config
+        name: Validate Proxy Configuration
+        entry: scripts/hooks/validate-proxy.py
+        language: python
+        files: 'src/api/proxy\.py$'
+        additional_dependencies: [pyyaml]
+        description: Verify proxy configurations maintain auth headers
+      
+      - id: check-mlflow-auth
+        name: Check MLflow Authentication
+        entry: scripts/hooks/check-mlflow-auth.py
+        language: python
+        files: '(mlflow|registry).*\.py$'
+        additional_dependencies: [pyyaml]
+        description: Ensure MLflow operations include authentication
+      
+      - id: auth-test-reminder
+        name: Auth Test Reminder
+        entry: scripts/hooks/auth-test-reminder.sh
+        language: script
+        files: '(proxy|auth|mlflow).*\.(py|ts|js)$'
+        pass_filenames: false
+        description: Remind to run auth tests after changes
