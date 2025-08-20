@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # MLflow server configuration
-MLFLOW_SERVER_URL = os.getenv("MLFLOW_SERVER_URL", "http://10.0.3.219:5000")  # Updated to current MLflow service IP
+MLFLOW_SERVER_URL = os.getenv("MLFLOW_SERVER_URL", "http://10.0.1.221:5000")  # Updated to current MLflow service IP
 ENABLE_DEBUG_LOGGING = os.getenv("MLFLOW_PROXY_DEBUG", "false").lower() == "true"
 
 

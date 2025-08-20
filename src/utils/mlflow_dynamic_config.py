@@ -56,7 +56,7 @@ def get_mlflow_tracking_uri():
         logger.debug(f"Could not get ECS IP: {e}")
     
     # Priority 4: Default fallback
-    default = "http://10.0.3.219:5000"  # Current known IP
+    default = "http://10.0.1.221:5000"  # Current known IP
     logger.info(f"Using default MLflow URI: {default}")
     return default
 
