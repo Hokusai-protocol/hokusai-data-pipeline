@@ -87,14 +87,14 @@ def check_database_connection():
 
 
 def check_mlflow_connection():
-    """Check MLflow connection status."""
+    """Check MLflow connection status with DNS resolution details."""
     try:
         from src.utils.mlflow_config import get_mlflow_status
         mlflow_status = get_mlflow_status()
-        return (mlflow_status["connected"], mlflow_status.get("error"))
+        return (mlflow_status["connected"], mlflow_status.get("error"), mlflow_status.get("dns_resolution"))
     except Exception as e:
         logger.error(f"MLflow connection check failed: {str(e)}")
-        return (False, str(e))
+        return (False, str(e), None)
 
 
 def check_redis_connection(timeout: float = None) -> tuple[bool, str]:
@@ -175,10 +175,14 @@ async def health_check(detailed: bool = False, response: Response = None):
     logger.info("Health check requested", extra={"detailed": detailed})
     services_status = {}
 
-    # Check MLFlow using enhanced status function with graceful degradation
+    # Check MLFlow using enhanced status function with graceful degradation and DNS info
     try:
         from src.utils.mlflow_config import get_mlflow_status
         mlflow_status = get_mlflow_status()
+        
+        # Include DNS resolution status in health assessment
+        dns_health = mlflow_status.get("dns_resolution", {}).get("health", {})
+        dns_status = dns_health.get("status", "unknown")
         
         # Gracefully handle circuit breaker states
         if mlflow_status["circuit_breaker_state"] == "OPEN":
@@ -196,11 +200,22 @@ async def health_check(detailed: bool = False, response: Response = None):
                     "degradation_reason": "Circuit breaker is half-open - testing recovery"
                 }
         else:
-            services_status["mlflow"] = "healthy" if mlflow_status["connected"] else "unhealthy"
+            # Factor in DNS health for overall MLflow status
+            if mlflow_status["connected"]:
+                if dns_status == "unhealthy":
+                    services_status["mlflow"] = "degraded"  # Connected but DNS issues
+                elif dns_status == "degraded":
+                    services_status["mlflow"] = "degraded"  # Connected but DNS issues
+                else:
+                    services_status["mlflow"] = "healthy"
+            else:
+                services_status["mlflow"] = "unhealthy"
+                
             if detailed:
                 services_status["mlflow_details"] = mlflow_status
         
-        logger.debug(f"MLflow health check: {services_status['mlflow']} (CB: {mlflow_status['circuit_breaker_state']})")
+        # Log with DNS status
+        logger.debug(f"MLflow health check: {services_status['mlflow']} (CB: {mlflow_status['circuit_breaker_state']}, DNS: {dns_status})")
     except Exception as e:
         services_status["mlflow"] = "unhealthy"
         logger.error(f"MLflow health check failed: {str(e)}")
@@ -352,14 +367,21 @@ async def readiness_check():
         can_serve_traffic = False  # Database is critical
         logger.error(f"Readiness check failed: Database unavailable - {db_error}")
     
-    # Check MLflow with circuit breaker awareness
-    mlflow_status, mlflow_error = check_mlflow_connection()
+    # Check MLflow with circuit breaker and DNS awareness
+    mlflow_result = check_mlflow_connection()
+    mlflow_status = mlflow_result[0] if len(mlflow_result) >= 1 else False
+    mlflow_error = mlflow_result[1] if len(mlflow_result) >= 2 else None
+    dns_info = mlflow_result[2] if len(mlflow_result) >= 3 else None
     
     # Get circuit breaker state for more nuanced readiness check
     try:
         from src.utils.mlflow_config import get_mlflow_status
         mlflow_detailed = get_mlflow_status()
         cb_state = mlflow_detailed["circuit_breaker_state"]
+        
+        # Include DNS health status
+        dns_health = dns_info.get("health", {}) if dns_info else {}
+        dns_status = dns_health.get("status", "unknown")
         
         # Service can handle traffic even if MLflow circuit breaker is open
         if cb_state == "OPEN":
@@ -368,7 +390,8 @@ async def readiness_check():
                 "passed": False,
                 "error": "Circuit breaker open - MLflow temporarily unavailable",
                 "critical": False,
-                "degraded_mode": True
+                "degraded_mode": True,
+                "dns_status": dns_status
             })
             ready = False  # Not fully ready, but can still serve some traffic
         elif cb_state == "HALF_OPEN":
@@ -377,16 +400,21 @@ async def readiness_check():
                 "passed": True,
                 "error": None,
                 "critical": False,
-                "recovering": True
+                "recovering": True,
+                "dns_status": dns_status
             })
         else:
+            # Factor DNS status into readiness
+            mlflow_ready = mlflow_status and dns_status in ["healthy", "degraded"]
+            
             checks.append({
                 "name": "mlflow", 
-                "passed": mlflow_status,
+                "passed": mlflow_ready,
                 "error": mlflow_error,
-                "critical": False
+                "critical": False,
+                "dns_status": dns_status
             })
-            if not mlflow_status:
+            if not mlflow_ready:
                 ready = False
                 
     except Exception as e:
@@ -394,7 +422,8 @@ async def readiness_check():
             "name": "mlflow", 
             "passed": False,
             "error": f"Health check error: {str(e)}",
-            "critical": False
+            "critical": False,
+            "dns_status": "unknown"
         })
         ready = False
     

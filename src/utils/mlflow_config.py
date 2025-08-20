@@ -1,5 +1,6 @@
 """MLFlow configuration and utilities for the Hokusai pipeline."""
 
+import asyncio
 import logging
 import os
 import time
@@ -10,7 +11,78 @@ from typing import Any, Optional
 import mlflow
 from mlflow.exceptions import MlflowException
 
+from src.utils.dns_resolver import get_dns_resolver, DNSResolutionError
+
 logger = logging.getLogger(__name__)
+
+
+async def resolve_tracking_uri(tracking_uri: str) -> str:
+    """Resolve tracking URI using DNS resolver with fallback capabilities.
+    
+    Args:
+        tracking_uri: MLFlow tracking URI (may contain hostname)
+        
+    Returns:
+        Resolved tracking URI with IP address
+        
+    Raises:
+        DNSResolutionError: If DNS resolution fails and no fallback available
+    """
+    try:
+        dns_resolver = get_dns_resolver()
+        resolved_uri = await dns_resolver.resolve(tracking_uri)
+        
+        if resolved_uri != tracking_uri:
+            logger.info(f"DNS resolved tracking URI: {tracking_uri} -> {resolved_uri}")
+        else:
+            logger.debug(f"Tracking URI unchanged (already IP or resolution not needed): {tracking_uri}")
+            
+        return resolved_uri
+        
+    except DNSResolutionError as e:
+        logger.error(f"DNS resolution failed for tracking URI {tracking_uri}: {e}")
+        if e.fallback_used:
+            logger.warning(f"Using fallback IP for tracking URI: {tracking_uri}")
+            # If fallback was used, we should have a resolved URI
+            return tracking_uri
+        else:
+            # No fallback available, re-raise the error
+            raise
+    except Exception as e:
+        logger.error(f"Unexpected error resolving tracking URI {tracking_uri}: {e}")
+        # Return original URI as fallback
+        return tracking_uri
+
+
+def resolve_tracking_uri_sync(tracking_uri: str) -> str:
+    """Synchronous wrapper for DNS resolution of tracking URI.
+    
+    Args:
+        tracking_uri: MLFlow tracking URI (may contain hostname)
+        
+    Returns:
+        Resolved tracking URI with IP address
+    """
+    try:
+        # Try to get or create event loop
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If loop is already running, we need to use a different approach
+                # This can happen in Jupyter notebooks or async contexts
+                logger.warning("Event loop already running, using synchronous DNS resolution fallback")
+                return tracking_uri
+        except RuntimeError:
+            # No event loop, create a new one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # Run the async DNS resolution
+        return loop.run_until_complete(resolve_tracking_uri(tracking_uri))
+        
+    except Exception as e:
+        logger.warning(f"Failed to resolve tracking URI {tracking_uri} synchronously: {e}")
+        return tracking_uri
 
 
 class MLflowCircuitBreaker:
@@ -136,12 +208,69 @@ def exponential_backoff_retry(func, max_retries: int = None, base_delay: float =
 
 
 class MLFlowConfig:
-    """Configuration manager for MLFlow tracking."""
+    """Configuration manager for MLFlow tracking with DNS resolution."""
 
     def __init__(self) -> None:
-        self.tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://10.0.3.219:5000")  # Updated to current MLflow service IP
+        self.tracking_uri_raw = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow.hokusai-development.local:5000")
         self.experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", "hokusai-pipeline")
         self.artifact_root = os.getenv("MLFLOW_ARTIFACT_ROOT", None)
+        self._resolved_tracking_uri = None
+        
+        # Resolve tracking URI with DNS fallback
+        self.tracking_uri = self._resolve_tracking_uri_with_retry()
+
+    def _resolve_tracking_uri_with_retry(self) -> str:
+        """Resolve tracking URI with retry logic and fallback.
+        
+        Returns:
+            Resolved tracking URI or original URI if resolution fails
+        """
+        try:
+            resolved_uri = resolve_tracking_uri_sync(self.tracking_uri_raw)
+            self._resolved_tracking_uri = resolved_uri
+            return resolved_uri
+        except Exception as e:
+            logger.warning(f"Failed to resolve tracking URI {self.tracking_uri_raw}: {e}")
+            # Fall back to original URI
+            return self.tracking_uri_raw
+
+    def refresh_dns_resolution(self) -> bool:
+        """Refresh DNS resolution for tracking URI.
+        
+        Returns:
+            True if resolution succeeded, False otherwise
+        """
+        try:
+            new_resolved_uri = resolve_tracking_uri_sync(self.tracking_uri_raw)
+            if new_resolved_uri != self.tracking_uri:
+                logger.info(f"DNS resolution updated: {self.tracking_uri} -> {new_resolved_uri}")
+                self.tracking_uri = new_resolved_uri
+                self._resolved_tracking_uri = new_resolved_uri
+                return True
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to refresh DNS resolution for {self.tracking_uri_raw}: {e}")
+            return False
+
+    def get_dns_info(self) -> dict:
+        """Get DNS resolution information for tracking URI.
+        
+        Returns:
+            Dictionary with DNS resolution details
+        """
+        from src.utils.dns_resolver import get_dns_resolver
+        
+        dns_resolver = get_dns_resolver()
+        dns_metrics = dns_resolver.get_metrics()
+        dns_health = dns_resolver.health_check()
+        
+        return {
+            'raw_tracking_uri': self.tracking_uri_raw,
+            'resolved_tracking_uri': self._resolved_tracking_uri,
+            'current_tracking_uri': self.tracking_uri,
+            'dns_metrics': dns_metrics,
+            'dns_health': dns_health
+        }
 
     def setup_tracking(self) -> None:
         """Initialize MLFlow tracking configuration."""
@@ -324,7 +453,7 @@ def log_dataset_info(
 
 
 def get_mlflow_status() -> dict:
-    """Get current MLflow connection status and enhanced circuit breaker state with configurable timeout."""
+    """Get current MLflow connection status with DNS resolution details and circuit breaker state."""
     # Import settings to get configurable timeout
     try:
         from src.api.utils.config import get_settings
@@ -336,14 +465,28 @@ def get_mlflow_status() -> dict:
     
     cb_status = _circuit_breaker.get_status()
     
+    # Get DNS resolution information
+    from src.utils.dns_resolver import get_dns_resolver
+    dns_resolver = get_dns_resolver()
+    dns_metrics = dns_resolver.get_metrics()
+    dns_health = dns_resolver.health_check()
+    
+    # Get raw and resolved tracking URIs
+    raw_tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow.hokusai-development.local:5000")
+    
     status = {
         "circuit_breaker_state": cb_status["state"],
         "circuit_breaker_details": cb_status,
         "connected": False,
-        "tracking_uri": os.getenv("MLFLOW_TRACKING_URI", "http://10.0.3.219:5000"),
+        "tracking_uri": raw_tracking_uri,
         "connection_timeout": connection_timeout,
         "error": None,
-        "last_check_time": datetime.now().isoformat()
+        "last_check_time": datetime.now().isoformat(),
+        "dns_resolution": {
+            "raw_uri": raw_tracking_uri,
+            "metrics": dns_metrics,
+            "health": dns_health
+        }
     }
     
     if _circuit_breaker.is_open():
@@ -353,11 +496,23 @@ def get_mlflow_status() -> dict:
         return status
     
     try:
+        # Try to resolve the tracking URI before testing connection
+        try:
+            resolved_uri = resolve_tracking_uri_sync(raw_tracking_uri)
+            status["dns_resolution"]["resolved_uri"] = resolved_uri
+            if resolved_uri != raw_tracking_uri:
+                logger.debug(f"Using resolved URI for connection test: {resolved_uri}")
+            test_uri = resolved_uri
+        except Exception as e:
+            logger.warning(f"DNS resolution failed, using raw URI: {e}")
+            test_uri = raw_tracking_uri
+            status["dns_resolution"]["resolution_error"] = str(e)
+        
         # Connection test with configurable timeout and enhanced error handling
         start_time = time.time()
         
         # Set MLflow tracking URI with timeout consideration
-        mlflow.set_tracking_uri(status["tracking_uri"])
+        mlflow.set_tracking_uri(test_uri)
         
         # Test basic connectivity with timeout wrapper
         def _test_connection():
