@@ -23,10 +23,11 @@ class HokusaiModelRegistry:
 
     VALID_MODEL_TYPES = ["lead_scoring", "classification", "regression", "ranking"]
 
-    def __init__(self, tracking_uri: str = "http://10.0.3.219:5000") -> None:  # Updated to current MLflow service IP
+    def __init__(self, tracking_uri: str = "http://10.0.3.219:5000") -> None:
         """Initialize the model registry with MLFlow tracking.
 
         Args:
+        ----
             tracking_uri: MLFlow tracking server URI
 
         """
@@ -40,11 +41,13 @@ class HokusaiModelRegistry:
         """Register a baseline model for future comparisons.
 
         Args:
+        ----
             model: The model object to register
             model_type: Type of model (lead_scoring, classification, etc.)
             metadata: Additional metadata about the model
 
         Returns:
+        -------
             Dictionary containing model ID, version, and registration details
 
         """
@@ -104,12 +107,14 @@ class HokusaiModelRegistry:
         """Register an improved model with performance delta.
 
         Args:
+        ----
             model: The improved model object
             baseline_id: ID of the baseline model this improves upon
             delta_metrics: Performance improvements over baseline
             contributor: Ethereum address of the contributor
 
         Returns:
+        -------
             Dictionary containing model ID, version, and improvement details
 
         """
@@ -176,9 +181,11 @@ class HokusaiModelRegistry:
         """Track model improvements over time.
 
         Args:
+        ----
             model_id: The model ID to get lineage for
 
         Returns:
+        -------
             List of model versions with their improvement history
 
         """
@@ -233,9 +240,11 @@ class HokusaiModelRegistry:
         """Validate Ethereum address format.
 
         Args:
+        ----
             address: Ethereum address to validate
 
         Returns:
+        -------
             True if valid, False otherwise
 
         """
@@ -250,9 +259,11 @@ class HokusaiModelRegistry:
         """Calculate cumulative improvements across versions.
 
         Args:
+        ----
             versions: List of model versions with metrics
 
         Returns:
+        -------
             Dictionary of cumulative metric improvements
 
         """
@@ -287,111 +298,131 @@ class HokusaiModelRegistry:
 
     def get_contributor_models(self, contributor_address: str) -> list[dict[str, Any]]:
         """Get all models contributed by a specific address.
-        
+
         Args:
+        ----
             contributor_address: Ethereum address of contributor
-            
+
         Returns:
+        -------
             List of models with contribution details
+
         """
         try:
             import mlflow
-            
+
             # Search for runs with this contributor
             runs = mlflow.search_runs(
                 filter_string=f"params.contributor_address = '{contributor_address}'",
-                order_by=["start_time DESC"]
+                order_by=["start_time DESC"],
             )
-            
+
             models = []
             for _, run in runs.iterrows():
                 # Parse model history if it exists
                 model_history_str = run.get("tags.mlflow.log-model.history", "[]")
                 try:
                     import json
-                    model_history = json.loads(model_history_str) if isinstance(model_history_str, str) else model_history_str
-                    model_name = model_history[0].get("artifact_path", "unknown") if model_history else "unknown"
+
+                    model_history = (
+                        json.loads(model_history_str)
+                        if isinstance(model_history_str, str)
+                        else model_history_str
+                    )
+                    model_name = (
+                        model_history[0].get("artifact_path", "unknown")
+                        if model_history
+                        else "unknown"
+                    )
                 except (json.JSONDecodeError, IndexError):
                     model_name = "unknown"
-                    
+
                 model_info = {
                     "run_id": run["run_id"],
                     "model_name": model_name,
                     "contributor_address": contributor_address,
                     "baseline_id": run.get("params.baseline_model_id"),
-                    "metrics": {k.replace("metrics.", ""): v for k, v in run.items() if k.startswith("metrics.")},
-                    "created_at": run["start_time"]
+                    "metrics": {
+                        k.replace("metrics.", ""): v
+                        for k, v in run.items()
+                        if k.startswith("metrics.")
+                    },
+                    "created_at": run["start_time"],
                 }
                 models.append(model_info)
-                
+
             return models
-            
+
         except Exception as e:
             logger.error(f"Failed to get contributor models: {str(e)}")
             return []
 
     def promote_model_to_production(self, model_name: str, version: str) -> dict[str, Any]:
         """Promote a model version to production stage.
-        
+
         Args:
+        ----
             model_name: Name of the model
             version: Version to promote
-            
+
         Returns:
+        -------
             Dictionary with promotion details
+
         """
         try:
             client = mlflow.tracking.MlflowClient()
-            
+
             # Transition to production
             client.transition_model_version_stage(
-                name=model_name,
-                version=version,
-                stage="Production",
-                archive_existing_versions=True
+                name=model_name, version=version, stage="Production", archive_existing_versions=True
             )
-            
+
             result = {
                 "model_id": model_name,
                 "version": version,
                 "stage": "Production",
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat(),
             }
-            
+
             logger.info(f"Promoted {model_name} v{version} to production")
             return result
-            
+
         except Exception as e:
             logger.error(f"Failed to promote model: {str(e)}")
             raise
 
     def get_production_models(self) -> list[dict[str, Any]]:
         """Get all models currently in production.
-        
-        Returns:
+
+        Returns
+        -------
             List of production models
+
         """
         try:
             client = mlflow.tracking.MlflowClient()
-            
+
             # Get all registered models
             models = client.list_registered_models()
-            
+
             production_models = []
             for model in models:
                 # Check for production versions
                 for version in model.latest_versions:
                     if version.current_stage == "Production":
-                        production_models.append({
-                            "model_name": model.name,
-                            "version": version.version,
-                            "stage": version.current_stage,
-                            "description": model.description,
-                            "tags": model.tags if hasattr(model, 'tags') else {}
-                        })
-                        
+                        production_models.append(
+                            {
+                                "model_name": model.name,
+                                "version": version.version,
+                                "stage": version.current_stage,
+                                "description": model.description,
+                                "tags": model.tags if hasattr(model, "tags") else {},
+                            }
+                        )
+
             return production_models
-            
+
         except Exception as e:
             logger.error(f"Failed to get production models: {str(e)}")
             return []
