@@ -1,12 +1,31 @@
-"""Example usage of the Token-Aware MLflow Model Registry."""
+"""Example usage of the Token-Aware MLflow Model Registry."""  # noqa: T201
+
 from hokusai.core.registry import ModelRegistry
 
 
 def main() -> None:
     """Demonstrate token-aware model registration."""
+    # IMPORTANT: Authentication Setup
+    # ================================
+    # Hokusai requires HOKUSAI_API_KEY for authentication.
+    # MLflow also requires MLFLOW_TRACKING_TOKEN to be set.
 
-    # Initialize the registry
-    registry = ModelRegistry("http://localhost:5000")
+    # Method 1: Set environment variables (recommended)
+    # Before running this script, set:
+    #   export HOKUSAI_API_KEY='hk_live_your_api_key_here'
+    #   export MLFLOW_TRACKING_TOKEN='hk_live_your_api_key_here'  # Same key
+    #   export MLFLOW_TRACKING_URI='https://registry.hokus.ai/api/mlflow'
+
+    # Method 2: Set programmatically (for testing only - don't hardcode keys!)
+    # os.environ["HOKUSAI_API_KEY"] = "hk_live_your_api_key_here"
+    # os.environ["MLFLOW_TRACKING_TOKEN"] = "hk_live_your_api_key_here"
+    # os.environ["MLFLOW_TRACKING_URI"] = "https://registry.hokus.ai/api/mlflow"
+
+    # Method 3: Pass api_key directly
+    # registry = ModelRegistry(api_key="hk_live_your_api_key_here")
+
+    # Initialize the registry (uses environment variables by default)
+    registry = ModelRegistry()
 
     # Example 1: Register a new tokenized model
     print("Example 1: Registering a tokenized model")
@@ -24,8 +43,8 @@ def main() -> None:
             additional_tags={
                 "dataset": "customer_interactions_v2",
                 "environment": "production",
-                "team": "messaging"
-            }
+                "team": "messaging",
+            },
         )
 
         print(f"Successfully registered model: {result['model_name']}")
@@ -61,8 +80,10 @@ def main() -> None:
         models = registry.list_models_by_token("msg-ai")
         print(f"Found {len(models)} models for token 'msg-ai':")
         for model in models:
-            print(f"  - {model['model_name']} v{model['version']}: "
-                  f"{model['metric_name']} = {model['baseline_value']}")
+            print(
+                f"  - {model['model_name']} v{model['version']}: "
+                f"{model['metric_name']} = {model['baseline_value']}"
+            )
         print()
 
     except Exception as e:
@@ -79,8 +100,8 @@ def main() -> None:
             "1",
             {
                 "benchmark_value": "0.1456",  # Updated performance
-                "last_evaluated": "2024-01-15"
-            }
+                "last_evaluated": "2024-01-15",
+            },
         )
         print("Successfully updated model tags")
         print()
@@ -108,20 +129,15 @@ def validate_token_examples() -> None:
     print("\nToken ID Validation Examples")
     print("-" * 50)
 
-    valid_tokens = [
-        "msg-ai",
-        "lead-scorer",
-        "churn-predictor-v2",
-        "recommendation-engine-prod"
-    ]
+    valid_tokens = ["msg-ai", "lead-scorer", "churn-predictor-v2", "recommendation-engine-prod"]
 
     invalid_tokens = [
-        "MSG AI",           # Contains space
-        "token@special",    # Contains special character
-        "",                 # Empty
-        "a" * 65,          # Too long
-        "-token",          # Starts with hyphen
-        "token-"           # Ends with hyphen
+        "MSG AI",  # Contains space
+        "token@special",  # Contains special character
+        "",  # Empty
+        "a" * 65,  # Too long
+        "-token",  # Starts with hyphen
+        "token-",  # Ends with hyphen
     ]
 
     print("Valid token IDs:")
