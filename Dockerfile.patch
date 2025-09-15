@@ -1,0 +1,10 @@
+FROM 932100697590.dkr.ecr.us-east-1.amazonaws.com/hokusai-api:fix-amd64
+
+# Copy the fixed model_registry.py file
+COPY src/services/model_registry.py /app/src/services/model_registry.py
+
+# Ensure Python path is set
+ENV PYTHONPATH=/app
+
+# Run the API server
+CMD ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8001"]
