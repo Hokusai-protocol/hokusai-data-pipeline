@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from ...config.providers import ProviderConfigManager
 from ...database.config import DatabaseConfig
 from ...database.deployed_models import DeployedModelStatus, get_session
 from ...services.deployment_service import DeploymentService
@@ -77,14 +78,8 @@ def get_deployment_service() -> DeploymentService:
 
 
 def get_provider_configs() -> dict[str, ProviderConfig]:
-    """Get provider configurations."""
-    # In a real implementation, these would come from environment variables or config files
-    return {
-        "huggingface": ProviderConfig(
-            provider_name="huggingface",
-            credentials={"api_key": "dummy-key"},  # This should be from env
-        )
-    }
+    """Get provider configurations from environment."""
+    return ProviderConfigManager.get_all_configs()
 
 
 @router.post(
