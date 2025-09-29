@@ -203,10 +203,16 @@ class APIKeyService:
                         key_id=key_data.get("key_id"),
                         name=key_data.get("name"),
                         key_prefix=key_data.get("key_prefix"),
-                        created_at=datetime.fromisoformat(key_data.get("created_at")) if key_data.get("created_at") else datetime.now(timezone.utc),
-                        last_used_at=datetime.fromisoformat(key_data.get("last_used_at")) if key_data.get("last_used_at") else None,
+                        created_at=datetime.fromisoformat(key_data.get("created_at"))
+                        if key_data.get("created_at")
+                        else datetime.now(timezone.utc),
+                        last_used_at=datetime.fromisoformat(key_data.get("last_used_at"))
+                        if key_data.get("last_used_at")
+                        else None,
                         is_active=key_data.get("is_active", False),
-                        expires_at=datetime.fromisoformat(key_data.get("expires_at")) if key_data.get("expires_at") else None,
+                        expires_at=datetime.fromisoformat(key_data.get("expires_at"))
+                        if key_data.get("expires_at")
+                        else None,
                     )
                 )
 
