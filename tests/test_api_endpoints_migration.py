@@ -11,16 +11,36 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def mock_external_services():
     """Mock external services for all tests."""
-    with patch('src.api.routes.health.check_postgres_connection') as mock_pg, \
+    with patch('src.api.routes.health.check_database_connection') as mock_pg, \
          patch('src.api.routes.health.check_redis_connection') as mock_redis, \
          patch('src.api.routes.health.check_mlflow_connection') as mock_mlflow, \
+         patch('src.utils.mlflow_config.get_mlflow_status') as mock_mlflow_status, \
+         patch('src.api.routes.health._get_redis') as mock_get_redis, \
+         patch('src.api.routes.health._get_psycopg2') as mock_get_psycopg2, \
+         patch('src.events.publishers.factory.get_publisher') as mock_get_publisher, \
          patch('src.middleware.auth.APIKeyAuthMiddleware.validate_with_auth_service') as mock_auth:
         
         # Mock health check functions
-        mock_pg.return_value = {"status": "healthy", "latency_ms": 10}
-        mock_redis.return_value = {"status": "disabled"}
+        mock_pg.return_value = (True, None)  # Returns tuple (success, error_message)
+        mock_redis.return_value = (True, "Redis disabled - skipping check")
         mock_mlflow.return_value = {"status": "healthy", "latency_ms": 20}
-        
+        mock_mlflow_status.return_value = {"connected": True, "circuit_breaker_state": "CLOSED", "error": None}
+
+        # Mock Redis module
+        mock_redis_module = Mock()
+        mock_redis_module.Redis.return_value.ping.return_value = True
+        mock_get_redis.return_value = mock_redis_module
+
+        # Mock psycopg2 module
+        mock_pg_module = Mock()
+        mock_pg_module.connect.return_value.close.return_value = None
+        mock_get_psycopg2.return_value = mock_pg_module
+
+        # Mock event publisher
+        mock_publisher = Mock()
+        mock_publisher.health_check.return_value = {"status": "healthy"}
+        mock_get_publisher.return_value = mock_publisher
+
         # Mock auth service to reject requests without valid API key
         mock_auth.return_value = None
         
