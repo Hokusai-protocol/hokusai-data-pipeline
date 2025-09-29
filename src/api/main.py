@@ -9,12 +9,15 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from src.middleware.auth import APIKeyAuthMiddleware
-from src.middleware.rate_limiter import RateLimitMiddleware
-from src.api.routes import dspy, health, models, health_mlflow, mlflow_proxy_improved as mlflow_proxy
+from src.api.endpoints import model_serving
+from src.api.routes import dspy, health, health_mlflow, models
+from src.api.routes import mlflow_proxy_improved as mlflow_proxy
+
 # TODO: Fix missing APIKeyModel dependency before enabling auth
 # from src.api import auth
 from src.api.utils.config import get_settings
+from src.middleware.auth import APIKeyAuthMiddleware
+from src.middleware.rate_limiter import RateLimitMiddleware
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -55,12 +58,15 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Include routers
 app.include_router(health.router, tags=["health"])
 
+
 # Add explicit root health endpoint for ALB
 @app.get("/health")
 async def root_health_check():
     """Root-level health check endpoint for ALB."""
     from src.api.routes.health import health_check
+
     return await health_check()
+
 
 # Add root endpoint that returns available health paths
 @app.get("/")
@@ -70,17 +76,14 @@ async def root():
         "service": "Hokusai Data Pipeline API",
         "version": "1.0.0",
         "health_check": "/health",
-        "health_endpoints": [
-            "/health",
-            "/ready",
-            "/live",
-            "/health/mlflow",
-            "/health/status"
-        ],
-        "documentation": "/docs"
+        "health_endpoints": ["/health", "/ready", "/live", "/health/mlflow", "/health/status"],
+        "documentation": "/docs",
     }
+
+
 app.include_router(models.router, prefix="/models", tags=["models"])
 app.include_router(dspy.router, tags=["dspy"])
+app.include_router(model_serving.router, tags=["model-serving"])  # Model 21 serving endpoint
 # TODO: Enable auth router after fixing APIKeyModel dependency
 # app.include_router(auth.router, tags=["authentication"])
 
