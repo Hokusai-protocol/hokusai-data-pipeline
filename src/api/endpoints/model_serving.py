@@ -35,6 +35,8 @@ class PredictionRequest(BaseModel):
 class PredictionResponse(BaseModel):
     """Response schema for model predictions."""
 
+    model_config = {"protected_namespaces": ()}  # Allow model_id field
+
     model_id: str
     predictions: Dict[str, Any]
     metadata: Dict[str, Any]
@@ -65,7 +67,7 @@ class ModelServingService:
         model_configs = {
             "21": {
                 "name": "Sales Lead Scoring Model",
-                "repository_id": "hokusai-protocol/hokusai-sales-lead-scorer-21",
+                "repository_id": "timogilvie/hokusai-model-21-sales-lead-scorer",
                 "storage_type": "huggingface_private",
                 "model_type": "sklearn",  # or "pytorch", "tensorflow", etc.
                 "is_private": True,
