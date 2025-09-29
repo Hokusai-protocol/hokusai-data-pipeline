@@ -118,8 +118,10 @@ class TestPredictionEndpoints:
 
         assert response.status_code == 400
         response_data = response.json()
-        assert response_data["success"] is False
-        assert "Model inference failed: timeout" in response_data["error_message"]
+        # When HTTPException is raised, FastAPI returns 'detail' not 'success'
+        assert "success" in response_data["detail"]
+        assert response_data["detail"]["success"] is False
+        assert "Model inference failed: timeout" in response_data["detail"]["error_message"]
 
     def test_predict_model_not_found(self, client, mock_deployment_service, provider_configs):
         """Test prediction for non-existent model."""
@@ -142,8 +144,10 @@ class TestPredictionEndpoints:
 
         assert response.status_code == 404
         response_data = response.json()
-        assert response_data["success"] is False
-        assert "not found" in response_data["error_message"]
+        # When HTTPException is raised, FastAPI returns 'detail' not 'success'
+        assert "success" in response_data["detail"]
+        assert response_data["detail"]["success"] is False
+        assert "not found" in response_data["detail"]["error_message"]
 
     def test_predict_invalid_uuid(self, client):
         """Test prediction with invalid UUID."""
@@ -305,5 +309,7 @@ class TestPredictionEndpoints:
 
         assert response.status_code == 404
         response_data = response.json()
-        assert response_data["success"] is False
-        assert "not found" in response_data["error_message"]
+        # When HTTPException is raised, FastAPI returns 'detail' not 'success'
+        assert "success" in response_data["detail"]
+        assert response_data["detail"]["success"] is False
+        assert "not found" in response_data["detail"]["error_message"]
