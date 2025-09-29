@@ -271,7 +271,7 @@ scikit-learn==1.4.0
     # via
     #   -r requirements-all.in
     #   mlflow
-scipy==1.16.0
+scipy==1.11.4
     # via
     #   mlflow
     #   scikit-learn
