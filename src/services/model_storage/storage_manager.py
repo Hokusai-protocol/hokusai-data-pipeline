@@ -10,7 +10,7 @@ import os
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import boto3
 
@@ -70,7 +70,7 @@ class ModelStorageManager:
             self.s3_client = boto3.client("s3")
             logger.info("AWS S3 storage backend initialized")
 
-    def determine_storage_type(self, model_metadata: Dict[str, Any]) -> StorageType:
+    def determine_storage_type(self, model_metadata: dict[str, Any]) -> StorageType:
         """Determine the appropriate storage type based on model metadata and environment.
 
         Args:
@@ -116,8 +116,8 @@ class ModelStorageManager:
         return StorageType.HUGGINGFACE_PRIVATE
 
     async def upload_model(
-        self, model_id: str, model_path: str, model_metadata: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, model_id: str, model_path: str, model_metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """Upload a model to the appropriate storage backend.
 
         Args:
@@ -151,8 +151,8 @@ class ModelStorageManager:
             raise ValueError(f"Unsupported storage type: {storage_type}")
 
     async def _upload_to_huggingface_private(
-        self, model_id: str, model_path: str, model_metadata: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, model_id: str, model_path: str, model_metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """Upload model to private HuggingFace repository."""
         if not self.hf_uploader:
             raise ValueError("HuggingFace storage not configured")
@@ -180,8 +180,8 @@ class ModelStorageManager:
         }
 
     async def _upload_to_huggingface_public(
-        self, model_id: str, model_path: str, model_metadata: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, model_id: str, model_path: str, model_metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """Upload model to public HuggingFace repository.
 
         WARNING: Only use for demo/example models that are explicitly marked as public.
@@ -215,8 +215,8 @@ class ModelStorageManager:
         }
 
     async def _upload_to_s3(
-        self, model_id: str, model_path: str, model_metadata: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, model_id: str, model_path: str, model_metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """Upload model to AWS S3 with encryption."""
         if not self.s3_client:
             raise ValueError("AWS S3 storage not configured")
@@ -283,8 +283,8 @@ class ModelStorageManager:
         }
 
     async def _upload_to_container_registry(
-        self, model_id: str, model_path: str, model_metadata: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, model_id: str, model_path: str, model_metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """Package and upload model as a Docker container.
 
         This provides maximum security by encapsulating the model
@@ -312,8 +312,8 @@ class ModelStorageManager:
         }
 
     async def _store_locally(
-        self, model_id: str, model_path: str, model_metadata: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, model_id: str, model_path: str, model_metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """Store model locally (for testing only)."""
         local_dir = Path("/tmp/hokusai_models") / self.environment / model_id
         local_dir.mkdir(parents=True, exist_ok=True)
@@ -357,7 +357,7 @@ class ModelStorageManager:
             logger.error(f"Failed to generate presigned URL: {str(e)}")
             return ""
 
-    def _generate_access_config(self, model_id: str, repo_id: str) -> Dict[str, Any]:
+    def _generate_access_config(self, model_id: str, repo_id: str) -> dict[str, Any]:
         """Generate secure access configuration for a model.
 
         This configuration is used by the Hokusai API to access
@@ -373,7 +373,7 @@ class ModelStorageManager:
             "note": "Access only through Hokusai API endpoints",
         }
 
-    def verify_storage(self, storage_info: Dict[str, Any]) -> bool:
+    def verify_storage(self, storage_info: dict[str, Any]) -> bool:
         """Verify that a model is correctly stored and accessible.
 
         Args:
@@ -413,8 +413,8 @@ class ModelStorageManager:
 
 # Integration with Hokusai model registration
 async def register_and_upload_model(
-    model_id: str, model_path: str, model_metadata: Dict[str, Any], environment: str = "development"
-) -> Dict[str, Any]:
+    model_id: str, model_path: str, model_metadata: dict[str, Any], environment: str = "development"
+) -> dict[str, Any]:
     """Register a model in Hokusai and upload to appropriate storage.
 
     This is the main entry point called when a model is registered.

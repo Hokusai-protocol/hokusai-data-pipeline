@@ -10,7 +10,7 @@ import os
 import pickle
 import tempfile
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import numpy as np
 import requests
@@ -28,8 +28,8 @@ router = APIRouter(prefix="/api/v1/models", tags=["model-serving"])
 class PredictionRequest(BaseModel):
     """Request schema for model predictions."""
 
-    inputs: Dict[str, Any] = Field(..., description="Input data for prediction")
-    options: Optional[Dict[str, Any]] = Field(default={}, description="Additional options")
+    inputs: dict[str, Any] = Field(..., description="Input data for prediction")
+    options: Optional[dict[str, Any]] = Field(default={}, description="Additional options")
 
 
 class PredictionResponse(BaseModel):
@@ -38,8 +38,8 @@ class PredictionResponse(BaseModel):
     model_config = {"protected_namespaces": ()}  # Allow model_id field
 
     model_id: str
-    predictions: Dict[str, Any]
-    metadata: Dict[str, Any]
+    predictions: dict[str, Any]
+    metadata: dict[str, Any]
     timestamp: str
 
 
@@ -58,7 +58,7 @@ class ModelServingService:
         self.hf_token = os.getenv("HUGGINGFACE_API_KEY")
         self.inference_api_url = "https://api-inference.huggingface.co/models"
 
-    def get_model_config(self, model_id: str) -> Dict[str, Any]:
+    def get_model_config(self, model_id: str) -> dict[str, Any]:
         """Get model configuration from database.
 
         In production, this would query the database.
@@ -144,8 +144,8 @@ class ModelServingService:
             raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
 
     async def predict_with_inference_api(
-        self, repository_id: str, inputs: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, repository_id: str, inputs: dict[str, Any]
+    ) -> dict[str, Any]:
         """Use HuggingFace Inference API for prediction.
 
         This method calls the HuggingFace Inference API directly,
@@ -177,8 +177,8 @@ class ModelServingService:
             raise HTTPException(status_code=500, detail=f"Failed to call inference API: {str(e)}")
 
     async def predict_local(
-        self, model_id: str, model: Any, inputs: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, model_id: str, model: Any, inputs: dict[str, Any]
+    ) -> dict[str, Any]:
         """Run prediction locally with the loaded model.
 
         This is for models that are downloaded and run locally,
@@ -233,7 +233,7 @@ class ModelServingService:
             # Generic prediction logic for other models
             raise NotImplementedError(f"Local prediction not implemented for model {model_id}")
 
-    def _prepare_sales_lead_features(self, data: Dict[str, Any]) -> np.ndarray:
+    def _prepare_sales_lead_features(self, data: dict[str, Any]) -> np.ndarray:
         """Prepare features for Sales Lead Scoring Model (ID 21).
 
         This matches the feature preparation in the training script.
@@ -284,8 +284,8 @@ class ModelServingService:
         return np.array(features).reshape(1, -1)
 
     async def serve_prediction(
-        self, model_id: str, inputs: Dict[str, Any], options: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, model_id: str, inputs: dict[str, Any], options: dict[str, Any]
+    ) -> dict[str, Any]:
         """Main method to serve predictions for a model.
 
         Args:

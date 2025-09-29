@@ -11,7 +11,7 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 from huggingface_hub import (
     CommitOperationAdd,
@@ -74,7 +74,7 @@ class HuggingFaceModelUploader:
         repo_id = f"{self.organization}/hokusai-{safe_name}-{model_id}"
         return repo_id
 
-    def create_model_card(self, model_id: str, model_metadata: Dict[str, Any]) -> str:
+    def create_model_card(self, model_id: str, model_metadata: dict[str, Any]) -> str:
         """Create a model card with metadata and security warnings.
 
         Args:
@@ -153,10 +153,10 @@ For support, contact: support@hokus.ai
         self,
         model_id: str,
         model_path: str,
-        model_metadata: Dict[str, Any],
+        model_metadata: dict[str, Any],
         private: Optional[bool] = None,
         model_name: Optional[str] = None,
-    ) -> Tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """Upload a model to HuggingFace Hub with proper security.
 
         Args:
@@ -378,7 +378,7 @@ For support, contact: support@hokus.ai
             logger.error(f"Failed to rotate token: {str(e)}")
             return False
 
-    def _log_upload(self, model_id: str, repo_id: str, upload_info: Dict[str, Any]):
+    def _log_upload(self, model_id: str, repo_id: str, upload_info: dict[str, Any]):
         """Log upload for audit purposes.
 
         Args:
