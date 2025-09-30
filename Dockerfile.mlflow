@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
 
 # Install Python dependencies
 RUN pip install --no-cache-dir \
-    mlflow==2.9.2 \
+    mlflow==3.4.0 \
     psycopg2-binary \
     boto3 \
     prometheus-client

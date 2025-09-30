@@ -98,7 +98,7 @@ mdurl==0.1.2
     # via markdown-it-py
 metaflow==2.11.0
     # via -r requirements-mlflow.in
-mlflow==2.9.0
+mlflow==3.4.0
     # via -r requirements-mlflow.in
 numpy==1.26.4
     # via
@@ -133,9 +133,9 @@ pyarrow==14.0.2
     # via
     #   -r /Users/timothyogilvie/Dropbox/Hokusai/hokusai-data-pipeline/requirements-core.in
     #   mlflow
-pydantic==2.5.0
+pydantic==2.10.6
     # via -r /Users/timothyogilvie/Dropbox/Hokusai/hokusai-data-pipeline/requirements-core.in
-pydantic-core==2.14.1
+pydantic-core==2.27.2
     # via pydantic
 pygments==2.19.2
     # via rich
