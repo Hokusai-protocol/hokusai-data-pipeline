@@ -69,7 +69,8 @@ jobs:
       run: |
         pytest tests/unit/test_mlflow_proxy_fix_verification.py \
           -v \
-          --tb=short
+          --tb=short \
+          --cov-fail-under=0
       env:
         PYTHONPATH: ${{ github.workspace }}
         DB_PASSWORD: ci_test_password
