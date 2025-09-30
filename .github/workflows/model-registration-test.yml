@@ -59,6 +59,10 @@ jobs:
       env:
         MLFLOW_SERVER_URL: http://localhost:5000
         PYTHONPATH: ${{ github.workspace }}
+        DB_PASSWORD: ci_test_password
+        DB_HOST: localhost
+        DB_NAME: ci_test_db
+        DB_USER: ci_test_user
     
     - name: Run Auth Header Forwarding Tests
       run: |
@@ -68,6 +72,10 @@ jobs:
           --tb=short
       env:
         PYTHONPATH: ${{ github.workspace }}
+        DB_PASSWORD: ci_test_password
+        DB_HOST: localhost
+        DB_NAME: ci_test_db
+        DB_USER: ci_test_user
     
     - name: Upload Coverage Report
       if: matrix.python-version == '3.11'
@@ -83,20 +91,25 @@ jobs:
         import sys
         sys.path.insert(0, '.')
         from src.api.main import app
-        
+
         # Verify routes are mounted
         routes = [str(route.path) for route in app.routes]
-        
+
         # Check for both route prefixes
         assert any('/mlflow' in route for route in routes), 'Missing /mlflow routes'
         assert any('/api/mlflow' in route for route in routes), 'Missing /api/mlflow routes'
-        
+
         print('✅ Route configuration verified')
         print('Routes found:')
         for route in routes:
             if 'mlflow' in route:
                 print(f'  - {route}')
         "
+      env:
+        DB_PASSWORD: ci_test_password
+        DB_HOST: localhost
+        DB_NAME: ci_test_db
+        DB_USER: ci_test_user
     
     - name: Validate Auth Header Configuration
       run: |
