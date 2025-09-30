@@ -1,5 +1,24 @@
 # Hokusai Data Pipeline - Claude Configuration
 
+## CRITICAL: Docker Build Platform Configuration
+**ALWAYS build Docker images with `--platform linux/amd64` for ECS deployment**
+
+ECS runs on AMD64 (x86_64) architecture, NOT ARM64. Building on Apple Silicon (M1/M2/M3) without the platform flag will create ARM64 images that fail with "exec format error" on ECS.
+
+### Correct Docker Build Commands:
+```bash
+# MLflow service
+docker build --platform linux/amd64 -f Dockerfile.mlflow -t <registry>/hokusai/mlflow:latest .
+
+# API service
+docker build --platform linux/amd64 -f Dockerfile.api -t <registry>/hokusai/api:latest .
+
+# Any other service
+docker build --platform linux/amd64 -f Dockerfile.<service> -t <registry>/hokusai/<service>:latest .
+```
+
+**NEVER build without `--platform linux/amd64` on Apple Silicon Macs**
+
 ## IMPORTANT: Linear Backlog Configuration
 When fetching Linear backlog items:
 - **ALWAYS use "Hokusai data pipeline" (not "Hokusai infrastructure")**
