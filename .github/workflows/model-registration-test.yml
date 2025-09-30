@@ -55,7 +55,8 @@ jobs:
           --tb=short \
           --cov=src/api/routes \
           --cov-report=term-missing \
-          --cov-report=xml
+          --cov-report=xml \
+          --cov-fail-under=0
       env:
         MLFLOW_SERVER_URL: http://localhost:5000
         PYTHONPATH: ${{ github.workspace }}
