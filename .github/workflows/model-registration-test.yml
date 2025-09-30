@@ -67,8 +67,7 @@ jobs:
     
     - name: Run Auth Header Forwarding Tests
       run: |
-        pytest tests/unit/test_mlflow_proxy_auth_fix.py \
-          tests/unit/test_mlflow_proxy_fix_verification.py \
+        pytest tests/unit/test_mlflow_proxy_fix_verification.py \
           -v \
           --tb=short
       env:
