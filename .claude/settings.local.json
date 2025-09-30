@@ -49,7 +49,12 @@
       "Bash(terraform apply:*)",
       "Bash(docker push:*)",
       "Bash(docker build:*)",
-      "Bash(docker tag:*)"
+      "Bash(docker tag:*)",
+      "Bash(gh pr view:*)",
+      "Read(//Users/timothyogilvie/Dropbox/Hokusai/hokusai-infrastructure/**)",
+      "Bash(while read task)",
+      "Bash(do echo \"Task: $task\")",
+      "Bash(done)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits",

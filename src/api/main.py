@@ -87,9 +87,13 @@ app.include_router(model_serving.router, tags=["model-serving"])  # Model 21 ser
 # TODO: Enable auth router after fixing APIKeyModel dependency
 # app.include_router(auth.router, tags=["authentication"])
 
-# MLflow proxy - mount at both /mlflow and /api/mlflow for compatibility
+# MLflow proxy - mount at multiple prefixes for MLflow client compatibility
+# /mlflow - for direct access
+# /api/mlflow - for API versioned access
+# /api/2.0/mlflow - for MLflow Python client (uses this path by default)
 app.include_router(mlflow_proxy.router, prefix="/mlflow", tags=["mlflow"])
 app.include_router(mlflow_proxy.router, prefix="/api/mlflow", tags=["mlflow"])
+app.include_router(mlflow_proxy.router, prefix="/api/2.0/mlflow", tags=["mlflow"])
 
 # MLflow health check endpoints at /api/health
 app.include_router(health_mlflow.router, prefix="/api/health", tags=["health"])
