@@ -259,17 +259,26 @@ class Settings(BaseSettings):
                 tls_enabled = os.getenv("REDIS_TLS_ENABLED", "false").lower() == "true"
                 scheme = "rediss" if tls_enabled else "redis"
 
+                # Check if auth token is available
+                auth_token = os.getenv("REDIS_AUTH_TOKEN")
+
                 # Add default port if not in URL
                 if ":" not in redis_url:
                     port = os.getenv("REDIS_PORT", str(self.redis_port))
-                    redis_url = f"{scheme}://{redis_url}:{port}"
+                    if auth_token:
+                        redis_url = f"{scheme}://:{auth_token}@{redis_url}:{port}/0"
+                    else:
+                        redis_url = f"{scheme}://{redis_url}:{port}"
                 else:
                     # Port already in URL (host:port format)
-                    redis_url = f"{scheme}://{redis_url}"
+                    if auth_token:
+                        redis_url = f"{scheme}://:{auth_token}@{redis_url}/0"
+                    else:
+                        redis_url = f"{scheme}://{redis_url}"
 
                 logger.info(
                     f"Constructed Redis URL with {scheme}:// scheme and port. "
-                    f"TLS enabled: {tls_enabled}"
+                    f"TLS enabled: {tls_enabled}, Auth: {'enabled' if auth_token else 'disabled'}"
                 )
             else:
                 # URL already has valid scheme
