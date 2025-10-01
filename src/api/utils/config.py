@@ -218,9 +218,63 @@ class Settings(BaseSettings):
 
     @property
     def redis_url(self) -> str:
-        """Build Redis URL from components or environment variables."""
+        """Build Redis URL from components or environment variables with TLS support.
+
+        Handles various input formats:
+        - Full URL with scheme (redis://, rediss://, unix://) - returned as-is
+        - Bare hostname without scheme - scheme added based on REDIS_TLS_ENABLED
+        - Component-based (REDIS_HOST, REDIS_PORT, REDIS_AUTH_TOKEN) - URL constructed with TLS support
+
+        TLS Support:
+        - REDIS_TLS_ENABLED=true → uses rediss:// scheme (required for AWS ElastiCache)
+        - REDIS_TLS_ENABLED=false or not set → uses redis:// scheme
+
+        Examples
+        --------
+        - REDIS_URL="redis://localhost:6379" → "redis://localhost:6379" (unchanged)
+        - REDIS_URL="master.redis.amazonaws.com" + REDIS_TLS_ENABLED="true" → "rediss://master.redis.amazonaws.com:6379"
+        - REDIS_HOST="redis.example.com" + REDIS_TLS_ENABLED="true" → "rediss://redis.example.com:6379/0"
+
+        Returns
+        -------
+            str: Complete Redis URL with scheme (redis://, rediss://, or unix://)
+
+        Raises
+        ------
+            ValueError: If neither REDIS_URL nor REDIS_HOST is set
+
+        """
+        logger = logging.getLogger(__name__)
+
         # Check for explicit REDIS_URL first
         if redis_url := os.getenv("REDIS_URL"):
+            # Validate and fix URL format if needed
+            if not redis_url.startswith(("redis://", "rediss://", "unix://")):
+                logger.warning(
+                    f"REDIS_URL missing scheme, will prepend based on TLS setting. "
+                    f"Original value: {redis_url[:50]}..."  # Hide full hostname in logs
+                )
+
+                # Determine scheme based on TLS setting
+                tls_enabled = os.getenv("REDIS_TLS_ENABLED", "false").lower() == "true"
+                scheme = "rediss" if tls_enabled else "redis"
+
+                # Add default port if not in URL
+                if ":" not in redis_url:
+                    port = os.getenv("REDIS_PORT", str(self.redis_port))
+                    redis_url = f"{scheme}://{redis_url}:{port}"
+                else:
+                    # Port already in URL (host:port format)
+                    redis_url = f"{scheme}://{redis_url}"
+
+                logger.info(
+                    f"Constructed Redis URL with {scheme}:// scheme and port. "
+                    f"TLS enabled: {tls_enabled}"
+                )
+            else:
+                # URL already has valid scheme
+                logger.debug("Using Redis URL from environment with existing scheme")
+
             return redis_url
 
         # Build from components - require explicit configuration
@@ -233,18 +287,26 @@ class Settings(BaseSettings):
 
         port = os.getenv("REDIS_PORT", str(self.redis_port))
         auth_token = os.getenv("REDIS_AUTH_TOKEN")
+        tls_enabled = os.getenv("REDIS_TLS_ENABLED", "false").lower() == "true"
+
+        # Use rediss:// for TLS connections (AWS ElastiCache), redis:// for non-TLS
+        scheme = "rediss" if tls_enabled else "redis"
 
         if auth_token:
-            # ElastiCache authenticated connection
-            return f"redis://:{auth_token}@{host}:{port}/0"
+            # ElastiCache authenticated connection with TLS support
+            url = f"{scheme}://:{auth_token}@{host}:{port}/0"
+            logger.info(
+                f"Built Redis URL from components with auth and {scheme}:// scheme. "
+                f"Host: {host}:{port}, TLS: {tls_enabled}"
+            )
+            return url
         else:
             # Unauthenticated connection (development only)
-            logger = logging.getLogger(__name__)
             logger.warning(
-                f"Redis connection without authentication to {host}:{port} - "
+                f"Redis connection without authentication to {host}:{port} using {scheme}:// - "
                 "this should only be used in development"
             )
-            return f"redis://{host}:{port}/0"
+            return f"{scheme}://{host}:{port}/0"
 
     def validate_required_credentials(self) -> None:
         """Validate that all required credentials are available at startup."""
