@@ -3,6 +3,9 @@
 
 This module handles serving models (like Model ID 21) through the API,
 integrating with HuggingFace and other storage backends.
+
+Authentication is handled by APIKeyAuthMiddleware - all endpoints
+use the require_auth dependency to access validated user context.
 """
 
 import logging
@@ -10,13 +13,15 @@ import os
 import pickle
 import tempfile
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 import requests
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from huggingface_hub import hf_hub_download, snapshot_download
 from pydantic import BaseModel, Field
+
+from ...middleware.auth import require_auth
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -352,14 +357,35 @@ serving_service = ModelServingService()
 
 
 @router.get("/{model_id}/info")
-async def get_model_info(model_id: str, authorization: Optional[str] = Header(None)):
+async def get_model_info(
+    model_id: str,
+    auth: Dict[str, Any] = Depends(require_auth),
+):
     """Get information about a model.
 
     This endpoint returns metadata about the model without running inference.
+    Authentication is handled by APIKeyAuthMiddleware.
+
+    Args:
+    ----
+        model_id: The ID of the model to get information about
+        auth: User authentication context from middleware
+
+    Returns:
+    -------
+        Model information including name, type, storage, and capabilities
+
     """
-    # In production, verify authorization here
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    # Log the request
+    logger.info(
+        f"Model info request for model {model_id}",
+        extra={
+            "user_id": auth.get("user_id"),
+            "api_key_id": auth.get("api_key_id"),
+            "model_id": model_id,
+            "endpoint": "info",
+        },
+    )
 
     config = serving_service.get_model_config(model_id)
 
@@ -376,26 +402,42 @@ async def get_model_info(model_id: str, authorization: Optional[str] = Header(No
 
 @router.post("/{model_id}/predict")
 async def predict(
-    model_id: str, request: PredictionRequest, authorization: Optional[str] = Header(None)
+    model_id: str,
+    request: PredictionRequest,
+    auth: Dict[str, Any] = Depends(require_auth),
 ):
     """Run prediction for a model.
 
     This is the main endpoint that clients call with their Hokusai API key.
+    Authentication is handled by APIKeyAuthMiddleware.
+
+    Args:
+    ----
+        model_id: The ID of the model to use for prediction (e.g., "21")
+        request: Prediction request containing inputs and options
+        auth: User authentication context from middleware
+
+    Returns:
+    -------
+        PredictionResponse with predictions and metadata
+
     """
-    # Verify authorization
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    # Extract user context from middleware
+    user_id = auth.get("user_id")
+    api_key_id = auth.get("api_key_id")
+    scopes = auth.get("scopes", [])
 
-    # Extract API key
-    api_key = authorization.replace("Bearer ", "")
-
-    # In production, verify the API key and check permissions
-    # For now, we'll accept any key that starts with "hk_"
-    if not api_key.startswith("hk_"):
-        raise HTTPException(status_code=401, detail="Invalid API key")
-
-    # Log the request (for audit)
-    logger.info(f"Prediction request for model {model_id} from API key {api_key[:10]}...")
+    # Log the request for audit and billing
+    logger.info(
+        f"Prediction request for model {model_id}",
+        extra={
+            "user_id": user_id,
+            "api_key_id": api_key_id,
+            "model_id": model_id,
+            "endpoint": "predict",
+            "scopes": scopes,
+        },
+    )
 
     try:
         # Run prediction
@@ -410,6 +452,8 @@ async def predict(
             metadata={
                 "api_version": "1.0",
                 "inference_method": request.options.get("inference_method", "local"),
+                "user_id": user_id,
+                "api_key_id": api_key_id,
             },
             timestamp=datetime.utcnow().isoformat(),
         )
@@ -419,15 +463,41 @@ async def predict(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Prediction failed for model {model_id}: {str(e)}")
+        logger.error(
+            f"Prediction failed for model {model_id}: {str(e)}",
+            extra={"user_id": user_id, "api_key_id": api_key_id, "model_id": model_id},
+        )
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 
 @router.get("/{model_id}/health")
-async def check_model_health(model_id: str, authorization: Optional[str] = Header(None)):
-    """Check if a model is healthy and ready to serve."""
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+async def check_model_health(
+    model_id: str,
+    auth: Dict[str, Any] = Depends(require_auth),
+):
+    """Check if a model is healthy and ready to serve.
+
+    Authentication is handled by APIKeyAuthMiddleware.
+
+    Args:
+    ----
+        model_id: The ID of the model to check
+        auth: User authentication context from middleware
+
+    Returns:
+    -------
+        Model health status including cache status and readiness
+
+    """
+    logger.info(
+        f"Health check request for model {model_id}",
+        extra={
+            "user_id": auth.get("user_id"),
+            "api_key_id": auth.get("api_key_id"),
+            "model_id": model_id,
+            "endpoint": "health",
+        },
+    )
 
     try:
         config = serving_service.get_model_config(model_id)
@@ -445,6 +515,14 @@ async def check_model_health(model_id: str, authorization: Optional[str] = Heade
         }
 
     except Exception as e:
+        logger.warning(
+            f"Health check failed for model {model_id}: {str(e)}",
+            extra={
+                "user_id": auth.get("user_id"),
+                "model_id": model_id,
+                "error": str(e),
+            },
+        )
         return {"model_id": model_id, "status": "unhealthy", "error": str(e)}
 
 
