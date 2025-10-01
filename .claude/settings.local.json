@@ -54,7 +54,9 @@
       "Read(//Users/timothyogilvie/Dropbox/Hokusai/hokusai-infrastructure/**)",
       "Bash(while read task)",
       "Bash(do echo \"Task: $task\")",
-      "Bash(done)"
+      "Bash(done)",
+      "Read(//Users/timothyogilvie/.claude/tools/prompts/**)",
+      "Bash(pip-compile:*)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits",
