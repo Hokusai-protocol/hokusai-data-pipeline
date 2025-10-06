@@ -322,6 +322,12 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         """Process the request and validate API key."""
+        # Allow CORS preflight requests to pass through without authentication
+        # OPTIONS requests are used by browsers to check CORS headers before the actual request
+        if request.method == "OPTIONS":
+            response = await call_next(request)
+            return response
+
         # Check if path is excluded
         if any(request.url.path.startswith(path) for path in self.excluded_paths):
             response = await call_next(request)
