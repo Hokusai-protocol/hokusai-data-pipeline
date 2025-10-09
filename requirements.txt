@@ -226,7 +226,7 @@ python-dateutil==2.9.0.post0
     #   ghp-import
     #   matplotlib
     #   pandas
-python-dotenv==1.0.0
+python-dotenv==1.1.0
     # via -r requirements-all.in
 pytz==2023.4
     # via
@@ -257,7 +257,7 @@ requests==2.32.4
     #   metaflow
     #   mkdocs-material
     #   mlflow
-rich==13.7.1
+rich==13.9.4
     # via -r requirements-all.in
 rpds-py==0.26.0
     # via

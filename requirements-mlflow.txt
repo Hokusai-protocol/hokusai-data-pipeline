@@ -133,7 +133,7 @@ pyarrow==14.0.2
     # via
     #   -r /Users/timothyogilvie/Dropbox/Hokusai/hokusai-data-pipeline/requirements-core.in
     #   mlflow
-pydantic==2.10.6
+pydantic==2.9.2
     # via -r /Users/timothyogilvie/Dropbox/Hokusai/hokusai-data-pipeline/requirements-core.in
 pydantic-core==2.27.2
     # via pydantic
@@ -148,7 +148,7 @@ python-dateutil==2.9.0.post0
     #   botocore
     #   matplotlib
     #   pandas
-python-dotenv==1.0.0
+python-dotenv==1.1.0
     # via -r /Users/timothyogilvie/Dropbox/Hokusai/hokusai-data-pipeline/requirements-core.in
 pytz==2023.4
     # via
@@ -170,7 +170,7 @@ requests==2.32.4
     #   docker
     #   metaflow
     #   mlflow
-rich==13.7.0
+rich==13.9.4
     # via -r /Users/timothyogilvie/Dropbox/Hokusai/hokusai-data-pipeline/requirements-core.in
 rpds-py==0.26.0
     # via
