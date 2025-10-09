@@ -24,10 +24,14 @@ wheels/
 venv/
 env/
 ENV/
-.env
 .venv
 env.bak/
 venv.bak/
+
+# Environment files with secrets - NEVER commit these
+.env
+.env.*
+!.env.example
 
 # MLFlow
 mlruns/
@@ -69,11 +73,6 @@ metaflow_card_cache/
 logs/
 log/
 
-# Local development
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
 
 # Coverage reports
 htmlcov/
