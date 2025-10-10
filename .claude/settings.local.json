@@ -56,7 +56,12 @@
       "Bash(do echo \"Task: $task\")",
       "Bash(done)",
       "Read(//Users/timothyogilvie/.claude/tools/prompts/**)",
-      "Bash(pip-compile:*)"
+      "Bash(pip-compile:*)",
+      "WebFetch(domain:mlflow.org)",
+      "WebSearch",
+      "Bash(pip show:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker cp:*)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits",

@@ -58,14 +58,14 @@ def get_api_key_from_request(request: Request) -> Optional[str]:
 class APIKeyAuthMiddleware(BaseHTTPMiddleware):
     """Middleware for API key authentication using external auth service."""
 
-    def __init__(
-        self,
+    def __init__(  # noqa: ANN204
+        self,  # noqa: ANN101
         app: ASGIApp,
         auth_service_url: Optional[str] = None,
         cache: Optional[redis.Redis] = None,
         excluded_paths: Optional[list[str]] = None,
         timeout: float = 5.0,
-    ):
+    ) -> None:
         """Initialize authentication middleware.
 
         Args:
@@ -154,7 +154,9 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         ]
 
     async def validate_with_auth_service(
-        self, api_key: str, client_ip: Optional[str] = None
+        self,  # noqa: ANN101
+        api_key: str,
+        client_ip: Optional[str] = None,
     ) -> ValidationResult:
         """Validate API key with external auth service.
 
@@ -209,7 +211,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             logger.error(f"Auth service error: {str(e)}")
             return ValidationResult(is_valid=False, error="Authentication service unavailable")
 
-    def is_mlflow_write_operation(self, request: Request) -> bool:
+    def is_mlflow_write_operation(self, request: Request) -> bool:  # noqa: ANN101
         """Check if the request is for an MLflow write operation.
 
         Args:
@@ -287,7 +289,9 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
         return False
 
-    def check_scope_for_write_operation(self, scopes: Optional[list[str]]) -> bool:
+    def check_scope_for_write_operation(
+        self, scopes: Optional[list[str]]  # noqa: ANN101
+    ) -> bool:
         """Check if the provided scopes include write permissions.
 
         Args:
@@ -320,7 +324,59 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
         return False
 
-    async def dispatch(self, request: Request, call_next):
+    def _is_internal_request(self, client_ip: str) -> bool:  # noqa: ANN101
+        """Detect if request is from internal service.
+
+        Internal requests are identified by private IP ranges used by ECS services.
+
+        Args:
+        ----
+            client_ip: Client IP address
+
+        Returns:
+        -------
+            True if request is from internal ECS service
+
+        """
+        if not client_ip:
+            return False
+
+        # Internal requests come from ECS private subnet (10.0.0.0/8)
+        if client_ip.startswith("10."):
+            return True
+
+        return False
+
+    def _verify_mtls_certificate(self, request: Request) -> bool:  # noqa: ANN101
+        """Verify mTLS client certificate from request.
+
+        Checks if a valid client certificate was presented and verified
+        during the TLS handshake.
+
+        Args:
+        ----
+            request: The incoming request
+
+        Returns:
+        -------
+            True if valid mTLS certificate is present
+
+        """
+        # Check if request has state attribute
+        if not hasattr(request, "state"):
+            return False
+
+        # Check if peer certificate was verified by TLS layer
+        # This would be set by the ASGI server (uvicorn/gunicorn)
+        if hasattr(request.state, "peer_cert_verified"):
+            return bool(request.state.peer_cert_verified)
+
+        # Default to False if certificate verification info not available
+        return False
+
+    async def dispatch(  # noqa: C901, ANN101, ANN201, ANN001
+        self, request: Request, call_next  # noqa: ANN101
+    ):
         """Process the request and validate API key."""
         # Allow CORS preflight requests to pass through without authentication
         # OPTIONS requests are used by browsers to check CORS headers before the actual request
@@ -333,18 +389,35 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             return response
 
-        # Extract API key
+        # Extract client IP for internal request detection
+        client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        if not client_ip:
+            client_ip = request.client.host if request.client else None
+
+        # NEW: Check if this is an internal mTLS request
+        if self._is_internal_request(client_ip):
+            if self._verify_mtls_certificate(request):
+                # Trust mTLS, bypass external auth service
+                request.state.user_id = "internal_service"
+                request.state.api_key_id = "mtls_cert"
+                request.state.service_id = "hokusai_internal"
+                request.state.scopes = ["mlflow:write", "mlflow:read"]
+                request.state.rate_limit_per_hour = None  # No rate limit for internal
+
+                logger.debug("Internal mTLS request authenticated")
+                response = await call_next(request)
+                return response
+            else:
+                logger.warning(f"Internal request from {client_ip} without valid mTLS certificate")
+                # Fall through to API key auth
+
+        # EXISTING: Extract API key for external authentication
         api_key = get_api_key_from_request(request)
 
         if not api_key:
             return JSONResponse(status_code=401, content={"detail": "API key required"})
 
-        # Extract client IP
-        client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        if not client_ip:
-            client_ip = request.client.host if request.client else None
-
-        # Check cache first
+        # Check cache first (client_ip already extracted above)
         validation_result = None
         cache_key = f"api_key:validation:{api_key}"
 
@@ -401,16 +474,19 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                     content={
                         "detail": "Insufficient permissions for this operation",
                         "error": "FORBIDDEN",
-                        "message": "This operation requires write permissions. Your API key has the following scopes: "
-                        + str(validation_result.scopes or [])
-                        + ". Required scope: 'model:write' or 'mlflow:write'",
+                        "message": (
+                            "This operation requires write permissions. "
+                            f"Your API key has scopes: {validation_result.scopes or []}. "
+                            "Required: 'model:write' or 'mlflow:write'"
+                        ),
                         "required_scope": "model:write or mlflow:write",
                         "current_scopes": validation_result.scopes or [],
                     },
                 )
             else:
                 logger.info(
-                    f"Authorization granted for write operation: user_id={validation_result.user_id}, "
+                    "Authorization granted for write operation: "
+                    f"user_id={validation_result.user_id}, "
                     f"path={request.url.path}, method={request.method}"
                 )
 
@@ -444,7 +520,11 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         return response
 
     async def _log_usage_to_auth_service(
-        self, key_id: str, endpoint: str, response_time_ms: int, status_code: int
+        self,  # noqa: ANN101
+        key_id: str,
+        endpoint: str,
+        response_time_ms: int,
+        status_code: int,
     ) -> None:
         """Log API key usage to auth service asynchronously."""
         try:
@@ -464,8 +544,8 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
 
 # Compatibility functions for routes that expect these functions
-from fastapi import HTTPException, Request, status
-from fastapi.security import HTTPBearer
+from fastapi import HTTPException, status  # noqa: E402, F811
+from fastapi.security import HTTPBearer  # noqa: E402
 
 security = HTTPBearer()
 
