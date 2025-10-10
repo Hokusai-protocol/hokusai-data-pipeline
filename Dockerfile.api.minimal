@@ -12,10 +12,20 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --no-cache-dir \
     mlflow==3.4.0 \
     fastapi \
-    uvicorn \
+    uvicorn[standard] \
     psycopg2-binary \
     boto3 \
-    redis
+    redis \
+    slowapi \
+    prometheus-client \
+    httpx \
+    pydantic \
+    pydantic-settings \
+    python-jose[cryptography] \
+    passlib[bcrypt] \
+    python-multipart \
+    eth-account \
+    dspy-ai>=2.0.0
 
 # Copy application code
 COPY src/ ./src/

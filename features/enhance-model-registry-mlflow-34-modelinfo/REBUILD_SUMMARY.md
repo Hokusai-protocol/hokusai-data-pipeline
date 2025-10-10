@@ -198,19 +198,21 @@ Instead of fixing each conflict individually (which created new conflicts), we:
 ## Testing Checklist
 
 - [x] Verify MLflow 3.4.0 installed in rebuilt image
-- [ ] Start API service successfully
-- [ ] Health check passes
-- [ ] Register baseline model with new ModelInfo parameters
-- [ ] Register improved model with new ModelInfo parameters
-- [ ] Retrieve model by UUID
-- [ ] Verify webhook payloads still work (backward compatibility)
-- [ ] Test with production-like data
+- [x] Start API service successfully
+- [x] Health check passes
+- [x] Register baseline model with new ModelInfo parameters
+- [x] Register improved model with new ModelInfo parameters
+- [x] Retrieve model by UUID
+- [x] Verify webhook payloads still work (backward compatibility)
+- [ ] Test with production-like data (pending production deployment)
 
 ## Status
 
 ✅ **Build Complete**: MLflow 3.4.0 successfully installed
-⏳ **Deployment Pending**: Awaiting docker-compose update and service restart
-📋 **Testing Pending**: ModelInfo functionality needs end-to-end testing
+✅ **Deployment Complete**: Services running and healthy
+✅ **Testing Complete**: All ModelInfo functionality verified working
+
+See [DEPLOYMENT_TEST_RESULTS.md](./DEPLOYMENT_TEST_RESULTS.md) for comprehensive test results.
 
 ---
 

@@ -2,14 +2,17 @@
 
 import json
 import logging
+import os
 import re
 from datetime import datetime
 from typing import Any, Optional
 
 import mlflow
 import mlflow.pyfunc
+import mlflow.sklearn
 from mlflow.models.model import ModelInfo
 from mlflow.models.signature import ModelSignature
+from typing_extensions import Self
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +29,9 @@ class HokusaiModelRegistry:
 
     VALID_MODEL_TYPES = ["lead_scoring", "classification", "regression", "ranking"]
 
-    def __init__(self, tracking_uri: str = "http://mlflow.hokusai-development.local:5000") -> None:
+    def __init__(
+        self: Self, tracking_uri: str = "http://mlflow.hokusai-development.local:5000"
+    ) -> None:
         """Initialize the model registry with MLFlow tracking.
 
         Args:
@@ -38,8 +43,27 @@ class HokusaiModelRegistry:
         mlflow.set_tracking_uri(tracking_uri)
         logger.info(f"Initialized HokusaiModelRegistry with tracking URI: {tracking_uri}")
 
+    def _get_mlflow_client_kwargs(self: Self) -> dict[str, Any]:
+        """Get MLflow client kwargs with authentication if available.
+
+        Returns
+        -------
+            Dictionary of kwargs for MlflowClient instantiation
+
+        """
+        # Always include tracking_uri for explicit configuration
+        kwargs: dict[str, Any] = {"tracking_uri": self.tracking_uri}
+
+        # Check for MLFLOW_TRACKING_TOKEN environment variable
+        # Note: MlflowClient will automatically use MLFLOW_TRACKING_TOKEN from env if available
+        tracking_token = os.environ.get("MLFLOW_TRACKING_TOKEN")
+        if tracking_token:
+            logger.debug("Using MLFLOW_TRACKING_TOKEN from environment")
+
+        return kwargs
+
     def register_baseline(
-        self,
+        self: Self,
         model: Any,
         model_type: str,
         metadata: dict[str, Any],
@@ -99,22 +123,36 @@ class HokusaiModelRegistry:
                 }
 
                 # STEP 1: Capture ModelInfo (MLflow 3.4)
-                model_info: ModelInfo = mlflow.pyfunc.log_model(
-                    artifact_path="model",
-                    python_model=model,
-                    registered_model_name=model_name,
-                    signature=signature,  # NEW: Input/output schema
-                    input_example=input_example,  # NEW: Schema inference
-                    metadata=model_metadata,  # NEW: Structured metadata
-                    code_paths=code_paths,  # NEW: Git lineage
-                )
+                # Detect model flavor and use appropriate log_model
+                try:
+                    # Try sklearn first (most common)
+                    model_info: ModelInfo = mlflow.sklearn.log_model(
+                        sk_model=model,
+                        artifact_path="model",
+                        registered_model_name=model_name,
+                        signature=signature,  # NEW: Input/output schema
+                        input_example=input_example,  # NEW: Schema inference
+                        metadata=model_metadata,  # NEW: Structured metadata
+                        code_paths=code_paths,  # NEW: Git lineage
+                    )
+                except Exception:
+                    # Fallback to pyfunc for custom models
+                    model_info: ModelInfo = mlflow.pyfunc.log_model(
+                        artifact_path="model",
+                        python_model=model,
+                        registered_model_name=model_name,
+                        signature=signature,
+                        input_example=input_example,
+                        metadata=model_metadata,
+                        code_paths=code_paths,
+                    )
 
                 # STEP 2: CRITICAL - Get ModelVersion for webhook payload
                 # DO NOT REMOVE - Required for hokusai-site marketplace integration!
                 model_version = mlflow.register_model(f"runs:/{run.info.run_id}/model", model_name)
 
                 # Store model_uuid as tag for searchability
-                client = mlflow.tracking.MlflowClient()
+                client = mlflow.tracking.MlflowClient(**self._get_mlflow_client_kwargs())
                 client.set_model_version_tag(
                     model_name, model_version.version, "model_uuid", model_info.model_uuid
                 )
@@ -148,7 +186,7 @@ class HokusaiModelRegistry:
             raise
 
     def register_improved_model(
-        self,
+        self: Self,
         model: Any,
         baseline_id: str,
         delta_metrics: dict[str, float],
@@ -208,15 +246,29 @@ class HokusaiModelRegistry:
                 }
 
                 # STEP 1: Capture ModelInfo (MLflow 3.4)
-                model_info: ModelInfo = mlflow.pyfunc.log_model(
-                    artifact_path="model",
-                    python_model=model,
-                    registered_model_name=improved_name,
-                    signature=signature,
-                    input_example=input_example,
-                    metadata=model_metadata,
-                    code_paths=code_paths,
-                )
+                # Detect model flavor and use appropriate log_model
+                try:
+                    # Try sklearn first (most common)
+                    model_info: ModelInfo = mlflow.sklearn.log_model(
+                        sk_model=model,
+                        artifact_path="model",
+                        registered_model_name=improved_name,
+                        signature=signature,
+                        input_example=input_example,
+                        metadata=model_metadata,
+                        code_paths=code_paths,
+                    )
+                except Exception:
+                    # Fallback to pyfunc for custom models
+                    model_info: ModelInfo = mlflow.pyfunc.log_model(
+                        artifact_path="model",
+                        python_model=model,
+                        registered_model_name=improved_name,
+                        signature=signature,
+                        input_example=input_example,
+                        metadata=model_metadata,
+                        code_paths=code_paths,
+                    )
 
                 # STEP 2: CRITICAL - Get ModelVersion for webhook payload
                 # DO NOT REMOVE - Required for hokusai-site marketplace integration!
@@ -225,7 +277,7 @@ class HokusaiModelRegistry:
                 )
 
                 # Set version tags
-                client = mlflow.tracking.MlflowClient()
+                client = mlflow.tracking.MlflowClient(**self._get_mlflow_client_kwargs())
                 client.set_model_version_tag(
                     improved_name, model_version.version, "baseline_model_id", baseline_id
                 )
@@ -266,7 +318,7 @@ class HokusaiModelRegistry:
             logger.error(f"Failed to register improved model: {str(e)}")
             raise
 
-    def get_model_by_uuid(self, model_uuid: str) -> Optional[dict[str, Any]]:
+    def get_model_by_uuid(self: Self, model_uuid: str) -> Optional[dict[str, Any]]:
         """Retrieve model by UUID for precise tracking.
 
         Args:
@@ -279,7 +331,7 @@ class HokusaiModelRegistry:
 
         """
         try:
-            client = mlflow.tracking.MlflowClient()
+            client = mlflow.tracking.MlflowClient(**self._get_mlflow_client_kwargs())
 
             # Search by UUID tag
             versions = client.search_model_versions(f"tags.model_uuid='{model_uuid}'")
@@ -311,7 +363,7 @@ class HokusaiModelRegistry:
             logger.error(f"Failed to get model by UUID: {e}")
             return None
 
-    def get_model_lineage(self, model_id: str) -> list[dict[str, Any]]:
+    def get_model_lineage(self: Self, model_id: str) -> list[dict[str, Any]]:
         """Track model improvements over time.
 
         Args:
@@ -323,7 +375,7 @@ class HokusaiModelRegistry:
             List of model versions with their improvement history
 
         """
-        client = mlflow.tracking.MlflowClient()
+        client = mlflow.tracking.MlflowClient(**self._get_mlflow_client_kwargs())
 
         try:
             # Search for all versions of the model
@@ -370,7 +422,7 @@ class HokusaiModelRegistry:
             logger.error(f"Failed to get model lineage: {str(e)}")
             raise
 
-    def _validate_eth_address(self, address: str) -> bool:
+    def _validate_eth_address(self: Self, address: str) -> bool:
         """Validate Ethereum address format.
 
         Args:
@@ -389,7 +441,9 @@ class HokusaiModelRegistry:
         pattern = r"^0x[a-fA-F0-9]{40}$"
         return bool(re.match(pattern, address))
 
-    def _calculate_cumulative_metrics(self, versions: list[dict[str, Any]]) -> dict[str, float]:
+    def _calculate_cumulative_metrics(
+        self: Self, versions: list[dict[str, Any]]
+    ) -> dict[str, float]:
         """Calculate cumulative improvements across versions.
 
         Args:
@@ -430,7 +484,7 @@ class HokusaiModelRegistry:
 
         return cumulative
 
-    def get_contributor_models(self, contributor_address: str) -> list[dict[str, Any]]:
+    def get_contributor_models(self: Self, contributor_address: str) -> list[dict[str, Any]]:
         """Get all models contributed by a specific address.
 
         Args:
@@ -491,7 +545,7 @@ class HokusaiModelRegistry:
             logger.error(f"Failed to get contributor models: {str(e)}")
             return []
 
-    def promote_model_to_production(self, model_name: str, version: str) -> dict[str, Any]:
+    def promote_model_to_production(self: Self, model_name: str, version: str) -> dict[str, Any]:
         """Promote a model version to production stage.
 
         Args:
@@ -505,7 +559,7 @@ class HokusaiModelRegistry:
 
         """
         try:
-            client = mlflow.tracking.MlflowClient()
+            client = mlflow.tracking.MlflowClient(**self._get_mlflow_client_kwargs())
 
             # Transition to production
             client.transition_model_version_stage(
@@ -526,7 +580,7 @@ class HokusaiModelRegistry:
             logger.error(f"Failed to promote model: {str(e)}")
             raise
 
-    def get_production_models(self) -> list[dict[str, Any]]:
+    def get_production_models(self: Self) -> list[dict[str, Any]]:
         """Get all models currently in production.
 
         Returns
@@ -535,7 +589,7 @@ class HokusaiModelRegistry:
 
         """
         try:
-            client = mlflow.tracking.MlflowClient()
+            client = mlflow.tracking.MlflowClient(**self._get_mlflow_client_kwargs())
 
             # Get all registered models
             models = client.list_registered_models()
