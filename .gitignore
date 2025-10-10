@@ -112,11 +112,14 @@ wheels/
 .installed.cfg
 *.egg outputs/
 
-# Terraform
+# Terraform - NEVER commit these files with secrets
 **/.terraform/
 *.tfstate
 *.tfstate.*
+*.tfstate.backup
 *.tfvars
+!*.tfvars.example
 *.tfvars.json
 *.tfplan
 *.terraform.lock.hcl
+.terraform.tfstate.lock.info

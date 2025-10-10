@@ -2,13 +2,17 @@
 
 **Alert Date**: 2025-10-09
 **Commit**: [c0e5fab](https://github.com/Hokusai-protocol/hokusai-data-pipeline/commit/c0e5fab09a33c4749028fcd4e4dad14ec9b53fa1)
-**Status**: ⚠️ IMMEDIATE ACTION REQUIRED
+**Status**: ✅ PRODUCTION SECRETS ROTATED | ⚠️ Local dev setup required
 
 ## Summary
 
-Hardcoded credentials were exposed in `docker-compose.yml` when the repository was made public. While these appear to be local development credentials only, they must be rotated immediately.
+Multiple files with credentials were exposed when the repository was made public:
+1. `docker-compose.yml` - Local development credentials (low risk)
+2. `infrastructure/terraform/terraform.tfvars` - **PRODUCTION SECRETS** (high risk) ✅ **ROTATED**
 
 ## Exposed Credentials
+
+### 🟡 Docker Compose (Local Development - Low Risk)
 
 1. **PostgreSQL Database**
    - Username: `mlflow`
@@ -23,12 +27,29 @@ Hardcoded credentials were exposed in `docker-compose.yml` when the repository w
    - Username: `admin`
    - Password: `admin123`
 
+### 🔴 Terraform Variables (PRODUCTION - High Risk)
+
+**File**: `infrastructure/terraform/terraform.tfvars` (commit c0e5fab)
+
+4. **Database Password (PRODUCTION)**
+   - Exposed Value: `YcAhadh5KTR/EuRta9Da3ddgplkvQ35X/1ICAurSr+k=`
+   - **Status**: ✅ **ROTATED** (confirmed by user)
+   - Used for: Production RDS PostgreSQL instance
+
+5. **API Secret Key (PRODUCTION)**
+   - Exposed Value: `A544iJ7a7GGy9x4fczYdzFrHM`
+   - **Status**: ✅ **ROTATED** (confirmed by user)
+   - Used for: FastAPI JWT token signing
+
 ## ✅ Completed Fixes
 
 1. ✅ Removed all hardcoded secrets from `docker-compose.yml`
 2. ✅ Updated `docker-compose.yml` to use environment variables
 3. ✅ Updated `.env.example` with secure placeholder values
 4. ✅ Enhanced `.gitignore` to prevent future `.env` file commits
+5. ✅ Removed `terraform.tfvars` from Git tracking
+6. ✅ Enhanced `.gitignore` to block all `*.tfvars` files (except `.example`)
+7. ✅ Production secrets rotated in AWS (database password, API secret key)
 
 ## 🔴 IMMEDIATE ACTIONS REQUIRED
 
@@ -116,29 +137,32 @@ aws ecs update-service \
   --force-new-deployment
 ```
 
-### Step 5: Revoke GitHub Commit (Advanced)
+### Step 5: History Rewrite - NOT RECOMMENDED ❌
 
-**WARNING**: This is destructive and should only be done if absolutely necessary.
+**Should you rewrite Git history to remove the secrets?**
 
-If you MUST remove the secrets from Git history:
+**NO - Here's why:**
 
-```bash
-# Use BFG Repo-Cleaner (safer than git filter-branch)
-# Install: brew install bfg
+1. **Repository is public** - Secrets already exposed to the world
+2. **116 commits** made since exposure (massive disruption)
+3. **57+ branches** contain the commit (would all break)
+4. **GitHub caches commits** even after force-push
+5. **GitGuardian/scanners** have already indexed the secrets
+6. **Anyone who cloned** still has the full history with secrets
+7. **Production secrets already rotated** ✅ - main risk mitigated
 
-# Clone a fresh copy
-git clone --mirror https://github.com/Hokusai-protocol/hokusai-data-pipeline.git
+**What history rewrite CANNOT do:**
+- Remove secrets from GitHub's cache
+- Remove secrets from security scanner databases
+- Remove secrets from existing clones/forks
+- Undo the public exposure
 
-# Remove the passwords from all history
-bfg --replace-text passwords.txt hokusai-data-pipeline.git
-
-# Force push (requires force-push permissions)
-cd hokusai-data-pipeline.git
-git reflog expire --expire=now --all && git gc --prune=now --aggressive
-git push --force
-```
-
-**Alternative**: Accept that the commit is public and focus on rotating all credentials.
+**Correct approach:**
+1. ✅ Rotate all exposed production secrets (DONE)
+2. ✅ Remove files from future commits (DONE)
+3. ✅ Update `.gitignore` (DONE)
+4. ✅ Monitor for unauthorized access using rotated credentials
+5. Accept that history is permanent - focus on prevention
 
 ## 🔒 AWS Secrets Manager Setup (Recommended for Production)
 
