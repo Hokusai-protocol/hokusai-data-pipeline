@@ -51,8 +51,9 @@ if [ "$ENVIRONMENT" = "staging" ] || [ "$ENVIRONMENT" = "production" ]; then
     echo "Certificates loaded successfully"
 
     # Build Uvicorn SSL options for mTLS
-    # --ssl-cert-reqs=2 means CERT_REQUIRED (mutual TLS)
-    UVICORN_SSL_OPTS="--ssl-keyfile=$CERT_DIR/server.key --ssl-certfile=$CERT_DIR/server.crt --ssl-ca-certs=$CERT_DIR/ca.crt --ssl-cert-reqs=2"
+    # --ssl-cert-reqs=1 means CERT_OPTIONAL (client cert requested but not required)
+    # This allows ALB health checks (no cert) and API authentication (with cert)
+    UVICORN_SSL_OPTS="--ssl-keyfile=$CERT_DIR/server.key --ssl-certfile=$CERT_DIR/server.crt --ssl-ca-certs=$CERT_DIR/ca.crt --ssl-cert-reqs=1"
 
     echo "Starting MLflow server with mTLS enabled..."
 else

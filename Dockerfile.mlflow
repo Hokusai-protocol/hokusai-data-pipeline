@@ -22,9 +22,8 @@ RUN chmod +x /app/mlflow-entrypoint.sh
 # Expose MLFlow port
 EXPOSE 5000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
-    CMD curl -f http://localhost:5000/mlflow || exit 1
+# Health check removed - ECS uses ALB target group health checks instead
+# Docker HEALTHCHECK doesn't work with mTLS since it can't provide client certificates
 
 # Set environment variables defaults
 ENV BACKEND_STORE_URI=""
