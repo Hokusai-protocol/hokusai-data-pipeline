@@ -7,12 +7,17 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Install Python dependencies (including awscli for Secrets Manager)
 RUN pip install --no-cache-dir \
     mlflow==3.4.0 \
     psycopg2-binary \
     boto3 \
+    awscli \
     prometheus-client
+
+# Copy entrypoint script
+COPY scripts/mlflow-entrypoint.sh /app/mlflow-entrypoint.sh
+RUN chmod +x /app/mlflow-entrypoint.sh
 
 # Expose MLFlow port
 EXPOSE 5000
@@ -24,6 +29,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
 # Set environment variables defaults
 ENV BACKEND_STORE_URI=""
 ENV DEFAULT_ARTIFACT_ROOT=""
+ENV ENVIRONMENT="development"
 
-# Run MLFlow server with environment variable configuration
-CMD ["sh", "-c", "mlflow server --host 0.0.0.0 --port 5000 --static-prefix /mlflow --backend-store-uri \"${BACKEND_STORE_URI}\" --default-artifact-root \"${DEFAULT_ARTIFACT_ROOT}\" --serve-artifacts"]
+# Use entrypoint script that handles mTLS configuration
+ENTRYPOINT ["/app/mlflow-entrypoint.sh"]

@@ -121,3 +121,4 @@ wheels/
 *.tfvars.json
 *.tfplan
 *.terraform.lock.hcl
+certs/
