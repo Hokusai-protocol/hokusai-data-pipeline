@@ -197,9 +197,7 @@ class MLflowCircuitBreaker:
             )
         elif self.state == "CLOSED" and self.failure_count >= self.failure_threshold:
             self.state = "OPEN"
-            logger.warning(
-                f"Circuit breaker OPEN: {self.failure_count} consecutive failures"
-            )
+            logger.warning(f"Circuit breaker OPEN: {self.failure_count} consecutive failures")
 
     def get_status(self) -> dict:
         """Get detailed circuit breaker status for monitoring."""
@@ -265,7 +263,7 @@ class MLFlowConfig:
 
     def __init__(self) -> None:
         self.tracking_uri_raw = os.getenv(
-            "MLFLOW_TRACKING_URI", "http://mlflow.hokusai-development.local:5000"
+            "MLFLOW_TRACKING_URI", "https://mlflow.hokusai-development.local:5000"
         )
         self.experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", "hokusai-pipeline")
         self.artifact_root = os.getenv("MLFLOW_ARTIFACT_ROOT", None)
@@ -535,7 +533,7 @@ def get_mlflow_status() -> dict:
 
     # Get raw and resolved tracking URIs
     raw_tracking_uri = os.getenv(
-        "MLFLOW_TRACKING_URI", "http://mlflow.hokusai-development.local:5000"
+        "MLFLOW_TRACKING_URI", "https://mlflow.hokusai-development.local:5000"
     )
 
     status = {
