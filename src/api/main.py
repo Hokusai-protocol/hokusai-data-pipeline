@@ -112,6 +112,17 @@ async def global_exception_handler(request: Request, exc: Exception):
 async def startup_event() -> None:
     """Initialize services on startup."""
     logger.info("Starting Hokusai MLOps API...")
+
+    # Configure mTLS for internal MLflow communication
+    try:
+        from src.utils.mlflow_config import configure_internal_mtls
+
+        configure_internal_mtls()
+        logger.info("mTLS configuration completed")
+    except Exception as e:
+        logger.error(f"Failed to configure mTLS: {e}")
+        # Don't fail startup - will fall back to API key auth
+
     # Initialize database connections, caches, etc.
 
 
