@@ -716,34 +716,20 @@ def configure_internal_mtls() -> None:
             logger.debug(f"Wrote CA certificate to {ca_cert_path}")
 
             # Set environment variables for MLflow client
+            # For internal .local domains, we disable server cert verification due to hostname mismatch
+            # but still provide client certificates for mTLS authentication
             os.environ["MLFLOW_TRACKING_CLIENT_CERT_PATH"] = client_cert_path
             os.environ["MLFLOW_TRACKING_CLIENT_KEY_PATH"] = client_key_path
-            os.environ["MLFLOW_TRACKING_SERVER_CERT_PATH"] = ca_cert_path
+            # Do NOT set MLFLOW_TRACKING_SERVER_CERT_PATH when using INSECURE_TLS
+            # os.environ["MLFLOW_TRACKING_SERVER_CERT_PATH"] = ca_cert_path
 
-            # Configure SSL context to disable hostname verification for internal .local domains
-            # This is safe for internal AWS service discovery where hostnames don't match cert CNs
-            # Create custom SSL context
-            ssl_context = ssl.create_default_context(cafile=ca_cert_path)
-            ssl_context.load_cert_chain(certfile=client_cert_path, keyfile=client_key_path)
-            # Disable hostname checking (but keep certificate validation)
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_REQUIRED
-
-            # Configure urllib3 to use this SSL context
-            # This affects all HTTPS connections made by requests/urllib3
-            from urllib3.util.ssl_ import create_urllib3_context
-
-            # Monkey-patch urllib3 to use our SSL context
-            original_create_context = create_urllib3_context
-
-            def custom_create_context():
-                return ssl_context
-
-            urllib3.util.ssl_.create_urllib3_context = custom_create_context
+            # Disable TLS verification for internal service discovery
+            # This skips hostname verification which would fail for .local domains
+            os.environ["MLFLOW_TRACKING_INSECURE_TLS"] = "true"
 
             logger.info(
                 "Configured mTLS for internal MLflow communication "
-                "(hostname verification disabled for .local domains)"
+                "(TLS verification disabled for .local domains, client cert authentication enabled)"
             )
 
         except Exception as e:
