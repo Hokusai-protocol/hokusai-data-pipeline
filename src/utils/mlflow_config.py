@@ -655,6 +655,7 @@ def configure_internal_mtls() -> None:
     1. Retrieves certificates from AWS Secrets Manager (authentication credentials)
     2. Writes certificates to /tmp/mlflow-certs
     3. Sets environment variables for MLflow client (MLFLOW_TRACKING_CLIENT_CERT_PATH, etc.)
+    4. Configures SSL context to disable hostname verification for internal .local domains
 
     Note: This uses certificate-based authentication (mTLS) instead of token-based auth.
     """
@@ -662,8 +663,10 @@ def configure_internal_mtls() -> None:
 
     if environment in ["staging", "production"]:
         try:
-            # Import boto3 for AWS Secrets Manager access
+            # Import required libraries
             import boto3
+            import ssl
+            import urllib3
 
             logger.info(f"Configuring mTLS for {environment} environment")
 
@@ -717,11 +720,31 @@ def configure_internal_mtls() -> None:
             os.environ["MLFLOW_TRACKING_CLIENT_KEY_PATH"] = client_key_path
             os.environ["MLFLOW_TRACKING_SERVER_CERT_PATH"] = ca_cert_path
 
-            # Disable SSL hostname verification for internal .local domains
+            # Configure SSL context to disable hostname verification for internal .local domains
             # This is safe for internal AWS service discovery where hostnames don't match cert CNs
-            os.environ["MLFLOW_TRACKING_INSECURE_TLS"] = "true"
+            # Create custom SSL context
+            ssl_context = ssl.create_default_context(cafile=ca_cert_path)
+            ssl_context.load_cert_chain(certfile=client_cert_path, keyfile=client_key_path)
+            # Disable hostname checking (but keep certificate validation)
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_REQUIRED
 
-            logger.info("Configured mTLS for internal MLflow communication (hostname verification disabled for .local domains)")
+            # Configure urllib3 to use this SSL context
+            # This affects all HTTPS connections made by requests/urllib3
+            from urllib3.util.ssl_ import create_urllib3_context
+
+            # Monkey-patch urllib3 to use our SSL context
+            original_create_context = create_urllib3_context
+
+            def custom_create_context():
+                return ssl_context
+
+            urllib3.util.ssl_.create_urllib3_context = custom_create_context
+
+            logger.info(
+                "Configured mTLS for internal MLflow communication "
+                "(hostname verification disabled for .local domains)"
+            )
 
         except Exception as e:
             logger.error(f"Failed to configure mTLS: {e}")
