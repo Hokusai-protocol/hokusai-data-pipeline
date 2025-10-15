@@ -661,12 +661,15 @@ def configure_internal_mtls() -> None:
     """
     environment = os.getenv("ENVIRONMENT", "development")
 
-    if environment in ["staging", "production"]:
+    if environment == "development":
+        # For development, disable SSL verification for self-signed certificates
+        os.environ["MLFLOW_TRACKING_INSECURE_TLS"] = "true"
+        logger.info("Development mode: SSL verification disabled for self-signed certificates")
+    elif environment in ["staging", "production"]:
         try:
             # Import required libraries
+
             import boto3
-            import ssl
-            import urllib3
 
             logger.info(f"Configuring mTLS for {environment} environment")
 
@@ -735,5 +738,3 @@ def configure_internal_mtls() -> None:
         except Exception as e:
             logger.error(f"Failed to configure mTLS: {e}")
             raise
-    else:
-        logger.info("mTLS not configured for development environment")
