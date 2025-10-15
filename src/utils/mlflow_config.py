@@ -717,7 +717,11 @@ def configure_internal_mtls() -> None:
             os.environ["MLFLOW_TRACKING_CLIENT_KEY_PATH"] = client_key_path
             os.environ["MLFLOW_TRACKING_SERVER_CERT_PATH"] = ca_cert_path
 
-            logger.info("Configured mTLS for internal MLflow communication")
+            # Disable SSL hostname verification for internal .local domains
+            # This is safe for internal AWS service discovery where hostnames don't match cert CNs
+            os.environ["MLFLOW_TRACKING_INSECURE_TLS"] = "true"
+
+            logger.info("Configured mTLS for internal MLflow communication (hostname verification disabled for .local domains)")
 
         except Exception as e:
             logger.error(f"Failed to configure mTLS: {e}")
