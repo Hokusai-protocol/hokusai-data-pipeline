@@ -17,7 +17,7 @@ In the `aws_ecs_task_definition.api` resource, add to the environment array:
 
 ```hcl
 variable "auth_service_id" {
-  description = "Service ID for API key validation (platform or ml-platform)"
+  description = "Service ID for API key validation (platform, website, or prediction-api)"
   type        = string
   default     = "platform"
 }

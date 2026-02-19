@@ -65,7 +65,7 @@ curl -X POST https://auth.hokus.ai/api/v1/keys \
   -H "Content-Type: application/json" \
   -d '{
     "name": "My API Key",
-    "service_id": "ml-platform",
+    "service_id": "platform",
     "environment": "production",
     "rate_limit_per_hour": 1000,
     "scopes": ["model:read", "model:write", "mlflow:access"]

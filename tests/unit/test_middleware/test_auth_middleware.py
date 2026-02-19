@@ -88,7 +88,7 @@ class TestAPIKeyAuthMiddleware:
         mock_response.json.return_value = {
             "user_id": "user123",
             "key_id": "key123",
-            "service_id": "ml-platform",
+            "service_id": "platform",
             "scopes": ["model:read", "model:write"],
             "rate_limit_per_hour": 1000,
         }
@@ -149,7 +149,7 @@ class TestAPIKeyAuthMiddleware:
             "is_valid": True,
             "user_id": "user123",
             "key_id": "key123",
-            "service_id": "ml-platform",
+            "service_id": "platform",
             "scopes": ["model:read"],
             "rate_limit_per_hour": 1000,
             "has_sufficient_balance": True,
@@ -178,7 +178,7 @@ class TestAPIKeyAuthMiddleware:
         mock_response.json.return_value = {
             "user_id": "user123",
             "key_id": "key123",
-            "service_id": "ml-platform",
+            "service_id": "platform",
             "scopes": ["model:read"],
             "rate_limit_per_hour": 1000,
         }
@@ -206,7 +206,7 @@ class TestAPIKeyAuthMiddleware:
         mock_response.json.return_value = {
             "user_id": "user123",
             "key_id": "key123",
-            "service_id": "ml-platform",
+            "service_id": "platform",
             "scopes": ["model:read"],
             "rate_limit_per_hour": 1000,
         }

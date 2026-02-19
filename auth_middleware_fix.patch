@@ -12,7 +12,7 @@
 +                
 +                # Only send service_id and client_ip in body
 +                body = {
-+                    "service_id": "ml-platform"
++                    "service_id": "platform"
 +                }
 +                if client_ip:
 +                    body["client_ip"] = client_ip
@@ -22,7 +22,7 @@
 -                    json={
 -                        "api_key": api_key,
 -                        "client_ip": client_ip,
--                        "service_id": "ml-platform"
+-                        "service_id": "platform"
 -                    }
 +                    headers=headers,
 +                    json=body
