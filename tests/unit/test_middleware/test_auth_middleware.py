@@ -152,6 +152,8 @@ class TestAPIKeyAuthMiddleware:
             "service_id": "platform",
             "scopes": ["model:read"],
             "rate_limit_per_hour": 1000,
+            "has_sufficient_balance": True,
+            "balance": 10.0,
         }
         mock_cache.get.return_value = json.dumps(cached_data)
 
@@ -190,7 +192,7 @@ class TestAPIKeyAuthMiddleware:
         mock_cache.setex.assert_called_once()
         # Check cache key and TTL
         cache_call_args = mock_cache.setex.call_args
-        assert cache_call_args[0][1] == 300  # 5 minute TTL
+        assert cache_call_args[0][1] == 60  # 60 second TTL
 
     @patch("httpx.AsyncClient.post")
     async def test_middleware_includes_client_ip_in_validation(self, mock_post, client):
