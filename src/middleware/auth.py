@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -31,6 +32,8 @@ class ValidationResult:
     scopes: Optional[list[str]] = None
     rate_limit_per_hour: Optional[int] = None
     error: Optional[str] = None
+    has_sufficient_balance: bool = True
+    balance: float = 0.0
 
 
 def get_api_key_from_request(request: Request) -> Optional[str]:
@@ -195,6 +198,8 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                         service_id=data.get("service_id"),
                         scopes=data.get("scopes", []),
                         rate_limit_per_hour=data.get("rate_limit_per_hour", 1000),
+                        has_sufficient_balance=data.get("has_sufficient_balance", True),
+                        balance=data.get("balance", 0.0),
                     )
                 elif response.status_code == 401:
                     return ValidationResult(is_valid=False, error="Invalid or expired API key")
@@ -290,7 +295,8 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         return False
 
     def check_scope_for_write_operation(
-        self, scopes: Optional[list[str]]  # noqa: ANN101
+        self,  # noqa: ANN101
+        scopes: Optional[list[str]],
     ) -> bool:
         """Check if the provided scopes include write permissions.
 
@@ -374,8 +380,10 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         # Default to False if certificate verification info not available
         return False
 
-    async def dispatch(  # noqa: C901, ANN101, ANN201, ANN001
-        self, request: Request, call_next  # noqa: ANN101
+    async def dispatch(  # noqa: C901, ANN201
+        self,  # noqa: ANN101
+        request: Request,
+        call_next,  # noqa: ANN001
     ):
         """Process the request and validate API key."""
         # Allow CORS preflight requests to pass through without authentication
@@ -435,7 +443,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         if validation_result is None:
             validation_result = await self.validate_with_auth_service(api_key, client_ip)
 
-            # Cache successful validation for 5 minutes
+            # Cache successful validation for 60 seconds
             if self.cache and validation_result.is_valid:
                 try:
                     cache_data = {
@@ -445,10 +453,12 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                         "service_id": validation_result.service_id,
                         "scopes": validation_result.scopes,
                         "rate_limit_per_hour": validation_result.rate_limit_per_hour,
+                        "has_sufficient_balance": validation_result.has_sufficient_balance,
+                        "balance": validation_result.balance,
                     }
                     self.cache.setex(
                         cache_key,
-                        300,  # 5 minute TTL
+                        60,  # 60 second TTL
                         json.dumps(cache_data),
                     )
                 except Exception as e:
@@ -459,6 +469,10 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 status_code=401, content={"detail": validation_result.error or "Invalid API key"}
             )
+
+        # Check balance
+        if not validation_result.has_sufficient_balance:
+            return JSONResponse(status_code=402, content={"detail": "Insufficient balance"})
 
         # Check authorization for write operations
         if self.is_mlflow_write_operation(request):
@@ -506,11 +520,13 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         # Calculate response time
         response_time_ms = int((time.time() - start_time) * 1000)
 
-        # Log usage asynchronously (send to auth service)
-        if validation_result.key_id:
+        # Debit usage asynchronously for non-5xx responses
+        if validation_result.key_id and response.status_code < 500:
+            model_id = self._extract_model_id(request.url.path)
             asyncio.create_task(
-                self._log_usage_to_auth_service(
+                self._debit_usage(
                     validation_result.key_id,
+                    model_id,
                     request.url.path,
                     response_time_ms,
                     response.status_code,
@@ -519,28 +535,70 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
         return response
 
-    async def _log_usage_to_auth_service(
+    def _extract_model_id(self, path: str) -> Optional[str]:  # noqa: ANN101
+        """Extract model ID from the request URL path.
+
+        Args:
+        ----
+            path: The request URL path
+
+        Returns:
+        -------
+            The model ID if found, None otherwise
+
+        """
+        match = re.search(r"/api/v1/models/([^/]+)", path)
+        return match.group(1) if match else None
+
+    async def _debit_usage(
         self,  # noqa: ANN101
         key_id: str,
+        model_id: Optional[str],
         endpoint: str,
         response_time_ms: int,
         status_code: int,
+        max_retries: int = 3,
     ) -> None:
-        """Log API key usage to auth service asynchronously."""
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                await client.post(
-                    f"{self.auth_service_url}/api/v1/usage/{key_id}",
-                    json={
-                        "endpoint": endpoint,
-                        "response_time_ms": response_time_ms,
-                        "status_code": status_code,
-                        "service_id": self.settings.auth_service_id,
-                    },
-                )
-        except Exception as e:
-            # Don't fail on usage logging errors
-            logger.debug(f"Failed to log usage: {e}")
+        """Debit usage to auth service with retry logic.
+
+        Args:
+        ----
+            key_id: The API key ID
+            model_id: The model ID from the request path
+            endpoint: The request endpoint path
+            response_time_ms: Response time in milliseconds
+            status_code: HTTP status code of the response
+            max_retries: Maximum number of retry attempts
+
+        """
+        idempotency_key = f"{key_id}-{int(time.time() * 1000)}"
+        payload = {
+            "model_id": model_id,
+            "endpoint": endpoint,
+            "response_time_ms": response_time_ms,
+            "status_code": status_code,
+            "service_id": self.settings.auth_service_id,
+            "idempotency_key": idempotency_key,
+        }
+
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.post(
+                        f"{self.auth_service_url}/api/v1/usage/{key_id}/debit",
+                        json=payload,
+                    )
+                    if response.status_code < 500:
+                        return  # Success or client error — don't retry
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logger.warning(
+                        f"Failed to debit usage after {max_retries} attempts "
+                        f"for key_id={key_id}: {e}"
+                    )
+                    return
+            # Exponential backoff: 1s, 2s, 4s
+            await asyncio.sleep(2**attempt)
 
 
 # Compatibility functions for routes that expect these functions
