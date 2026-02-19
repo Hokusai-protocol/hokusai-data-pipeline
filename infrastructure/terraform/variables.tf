@@ -164,7 +164,7 @@ variable "route53_zone_id" {
 }
 
 variable "auth_service_id" {
-  description = "Service ID for API key validation (platform or ml-platform)"
+  description = "Service ID for API key validation (platform, website, or prediction-api)"
   type        = string
   default     = "platform"
 }
