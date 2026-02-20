@@ -61,7 +61,7 @@ ignore = [
 "src/cli/signatures.py" = ["E402"]
 "tests/*" = ["D", "ANN", "S101", "S105", "S108", "N806", "N803"]  # Don't require docstrings/types in tests, allow assert
 "cli/tests/*" = ["D", "ANN", "S101", "S105", "S108", "N806", "N803"]  # Same for CLI tests
-"hokusai-ml-platform/tests/*" = ["D", "ANN", "S101", "S105", "S108", "N806", "N803"]  # Same for platform tests
+"hokusai-ml-platform/tests/*" = ["D", "ANN", "S101", "S105", "S108", "S603", "N806", "N803"]  # Same for platform tests
 # Allow try-except-pass only in specific files where it's used for optional features
 "src/integrations/mlflow_dspy.py" = ["S110"]  # Optional signature extraction
 "src/services/dspy/validators.py" = ["S110"]  # Optional validation

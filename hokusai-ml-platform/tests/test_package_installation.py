@@ -1,4 +1,5 @@
 """Tests for package installation and imports."""
+
 import subprocess
 import sys
 from pathlib import Path
@@ -23,17 +24,14 @@ class TestPackageInstallation:
             python_path = venv_path / "bin" / "python"
             pip_path = venv_path / "bin" / "pip"
 
-        return {
-            "path": venv_path,
-            "python": str(python_path),
-            "pip": str(pip_path)
-        }
+        return {"path": venv_path, "python": str(python_path), "pip": str(pip_path)}
 
     def test_package_metadata(self) -> None:
         """Test that package metadata is correctly configured."""
         # This test runs in the current environment where the package should be installed
         try:
             import hokusai
+
             assert hasattr(hokusai, "__version__")
         except ImportError:
             pytest.skip("Package not installed in current environment")
@@ -80,7 +78,7 @@ class TestPackageInstallation:
             [sys.executable, "-m", "build", "--outdir", str(build_dir)],
             cwd=str(package_root),
             capture_output=True,
-            text=True
+            text=True,
         )
 
         # Check build was successful
@@ -106,9 +104,7 @@ class TestPackageInstallation:
 
         # Install the package in editable mode
         result = subprocess.run(
-            [temp_venv["pip"], "install", "-e", str(package_root)],
-            capture_output=True,
-            text=True
+            [temp_venv["pip"], "install", "-e", str(package_root)], capture_output=True, text=True
         )
 
         assert result.returncode == 0, f"Installation failed: {result.stderr}"
@@ -117,7 +113,7 @@ class TestPackageInstallation:
         test_import = subprocess.run(
             [temp_venv["python"], "-c", "import hokusai; print(hokusai.__name__)"],
             capture_output=True,
-            text=True
+            text=True,
         )
 
         assert test_import.returncode == 0
@@ -135,7 +131,7 @@ class TestPackageInstallation:
             [sys.executable, "-m", "build", "--wheel", "--outdir", str(build_dir)],
             cwd=str(package_root),
             capture_output=True,
-            text=True
+            text=True,
         )
 
         assert build_result.returncode == 0
@@ -145,23 +141,34 @@ class TestPackageInstallation:
 
         # Install from wheel
         install_result = subprocess.run(
-            [temp_venv["pip"], "install", str(wheel_file)],
-            capture_output=True,
-            text=True
+            [temp_venv["pip"], "install", str(wheel_file)], capture_output=True, text=True
         )
 
         assert install_result.returncode == 0, f"Installation failed: {install_result.stderr}"
 
-        # Verify installation
+        # Verify base install works (auth, exceptions, core.models are base modules)
         check_result = subprocess.run(
-            [temp_venv["python"], "-c",
-             "import hokusai.core.registry; print('Import successful')"],
+            [
+                temp_venv["python"],
+                "-c",
+                "import hokusai; from hokusai.auth import HokusaiAuth; print('Base import OK')",
+            ],
             capture_output=True,
-            text=True
+            text=True,
         )
 
         assert check_result.returncode == 0
-        assert "Import successful" in check_result.stdout
+        assert "Base import OK" in check_result.stdout
+
+        # Verify ML modules raise MissingMLExtra with base-only install
+        check_ml = subprocess.run(
+            [temp_venv["python"], "-c", "from hokusai.core import ModelRegistry"],
+            capture_output=True,
+            text=True,
+        )
+
+        assert check_ml.returncode != 0
+        assert "pip install hokusai-ml-platform[ml]" in check_ml.stderr
 
     def test_dependencies_specified(self) -> None:
         """Test that all required dependencies are specified in pyproject.toml."""
@@ -183,13 +190,21 @@ class TestPackageInstallation:
         assert "project" in pyproject
         assert "dependencies" in pyproject["project"]
 
-        # Check key dependencies are listed
+        # Check base dependencies are listed
         deps = pyproject["project"]["dependencies"]
         dep_names = [d.split(">=")[0] for d in deps]
 
-        required_deps = ["mlflow", "metaflow", "redis", "fastapi", "pydantic"]
-        for dep in required_deps:
-            assert dep in dep_names, f"Missing required dependency: {dep}"
+        required_base_deps = ["pydantic", "requests", "click"]
+        for dep in required_base_deps:
+            assert dep in dep_names, f"Missing required base dependency: {dep}"
+
+        # Check ML dependencies are in [ml] extra
+        ml_deps = pyproject["project"]["optional-dependencies"]["ml"]
+        ml_dep_names = [d.split(">=")[0] for d in ml_deps]
+
+        required_ml_deps = ["mlflow", "metaflow", "redis"]
+        for dep in required_ml_deps:
+            assert dep in ml_dep_names, f"Missing required ML dependency: {dep}"
 
     def test_package_version(self) -> None:
         """Test that package version is accessible and follows semantic versioning."""
