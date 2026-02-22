@@ -65,6 +65,7 @@ def register(
     a baseline, and updates the model status in the database.
 
     Example:
+    -------
         hokusai model register --token-id XRAY --model-path ./checkpoints/final \\
             --metric auroc --baseline 0.82
 
@@ -295,7 +296,7 @@ def list() -> None:
     try:
         # TODO: Query MLflow model registry
         client = mlflow.tracking.MlflowClient()
-        models = client.list_registered_models()
+        models = client.search_registered_models()
 
         if not models:
             click.echo("No models registered yet.")

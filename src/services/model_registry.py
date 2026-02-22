@@ -373,9 +373,13 @@ class HokusaiModelRegistry:
         try:
             client = mlflow.tracking.MlflowClient()
 
-            # Transition to production
-            client.transition_model_version_stage(
-                name=model_name, version=version, stage="Production", archive_existing_versions=True
+            # Use aliases instead of deprecated model stages.
+            client.set_registered_model_alias(name=model_name, alias="production", version=version)
+            client.set_model_version_tag(
+                name=model_name,
+                version=version,
+                key="lifecycle_stage",
+                value="Production",
             )
 
             result = {
@@ -403,23 +407,25 @@ class HokusaiModelRegistry:
         try:
             client = mlflow.tracking.MlflowClient()
 
-            # Get all registered models
-            models = client.list_registered_models()
+            # search_registered_models() is supported in MLflow 3.x clients.
+            models = client.search_registered_models()
 
             production_models = []
             for model in models:
-                # Check for production versions
-                for version in model.latest_versions:
-                    if version.current_stage == "Production":
-                        production_models.append(
-                            {
-                                "model_name": model.name,
-                                "version": version.version,
-                                "stage": version.current_stage,
-                                "description": model.description,
-                                "tags": model.tags if hasattr(model, "tags") else {},
-                            }
-                        )
+                try:
+                    version = client.get_model_version_by_alias(model.name, "production")
+                except Exception:
+                    continue
+
+                production_models.append(
+                    {
+                        "model_name": model.name,
+                        "version": version.version,
+                        "stage": "Production",
+                        "description": model.description,
+                        "tags": model.tags if hasattr(model, "tags") else {},
+                    }
+                )
 
             return production_models
 

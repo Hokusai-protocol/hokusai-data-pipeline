@@ -1,4 +1,5 @@
 """Tests for Model Registry functionality."""
+
 from datetime import datetime
 from unittest.mock import Mock, patch
 
@@ -13,8 +14,10 @@ class TestModelRegistry:
     @pytest.fixture
     def mock_mlflow(self):
         """Mock MLflow for testing."""
-        with patch("mlflow.set_tracking_uri") as mock_set_uri, \
-             patch("mlflow.MlflowClient") as mock_client:
+        with (
+            patch("mlflow.set_tracking_uri") as mock_set_uri,
+            patch("mlflow.MlflowClient") as mock_client,
+        ):
             yield mock_set_uri, mock_client
 
     @pytest.fixture
@@ -39,16 +42,17 @@ class TestModelRegistry:
         mock_model.version = "1.0.0"
         mock_model.get_metrics.return_value = {"accuracy": 0.85}
 
-        with patch.object(registry.client, "create_registered_model") as mock_create, \
-             patch.object(registry.client, "create_model_version") as mock_version, \
-             patch.object(registry.client, "set_model_version_tag") as mock_tag:
-
+        with (
+            patch.object(registry.client, "create_registered_model") as mock_create,
+            patch.object(registry.client, "create_model_version") as mock_version,
+            patch.object(registry.client, "set_model_version_tag") as mock_tag,
+        ):
             mock_version.return_value = Mock(version="1")
 
             entry = registry.register_baseline(
                 model=mock_model,
                 model_type="lead_scoring",
-                metadata={"dataset": "initial_training"}
+                metadata={"dataset": "initial_training"},
             )
 
             assert entry.model_id == "baseline-001"
@@ -76,16 +80,17 @@ class TestModelRegistry:
         delta_metrics = {"accuracy_improvement": 0.07}
         contributor_address = "0xAbC123...789"
 
-        with patch.object(registry, "get_model_by_id") as mock_get, \
-             patch.object(registry.client, "create_model_version") as mock_version, \
-             patch.object(registry.client, "set_model_version_tag") as mock_tag:
-
+        with (
+            patch.object(registry, "get_model_by_id") as mock_get,
+            patch.object(registry.client, "create_model_version") as mock_version,
+            patch.object(registry.client, "set_model_version_tag") as mock_tag,
+        ):
             mock_get.return_value = ModelRegistryEntry(
                 model_id="baseline-001",
                 model_type="lead_scoring",
                 version="1.0.0",
                 is_baseline=True,
-                metrics={"accuracy": 0.85}
+                metrics={"accuracy": 0.85},
             )
             mock_version.return_value = Mock(version="2")
 
@@ -93,7 +98,7 @@ class TestModelRegistry:
                 model=mock_improved,
                 baseline_id="baseline-001",
                 delta_metrics=delta_metrics,
-                contributor=contributor_address
+                contributor=contributor_address,
             )
 
             assert entry.model_id == "improved-001"
@@ -111,7 +116,7 @@ class TestModelRegistry:
                 "baseline_id": None,
                 "version": "1.0.0",
                 "metrics": {"accuracy": 0.85},
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             },
             {
                 "model_id": "improved-001",
@@ -120,7 +125,7 @@ class TestModelRegistry:
                 "metrics": {"accuracy": 0.90},
                 "delta_metrics": {"accuracy_improvement": 0.05},
                 "contributor_address": "0xAbC123",
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             },
             {
                 "model_id": "improved-002",
@@ -129,8 +134,8 @@ class TestModelRegistry:
                 "metrics": {"accuracy": 0.92},
                 "delta_metrics": {"accuracy_improvement": 0.02},
                 "contributor_address": "0xDef456",
-                "timestamp": datetime.now().isoformat()
-            }
+                "timestamp": datetime.now().isoformat(),
+            },
         ]
 
         with patch.object(registry, "_fetch_lineage_data") as mock_fetch:
@@ -152,7 +157,7 @@ class TestModelRegistry:
                 "model_id": "test-001",
                 "model_type": "lead_scoring",
                 "is_baseline": "true",
-                "metrics": '{"accuracy": 0.85}'
+                "metrics": '{"accuracy": 0.85}',
             }
             mock_search.return_value = [mock_version]
 
@@ -175,16 +180,12 @@ class TestModelRegistry:
         """Test listing all models of a specific type."""
         with patch.object(registry.client, "search_model_versions") as mock_search:
             mock_versions = [
-                Mock(tags={
-                    "model_id": "model-001",
-                    "model_type": "lead_scoring",
-                    "version": "1.0.0"
-                }),
-                Mock(tags={
-                    "model_id": "model-002",
-                    "model_type": "lead_scoring",
-                    "version": "2.0.0"
-                })
+                Mock(
+                    tags={"model_id": "model-001", "model_type": "lead_scoring", "version": "1.0.0"}
+                ),
+                Mock(
+                    tags={"model_id": "model-002", "model_type": "lead_scoring", "version": "2.0.0"}
+                ),
             ]
             mock_search.return_value = mock_versions
 
@@ -195,15 +196,15 @@ class TestModelRegistry:
 
     def test_get_latest_model_version(self, registry) -> None:
         """Test getting the latest version of a model type."""
-        with patch.object(registry.client, "get_latest_versions") as mock_latest:
+        with patch.object(registry.client, "get_model_version_by_alias") as mock_alias:
             mock_version = Mock()
             mock_version.version = "3"
             mock_version.tags = {
                 "model_id": "latest-001",
                 "model_type": "lead_scoring",
-                "version": "3.0.0"
+                "version": "3.0.0",
             }
-            mock_latest.return_value = [mock_version]
+            mock_alias.return_value = mock_version
 
             latest = registry.get_latest_model("lead_scoring")
 
@@ -212,31 +213,27 @@ class TestModelRegistry:
 
     def test_model_rollback(self, registry) -> None:
         """Test rolling back to a previous model version."""
-        with patch.object(registry.client, "transition_model_version_stage") as mock_transition, \
-             patch.object(registry, "get_model_by_id") as mock_get:
-
+        with (
+            patch.object(registry.client, "set_registered_model_alias") as mock_set_alias,
+            patch.object(registry, "get_model_by_id") as mock_get,
+        ):
             mock_get.return_value = ModelRegistryEntry(
-                model_id="model-001",
-                model_type="lead_scoring",
-                version="2.0.0",
-                mlflow_version="2"
+                model_id="model-001", model_type="lead_scoring", version="2.0.0", mlflow_version="2"
             )
 
             success = registry.rollback_model("lead_scoring", "model-001")
 
             assert success is True
-            mock_transition.assert_called()
+            mock_set_alias.assert_called_once()
 
     def test_delete_model_version(self, registry) -> None:
         """Test deleting a specific model version."""
-        with patch.object(registry.client, "delete_model_version") as mock_delete, \
-             patch.object(registry, "get_model_by_id") as mock_get:
-
+        with (
+            patch.object(registry.client, "delete_model_version") as mock_delete,
+            patch.object(registry, "get_model_by_id") as mock_get,
+        ):
             mock_get.return_value = ModelRegistryEntry(
-                model_id="model-001",
-                model_type="lead_scoring",
-                version="2.0.0",
-                mlflow_version="2"
+                model_id="model-001", model_type="lead_scoring", version="2.0.0", mlflow_version="2"
             )
 
             success = registry.delete_model_version("model-001")

@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from src.middleware.auth import require_auth
 from src.api.models import (
     ContributorImpactResponse,
     ErrorResponse,
@@ -16,6 +15,7 @@ from src.api.models import (
     ModelRegistrationResponse,
 )
 from src.api.utils.config import get_settings
+from src.middleware.auth import require_auth
 from src.services.model_registry import HokusaiModelRegistry
 from src.services.performance_tracker import PerformanceTracker
 
@@ -46,7 +46,7 @@ async def list_models(name: str = None):
                 models = client.search_model_versions(f"name='{name}'")
             else:
                 models = client.search_model_versions("")
-            
+
             result_models = []
             for model in models:
                 # Safely extract attributes from model objects
@@ -62,16 +62,17 @@ async def list_models(name: str = None):
                     model_dict["tags"] = tags
                 else:
                     model_dict["tags"] = {}
-                
+
                 result_models.append(model_dict)
-            
+
             return {"models": result_models}
         except Exception as e:
             # Log the error for debugging
             import traceback
+
             print(f"Error in list_models: {e}")
             traceback.print_exc()
-    
+
     # Return empty list if mlflow not available
     return {"models": []}
 
@@ -143,17 +144,17 @@ async def get_model_by_id(model_name: str, version: str):
     """Get specific model details by name and version."""
     if not mlflow:
         raise HTTPException(status_code=404, detail="MLflow not available")
-    
+
     try:
         client = mlflow.tracking.MlflowClient()
         model_version = client.get_model_version(model_name, version)
-        
+
         return {
             "name": model_version.name,
             "version": model_version.version,
             "status": model_version.status,
             "description": getattr(model_version, "description", ""),
-            "tags": getattr(model_version, "tags", {})
+            "tags": getattr(model_version, "tags", {}),
         }
     except Exception as e:
         logger.error(f"Model not found: {e}")
@@ -165,23 +166,21 @@ async def update_model_metadata(model_name: str, version: str, update_data: dict
     """Update model metadata (description, tags)."""
     if not mlflow:
         raise HTTPException(status_code=404, detail="MLflow not available")
-    
+
     try:
         client = mlflow.tracking.MlflowClient()
-        
+
         # Update description if provided
         if "description" in update_data:
             client.update_model_version(
-                name=model_name,
-                version=version,
-                description=update_data["description"]
+                name=model_name, version=version, description=update_data["description"]
             )
-        
+
         # Update tags if provided
         if "tags" in update_data:
             for key, value in update_data["tags"].items():
                 client.set_model_version_tag(model_name, version, key, value)
-        
+
         return {"message": "Model updated successfully"}
     except Exception as e:
         logger.error(f"Failed to update model: {e}")
@@ -193,7 +192,7 @@ async def delete_model_version(model_name: str, version: str):
     """Delete a specific model version."""
     if not mlflow:
         raise HTTPException(status_code=404, detail="MLflow not available")
-    
+
     try:
         client = mlflow.tracking.MlflowClient()
         client.delete_model_version(name=model_name, version=version)
@@ -208,19 +207,20 @@ async def transition_model_stage(model_name: str, version: str, transition_data:
     """Transition model to different stage."""
     if not mlflow:
         raise HTTPException(status_code=404, detail="MLflow not available")
-    
+
     try:
         client = mlflow.tracking.MlflowClient()
         stage = transition_data.get("stage", "Production")
-        archive_existing = transition_data.get("archive_existing", True)
-        
-        client.transition_model_version_stage(
+        stage_alias = stage.lower()
+
+        client.set_registered_model_alias(name=model_name, alias=stage_alias, version=version)
+        client.set_model_version_tag(
             name=model_name,
             version=version,
-            stage=stage,
-            archive_existing_versions=archive_existing
+            key="lifecycle_stage",
+            value=stage,
         )
-        
+
         return {"message": f"Model {model_name}:{version} transitioned to {stage}"}
     except Exception as e:
         logger.error(f"Failed to transition model: {e}")
@@ -235,14 +235,12 @@ async def compare_models(model1: str, model2: str):
         m1_name, m1_version = model1.split(":")
         m2_name, m2_version = model2.split(":")
     except ValueError:
-        raise HTTPException(
-            status_code=400, 
-            detail="Invalid model format. Use ModelName:Version"
-        )
-    
+        raise HTTPException(status_code=400, detail="Invalid model format. Use ModelName:Version")
+
     # Check if ModelComparator is being mocked for tests
     try:
         from src.api.routes.models import ModelComparator
+
         comparator = ModelComparator()
         return comparator.compare(f"{m1_name}:{m1_version}", f"{m2_name}:{m2_version}")
     except (ImportError, AttributeError):
@@ -251,7 +249,7 @@ async def compare_models(model1: str, model2: str):
             "model1": {"name": m1_name, "version": m1_version, "accuracy": 0.95},
             "model2": {"name": m2_name, "version": m2_version, "accuracy": 0.97},
             "delta": {"accuracy": 0.02},
-            "recommendation": f"Use version {m2_version}"
+            "recommendation": f"Use version {m2_version}",
         }
 
 
@@ -261,25 +259,23 @@ async def evaluate_model(eval_request: dict):
     model_name = eval_request.get("model_name")
     model_version = eval_request.get("model_version")
     metrics = eval_request.get("metrics", ["accuracy", "precision", "recall", "f1_score"])
-    
+
     # Check if ModelEvaluator is being mocked for tests
     try:
         from src.api.routes.models import ModelEvaluator
+
         evaluator = ModelEvaluator()
-        results = evaluator.evaluate(model_name, model_version, eval_request.get("dataset_path"), metrics)
+        results = evaluator.evaluate(
+            model_name, model_version, eval_request.get("dataset_path"), metrics
+        )
         return {"model": f"{model_name}:{model_version}", "results": results}
     except (ImportError, AttributeError):
         # Mock results
-        results = {
-            "accuracy": 0.95,
-            "precision": 0.93,
-            "recall": 0.97,
-            "f1_score": 0.95
-        }
-        
+        results = {"accuracy": 0.95, "precision": 0.93, "recall": 0.97, "f1_score": 0.95}
+
         return {
             "model": f"{model_name}:{model_version}",
-            "results": {m: results.get(m, 0.0) for m in metrics}
+            "results": {m: results.get(m, 0.0) for m in metrics},
         }
 
 
@@ -289,17 +285,18 @@ async def get_model_metrics_endpoint(model_name: str, version: str):
     # Check if get_model_metrics helper is being mocked
     try:
         from src.api.routes.models import get_model_metrics
+
         return get_model_metrics(model_name, version)
     except (ImportError, AttributeError):
         # Mock metrics for now
         return {
             "training_metrics": {"loss": 0.05, "accuracy": 0.95},
             "validation_metrics": {"loss": 0.07, "accuracy": 0.93},
-            "production_metrics": {"latency_ms": 25, "throughput_rps": 100}
+            "production_metrics": {"latency_ms": 25, "throughput_rps": 100},
         }
 
 
-@router.get("/{model_name}/{version}/lineage") 
+@router.get("/{model_name}/{version}/lineage")
 async def get_model_lineage_by_version(model_name: str, version: str):
     """Get model lineage endpoint."""
     # Mock lineage data
@@ -307,7 +304,7 @@ async def get_model_lineage_by_version(model_name: str, version: str):
         "model": f"{model_name}:{version}",
         "parents": [f"{model_name}:0"] if version != "1" else [],
         "training_data": ["dataset_v1"],
-        "experiments": ["exp_001"]
+        "experiments": ["exp_001"],
     }
 
 
@@ -316,7 +313,8 @@ async def download_model(model_name: str, version: str):
     """Download model artifact file."""
     # Check if helper functions are being mocked
     try:
-        from src.api.routes.models import get_model_artifact_path, FileResponse
+        from src.api.routes.models import FileResponse, get_model_artifact_path
+
         path = get_model_artifact_path(model_name, version)
         return FileResponse(path)
     except (ImportError, AttributeError):
@@ -330,13 +328,14 @@ async def get_predictions_history_endpoint(model_name: str, version: str):
     # Check if get_predictions_history helper is being mocked
     try:
         from src.api.routes.models import get_predictions_history
+
         return get_predictions_history(model_name, version)
     except (ImportError, AttributeError):
         # Mock prediction history
         return {
             "total_predictions": 10000,
             "date_range": {"start": "2024-01-01", "end": "2024-01-31"},
-            "daily_counts": [{"date": "2024-01-01", "count": 350}]
+            "daily_counts": [{"date": "2024-01-01", "count": 350}],
         }
 
 
@@ -345,15 +344,11 @@ async def batch_model_operations(batch_request: dict):
     """Perform batch operations on multiple models."""
     operations = batch_request.get("operations", [])
     results = []
-    
+
     for op in operations:
         # Mock processing each operation
-        results.append({
-            "action": op.get("action"),
-            "model": op.get("model"),
-            "status": "success"
-        })
-    
+        results.append({"action": op.get("action"), "model": op.get("model"), "status": "success"})
+
     return {"results": results}
 
 
