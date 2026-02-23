@@ -1,1 +1,1 @@
-"""Tests for evaluation interfaces and provider registry."""
+"""Evaluation module tests."""
