@@ -34,7 +34,7 @@ def _summarize_run(run: Any) -> RunSummary:
     return RunSummary(
         run_id=getattr(info, "run_id", ""),
         status=getattr(info, "status", "").upper(),
-        eval_status=tags.get("hoku_eval.status") if tags else None,
+        eval_status=tags.get("hokusai_eval.status") if tags else None,
     )
 
 
@@ -62,9 +62,9 @@ def _search_matching_runs(
     """Search for runs tagged with matching evaluation identity."""
     seed_value = "none" if seed is None else str(seed)
     filter_parts = [
-        f"tags.hoku_eval.model_id = '{model_id}'",
-        f"tags.hoku_eval.eval_spec = '{eval_spec}'",
-        f"tags.hoku_eval.seed = '{seed_value}'",
+        f"tags.hokusai_eval.model_id = '{model_id}'",
+        f"tags.hokusai_eval.eval_spec = '{eval_spec}'",
+        f"tags.hokusai_eval.seed = '{seed_value}'",
     ]
     filter_string = " and ".join(filter_parts)
 

@@ -19,7 +19,12 @@ if str(REPO_ROOT) not in sys.path:
 
 LAZY_SUBCOMMANDS = {
     "auth": (REPO_ROOT / "src/cli/auth.py", "auth_group", "hokusai_lazy_auth"),
-    "eval": (REPO_ROOT / "src/cli/hoku_eval.py", "eval_group", "hokusai_lazy_eval"),
+    "benchmark": (
+        REPO_ROOT / "src/cli/hokusai_eval.py",
+        "benchmark_group",
+        "hokusai_lazy_benchmark",
+    ),
+    "eval": (REPO_ROOT / "src/cli/hokusai_eval.py", "eval_group", "hokusai_lazy_eval"),
     "model": (REPO_ROOT / "src/cli/model.py", "model", "hokusai_lazy_model"),
     "signatures": (
         REPO_ROOT / "src/cli/signatures.py",
@@ -35,6 +40,7 @@ LAZY_SUBCOMMANDS = {
 
 LAZY_SHORT_HELP = {
     "auth": "Manage API keys and authentication.",
+    "benchmark": "Manage benchmark specification bindings.",
     "eval": "Manage evaluation commands.",
     "model": "Model management commands.",
     "signatures": "Manage DSPy signatures in the Hokusai platform.",

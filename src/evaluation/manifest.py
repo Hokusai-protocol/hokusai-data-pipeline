@@ -117,7 +117,10 @@ def _load_mlflow() -> Any:
 
 
 def create_hem_from_mlflow_run(
-    run_id: str, eval_id: str | None = None, primary_metric_name: str | None = None
+    run_id: str,
+    eval_id: str | None = None,
+    primary_metric_name: str | None = None,
+    benchmark_spec: dict[str, Any] | None = None,
 ) -> HokusaiEvaluationManifest:
     """Construct a HEM from an MLflow run."""
     mlflow = _load_mlflow()
@@ -145,8 +148,17 @@ def create_hem_from_mlflow_run(
             f"Primary metric '{resolved_primary_metric}' not found in MLflow run metrics."
         )
 
-    dataset_id = tags.get("hokusai.dataset.id") or params.get("hokusai.dataset.id")
-    dataset_hash = tags.get("hokusai.dataset.hash") or params.get("hokusai.dataset.hash")
+    spec_dataset_id = benchmark_spec.get("dataset_id") if benchmark_spec else None
+    spec_dataset_hash = benchmark_spec.get("dataset_version") if benchmark_spec else None
+    if isinstance(spec_dataset_hash, str) and not spec_dataset_hash.startswith("sha256:"):
+        spec_dataset_hash = f"sha256:{spec_dataset_hash}"
+
+    dataset_id = (
+        spec_dataset_id or tags.get("hokusai.dataset.id") or params.get("hokusai.dataset.id")
+    )
+    dataset_hash = (
+        spec_dataset_hash or tags.get("hokusai.dataset.hash") or params.get("hokusai.dataset.hash")
+    )
     if not dataset_id:
         raise ValueError("Missing dataset id. Set tag/param 'hokusai.dataset.id'.")
     if not dataset_hash:

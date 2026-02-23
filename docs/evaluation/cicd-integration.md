@@ -42,7 +42,7 @@ jobs:
         run: |
           python - <<'PY'
           import mlflow
-          from src.cli.hoku_eval import _run_evaluation
+          from src.cli.hokusai_eval import _run_evaluation
 
           result = _run_evaluation(
               model_id="my-model",
@@ -80,7 +80,7 @@ if not decision.accepted:
 Keep these artifacts/tags per run:
 - `hem/manifest.json`
 - Evaluation metrics and key thresholds
-- `hoku_eval.status`
+- `hokusai_eval.status`
 - Attestation hash when enabled (`--attest`)
 
 ## Recommended deployment policy

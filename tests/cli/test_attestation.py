@@ -71,7 +71,7 @@ def test_log_attestation_logs_tag_and_artifact() -> None:
         payload=payload,
     )
 
-    assert ("hoku_eval.attestation_hash", att_hash) in fake_mlflow.tags
+    assert ("hokusai_eval.attestation_hash", att_hash) in fake_mlflow.tags
     assert fake_mlflow.artifacts
     artifact_payload, artifact_path = fake_mlflow.artifacts[0]
     assert artifact_payload["attestation_hash"] == att_hash

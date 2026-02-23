@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import random
 from pathlib import Path
 from typing import Any
+from urllib import error, parse, request
 
 import click
 
@@ -24,6 +26,10 @@ class EvaluationValidationError(Exception):
 
 class EvaluationRuntimeError(Exception):
     """Raised when runtime evaluation execution fails."""
+
+
+class BenchmarkCLIError(Exception):
+    """Raised when benchmark API operations fail."""
 
 
 def _load_mlflow() -> Any:
@@ -186,6 +192,40 @@ def _emit(output_format: str, payload: dict[str, Any]) -> None:
     click.echo(format_output(output_format, payload))
 
 
+def _benchmark_api_request(
+    *,
+    method: str,
+    path: str,
+    api_url: str,
+    auth_token: str | None,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    base_url = api_url.rstrip("/")
+    url = f"{base_url}{path}"
+    body: bytes | None = None
+    headers = {"Content-Type": "application/json"}
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+    if payload is not None:
+        body = json.dumps(payload).encode("utf-8")
+
+    req = request.Request(  # noqa: S310
+        url=url,
+        data=body,
+        headers=headers,
+        method=method.upper(),
+    )
+    try:
+        with request.urlopen(req, timeout=20) as response:  # noqa: S310
+            content = response.read().decode("utf-8")
+            return json.loads(content) if content else {}
+    except error.HTTPError as exc:
+        detail = exc.read().decode("utf-8") if exc.fp else ""
+        raise BenchmarkCLIError(f"Benchmark API request failed ({exc.code}): {detail}") from exc
+    except error.URLError as exc:
+        raise BenchmarkCLIError(f"Benchmark API request failed: {exc.reason}") from exc
+
+
 def _build_evaluate_kwargs(
     *,
     model_id: str,
@@ -224,10 +264,10 @@ def _log_run_inputs(
     max_cost: float | None,
 ) -> None:
     """Log evaluation inputs to MLflow for reproducibility."""
-    mlflow_module.set_tag("hoku_eval.model_id", model_id)
-    mlflow_module.set_tag("hoku_eval.eval_spec", eval_spec)
-    mlflow_module.set_tag("hoku_eval.seed", "none" if seed is None else str(seed))
-    mlflow_module.set_tag("hoku_eval.status", "running")
+    mlflow_module.set_tag("hokusai_eval.model_id", model_id)
+    mlflow_module.set_tag("hokusai_eval.eval_spec", eval_spec)
+    mlflow_module.set_tag("hokusai_eval.seed", "none" if seed is None else str(seed))
+    mlflow_module.set_tag("hokusai_eval.status", "running")
 
     mlflow_module.log_param("model_id", model_id)
     mlflow_module.log_param("eval_spec", eval_spec)
@@ -287,7 +327,7 @@ def _run_evaluation(  # noqa: C901
     run_ctx = (
         mlflow.start_run(run_id=resume_decision.run_id)
         if resume_decision.mode == "resume" and resume_decision.run_id
-        else mlflow.start_run(run_name=f"hoku_eval:{model_id}")
+        else mlflow.start_run(run_name=f"hokusai_eval:{model_id}")
     )
 
     with run_ctx as run:
@@ -304,7 +344,7 @@ def _run_evaluation(  # noqa: C901
 
         estimated_cost = preflight["estimated_cost_usd"]
         if max_cost is not None and estimated_cost > max_cost:
-            mlflow.set_tag("hoku_eval.status", "aborted")
+            mlflow.set_tag("hokusai_eval.status", "aborted")
             raise EvaluationValidationError(
                 f"Estimated cost ${estimated_cost:.6f} exceeds configured max cost ${max_cost:.6f}."
             )
@@ -320,7 +360,7 @@ def _run_evaluation(  # noqa: C901
         try:
             result = mlflow.evaluate(**evaluate_kwargs)
         except Exception as exc:
-            mlflow.set_tag("hoku_eval.status", "failed")
+            mlflow.set_tag("hokusai_eval.status", "failed")
             raise EvaluationRuntimeError(str(exc)) from exc
 
         metrics = _extract_metrics(result)
@@ -330,7 +370,7 @@ def _run_evaluation(  # noqa: C901
 
         actual_cost = float(metrics.get("cost_usd", estimated_cost))
         if max_cost is not None and actual_cost > max_cost:
-            mlflow.set_tag("hoku_eval.status", "aborted")
+            mlflow.set_tag("hokusai_eval.status", "aborted")
             raise EvaluationRuntimeError(
                 f"Runtime cost ${actual_cost:.6f} exceeds configured max cost ${max_cost:.6f}."
             )
@@ -352,7 +392,7 @@ def _run_evaluation(  # noqa: C901
                 payload=attestation_payload,
             )
 
-        mlflow.set_tag("hoku_eval.status", "completed")
+        mlflow.set_tag("hokusai_eval.status", "completed")
 
         return {
             "status": "success",
@@ -528,6 +568,128 @@ def run_command(
                 "message": f"Unexpected error: {exc}",
             },
         )
+        raise SystemExit(2) from exc
+
+
+@click.group(name="benchmark")
+def benchmark_group() -> None:
+    """Manage benchmark specification bindings."""
+
+
+@benchmark_group.command(name="register")
+@click.option("--model-id", required=True, type=str)
+@click.option("--dataset-id", required=True, type=str)
+@click.option("--dataset-version", required=True, type=str)
+@click.option("--eval-split", default="test", show_default=True, type=str)
+@click.option("--metric-name", required=True, type=str)
+@click.option(
+    "--metric-direction",
+    default="higher_is_better",
+    show_default=True,
+    type=click.Choice(["higher_is_better", "lower_is_better"]),
+)
+@click.option("--input-schema", default="{}", show_default=True, type=str)
+@click.option("--output-schema", default="{}", show_default=True, type=str)
+@click.option("--tiebreak-rules", default=None, type=str)
+@click.option("--eval-container-digest", default=None, type=str)
+@click.option("--active/--inactive", "is_active", default=True, show_default=True)
+@click.option("--api-url", default=None, type=str, help="Hokusai API base URL.")
+@click.option("--auth-token", default=None, type=str, help="Bearer token for API auth.")
+@click.option(
+    "--output",
+    "output_format",
+    type=click.Choice(["json", "ci", "human"]),
+    default="human",
+    show_default=True,
+)
+def benchmark_register_command(
+    model_id: str,
+    dataset_id: str,
+    dataset_version: str,
+    eval_split: str,
+    metric_name: str,
+    metric_direction: str,
+    input_schema: str,
+    output_schema: str,
+    tiebreak_rules: str | None,
+    eval_container_digest: str | None,
+    is_active: bool,
+    api_url: str | None,
+    auth_token: str | None,
+    output_format: str,
+) -> None:
+    """Register an immutable benchmark spec via API."""
+    resolved_api_url = api_url or os.getenv("HOKUSAI_API_URL", "http://localhost:8001")
+    resolved_auth_token = auth_token or os.getenv("HOKUSAI_API_TOKEN")
+    try:
+        input_schema_payload = json.loads(input_schema)
+        output_schema_payload = json.loads(output_schema)
+        tiebreak_payload = json.loads(tiebreak_rules) if tiebreak_rules else None
+    except json.JSONDecodeError as exc:
+        _emit(output_format, {"status": "invalid", "message": f"Invalid JSON option: {exc}"})
+        raise SystemExit(1) from exc
+
+    payload = {
+        "model_id": model_id,
+        "dataset_id": dataset_id,
+        "dataset_version": dataset_version,
+        "eval_split": eval_split,
+        "metric_name": metric_name,
+        "metric_direction": metric_direction,
+        "tiebreak_rules": tiebreak_payload,
+        "input_schema": input_schema_payload,
+        "output_schema": output_schema_payload,
+        "eval_container_digest": eval_container_digest,
+        "is_active": is_active,
+    }
+
+    try:
+        response = _benchmark_api_request(
+            method="POST",
+            path="/api/v1/benchmarks",
+            api_url=resolved_api_url,
+            auth_token=resolved_auth_token,
+            payload=payload,
+        )
+        _emit(output_format, {"status": "success", "item": response})
+        raise SystemExit(0)
+    except BenchmarkCLIError as exc:
+        _emit(output_format, {"status": "error", "message": str(exc)})
+        raise SystemExit(2) from exc
+
+
+@benchmark_group.command(name="list")
+@click.option("--model-id", default=None, type=str)
+@click.option("--api-url", default=None, type=str, help="Hokusai API base URL.")
+@click.option("--auth-token", default=None, type=str, help="Bearer token for API auth.")
+@click.option(
+    "--output",
+    "output_format",
+    type=click.Choice(["json", "ci", "human"]),
+    default="human",
+    show_default=True,
+)
+def benchmark_list_command(
+    model_id: str | None,
+    api_url: str | None,
+    auth_token: str | None,
+    output_format: str,
+) -> None:
+    """List benchmark specs via API."""
+    resolved_api_url = api_url or os.getenv("HOKUSAI_API_URL", "http://localhost:8001")
+    resolved_auth_token = auth_token or os.getenv("HOKUSAI_API_TOKEN")
+    query = f"?{parse.urlencode({'model_id': model_id})}" if model_id else ""
+    try:
+        response = _benchmark_api_request(
+            method="GET",
+            path=f"/api/v1/benchmarks{query}",
+            api_url=resolved_api_url,
+            auth_token=resolved_auth_token,
+        )
+        _emit(output_format, {"status": "success", **response})
+        raise SystemExit(0)
+    except BenchmarkCLIError as exc:
+        _emit(output_format, {"status": "error", "message": str(exc)})
         raise SystemExit(2) from exc
 
 

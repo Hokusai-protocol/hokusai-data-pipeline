@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any
 
 import redis
-from fastapi import Depends
+from fastapi import Depends, Request
 from redis import Redis
 
 from src.api.services.contributor_logger import ContributorLogger
 from src.api.services.evaluation_service import EvaluationService
 from src.api.services.governance.audit_logger import AuditLogger
+from src.api.services.governance.benchmark_specs import BenchmarkSpecService
 from src.api.services.governance.gdpr import GDPRService
 from src.api.services.governance.licensing import LicenseValidator
 from src.api.services.governance.retention import RetentionManager
 from src.api.services.privacy.pii_detector import PIIDetector
 from src.api.utils.config import get_settings
+from src.middleware.auth import get_current_user as middleware_get_current_user
 
 
 @lru_cache(maxsize=1)
@@ -76,3 +79,14 @@ def get_evaluation_service(
 def get_contributor_logger() -> ContributorLogger:
     """Return shared contributor logger instance."""
     return ContributorLogger()
+
+
+@lru_cache(maxsize=1)
+def get_benchmark_spec_service() -> BenchmarkSpecService:
+    """Return shared benchmark spec service instance."""
+    return BenchmarkSpecService()
+
+
+async def get_current_user(request: Request) -> dict[str, Any]:
+    """Compatibility wrapper for authenticated user dependency."""
+    return await middleware_get_current_user(request)

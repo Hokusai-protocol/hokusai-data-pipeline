@@ -42,7 +42,7 @@ The following MLflow 3.4 features eliminate the need for custom implementations:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        CLI / API Layer                       │
-│  (hoku eval command)            (REST endpoints)             │
+│  (hokusai eval command)         (REST endpoints)             │
 └─────────────┬───────────────────────────┬───────────────────┘
               │                           │
 ┌─────────────▼───────────────────────────▼───────────────────┐

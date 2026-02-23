@@ -65,7 +65,7 @@ def log_attestation(
 ) -> None:
     """Log attestation hash and payload to MLflow."""
     with mlflow_module.start_run(run_id=run_id):
-        mlflow_module.set_tag("hoku_eval.attestation_hash", attestation_hash)
+        mlflow_module.set_tag("hokusai_eval.attestation_hash", attestation_hash)
         mlflow_module.log_dict(
             {
                 "attestation_hash": attestation_hash,

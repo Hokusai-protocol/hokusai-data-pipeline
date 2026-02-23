@@ -86,8 +86,18 @@ class MlflowClientProtocol(Protocol):
     def set_tag(self: MlflowClientProtocol, run_id: str, key: str, value: str) -> None: ...
 
 
+class BenchmarkSpecResolverProtocol(Protocol):
+    """Resolver contract for loading active benchmark specs by model id."""
+
+    def get_active_spec_for_model(
+        self: BenchmarkSpecResolverProtocol, model_id: str
+    ) -> dict[str, Any] | None: ...
+
+
 def _load_mlflow() -> Any:
     """Load mlflow lazily so module import works without optional dependencies."""
+    # MLflow auth is expected via environment configuration such as
+    # MLFLOW_TRACKING_TOKEN / Authorization passthrough.
     try:
         import mlflow  # type: ignore
     except ImportError as exc:
@@ -142,6 +152,7 @@ class DeltaOneEvaluator:
         cooldown_hours: int = 24,
         min_examples: int = 800,
         delta_threshold_pp: float = 1.0,
+        benchmark_spec_resolver: BenchmarkSpecResolverProtocol | None = None,
     ) -> None:
         if cooldown_hours < 0:
             raise ValueError("cooldown_hours must be >= 0")
@@ -154,6 +165,7 @@ class DeltaOneEvaluator:
         self.cooldown_hours = cooldown_hours
         self.min_examples = min_examples
         self.delta_threshold_pp = delta_threshold_pp
+        self._benchmark_spec_resolver = benchmark_spec_resolver
 
     def evaluate(
         self: DeltaOneEvaluator, mlflow_run_id: str, baseline_mlflow_run_id: str
@@ -194,6 +206,159 @@ class DeltaOneEvaluator:
             decision = self._build_decision(
                 accepted=False,
                 reason="dataset_hash_mismatch",
+                candidate=candidate,
+                baseline=baseline,
+                ci_low=0.0,
+                ci_high=0.0,
+                evaluated_at=evaluated_at,
+            )
+            self._persist_decision(decision)
+            return decision
+
+        cooldown_ok, blocked_until = self._check_cooldown(
+            model_id=candidate.model_id,
+            dataset_hash=candidate.dataset_hash,
+            experiment_id=candidate.experiment_id,
+            now=evaluated_at,
+            current_run_id=candidate.source_mlflow_run_id,
+        )
+        if not cooldown_ok:
+            reason = (
+                f"cooldown_active_until_{blocked_until.isoformat()}"
+                if blocked_until
+                else "cooldown_active"
+            )
+            decision = self._build_decision(
+                accepted=False,
+                reason=reason,
+                candidate=candidate,
+                baseline=baseline,
+                ci_low=0.0,
+                ci_high=0.0,
+                evaluated_at=evaluated_at,
+            )
+            self._persist_decision(decision)
+            return decision
+
+        delta_pp = _calculate_percentage_point_difference(
+            baseline=baseline.metric_value,
+            current=candidate.metric_value,
+        )
+        significant, ci_low, ci_high = self._is_statistically_significant(
+            baseline_metric=baseline.metric_value,
+            current_metric=candidate.metric_value,
+            baseline_n=baseline.sample_size,
+            current_n=candidate.sample_size,
+        )
+
+        if delta_pp < self.delta_threshold_pp:
+            decision = self._build_decision(
+                accepted=False,
+                reason="delta_below_threshold",
+                candidate=candidate,
+                baseline=baseline,
+                ci_low=ci_low,
+                ci_high=ci_high,
+                evaluated_at=evaluated_at,
+            )
+            self._persist_decision(decision)
+            return decision
+
+        if not significant:
+            decision = self._build_decision(
+                accepted=False,
+                reason="not_statistically_significant",
+                candidate=candidate,
+                baseline=baseline,
+                ci_low=ci_low,
+                ci_high=ci_high,
+                evaluated_at=evaluated_at,
+            )
+            self._persist_decision(decision)
+            return decision
+
+        decision = self._build_decision(
+            accepted=True,
+            reason="accepted",
+            candidate=candidate,
+            baseline=baseline,
+            ci_low=ci_low,
+            ci_high=ci_high,
+            evaluated_at=evaluated_at,
+        )
+        self._persist_decision(decision)
+        return decision
+
+    def evaluate_for_model(
+        self: DeltaOneEvaluator,
+        model_id: str,
+        mlflow_run_id: str,
+        baseline_mlflow_run_id: str,
+    ) -> DeltaOneDecision:
+        """Evaluate a run pair using benchmark spec binding for the given model."""
+        if self._benchmark_spec_resolver is None:
+            return self.evaluate(mlflow_run_id, baseline_mlflow_run_id)
+
+        spec = self._benchmark_spec_resolver.get_active_spec_for_model(model_id)
+        if spec is None:
+            return self.evaluate(mlflow_run_id, baseline_mlflow_run_id)
+
+        metric_name = str(spec["metric_name"])
+        expected_dataset_hash = _normalize_dataset_hash(str(spec["dataset_version"]))
+        min_examples = _derive_min_examples_from_spec(spec, default=self.min_examples)
+
+        evaluated_at = datetime.now(timezone.utc)
+        candidate = self._extract_metrics_from_run(
+            mlflow_run_id,
+            expected_metric_name=metric_name,
+        )
+        baseline = self._extract_metrics_from_run(
+            baseline_mlflow_run_id,
+            expected_metric_name=metric_name,
+        )
+
+        self._log_audit_event(
+            "deltaone_evaluation_started",
+            run_id=mlflow_run_id,
+            baseline_run_id=baseline_mlflow_run_id,
+            model_id=candidate.model_id,
+            dataset_hash=candidate.dataset_hash,
+            metric_name=candidate.metric_name,
+            n_current=candidate.sample_size,
+            n_baseline=baseline.sample_size,
+            benchmark_spec_id=spec.get("spec_id"),
+        )
+
+        if candidate.sample_size < min_examples or baseline.sample_size < min_examples:
+            decision = self._build_decision(
+                accepted=False,
+                reason="insufficient_samples",
+                candidate=candidate,
+                baseline=baseline,
+                ci_low=0.0,
+                ci_high=0.0,
+                evaluated_at=evaluated_at,
+            )
+            self._persist_decision(decision)
+            return decision
+
+        if candidate.dataset_hash != baseline.dataset_hash:
+            decision = self._build_decision(
+                accepted=False,
+                reason="dataset_hash_mismatch",
+                candidate=candidate,
+                baseline=baseline,
+                ci_low=0.0,
+                ci_high=0.0,
+                evaluated_at=evaluated_at,
+            )
+            self._persist_decision(decision)
+            return decision
+
+        if candidate.dataset_hash != expected_dataset_hash:
+            decision = self._build_decision(
+                accepted=False,
+                reason="dataset_hash_not_in_active_spec",
                 candidate=candidate,
                 baseline=baseline,
                 ci_low=0.0,
@@ -628,6 +793,27 @@ def _get_metric_value(client: MlflowClientProtocol, version: Any, metric_name: s
 def _calculate_percentage_point_difference(baseline: float, current: float) -> float:
     """Calculate percentage-point difference from ratio metrics."""
     return (current - baseline) * 100.0
+
+
+def _normalize_dataset_hash(dataset_version: str) -> str:
+    if dataset_version.startswith("sha256:"):
+        return dataset_version
+    return f"sha256:{dataset_version}"
+
+
+def _derive_min_examples_from_spec(spec: dict[str, Any], default: int) -> int:
+    # Prefer explicit tiebreak rule, then dataset metadata hints in input_schema.
+    tiebreak_rules = spec.get("tiebreak_rules") or {}
+    explicit = tiebreak_rules.get("min_examples")
+    if isinstance(explicit, int) and explicit > 0:
+        return explicit
+
+    input_schema = spec.get("input_schema") or {}
+    metadata = input_schema.get("dataset_metadata") or {}
+    metadata_min = metadata.get("min_examples", input_schema.get("min_examples"))
+    if isinstance(metadata_min, int) and metadata_min > 0:
+        return metadata_min
+    return default
 
 
 def send_deltaone_webhook(webhook_url: str, payload: dict[str, Any], max_retries: int = 3) -> bool:

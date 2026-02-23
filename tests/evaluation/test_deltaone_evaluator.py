@@ -228,3 +228,75 @@ def test_evaluate_end_to_end_not_significant() -> None:
 
     assert decision.accepted is False
     assert decision.reason == "not_statistically_significant"
+
+
+def test_evaluate_for_model_uses_active_benchmark_spec() -> None:
+    runs = {
+        "candidate": _make_run("candidate", metric_value=0.87, n_examples="10000"),
+        "baseline": _make_run("baseline", metric_value=0.85, n_examples="10000"),
+    }
+    client = _FakeMlflowClient(runs)
+
+    class _Resolver:
+        def get_active_spec_for_model(self, _model_id: str) -> dict[str, object]:
+            return {
+                "spec_id": "spec-1",
+                "dataset_version": "sha256:" + "a" * 64,
+                "metric_name": "accuracy",
+                "tiebreak_rules": {"min_examples": 1000},
+                "input_schema": {},
+            }
+
+    evaluator = DeltaOneEvaluator(
+        mlflow_client=client,
+        cooldown_hours=0,
+        min_examples=800,
+        delta_threshold_pp=1.0,
+        benchmark_spec_resolver=_Resolver(),
+    )
+
+    decision = evaluator.evaluate_for_model("model-a", "candidate", "baseline")
+
+    assert decision.accepted is True
+    assert decision.reason == "accepted"
+
+
+def test_evaluate_for_model_rejects_dataset_not_in_spec() -> None:
+    runs = {
+        "candidate": _make_run(
+            "candidate",
+            metric_value=0.87,
+            n_examples="1200",
+            dataset_hash="sha256:" + "b" * 64,
+        ),
+        "baseline": _make_run(
+            "baseline",
+            metric_value=0.85,
+            n_examples="1200",
+            dataset_hash="sha256:" + "b" * 64,
+        ),
+    }
+    client = _FakeMlflowClient(runs)
+
+    class _Resolver:
+        def get_active_spec_for_model(self, _model_id: str) -> dict[str, object]:
+            return {
+                "spec_id": "spec-1",
+                "dataset_version": "sha256:" + "a" * 64,
+                "metric_name": "accuracy",
+                "tiebreak_rules": {"min_examples": 1000},
+                "input_schema": {},
+            }
+
+    evaluator = DeltaOneEvaluator(
+        mlflow_client=client,
+        cooldown_hours=0,
+        min_examples=800,
+        delta_threshold_pp=1.0,
+        benchmark_spec_resolver=_Resolver(),
+    )
+
+    decision = evaluator.evaluate_for_model("model-a", "candidate", "baseline")
+
+    assert decision.accepted is False
+    assert decision.reason == "dataset_hash_not_in_active_spec"
