@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 from src.evaluation.webhook_config import DELTAONE_EVENT_TYPE, load_deltaone_webhook_endpoints
 from src.evaluation.webhook_delivery import (
     WebhookEndpoint,
+    dispatch_deltaone_webhook_event,
     redact_webhook_url,
     send_webhook_with_retry,
 )
@@ -144,3 +145,34 @@ def test_send_webhook_with_retry_all_fail(
     assert result.attempts == 3
     assert mock_post.call_count == 3
     assert sleep.call_count == 2
+
+
+@patch("src.evaluation.webhook_delivery.send_webhook_with_retry")
+@patch("src.evaluation.webhook_delivery.load_deltaone_webhook_endpoints")
+def test_dispatch_deltaone_webhook_event_delivers_to_all_endpoints(
+    mock_load,
+    mock_send,
+) -> None:
+    endpoint_a = WebhookEndpoint(
+        url="https://example.com/a",
+        secret="whsec_a",
+        event_types=(DELTAONE_EVENT_TYPE,),
+        active=True,
+    )
+    endpoint_b = WebhookEndpoint(
+        url="https://example.com/b",
+        secret="whsec_b",
+        event_types=(DELTAONE_EVENT_TYPE,),
+        active=True,
+    )
+    mock_load.return_value = [endpoint_a, endpoint_b]
+    mock_send.side_effect = [Mock(success=True), Mock(success=False)]
+
+    results = dispatch_deltaone_webhook_event(
+        event_type=DELTAONE_EVENT_TYPE,
+        payload={"model_id": "model-a"},
+        max_retries=2,
+    )
+
+    assert len(results) == 2
+    assert mock_send.call_count == 2

@@ -23,6 +23,9 @@ from src.api.schemas.evaluations import (
 from src.api.services.governance.audit_logger import AuditLogger
 from src.api.services.governance.licensing import LicenseValidator
 from src.api.services.privacy.pii_detector import PIIDetector
+from src.api.services.token_mint_hook import TokenMintHook
+from src.evaluation.deltaone_evaluator import DeltaOneEvaluator
+from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator, MintOutcome
 
 
 @dataclass
@@ -60,12 +63,14 @@ class EvaluationService:
         pii_detector: PIIDetector | None = None,
         audit_logger: AuditLogger | None = None,
         license_validator: LicenseValidator | None = None,
+        deltaone_mint_orchestrator: DeltaOneMintOrchestrator | None = None,
     ) -> None:
         self.redis = redis_client
         self.max_cost_usd = float(os.getenv("EVALUATION_MAX_COST_USD", "25"))
         self.pii_detector = pii_detector
         self.audit_logger = audit_logger
         self.license_validator = license_validator
+        self._deltaone_mint_orchestrator = deltaone_mint_orchestrator
 
     def create_evaluation(
         self: EvaluationService,
@@ -263,6 +268,7 @@ class EvaluationService:
         self._save_job(job_id, job_data)
         self.redis.zrem(self.QUEUE_KEY, job_id)
 
+        mint_outcome = self._process_deltaone_mint(job_data)
         manifest = {
             "job_id": job_id,
             "model_id": job_data["model_id"],
@@ -272,6 +278,7 @@ class EvaluationService:
                 "dataset": job_data["dataset_reference"],
                 "private": bool(job_data.get("private", False)),
                 "storage_backend": job_data.get("storage_backend", "external"),
+                "deltaone_mint_status": mint_outcome.status if mint_outcome else "not_requested",
             },
             "metrics": {"accuracy": 0.0},
             "artifact_urls": self._artifact_urls_for_job(
@@ -285,6 +292,24 @@ class EvaluationService:
             self.MANIFEST_TTL_SECONDS,
             json.dumps(manifest),
         )
+
+    def _process_deltaone_mint(
+        self: EvaluationService, job_data: dict[str, Any]
+    ) -> MintOutcome | None:
+        params = job_data.get("parameters") or {}
+        run_id = str(params.get("run_id", "")).strip()
+        baseline_run_id = str(params.get("baseline_run_id", "")).strip()
+        if not run_id or not baseline_run_id:
+            return None
+
+        orchestrator = self._deltaone_mint_orchestrator
+        if orchestrator is None:
+            evaluator = DeltaOneEvaluator()
+            mint_hook = TokenMintHook.from_settings()
+            orchestrator = DeltaOneMintOrchestrator(evaluator=evaluator, mint_hook=mint_hook)
+            self._deltaone_mint_orchestrator = orchestrator
+
+        return orchestrator.process_evaluation(run_id=run_id, baseline_run_id=baseline_run_id)
 
     def _validate_model_exists(self: EvaluationService, model_id: str) -> None:
         try:

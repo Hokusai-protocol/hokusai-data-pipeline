@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from src.evaluation.webhook_config import WebhookEndpoint
+from src.evaluation.webhook_config import WebhookEndpoint, load_deltaone_webhook_endpoints
 from src.evaluation.webhook_security import generate_nonce, sign_payload
 
 logger = logging.getLogger(__name__)
@@ -173,3 +173,34 @@ def send_webhook_with_retry(
         },
     )
     return result
+
+
+def dispatch_deltaone_webhook_event(
+    event_type: str,
+    payload: dict[str, object],
+    legacy_webhook_url: str | None = None,
+    max_retries: int = 3,
+) -> list[WebhookDeliveryResult]:
+    """Deliver DeltaOne event payload to configured endpoints."""
+    endpoints = load_deltaone_webhook_endpoints(
+        event_type=event_type,
+        legacy_webhook_url=legacy_webhook_url,
+    )
+    if not endpoints:
+        logger.info(
+            "No active DeltaOne webhook endpoints configured",
+            extra={"event_type": event_type},
+        )
+        return []
+
+    results: list[WebhookDeliveryResult] = []
+    for endpoint in endpoints:
+        results.append(
+            send_webhook_with_retry(
+                endpoint=endpoint,
+                event_type=event_type,
+                payload=payload,
+                max_retries=max_retries,
+            )
+        )
+    return results
