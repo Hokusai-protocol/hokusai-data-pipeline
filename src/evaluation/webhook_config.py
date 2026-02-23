@@ -10,6 +10,7 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 DELTAONE_EVENT_TYPE = "deltaone.achieved"
+DELTAONE_MINTED_EVENT_TYPE = "deltaone.minted"
 
 
 @dataclass(frozen=True)

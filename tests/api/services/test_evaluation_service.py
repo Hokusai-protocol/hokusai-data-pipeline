@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException
@@ -183,3 +184,37 @@ def test_redis_payload_uses_expected_job_namespace(
 
     assert parsed["job_id"] == str(created.job_id)
     assert parsed["status"] == "queued"
+
+
+def test_execute_job_triggers_deltaone_mint_orchestrator_when_run_ids_present(
+    request_payload: EvaluationRequest,
+) -> None:
+    fake_redis = FakeRedis()
+    orchestrator = Mock()
+    orchestrator.process_evaluation.return_value = None
+
+    service = EvaluationService(
+        redis_client=fake_redis,
+        deltaone_mint_orchestrator=orchestrator,  # type: ignore[arg-type]
+    )
+    service._validate_model_exists = lambda model_id: None
+
+    payload = EvaluationRequest(
+        config={
+            "eval_type": request_payload.config.eval_type,
+            "dataset_reference": request_payload.config.dataset_reference,
+            "parameters": {
+                **request_payload.config.parameters,
+                "run_id": "run-candidate",
+                "baseline_run_id": "run-baseline",
+            },
+        }
+    )
+    created = service.create_evaluation("my-model", payload, "minted-job")
+
+    service.execute_evaluation_job(str(created.job_id))
+
+    orchestrator.process_evaluation.assert_called_once_with(
+        run_id="run-candidate",
+        baseline_run_id="run-baseline",
+    )
