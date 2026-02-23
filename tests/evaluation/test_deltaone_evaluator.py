@@ -23,17 +23,22 @@ def _make_run(
     model_id: str = "model-a",
     start_time: int = 1_700_000_000_000,
     experiment_id: str = "1",
+    contributor_tags: dict[str, str] | None = None,
 ) -> SimpleNamespace:
+    tags = {
+        "hokusai.primary_metric": metric_name,
+        "hokusai.dataset.num_samples": n_examples,
+        "hokusai.dataset.hash": dataset_hash,
+        "hokusai.model_id": model_id,
+    }
+    if contributor_tags:
+        tags.update(contributor_tags)
+
     return SimpleNamespace(
         info=SimpleNamespace(run_id=run_id, start_time=start_time, experiment_id=experiment_id),
         data=SimpleNamespace(
             metrics={metric_name: metric_value},
-            tags={
-                "hokusai.primary_metric": metric_name,
-                "hokusai.dataset.num_samples": n_examples,
-                "hokusai.dataset.hash": dataset_hash,
-                "hokusai.model_id": model_id,
-            },
+            tags=tags,
             params={},
         ),
     )
@@ -162,7 +167,17 @@ def test_evaluate_rejects_when_dataset_hash_mismatch() -> None:
 
 def test_evaluate_end_to_end_significant_improvement() -> None:
     runs = {
-        "candidate": _make_run("candidate", metric_value=0.87, n_examples="10000"),
+        "candidate": _make_run(
+            "candidate",
+            metric_value=0.87,
+            n_examples="10000",
+            contributor_tags={
+                "contributor_id": "prompt-author-123",
+                "hokusai.contributor.prompt_author_id": "prompt-author-123",
+                "hokusai.contributor.training_data_uploader_id": "uploader-456",
+                "hokusai.contributor.human_labeler_id": "labeler-789",
+            },
+        ),
         "baseline": _make_run("baseline", metric_value=0.85, n_examples="10000"),
     }
     client = _FakeMlflowClient(runs)
@@ -179,6 +194,21 @@ def test_evaluate_end_to_end_significant_improvement() -> None:
     assert decision.reason == "accepted"
     assert decision.delta_percentage_points == pytest.approx(2.0)
     assert "hokusai.deltaone.accepted" in client.tags_set["candidate"]
+    assert client.tags_set["candidate"]["hokusai.deltaone.contributor_id"] == "prompt-author-123"
+    assert (
+        client.tags_set["candidate"]["hokusai.deltaone.hokusai.contributor.prompt_author_id"]
+        == "prompt-author-123"
+    )
+    assert (
+        client.tags_set["candidate"][
+            "hokusai.deltaone.hokusai.contributor.training_data_uploader_id"
+        ]
+        == "uploader-456"
+    )
+    assert (
+        client.tags_set["candidate"]["hokusai.deltaone.hokusai.contributor.human_labeler_id"]
+        == "labeler-789"
+    )
 
 
 def test_evaluate_end_to_end_not_significant() -> None:
