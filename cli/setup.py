@@ -1,5 +1,5 @@
-"""Setup script for Hokusai Data Pipeline CLI.
-"""
+"""Setup script for Hokusai Data Pipeline CLI."""
+
 from setuptools import find_packages, setup
 
 with open("requirements.txt") as f:
@@ -15,6 +15,7 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
+            "hoku=src.cli.hoku_eval:main",
             "hokusai=cli:cli",
             "hokusai-validate=hokusai_validate.cli:main",
         ],
