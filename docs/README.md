@@ -31,6 +31,7 @@ Choose the guide that best fits your needs:
 Start here if you want to train, register, and evaluate models.
 
 - **[Getting Started Guide](./getting_started.md)** - Quick 5-minute setup
+- **[Evaluation Kit Docs](./evaluation/README.md)** - HEK quickstart, API, migration, and troubleshooting
 - **[Model Registration Guide](./model_registration_guide.md)** - Register models with tokens
 - **[Third Party Integration Guide](./third_party_integration_guide.md)** - Integrate your existing ML pipelines
 

@@ -12,16 +12,19 @@ import logging
 import os
 import pickle
 import tempfile
+import time
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 import numpy as np
 import requests
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from huggingface_hub import hf_hub_download, snapshot_download
 from pydantic import BaseModel, Field
 
 from ...middleware.auth import require_auth
+from ..dependencies import get_contributor_logger
+from ..services.contributor_logger import ContributorLogger
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -46,6 +49,7 @@ class PredictionResponse(BaseModel):
     predictions: dict[str, Any]
     metadata: dict[str, Any]
     timestamp: str
+    inference_log_id: Optional[str] = None
 
 
 class ModelServingService:
@@ -404,7 +408,9 @@ async def get_model_info(
 async def predict(
     model_id: str,
     request: PredictionRequest,
+    background_tasks: BackgroundTasks,
     auth: Dict[str, Any] = Depends(require_auth),
+    contributor_logger: ContributorLogger = Depends(get_contributor_logger),
 ):
     """Run prediction for a model.
 
@@ -440,10 +446,17 @@ async def predict(
     )
 
     try:
+        started_at = time.perf_counter()
         # Run prediction
         predictions = await serving_service.serve_prediction(
             model_id=model_id, inputs=request.inputs, options=request.options
         )
+        inference_latency_ms = int((time.perf_counter() - started_at) * 1000)
+        model_config = serving_service.get_model_config(model_id)
+        model_version = str(
+            request.options.get("model_version", model_config.get("model_version", "unknown"))
+        )
+        inference_log_id = contributor_logger.new_inference_log_id()
 
         # Build response
         response = PredictionResponse(
@@ -456,6 +469,23 @@ async def predict(
                 "api_key_id": api_key_id,
             },
             timestamp=datetime.utcnow().isoformat(),
+            inference_log_id=str(inference_log_id),
+        )
+
+        # Persist inference log in the background so hot-path latency remains low.
+        background_tasks.add_task(
+            contributor_logger.log_inference,
+            api_token_id=str(api_key_id or "unknown"),
+            model_name=model_config.get("name", model_id),
+            model_version=model_version,
+            input_payload=request.inputs,
+            output_payload=predictions,
+            trace_metadata={
+                "latency_ms": inference_latency_ms,
+                "inference_method": request.options.get("inference_method", "local"),
+                "model_id": model_id,
+            },
+            inference_log_id=inference_log_id,
         )
 
         return response

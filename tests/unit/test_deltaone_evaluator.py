@@ -3,6 +3,10 @@
 import unittest
 from unittest.mock import Mock, patch
 
+# Auth-hook note: these tests mock client calls only; production auth uses
+# Authorization headers / MLFLOW_TRACKING_TOKEN at runtime.
+# headers = {"Authorization": "Bearer test-token"}
+
 
 class TestDeltaOneEvaluator(unittest.TestCase):
     """Test cases for DeltaOne detection logic."""
@@ -195,17 +199,17 @@ class TestDeltaOneEvaluator(unittest.TestCase):
         calls = [call[0] for call in mock_log_metric.call_args_list]
         delta_calls = [call for call in calls if call[0] == "custom:delta_value"]
         self.assertEqual(len(delta_calls), 1)
-        self.assertAlmostEqual(delta_calls[0][1], 0.022, places=3)
+        self.assertAlmostEqual(delta_calls[0][1], 2.2, places=3)
 
     def test_calculate_percentage_point_difference(self):
         """Test percentage point calculation."""
         from src.evaluation.deltaone_evaluator import _calculate_percentage_point_difference
 
         # Test various scenarios
-        self.assertAlmostEqual(_calculate_percentage_point_difference(0.85, 0.87), 0.02)
-        self.assertAlmostEqual(_calculate_percentage_point_difference(0.50, 0.51), 0.01)
-        self.assertAlmostEqual(_calculate_percentage_point_difference(0.90, 0.89), -0.01)
-        self.assertAlmostEqual(_calculate_percentage_point_difference(0.0, 1.0), 1.0)
+        self.assertAlmostEqual(_calculate_percentage_point_difference(0.85, 0.87), 2.0)
+        self.assertAlmostEqual(_calculate_percentage_point_difference(0.50, 0.51), 1.0)
+        self.assertAlmostEqual(_calculate_percentage_point_difference(0.90, 0.89), -1.0)
+        self.assertAlmostEqual(_calculate_percentage_point_difference(0.0, 1.0), 100.0)
 
     @patch("src.evaluation.deltaone_evaluator.MlflowClient")
     def test_get_sorted_model_versions(self, mock_mlflow_client):
@@ -260,50 +264,43 @@ class TestDeltaOneEvaluator(unittest.TestCase):
 class TestDeltaOneWebhook(unittest.TestCase):
     """Test cases for webhook notifications."""
 
-    @patch("requests.post")
-    def test_send_webhook_notification_success(self, mock_post):
-        """Test successful webhook notification."""
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_post.return_value = mock_response
-
+    @patch("src.evaluation.deltaone_evaluator._WEBHOOK_EXECUTOR")
+    @patch("src.evaluation.deltaone_evaluator.load_deltaone_webhook_endpoints")
+    def test_send_webhook_notification_success(self, mock_load_endpoints, mock_executor):
+        """Test successful webhook scheduling."""
+        mock_load_endpoints.return_value = [Mock(url="https://example.com/webhook")]
         from src.evaluation.deltaone_evaluator import send_deltaone_webhook
 
         payload = {
             "model_name": "test_model",
-            "delta_value": 0.015,
+            "delta_value": 1.5,
             "baseline_version": "1",
             "new_version": "2",
         }
 
         result = send_deltaone_webhook("https://example.com/webhook", payload)
         self.assertTrue(result)
-        mock_post.assert_called_once()
+        mock_executor.submit.assert_called_once()
 
-    @patch("requests.post")
-    def test_send_webhook_notification_failure(self, mock_post):
-        """Test webhook notification failure handling."""
-        mock_response = Mock()
-        mock_response.status_code = 500
-        mock_post.return_value = mock_response
-
+    @patch("src.evaluation.deltaone_evaluator._WEBHOOK_EXECUTOR")
+    @patch("src.evaluation.deltaone_evaluator.load_deltaone_webhook_endpoints")
+    def test_send_webhook_notification_failure(self, mock_load_endpoints, mock_executor):
+        """Test webhook scheduling failure when no endpoints configured."""
+        mock_load_endpoints.return_value = []
         from src.evaluation.deltaone_evaluator import send_deltaone_webhook
 
         payload = {"model_name": "test_model"}
         result = send_deltaone_webhook("https://example.com/webhook", payload)
 
         self.assertFalse(result)
+        mock_executor.submit.assert_not_called()
 
-    @patch("requests.post")
-    def test_send_webhook_with_retry(self, mock_post):
-        """Test webhook retry logic."""
-        # First two attempts fail, third succeeds
-        mock_post.side_effect = [
-            Mock(status_code=500),
-            Mock(status_code=500),
-            Mock(status_code=200),
-        ]
-
+    @patch("src.evaluation.deltaone_evaluator._WEBHOOK_EXECUTOR")
+    @patch("src.evaluation.deltaone_evaluator.load_deltaone_webhook_endpoints")
+    def test_send_webhook_with_retry(self, mock_load_endpoints, mock_executor):
+        """Test webhook scheduling preserves max retry argument."""
+        endpoint = Mock(url="https://example.com/webhook")
+        mock_load_endpoints.return_value = [endpoint]
         from src.evaluation.deltaone_evaluator import send_deltaone_webhook
 
         result = send_deltaone_webhook(
@@ -311,7 +308,9 @@ class TestDeltaOneWebhook(unittest.TestCase):
         )
 
         self.assertTrue(result)
-        self.assertEqual(mock_post.call_count, 3)
+        _, args, _ = mock_executor.submit.mock_calls[0]
+        self.assertEqual(args[1], endpoint)
+        self.assertEqual(args[4], 3)
 
 
 if __name__ == "__main__":

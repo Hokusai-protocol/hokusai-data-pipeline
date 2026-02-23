@@ -194,10 +194,17 @@ class TestDSPyPipelineExecutor:
     @patch("mlflow.start_run")
     @patch("mlflow.log_params")
     @patch("mlflow.log_metrics")
+    @patch("mlflow.set_tags")
     @patch("mlflow.set_experiment")
     @patch("mlflow.set_tracking_uri")
     def test_mlflow_tracking(
-        self, mock_set_uri, mock_set_exp, mock_log_metrics, mock_log_params, mock_start_run
+        self,
+        mock_set_uri,
+        mock_set_exp,
+        mock_set_tags,
+        mock_log_metrics,
+        mock_log_params,
+        mock_start_run,
     ):
         """Test MLflow tracking integration."""
         # Create executor with MLflow enabled (patched initialization will succeed)
@@ -222,6 +229,50 @@ class TestDSPyPipelineExecutor:
         logged_metrics = mock_log_metrics.call_args[0][0]
         assert "execution_time" in logged_metrics
         assert "success" in logged_metrics
+
+    @patch("mlflow.start_run")
+    @patch("mlflow.log_params")
+    @patch("mlflow.log_metrics")
+    @patch("mlflow.set_tags")
+    @patch("mlflow.set_experiment")
+    @patch("mlflow.set_tracking_uri")
+    def test_execute_logs_contributor_tags(
+        self,
+        mock_set_uri,
+        mock_set_exp,
+        mock_set_tags,
+        mock_log_metrics,
+        mock_log_params,
+        mock_start_run,
+    ):
+        """Test contributor attribution tags are logged for each execution."""
+        executor = DSPyPipelineExecutor(mlflow_tracking=True)
+
+        inputs = {"input1": "test", "input2": "data"}
+        result = executor.execute(
+            program=self.mock_program,
+            inputs=inputs,
+            contributor_id="author-1",
+            contributor_role="prompt_author",
+            contributors_by_role={
+                "training_data_uploader": "uploader-1",
+                "human_labeler": "labeler-1",
+            },
+        )
+
+        assert result.success is True
+        assert result.metadata["contributor_attribution"]["primary_contributor_id"] == "author-1"
+        assert result.metadata["contributor_attribution"]["contributors_by_role"] == {
+            "prompt_author": "author-1",
+            "training_data_uploader": "uploader-1",
+            "human_labeler": "labeler-1",
+        }
+
+        logged_tags = mock_set_tags.call_args[0][0]
+        assert logged_tags["contributor_id"] == "author-1"
+        assert logged_tags["hokusai.contributor.prompt_author_id"] == "author-1"
+        assert logged_tags["hokusai.contributor.training_data_uploader_id"] == "uploader-1"
+        assert logged_tags["hokusai.contributor.human_labeler_id"] == "labeler-1"
 
     def test_program_caching(self):
         """Test program caching functionality."""
@@ -263,7 +314,6 @@ class TestDSPyPipelineExecutor:
         def slow_forward(**kwargs):
             # Simulate slow execution by raising timeout error
             # This tests the timeout handling without actual sleep
-            import time
             raise TimeoutError("Execution timed out")
 
         slow_program.forward = slow_forward

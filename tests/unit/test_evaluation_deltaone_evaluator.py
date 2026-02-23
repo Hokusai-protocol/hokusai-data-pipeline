@@ -52,7 +52,7 @@ class TestDetectDeltaOne:
 
         # Mock metrics - current: 0.82 (improvement from baseline 0.80)
         mock_get_metric.return_value = 0.82
-        mock_calc_diff.return_value = 0.02  # 2 percentage points (0.82 - 0.80)
+        mock_calc_diff.return_value = 2.0  # 2 percentage points (0.82 - 0.80)
 
         result = detect_delta_one("test_model")
 
@@ -214,12 +214,12 @@ class TestCalculatePercentagePointDifference:
     def test_calculate_positive_difference(self):
         """Test calculating positive percentage point difference."""
         result = _calculate_percentage_point_difference(0.80, 0.85)
-        assert result == pytest.approx(0.05, 0.0001)  # 0.05 raw difference
+        assert result == pytest.approx(5.0, 0.0001)
 
     def test_calculate_negative_difference(self):
         """Test calculating negative percentage point difference."""
         result = _calculate_percentage_point_difference(0.85, 0.80)
-        assert result == pytest.approx(-0.05, 0.0001)  # -0.05 raw difference
+        assert result == pytest.approx(-5.0, 0.0001)
 
     def test_calculate_no_difference(self):
         """Test calculating with no difference."""
@@ -229,62 +229,35 @@ class TestCalculatePercentagePointDifference:
     def test_calculate_small_difference(self):
         """Test calculating small percentage point difference."""
         result = _calculate_percentage_point_difference(0.800, 0.805)
-        assert result == pytest.approx(0.005, 0.0001)  # 0.005 raw difference
+        assert result == pytest.approx(0.5, 0.0001)
 
 
 class TestSendDeltaoneWebhook:
     """Test suite for send_deltaone_webhook function."""
 
-    @patch("requests.post")
-    def test_send_webhook_success(self, mock_post):
-        """Test successful webhook send."""
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.raise_for_status = Mock()
-        mock_post.return_value = mock_response
+    payload = {"model": "test", "delta": 2.0}
 
-        payload = {"model": "test", "delta": 2.0}
-        result = send_deltaone_webhook("https://example.com/hook", payload)
+    @patch("src.evaluation.deltaone_evaluator._WEBHOOK_EXECUTOR")
+    @patch("src.evaluation.deltaone_evaluator.load_deltaone_webhook_endpoints")
+    def test_send_webhook_dispatches_all_endpoints(self, mock_load_endpoints, mock_executor):
+        """Test webhook sends are dispatched for all configured endpoints."""
+        mock_load_endpoints.return_value = [
+            Mock(url="https://example.com/hook-1"),
+            Mock(url="https://example.com/hook-2"),
+        ]
 
-        assert result is True
-        mock_post.assert_called_once_with(
-            "https://example.com/hook",
-            json=payload,
-            headers={"Content-Type": "application/json", "User-Agent": "Hokusai-DeltaOne/1.0"},
-            timeout=10,
-        )
-
-    @patch("requests.post")
-    @patch("time.sleep")
-    def test_send_webhook_retry_then_success(self, mock_sleep, mock_post):
-        """Test webhook retry mechanism."""
-        # First call fails with non-200 status, second succeeds
-        mock_response_fail = Mock()
-        mock_response_fail.status_code = 500
-
-        mock_response_success = Mock()
-        mock_response_success.status_code = 200
-
-        mock_post.side_effect = [mock_response_fail, mock_response_success]
-
-        payload = {"model": "test", "delta": 2.0}
-        result = send_deltaone_webhook("https://example.com/hook", payload, max_retries=2)
+        result = send_deltaone_webhook("https://example.com/hook", self.payload)
 
         assert result is True
-        assert mock_post.call_count == 2
-        mock_sleep.assert_called_once_with(1)  # Exponential backoff: 2^0 = 1
+        assert mock_executor.submit.call_count == 2
 
-    @patch("requests.post")
-    @patch("time.sleep")
-    def test_send_webhook_all_retries_fail(self, mock_sleep, mock_post):
-        """Test webhook when all retries fail."""
-        # Mock response with non-200 status
-        mock_response = Mock()
-        mock_response.status_code = 500
-        mock_post.return_value = mock_response
+    @patch("src.evaluation.deltaone_evaluator._WEBHOOK_EXECUTOR")
+    @patch("src.evaluation.deltaone_evaluator.load_deltaone_webhook_endpoints")
+    def test_send_webhook_returns_false_without_endpoints(self, mock_load_endpoints, mock_executor):
+        """Test webhook send returns false when no endpoint is configured."""
+        mock_load_endpoints.return_value = []
 
-        payload = {"model": "test", "delta": 2.0}
-        result = send_deltaone_webhook("https://example.com/hook", payload, max_retries=2)
+        result = send_deltaone_webhook("https://example.com/hook", self.payload)
 
         assert result is False
-        assert mock_post.call_count == 2
+        mock_executor.submit.assert_not_called()

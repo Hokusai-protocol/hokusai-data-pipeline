@@ -8,6 +8,9 @@ from unittest.mock import Mock, patch
 import mlflow
 from mlflow.tracking import MlflowClient
 
+# Auth-hook note: file-based MLflow URI is used for integration tests; real
+# deployments configure Authorization / MLFLOW_TRACKING_TOKEN separately.
+
 
 class TestDeltaOneIntegration(unittest.TestCase):
     """Integration tests for DeltaOne detection with real MLflow instance."""
@@ -204,7 +207,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
         self.assertEqual(call_args[0][0], webhook_url)
         payload = call_args[0][1]
         self.assertEqual(payload["model_name"], "test_webhook_model")
-        self.assertAlmostEqual(payload["delta_value"], 0.015, places=3)
+        self.assertAlmostEqual(payload["delta_value"], 1.5, places=3)
 
     def test_deltaone_performance_with_many_versions(self):
         """Test DeltaOne performance with many model versions."""

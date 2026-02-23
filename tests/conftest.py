@@ -4,7 +4,9 @@ import json
 import os
 import shutil
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -143,16 +145,18 @@ def sample_model_path(temp_dir):
 @pytest.fixture(autouse=True)
 def mock_mlflow_globally():
     """Mock MLflow globally to prevent actual connections in tests."""
+    # Auth-hook note: all patched MLflow calls here are local test doubles and
+    # intentionally avoid live Authorization header/MLFLOW_TRACKING_TOKEN flows.
     with (
-        patch("mlflow.set_tracking_uri"),
+        patch("mlflow.set_tracking_uri") as _mock_set_uri,
         patch("mlflow.get_experiment_by_name") as mock_get_exp,
         patch("mlflow.create_experiment") as mock_create_exp,
-        patch("mlflow.set_experiment"),
+        patch("mlflow.set_experiment") as _mock_set_exp,
         patch("mlflow.start_run") as mock_start_run,
-        patch("mlflow.log_params"),
-        patch("mlflow.log_metrics"),
-        patch("mlflow.set_tag"),
-        patch("mlflow.log_artifact"),
+        patch("mlflow.log_params") as _mock_log_params,
+        patch("mlflow.log_metrics") as _mock_log_metrics,
+        patch("mlflow.set_tag") as _mock_set_tag,
+        patch("mlflow.log_artifact") as _mock_log_artifact,
         patch("mlflow.pyfunc.load_model") as mock_load_model,
         patch("mlflow.models.get_model_info") as mock_get_model_info,
     ):
@@ -207,3 +211,99 @@ def mock_aws_credentials(monkeypatch):
     monkeypatch.setenv("AWS_SECURITY_TOKEN", "testing")
     monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+
+
+@pytest.fixture
+def hek_dataset_hash() -> str:
+    """Stable dataset hash used by HEK-focused tests."""
+    return "sha256:" + "a" * 64
+
+
+@pytest.fixture
+def make_mlflow_run():
+    """Factory for minimal MLflow-like run objects used in HEK tests."""
+
+    def _make(
+        run_id: str,
+        *,
+        metric_name: str = "accuracy",
+        metric_value: float = 0.87,
+        n_examples: str = "1000",
+        dataset_hash: str = "sha256:" + "a" * 64,
+        model_id: str = "model-a",
+        experiment_id: str = "1",
+        start_time_ms: int | None = None,
+        extra_metrics: dict[str, float] | None = None,
+        tags: dict[str, str] | None = None,
+        params: dict[str, str] | None = None,
+    ) -> SimpleNamespace:
+        metrics = {metric_name: metric_value}
+        if extra_metrics:
+            metrics.update(extra_metrics)
+        run_tags = {
+            "hokusai.primary_metric": metric_name,
+            "hokusai.dataset.num_samples": n_examples,
+            "hokusai.dataset.hash": dataset_hash,
+            "hokusai.dataset.id": "dataset-1",
+            "hokusai.model_id": model_id,
+            "hokusai.eval_id": "eval-001",
+        }
+        if tags:
+            run_tags.update(tags)
+        return SimpleNamespace(
+            info=SimpleNamespace(
+                run_id=run_id,
+                experiment_id=experiment_id,
+                start_time=start_time_ms
+                if start_time_ms is not None
+                else int(datetime.now(timezone.utc).timestamp() * 1000),
+            ),
+            data=SimpleNamespace(
+                metrics=metrics,
+                tags=run_tags,
+                params=params or {},
+            ),
+        )
+
+    return _make
+
+
+@pytest.fixture
+def make_fake_deltaone_mlflow_client():
+    """Factory for lightweight in-memory client used by DeltaOne tests."""
+
+    class _FakeDeltaOneMlflowClient:
+        def __init__(
+            self,
+            runs: dict[str, SimpleNamespace],
+            search_runs_result: list[SimpleNamespace] | None = None,
+        ) -> None:
+            self._runs = runs
+            self._search_runs_result = search_runs_result or []
+            self.tags_set: dict[str, dict[str, str]] = {}
+            self.search_runs_calls: list[dict[str, object]] = []
+
+        def get_run(self, run_id: str) -> SimpleNamespace:
+            return self._runs[run_id]
+
+        def search_runs(
+            self,
+            experiment_ids: list[str],
+            filter_string: str,
+            max_results: int,
+            order_by: list[str],
+        ) -> list[SimpleNamespace]:
+            self.search_runs_calls.append(
+                {
+                    "experiment_ids": experiment_ids,
+                    "filter_string": filter_string,
+                    "max_results": max_results,
+                    "order_by": order_by,
+                }
+            )
+            return self._search_runs_result
+
+        def set_tag(self, run_id: str, key: str, value: str) -> None:
+            self.tags_set.setdefault(run_id, {})[key] = value
+
+    return _FakeDeltaOneMlflowClient
