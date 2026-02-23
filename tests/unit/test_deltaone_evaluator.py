@@ -11,6 +11,12 @@ class TestDeltaOneEvaluator(unittest.TestCase):
         """Set up test fixtures."""
         self.model_name = "test_model"
         self.mock_client = Mock()
+        self._log_metric_patcher = patch("mlflow.log_metric")
+        self._active_run_patcher = patch("mlflow.active_run", return_value=None)
+        self._log_metric_patcher.start()
+        self._active_run_patcher.start()
+        self.addCleanup(self._log_metric_patcher.stop)
+        self.addCleanup(self._active_run_patcher.stop)
 
     @patch("mlflow.active_run", return_value=None)
     @patch("src.evaluation.deltaone_evaluator.MlflowClient")

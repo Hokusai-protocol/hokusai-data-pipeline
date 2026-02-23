@@ -15,8 +15,11 @@ class MockDSPyProgram:
     """Mock DSPy program for testing."""
 
     def __init__(self):
-        self.forward = lambda x: x
         self.name = "MockDSPyProgram"
+
+    def forward(self, x):
+        """Return input unchanged."""
+        return x
 
 
 class TestLocalDSPyLoader:
@@ -110,7 +113,7 @@ class TestDSPyProgram:
 
     def test_load_python_class_not_found(self):
         """Test handling of missing class in module."""
-        mock_module = MagicMock()
+        mock_module = object()
 
         with patch("importlib.import_module", return_value=mock_module):
             with pytest.raises(ImportError, match="Class 'MissingClass' not found"):
@@ -206,7 +209,7 @@ class TestRemoteDSPyLoader:
     @patch("src.services.dspy.loaders.snapshot_download")
     def test_download_model(self, mock_snapshot):
         """Test downloading entire model repository."""
-        mock_snapshot.return_value = str(self.temp_dir / "downloaded")
+        mock_snapshot.return_value = str(Path(self.temp_dir) / "downloaded")
 
         result = self.loader.download_model("test/repo")
 

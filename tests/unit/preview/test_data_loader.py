@@ -142,16 +142,17 @@ class TestPreviewDataLoader:
         for label in original_ratio.index:
             assert abs(original_ratio[label] - sampled_ratio[label]) < 0.05
 
-    def test_progress_indicator(self, sample_csv_data, capsys):
+    def test_progress_indicator(self, sample_csv_data, caplog):
         """Test progress indicator during loading."""
         csv_path, _ = sample_csv_data
         loader = PreviewDataLoader(show_progress=True)
 
-        loader.load_data(csv_path)
+        with caplog.at_level("INFO"):
+            loader.load_data(csv_path)
 
-        captured = capsys.readouterr()
-        assert "Loading data" in captured.out
-        assert "Complete" in captured.out
+        messages = "\n".join(caplog.messages)
+        assert "Loading data" in messages
+        assert "Complete" in messages
 
     def test_empty_file_handling(self, tmp_path):
         """Test handling of empty files."""

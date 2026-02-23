@@ -146,6 +146,7 @@ class TestEndpointStructure:
         # Should return 401 (needs auth) not 404
         assert response.status_code in [401, 502], "MLflow proxy not configured at /mlflow/*"
 
+    @pytest.mark.integration
     def test_mlflow_health_endpoints(self):
         """Test MLflow health check endpoints."""
         mlflow_health_endpoints = [

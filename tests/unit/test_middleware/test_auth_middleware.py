@@ -77,7 +77,7 @@ class TestAPIKeyAuthMiddleware:
         assert response.json()["detail"] == "API key required"
 
     @patch("httpx.AsyncClient.post")
-    async def test_middleware_validates_api_key_with_auth_service(self, mock_post, client):
+    def test_middleware_validates_api_key_with_auth_service(self, mock_post, client):
         """Test middleware validates API key with external auth service."""
         # Arrange
         api_key = "hk_live_valid_key_123"
@@ -105,7 +105,7 @@ class TestAPIKeyAuthMiddleware:
         assert result["api_key_id"] == "key123"
 
     @patch("httpx.AsyncClient.post")
-    async def test_middleware_handles_invalid_api_key(self, mock_post, client):
+    def test_middleware_handles_invalid_api_key(self, mock_post, client):
         """Test middleware handles invalid API key from auth service."""
         # Arrange
         api_key = "hk_live_invalid_key_123"
@@ -123,7 +123,7 @@ class TestAPIKeyAuthMiddleware:
         assert response.json()["detail"] == "Invalid or expired API key"
 
     @patch("httpx.AsyncClient.post")
-    async def test_middleware_handles_rate_limit(self, mock_post, client):
+    def test_middleware_handles_rate_limit(self, mock_post, client):
         """Test middleware handles rate limit response from auth service."""
         # Arrange
         api_key = "hk_live_rate_limited_key"
@@ -141,7 +141,7 @@ class TestAPIKeyAuthMiddleware:
         assert response.json()["detail"] == "Rate limit exceeded"
 
     @patch("httpx.AsyncClient.post")
-    async def test_middleware_uses_cache(self, mock_post, client, mock_cache):
+    def test_middleware_uses_cache(self, mock_post, client, mock_cache):
         """Test middleware uses cache for API key validation."""
         # Arrange
         api_key = "hk_live_cached_key_123"
@@ -163,10 +163,12 @@ class TestAPIKeyAuthMiddleware:
         # Assert
         assert response.status_code == 200
         mock_cache.get.assert_called_once()
-        mock_post.assert_not_called()  # Should not call auth service
+        # Cached auth avoids validation call, but usage debit is still posted.
+        assert mock_post.call_count == 1
+        assert "/api/v1/usage/key123/debit" in mock_post.call_args[0][0]
 
     @patch("httpx.AsyncClient.post")
-    async def test_middleware_caches_validation_result(self, mock_post, client, mock_cache):
+    def test_middleware_caches_validation_result(self, mock_post, client, mock_cache):
         """Test middleware caches successful validation result."""
         # Arrange
         api_key = "hk_live_valid_key_123"
@@ -195,7 +197,7 @@ class TestAPIKeyAuthMiddleware:
         assert cache_call_args[0][1] == 60  # 60 second TTL
 
     @patch("httpx.AsyncClient.post")
-    async def test_middleware_includes_client_ip_in_validation(self, mock_post, client):
+    def test_middleware_includes_client_ip_in_validation(self, mock_post, client):
         """Test middleware includes client IP in validation request."""
         # Arrange
         api_key = "hk_live_valid_key_123"
@@ -221,12 +223,12 @@ class TestAPIKeyAuthMiddleware:
         # Assert
         assert response.status_code == 200
         # Check that client IP was included in auth service request
-        call_args = mock_post.call_args
+        call_args = mock_post.call_args_list[0]
         request_data = call_args[1]["json"]
         assert request_data["client_ip"] == "192.168.1.1"
 
     @patch("httpx.AsyncClient.post")
-    async def test_middleware_handles_auth_service_timeout(self, mock_post, client):
+    def test_middleware_handles_auth_service_timeout(self, mock_post, client):
         """Test middleware handles auth service timeout gracefully."""
         # Arrange
         api_key = "hk_live_timeout_key"
@@ -240,7 +242,7 @@ class TestAPIKeyAuthMiddleware:
         assert response.json()["detail"] == "Authentication service timeout"
 
     @patch("httpx.AsyncClient.post")
-    async def test_middleware_handles_auth_service_error(self, mock_post, client):
+    def test_middleware_handles_auth_service_error(self, mock_post, client):
         """Test middleware handles auth service connection error."""
         # Arrange
         api_key = "hk_live_error_key"

@@ -1,17 +1,19 @@
 """Unit tests for improved MLflow proxy routing."""
 
-import pytest
 import json
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
+
 import httpx
-from fastapi import Request, HTTPException
-from src.api.routes.mlflow_proxy_improved import proxy_request, mlflow_health_check
+import pytest
+from fastapi import HTTPException, Request
+
+from src.api.routes.mlflow_proxy_improved import mlflow_health_check, proxy_request
 
 
 @pytest.mark.asyncio
 class TestMLflowProxyImproved:
     """Test cases for improved MLflow proxy functionality."""
-    
+
     @pytest.fixture
     def mock_request(self):
         """Create a mock FastAPI request."""
@@ -24,11 +26,11 @@ class TestMLflowProxyImproved:
         request.state.api_key_id = "key-456"
         request.body = AsyncMock(return_value=b"")
         return request
-    
+
     @pytest.mark.asyncio
     async def test_proxy_request_internal_mlflow(self, mock_request):
         """Test proxying to internal MLflow service."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_response = Mock()
             mock_response.status_code = 200
@@ -36,25 +38,27 @@ class TestMLflowProxyImproved:
             mock_response.headers = {}
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
-            
+
             # Test with internal MLflow URL
-            with patch('src.api.routes.mlflow_proxy_improved.MLFLOW_SERVER_URL', 
-                      'http://mlflow.hokusai-development.local:5000'):
-                response = await proxy_request(
-                    mock_request, 
-                    "api/2.0/mlflow/experiments/search"
-                )
-            
+            with patch(
+                "src.api.routes.mlflow_proxy_improved.MLFLOW_SERVER_URL",
+                "http://mlflow.hokusai-development.local:5000",
+            ):
+                response = await proxy_request(mock_request, "api/2.0/mlflow/experiments/search")
+
             # Verify the request was made to the correct URL
             mock_client.request.assert_called_once()
             call_args = mock_client.request.call_args
-            assert call_args[1]['url'] == 'http://mlflow.hokusai-development.local:5000/api/2.0/mlflow/experiments/search'
+            assert (
+                call_args[1]["url"]
+                == "http://mlflow.hokusai-development.local:5000/api/2.0/mlflow/experiments/search"
+            )
             assert response.status_code == 200
-    
+
     @pytest.mark.asyncio
     async def test_proxy_request_external_mlflow(self, mock_request):
         """Test proxying to external MLflow with ajax-api conversion."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_response = Mock()
             mock_response.status_code = 200
@@ -62,235 +66,235 @@ class TestMLflowProxyImproved:
             mock_response.headers = {}
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
-            
+
             # Test with external MLflow URL - pass it directly to proxy_request
             response = await proxy_request(
-                mock_request, 
+                mock_request,
                 "api/2.0/mlflow/experiments/search",
-                mlflow_base_url='https://registry.hokus.ai/mlflow'
+                mlflow_base_url="https://registry.hokus.ai/mlflow",
             )
-            
+
             # Verify ajax-api conversion happened
             mock_client.request.assert_called_once()
             call_args = mock_client.request.call_args
-            assert call_args[1]['url'] == 'https://registry.hokus.ai/mlflow/ajax-api/2.0/mlflow/experiments/search'
+            assert (
+                call_args[1]["url"]
+                == "https://registry.hokus.ai/mlflow/ajax-api/2.0/mlflow/experiments/search"
+            )
             assert response.status_code == 200
-    
+
     @pytest.mark.asyncio
     async def test_proxy_artifact_request(self, mock_request):
         """Test proxying artifact requests."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_response = Mock()
             mock_response.status_code = 200
-            mock_response.content = b'artifact data'
+            mock_response.content = b"artifact data"
             mock_response.headers = {}
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
-            
-            response = await proxy_request(
-                mock_request, 
-                "api/2.0/mlflow-artifacts/artifacts/123"
-            )
-            
+
+            response = await proxy_request(mock_request, "api/2.0/mlflow-artifacts/artifacts/123")
+
             # Verify artifact request was proxied
             mock_client.request.assert_called_once()
             assert response.status_code == 200
-    
+
     @pytest.mark.asyncio
-    async def test_proxy_removes_auth_headers(self, mock_request):
-        """Test that authentication headers are removed before proxying."""
+    async def test_proxy_forwards_auth_headers(self, mock_request):
+        """Test that authentication headers are preserved for MLflow auth."""
         mock_request.headers = {
             "authorization": "Bearer hokusai-api-key",
             "x-api-key": "hokusai-key",
             "content-type": "application/json",
-            "user-agent": "test-client"
+            "user-agent": "test-client",
         }
-        
-        with patch('httpx.AsyncClient') as mock_client_class:
+
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_response = Mock()
             mock_response.status_code = 200
-            mock_response.content = b'{}'
+            mock_response.content = b"{}"
             mock_response.headers = {}
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
-            
+
             await proxy_request(mock_request, "api/2.0/mlflow/experiments/search")
-            
-            # Verify auth headers were removed
+
+            # Verify auth headers were preserved
             call_args = mock_client.request.call_args
-            headers = call_args[1]['headers']
-            assert 'authorization' not in headers
-            assert 'x-api-key' not in headers
-            assert 'content-type' in headers  # Other headers preserved
-    
+            headers = call_args[1]["headers"]
+            assert "authorization" in headers
+            assert "x-api-key" in headers
+            assert "content-type" in headers  # Other headers preserved
+
     @pytest.mark.asyncio
     async def test_proxy_adds_user_context(self, mock_request):
         """Test that user context headers are added."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_response = Mock()
             mock_response.status_code = 200
-            mock_response.content = b'{}'
+            mock_response.content = b"{}"
             mock_response.headers = {}
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
-            
+
             await proxy_request(mock_request, "api/2.0/mlflow/experiments/search")
-            
+
             # Verify user context headers were added
             call_args = mock_client.request.call_args
-            headers = call_args[1]['headers']
-            assert headers['X-Hokusai-User-Id'] == 'test-user-123'
-            assert headers['X-Hokusai-API-Key-Id'] == 'key-456'
-    
+            headers = call_args[1]["headers"]
+            assert headers["X-Hokusai-User-Id"] == "test-user-123"
+            assert headers["X-Hokusai-API-Key-Id"] == "key-456"
+
     @pytest.mark.asyncio
     async def test_proxy_timeout_error(self, mock_request):
         """Test handling of timeout errors."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.request.side_effect = httpx.TimeoutException("Request timed out")
             mock_client_class.return_value.__aenter__.return_value = mock_client
-            
+
             with pytest.raises(HTTPException) as exc_info:
                 await proxy_request(mock_request, "api/2.0/mlflow/experiments/search")
-            
+
             assert exc_info.value.status_code == 504
             assert "timeout" in str(exc_info.value.detail).lower()
-    
+
     @pytest.mark.asyncio
     async def test_proxy_connection_error(self, mock_request):
         """Test handling of connection errors."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.request.side_effect = httpx.ConnectError("Connection refused")
             mock_client_class.return_value.__aenter__.return_value = mock_client
-            
+
             with pytest.raises(HTTPException) as exc_info:
                 await proxy_request(mock_request, "api/2.0/mlflow/experiments/search")
-            
+
             assert exc_info.value.status_code == 502
             assert "Failed to connect" in exc_info.value.detail
-    
+
     @pytest.mark.asyncio
     async def test_health_check_all_healthy(self):
         """Test health check when all services are healthy."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
-            
+
             # Mock responses for health checks
             mock_client.get.side_effect = [
                 Mock(status_code=200),  # Basic connectivity
-                Mock(status_code=200, text='{"experiments": []}')  # Experiments API
+                Mock(status_code=200, text='{"experiments": []}'),  # Experiments API
+                Mock(status_code=404),  # Artifact API (acceptable)
             ]
             mock_client_class.return_value.__aenter__.return_value = mock_client
-            
+
             result = await mlflow_health_check()
-            
-            assert result['status'] == 'healthy'
-            assert result['checks']['connectivity']['status'] == 'healthy'
-            assert result['checks']['experiments_api']['status'] == 'healthy'
-    
+
+            assert result["status"] == "healthy"
+            assert result["checks"]["connectivity"]["status"] == "healthy"
+            assert result["checks"]["experiments_api"]["status"] == "healthy"
+
     @pytest.mark.asyncio
     async def test_health_check_partial_failure(self):
         """Test health check with partial failures."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
-            
+
             # Mock responses - connectivity OK but API fails
             mock_client.get.side_effect = [
                 Mock(status_code=200),  # Basic connectivity OK
-                Mock(status_code=500)   # Experiments API error
+                Mock(status_code=500),  # Experiments API error
             ]
             mock_client_class.return_value.__aenter__.return_value = mock_client
-            
+
             result = await mlflow_health_check()
-            
-            assert result['status'] == 'unhealthy'
-            assert result['checks']['connectivity']['status'] == 'healthy'
-            assert result['checks']['experiments_api']['status'] == 'unhealthy'
-    
+
+            assert result["status"] == "unhealthy"
+            assert result["checks"]["connectivity"]["status"] == "healthy"
+            assert result["checks"]["experiments_api"]["status"] == "unhealthy"
+
     @pytest.mark.asyncio
     async def test_artifact_path_translation_external(self, mock_request):
         """Test artifact path translation for external MLflow (registry.hokus.ai)."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_response = Mock()
             mock_response.status_code = 200
-            mock_response.content = b'{}'
+            mock_response.content = b"{}"
             mock_response.headers = {}
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
-            
+
             # Test with external MLflow URL (registry.hokus.ai)
             await proxy_request(
-                mock_request, 
-                "api/2.0/mlflow-artifacts/artifacts",
-                "https://registry.hokus.ai"
+                mock_request, "api/2.0/mlflow-artifacts/artifacts", "https://registry.hokus.ai"
             )
-            
+
             # Verify the artifact path was translated to ajax-api
             mock_client.request.assert_called_once()
             call_args = mock_client.request.call_args
-            assert call_args[1]['url'] == 'https://registry.hokus.ai/ajax-api/2.0/mlflow-artifacts/artifacts'
-    
+            assert (
+                call_args[1]["url"]
+                == "https://registry.hokus.ai/ajax-api/2.0/mlflow-artifacts/artifacts"
+            )
+
     @pytest.mark.asyncio
     async def test_artifact_path_no_translation_internal(self, mock_request):
         """Test artifact path is NOT translated for internal MLflow."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_response = Mock()
             mock_response.status_code = 200
-            mock_response.content = b'{}'
+            mock_response.content = b"{}"
             mock_response.headers = {}
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
-            
+
             # Test with internal MLflow URL
             await proxy_request(
-                mock_request, 
-                "api/2.0/mlflow-artifacts/artifacts",
-                "http://mlflow.internal:5000"
+                mock_request, "api/2.0/mlflow-artifacts/artifacts", "http://mlflow.internal:5000"
             )
-            
+
             # Verify the artifact path was NOT translated
             mock_client.request.assert_called_once()
             call_args = mock_client.request.call_args
-            assert call_args[1]['url'] == 'http://mlflow.internal:5000/api/2.0/mlflow-artifacts/artifacts'
-    
+            assert (
+                call_args[1]["url"]
+                == "http://mlflow.internal:5000/api/2.0/mlflow-artifacts/artifacts"
+            )
+
     @pytest.mark.asyncio
     async def test_html_404_to_json_conversion(self, mock_request):
         """Test HTML 404 responses are converted to JSON."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_response = Mock()
             mock_response.status_code = 404
-            mock_response.content = b'<!doctype html><html><title>404 Not Found</title></html>'
-            mock_response.text = '<!doctype html><html><title>404 Not Found</title></html>'
+            mock_response.content = b"<!doctype html><html><title>404 Not Found</title></html>"
+            mock_response.text = "<!doctype html><html><title>404 Not Found</title></html>"
             mock_response.headers = {"Content-Type": "text/html; charset=utf-8"}
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
-            
+
             # Test with a path that returns HTML 404
-            response = await proxy_request(
-                mock_request, 
-                "api/2.0/mlflow-artifacts/test-artifact"
-            )
-            
+            response = await proxy_request(mock_request, "api/2.0/mlflow-artifacts/test-artifact")
+
             # Verify the response was converted to JSON
             assert response.status_code == 404
             assert response.headers["Content-Type"] == "application/json"
-            
+
             # Parse the JSON response
             json_content = json.loads(response.body.decode())
             assert json_content["error_code"] == "RESOURCE_NOT_FOUND"
             assert "api/2.0/mlflow-artifacts/test-artifact" in json_content["message"]
-    
+
     @pytest.mark.asyncio
     async def test_json_404_not_converted(self, mock_request):
         """Test JSON 404 responses are NOT converted."""
-        with patch('httpx.AsyncClient') as mock_client_class:
+        with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_response = Mock()
             mock_response.status_code = 404
@@ -299,13 +303,10 @@ class TestMLflowProxyImproved:
             mock_response.headers = {"Content-Type": "application/json"}
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
-            
+
             # Test with a path that returns JSON 404
-            response = await proxy_request(
-                mock_request, 
-                "api/2.0/mlflow/experiments/get"
-            )
-            
+            response = await proxy_request(mock_request, "api/2.0/mlflow/experiments/get")
+
             # Verify the response was NOT converted
             assert response.status_code == 404
             assert response.body == b'{"error": "Not found"}'

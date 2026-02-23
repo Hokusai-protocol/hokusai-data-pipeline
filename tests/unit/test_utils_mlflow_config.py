@@ -25,7 +25,7 @@ class TestMLFlowConfig:
         """Test initialization with default values."""
         config = MLFlowConfig()
 
-        assert config.tracking_uri == "file:./mlruns"
+        assert config.tracking_uri == "https://mlflow.hokusai-development.local:5000"
         assert config.experiment_name == "hokusai-pipeline"
         assert config.artifact_root is None
 
@@ -58,7 +58,7 @@ class TestMLFlowConfig:
         config = MLFlowConfig()
         config.setup_tracking()
 
-        mock_set_uri.assert_called_once_with("file:./mlruns")
+        mock_set_uri.assert_called_once_with("https://mlflow.hokusai-development.local:5000")
         mock_get_exp.assert_called_once_with("hokusai-pipeline")
         mock_set_exp.assert_called_once_with("hokusai-pipeline")
 
@@ -77,7 +77,7 @@ class TestMLFlowConfig:
         config = MLFlowConfig()
         config.setup_tracking()
 
-        mock_set_uri.assert_called_once_with("file:./mlruns")
+        mock_set_uri.assert_called_once_with("https://mlflow.hokusai-development.local:5000")
         mock_get_exp.assert_called_once_with("hokusai-pipeline")
         mock_create_exp.assert_called_once_with(name="hokusai-pipeline", artifact_location=None)
         mock_set_exp.assert_called_once_with("hokusai-pipeline")
@@ -175,7 +175,7 @@ class TestMLFlowRunContext:
         """Test context manager with successful run."""
         mock_run = Mock()
         mock_run.info.run_id = "test_run_123"
-        mock_start_run.return_value.__enter__.return_value = mock_run
+        mock_start_run.return_value = mock_run
 
         with mlflow_run_context(run_name="test_run", tags={"env": "test"}) as run:
             assert run.info.run_id == "test_run_123"
@@ -206,9 +206,11 @@ class TestMLFlowRunContext:
         """Test context manager when starting run fails."""
         mock_start_run.side_effect = Exception("MLFlow error")
 
-        # Should not raise, but yield None
-        with mlflow_run_context(run_name="failed_run") as run:
-            assert run is None
+        from src.utils.mlflow_config import MLflowUnavailableError
+
+        with pytest.raises(MLflowUnavailableError, match="Failed to start MLFlow run"):
+            with mlflow_run_context(run_name="failed_run"):
+                pass
 
 
 class TestLogStepParameters:

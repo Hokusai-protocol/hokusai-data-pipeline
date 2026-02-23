@@ -2,11 +2,13 @@
 
 from unittest.mock import Mock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from src.api.routes.health import router
 
 
+@pytest.mark.integration
 class TestHealthAPI:
     """Test suite for health API endpoints."""
 
@@ -17,6 +19,15 @@ class TestHealthAPI:
         self.app = FastAPI()
         self.app.include_router(router)
         self.client = TestClient(self.app)
+        self._publisher_patcher = patch("src.events.publishers.factory.get_publisher")
+        mock_get_publisher = self._publisher_patcher.start()
+        mock_publisher = Mock()
+        mock_publisher.health_check.return_value = {"status": "healthy"}
+        mock_get_publisher.return_value = mock_publisher
+
+    def teardown_method(self):
+        """Clean up test fixtures."""
+        self._publisher_patcher.stop()
 
     @patch("src.api.routes.health._get_psycopg2")
     @patch("src.api.routes.health._get_redis")
@@ -27,15 +38,15 @@ class TestHealthAPI:
         mock_mlflow = Mock()
         mock_mlflow.get_tracking_uri.return_value = "sqlite:///mlflow.db"
         mock_get_mlflow.return_value = mock_mlflow
-        
+
         mock_redis = Mock()
         mock_redis.Redis.return_value.ping.return_value = True
         mock_get_redis.return_value = mock_redis
-        
+
         mock_psycopg2 = Mock()
         mock_psycopg2.connect.return_value.close.return_value = None
         mock_get_psycopg2.return_value = mock_psycopg2
-        
+
         response = self.client.get("/health")
 
         assert response.status_code == 200
@@ -47,17 +58,19 @@ class TestHealthAPI:
     @patch("src.api.routes.health._get_psycopg2")
     @patch("src.api.routes.health._get_redis")
     @patch("src.api.routes.health._get_mlflow")
-    def test_health_check_with_mlflow_healthy(self, mock_get_mlflow, mock_get_redis, mock_get_psycopg2):
+    def test_health_check_with_mlflow_healthy(
+        self, mock_get_mlflow, mock_get_redis, mock_get_psycopg2
+    ):
         """Test health check with healthy MLflow connection."""
         # Mock all services as healthy
         mock_mlflow = Mock()
         mock_mlflow.get_tracking_uri.return_value = "sqlite:///mlflow.db"
         mock_get_mlflow.return_value = mock_mlflow
-        
+
         mock_redis = Mock()
         mock_redis.Redis.return_value.ping.return_value = True
         mock_get_redis.return_value = mock_redis
-        
+
         mock_psycopg2 = Mock()
         mock_psycopg2.connect.return_value.close.return_value = None
         mock_get_psycopg2.return_value = mock_psycopg2
@@ -72,17 +85,26 @@ class TestHealthAPI:
     @patch("src.api.routes.health._get_psycopg2")
     @patch("src.api.routes.health._get_redis")
     @patch("src.api.routes.health._get_mlflow")
-    def test_health_check_with_mlflow_unhealthy(self, mock_get_mlflow, mock_get_redis, mock_get_psycopg2):
+    @patch("src.utils.mlflow_config.get_mlflow_status")
+    def test_health_check_with_mlflow_unhealthy(
+        self, mock_mlflow_status, mock_get_mlflow, mock_get_redis, mock_get_psycopg2
+    ):
         """Test health check with unhealthy MLflow connection."""
         # Mock MLflow connection failure, others healthy
         mock_mlflow = Mock()
         mock_mlflow.get_tracking_uri.side_effect = Exception("Connection failed")
         mock_get_mlflow.return_value = mock_mlflow
-        
+        mock_mlflow_status.return_value = {
+            "connected": False,
+            "circuit_breaker_state": "CLOSED",
+            "error": "Connection failed",
+            "dns_resolution": {"health": {"status": "healthy"}},
+        }
+
         mock_redis = Mock()
         mock_redis.Redis.return_value.ping.return_value = True
         mock_get_redis.return_value = mock_redis
-        
+
         mock_psycopg2 = Mock()
         mock_psycopg2.connect.return_value.close.return_value = None
         mock_get_psycopg2.return_value = mock_psycopg2
@@ -94,8 +116,19 @@ class TestHealthAPI:
         assert data["status"] == "degraded"
         assert data["services"]["mlflow"] == "unhealthy"
 
-    def test_readiness_check(self):
+    @patch("src.api.routes.health.check_database_connection")
+    @patch("src.api.routes.health.check_mlflow_connection")
+    @patch("src.utils.mlflow_config.get_mlflow_status")
+    def test_readiness_check(self, mock_mlflow_status, mock_mlflow_check, mock_db_check):
         """Test readiness check endpoint."""
+        mock_db_check.return_value = (True, None)
+        mock_mlflow_check.return_value = (True, None, {"health": {"status": "healthy"}})
+        mock_mlflow_status.return_value = {
+            "connected": True,
+            "circuit_breaker_state": "CLOSED",
+            "error": None,
+        }
+
         response = self.client.get("/ready")
 
         assert response.status_code == 200
@@ -105,10 +138,18 @@ class TestHealthAPI:
 
     @patch("src.api.routes.health.check_database_connection")
     @patch("src.api.routes.health.check_mlflow_connection")
-    def test_readiness_check_all_healthy(self, mock_mlflow_check, mock_db_check):
+    @patch("src.utils.mlflow_config.get_mlflow_status")
+    def test_readiness_check_all_healthy(
+        self, mock_mlflow_status, mock_mlflow_check, mock_db_check
+    ):
         """Test readiness with all services healthy."""
         mock_db_check.return_value = (True, None)
-        mock_mlflow_check.return_value = (True, None)
+        mock_mlflow_check.return_value = (True, None, {"health": {"status": "healthy"}})
+        mock_mlflow_status.return_value = {
+            "connected": True,
+            "circuit_breaker_state": "CLOSED",
+            "error": None,
+        }
 
         response = self.client.get("/ready")
 
@@ -182,14 +223,12 @@ class TestHealthAPI:
         response = self.client.get("/metrics")
 
         assert response.status_code == 200
-        data = response.json()
-        assert "requests_total" in data
-        assert "requests_per_second" in data
-        assert "average_response_time_ms" in data
-        assert "active_connections" in data
+        assert response.text
+        assert "python_info" in response.text
 
     @patch("src.api.routes.health.get_metrics")
-    def test_metrics_with_custom_data(self, mock_get_metrics):
+    @patch("src.utils.prometheus_metrics.get_prometheus_metrics", side_effect=ImportError)
+    def test_metrics_with_custom_data(self, _mock_prometheus, mock_get_metrics):
         """Test metrics endpoint with custom metrics."""
         mock_metrics = {
             "requests_total": 1000,

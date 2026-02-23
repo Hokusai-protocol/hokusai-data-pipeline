@@ -25,10 +25,11 @@ class TestHokusaiModelRegistry:
 
     def test_init_default(self):
         """Test HokusaiModelRegistry initialization with default values."""
+        expected_tracking_uri = "http://mlflow.hokusai-development.local:5000"
         with patch("mlflow.set_tracking_uri") as mock_set_uri:
             registry = HokusaiModelRegistry()
-            assert registry.tracking_uri == "http://mlflow-server:5000"
-            mock_set_uri.assert_called_once_with("http://mlflow-server:5000")
+            assert registry.tracking_uri == expected_tracking_uri
+            mock_set_uri.assert_called_once_with(expected_tracking_uri)
 
     def test_init_custom_uri(self):
         """Test HokusaiModelRegistry initialization with custom URI."""
@@ -40,9 +41,16 @@ class TestHokusaiModelRegistry:
 
     @patch("mlflow.register_model")
     @patch("mlflow.pyfunc.log_model")
+    @patch("mlflow.log_param")
     @patch("mlflow.start_run")
     def test_register_baseline_success(
-        self, mock_start_run, mock_log_model, mock_register_model, registry, mock_model
+        self,
+        mock_start_run,
+        mock_log_param,
+        mock_log_model,
+        mock_register_model,
+        registry,
+        mock_model,
     ):
         """Test successful baseline model registration."""
         # Setup mocks

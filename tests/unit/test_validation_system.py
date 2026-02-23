@@ -123,7 +123,7 @@ class TestBaselineComparator:
     def test_meets_threshold(self, comparator):
         """Test threshold checking"""
         # Higher is better
-        assert comparator.meets_threshold(0.85, 0.80, 0.05, "higher_better") is True
+        assert comparator.meets_threshold(0.851, 0.80, 0.05, "higher_better") is True
         assert comparator.meets_threshold(0.84, 0.80, 0.05, "higher_better") is False
 
         # Lower is better

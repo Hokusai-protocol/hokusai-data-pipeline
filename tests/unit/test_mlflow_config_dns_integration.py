@@ -95,7 +95,7 @@ class TestMLFlowConfigDNSIntegration:
         """Test DNS information retrieval."""
         with (
             patch("src.utils.mlflow_config.resolve_tracking_uri_sync") as mock_resolve,
-            patch("src.utils.mlflow_config.get_dns_resolver") as mock_get_resolver,
+            patch("src.utils.dns_resolver.get_dns_resolver") as mock_get_resolver,
         ):
             mock_resolve.return_value = "http://10.0.1.221:5000"
 
@@ -264,7 +264,7 @@ class TestGetMLFlowStatusDNSIntegration:
         """Test get_mlflow_status with DNS resolution."""
         with (
             patch("src.utils.mlflow_config._circuit_breaker") as mock_cb,
-            patch("src.utils.mlflow_config.get_dns_resolver") as mock_get_resolver,
+            patch("src.utils.dns_resolver.get_dns_resolver") as mock_get_resolver,
             patch("src.utils.mlflow_config.resolve_tracking_uri_sync") as mock_resolve,
             patch("mlflow.set_tracking_uri") as mock_set_uri,
             patch("mlflow.get_experiment_by_name") as mock_get_exp,
@@ -315,7 +315,7 @@ class TestGetMLFlowStatusDNSIntegration:
         """Test get_mlflow_status when DNS resolution fails."""
         with (
             patch("src.utils.mlflow_config._circuit_breaker") as mock_cb,
-            patch("src.utils.mlflow_config.get_dns_resolver") as mock_get_resolver,
+            patch("src.utils.dns_resolver.get_dns_resolver") as mock_get_resolver,
             patch("src.utils.mlflow_config.resolve_tracking_uri_sync") as mock_resolve,
         ):
             # Mock circuit breaker
@@ -344,7 +344,7 @@ class TestGetMLFlowStatusDNSIntegration:
                 assert "resolution_error" in status["dns_resolution"]
                 assert status["dns_resolution"]["health"]["status"] == "degraded"
 
-    @patch("src.utils.mlflow_config.get_dns_resolver")
+    @patch("src.utils.dns_resolver.get_dns_resolver")
     @patch("src.utils.mlflow_config._circuit_breaker")
     def test_get_mlflow_status_circuit_breaker_open(self, mock_cb, mock_get_resolver):
         """Test get_mlflow_status when circuit breaker is open."""

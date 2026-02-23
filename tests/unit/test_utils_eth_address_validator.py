@@ -182,15 +182,20 @@ class TestToChecksumAddress:
 
     def test_checksum_with_hashlib_fallback(self):
         """Test checksum generation with hashlib fallback."""
-        # Force ImportError for Crypto library
-        with patch.dict("sys.modules", {"Crypto.Hash.keccak": None}):
-            with patch("builtins.__import__", side_effect=ImportError()):
-                address = "0x742d35cc6634c0532925a3b844bc9e7595f62349"
-                result = _to_checksum_address(address)
+        real_import = __import__
 
-                # Should still produce a valid format address
-                assert result.startswith("0x")
-                assert len(result) == 42
+        def fake_import(name, *args, **kwargs):
+            if name.startswith("Crypto"):
+                raise ImportError()
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=fake_import):
+            address = "0x742d35cc6634c0532925a3b844bc9e7595f62349"
+            result = _to_checksum_address(address)
+
+            # Should still produce a valid format address
+            assert result.startswith("0x")
+            assert len(result) == 42
 
     def test_checksum_consistency(self):
         """Test that checksum is consistent for same address."""

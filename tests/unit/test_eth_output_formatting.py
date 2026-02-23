@@ -45,9 +45,9 @@ class TestETHOutputFormatting:
     def test_single_contributor_with_eth_address(self):
         """Test formatting single contributor with ETH address."""
         # Add ETH address to contributor data
-        self.base_results["contributor_attribution"][
-            "wallet_address"
-        ] = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+        self.base_results["contributor_attribution"]["wallet_address"] = (
+            "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+        )
 
         result = self.formatter.format_output(self.base_results)
 
@@ -145,23 +145,23 @@ class TestETHOutputFormatting:
         # Add invalid ETH address
         self.base_results["contributor_attribution"]["wallet_address"] = "invalid_address"
 
-        with patch("builtins.print") as mock_print:
+        with patch("src.utils.zk_output_formatter.logging.info") as mock_log_info:
             result = self.formatter.format_output(self.base_results)
 
             # Should not include wallet_address field
             assert "wallet_address" not in result["contributor_info"]
 
-            # Should have printed warning
-            mock_print.assert_called_once()
-            warning_msg = mock_print.call_args[0][0]
+            # Should have logged warning
+            mock_log_info.assert_called_once()
+            warning_msg = mock_log_info.call_args[0][0]
             assert "Warning: Invalid ETH address provided" in warning_msg
 
     def test_eth_address_normalization(self):
         """Test that ETH addresses are properly normalized."""
         # Add lowercase ETH address
-        self.base_results["contributor_attribution"][
-            "wallet_address"
-        ] = "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed"
+        self.base_results["contributor_attribution"]["wallet_address"] = (
+            "0x5aaeb6053f3e94c9b9a09f33669435e7ef1beaed"
+        )
 
         result = self.formatter.format_output(self.base_results)
 
@@ -174,9 +174,9 @@ class TestETHOutputFormatting:
     def test_uppercase_x_eth_address_handling(self):
         """Test handling of ETH addresses with uppercase X prefix."""
         # Add ETH address with uppercase X
-        self.base_results["contributor_attribution"][
-            "wallet_address"
-        ] = "0X5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED"
+        self.base_results["contributor_attribution"]["wallet_address"] = (
+            "0X5AAEB6053F3E94C9B9A09F33669435E7EF1BEAED"
+        )
 
         result = self.formatter.format_output(self.base_results)
 
@@ -188,9 +188,9 @@ class TestETHOutputFormatting:
 
     def test_format_and_validate_with_eth_address(self):
         """Test format_and_validate with ETH address."""
-        self.base_results["contributor_attribution"][
-            "wallet_address"
-        ] = "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+        self.base_results["contributor_attribution"]["wallet_address"] = (
+            "0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed"
+        )
 
         formatted_output, is_valid, errors = self.formatter.format_and_validate(self.base_results)
 

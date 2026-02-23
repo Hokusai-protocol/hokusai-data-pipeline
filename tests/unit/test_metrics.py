@@ -1,4 +1,5 @@
 """Unit tests for metric logging convention functionality."""
+
 from unittest.mock import Mock, call, patch
 
 import pytest
@@ -93,7 +94,7 @@ class TestMetricLogger:
         """Test metric logging with category prefix."""
         logger.log_metric("usage:reply_rate", 0.1523)
 
-        mock_mlflow.log_metric.assert_called_once_with("usage:reply_rate", 0.1523)
+        mock_mlflow.log_metric.assert_called_once_with("usage_reply_rate", 0.1523)
 
     def test_log_metric_validation(self, logger):
         """Test metric name validation during logging."""
@@ -110,7 +111,7 @@ class TestMetricLogger:
 
         logger.log_metrics(metrics)
 
-        expected_calls = [call(name, value) for name, value in metrics.items()]
+        expected_calls = [call(name.replace(":", "_"), value) for name, value in metrics.items()]
         mock_mlflow.log_metric.assert_has_calls(expected_calls, any_order=True)
 
     def test_log_metrics_validation(self, logger):
@@ -127,7 +128,7 @@ class TestMetricLogger:
         logger.log_metric_with_metadata("usage:reply_rate", 0.1523, metadata)
 
         # Should log metric
-        mock_mlflow.log_metric.assert_called_with("usage:reply_rate", 0.1523)
+        mock_mlflow.log_metric.assert_called_with("usage_reply_rate", 0.1523)
 
         # Should log metadata as params
         expected_param_calls = [
@@ -248,9 +249,9 @@ class TestIntegrationWithPipeline:
 
         # Verify metrics logged with proper prefixes
         expected_calls = [
-            call("pipeline:data_processed", 1000),
-            call("pipeline:success_rate", 0.95),
-            call("pipeline:duration_seconds", 120.5),
+            call("pipeline_data_processed", 1000),
+            call("pipeline_success_rate", 0.95),
+            call("pipeline_duration_seconds", 120.5),
         ]
         mock_mlflow.log_metric.assert_has_calls(expected_calls, any_order=True)
 

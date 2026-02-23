@@ -224,7 +224,12 @@ class TestPerformanceTracker:
 
         assert attestation["timestamp"] == "2024-01-01T12:00:00Z"
 
-    def test_track_improvement_negative_delta(self, tracker):
+    @patch("mlflow.log_metrics")
+    @patch("mlflow.log_params")
+    @patch("mlflow.log_dict")
+    def test_track_improvement_negative_delta(
+        self, _mock_log_dict, _mock_log_params, _mock_log_metrics, tracker
+    ):
         """Test tracking when model performance decreases."""
         baseline = {"accuracy": 0.85}
         improved = {"accuracy": 0.83}  # Worse performance
