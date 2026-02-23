@@ -272,7 +272,7 @@ class BaselineModelLoader:
 
             version_info = {
                 "version": version.version,
-                "stage": version.current_stage,
+                "stage": self._get_stage(version),
                 "run_id": version.run_id,
             }
 
@@ -290,7 +290,7 @@ class BaselineModelLoader:
 
             version_info = {
                 "version": prev_version.version,
-                "stage": prev_version.current_stage,
+                "stage": self._get_stage(prev_version),
                 "run_id": prev_version.run_id,
             }
 
@@ -314,18 +314,51 @@ class BaselineModelLoader:
             Model version object or None
 
         """
+        try:
+            version = self.client.get_model_version_by_alias(model_name, "production")
+            logger.info(
+                f"Resolved production version for {model_name} via alias: v{version.version}"
+            )
+            return version
+        except Exception as e:
+            logger.info(f"Alias lookup failed for {model_name}, falling back to tags: {e}")
+
         versions = self.client.search_model_versions(f"name='{model_name}'")
 
-        # Filter production versions
-        prod_versions = [v for v in versions if v.current_stage == "Production"]
+        # Fallback path for MLflow 3.9+ lifecycle tags.
+        tagged_production = [v for v in versions if self._get_stage(v) == "production"]
+        if tagged_production:
+            tagged_production.sort(
+                key=lambda v: getattr(v, "creation_timestamp", 0),
+                reverse=True,
+            )
+            selected = tagged_production[0]
+            logger.info(
+                f"Resolved production version for {model_name} via lifecycle_stage tag: "
+                f"v{selected.version}"
+            )
+            return selected
 
-        if not prod_versions:
-            return None
+        # Legacy compatibility for models without alias/tag migration.
+        legacy_production = [
+            v for v in versions if str(getattr(v, "current_stage", "")).lower() == "production"
+        ]
+        if legacy_production:
+            legacy_production.sort(
+                key=lambda v: getattr(v, "creation_timestamp", 0),
+                reverse=True,
+            )
+            selected = legacy_production[0]
+            logger.warning(
+                "Using deprecated current_stage fallback for %s v%s. "
+                "Set the 'production' alias and lifecycle_stage tag.",
+                model_name,
+                selected.version,
+            )
+            return selected
 
-        # Sort by creation timestamp (latest first)
-        prod_versions.sort(key=lambda v: v.creation_timestamp, reverse=True)
-
-        return prod_versions[0]
+        logger.info(f"No production model found for {model_name} via alias, tags, or legacy stage")
+        return None
 
     def _get_previous_version(self, model_name: str, current_version: str = None):
         """Get the previous version of a model.
@@ -358,6 +391,14 @@ class BaselineModelLoader:
         else:
             # Return second latest if exists, else None (not the latest)
             return versions[1] if len(versions) > 1 else None
+
+    def _get_stage(self, version: Any) -> str:
+        """Get normalized lifecycle stage from version tags."""
+        tags = getattr(version, "tags", {}) or {}
+        lifecycle_stage = tags.get("lifecycle_stage")
+        if lifecycle_stage:
+            return str(lifecycle_stage).lower()
+        return "unknown"
 
     def load_specific_version(self, model_name: str, version: str):
         """Load a specific version of a model.
@@ -395,7 +436,7 @@ class BaselineModelLoader:
                 return {
                     "name": model_name,
                     "version": model_version.version,
-                    "stage": model_version.current_stage,
+                    "stage": self._get_stage(model_version),
                     "run_id": model_version.run_id,
                     "tags": model_version.tags,
                     "created_at": datetime.fromtimestamp(model_version.creation_timestamp / 1000),
@@ -413,7 +454,7 @@ class BaselineModelLoader:
                     "latest_versions": [
                         {
                             "version": v.version,
-                            "stage": v.current_stage,
+                            "stage": self._get_stage(v),
                             "description": v.description,
                         }
                         for v in versions[:5]  # Last 5 versions
@@ -441,15 +482,18 @@ class BaselineModelLoader:
                 versions = self.client.search_model_versions(f"name='{model_name}'")
 
                 # Sort by stage priority (Production first) and then by version
-                stage_priority = {"Production": 0, "Staging": 1, "Archived": 2, "None": 3}
+                stage_priority = {"production": 0, "staging": 1, "archived": 2}
                 versions.sort(
-                    key=lambda v: (stage_priority.get(v.current_stage, 3), -int(v.version))
+                    key=lambda v: (
+                        stage_priority.get(self._get_stage(v), 3),
+                        -int(v.version),
+                    )
                 )
 
                 return [
                     {
                         "version": v.version,
-                        "stage": v.current_stage,
+                        "stage": self._get_stage(v),
                         "tags": v.tags if hasattr(v, "tags") else {},
                         "description": v.description if hasattr(v, "description") else "",
                     }

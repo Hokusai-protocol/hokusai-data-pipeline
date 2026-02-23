@@ -39,7 +39,7 @@ class TestBaselineModelLoader:
         mock_version = Mock()
         mock_version.version = "3"
         mock_version.run_id = "run_123"
-        mock_version.current_stage = "Production"
+        mock_version.tags = {"lifecycle_stage": "production"}
         mock_get_prod.return_value = mock_version
 
         with patch("mlflow.pyfunc.load_model") as mock_load:
@@ -50,7 +50,7 @@ class TestBaselineModelLoader:
 
         assert model == mock_model
         assert version_info["version"] == "3"
-        assert version_info["stage"] == "Production"
+        assert version_info["stage"] == "production"
         assert version_info["run_id"] == "run_123"
         mock_load.assert_called_once_with("models:/test_model/3")
 
@@ -63,7 +63,7 @@ class TestBaselineModelLoader:
         mock_version = Mock()
         mock_version.version = "2"
         mock_version.run_id = "run_456"
-        mock_version.current_stage = "Archived"
+        mock_version.tags = {"lifecycle_stage": "archived"}
         mock_get_prev.return_value = mock_version
 
         with patch("mlflow.pyfunc.load_model") as mock_load:
@@ -74,7 +74,7 @@ class TestBaselineModelLoader:
 
         assert model == mock_model
         assert version_info["version"] == "2"
-        assert version_info["stage"] == "Archived"
+        assert version_info["stage"] == "archived"
 
     def test_load_baseline_model_no_versions(self):
         """Test loading baseline model when no versions exist."""
@@ -95,44 +95,96 @@ class TestBaselineModelLoader:
         assert model == cached_model
         assert version_info == cached_info
 
-    def test_get_latest_production_version(self):
-        """Test getting latest production version."""
+    def test_get_latest_production_version_alias(self):
+        """Test getting latest production version via alias."""
+        mock_version = Mock()
+        mock_version.version = "7"
+
+        with patch.object(self.loader.client, "get_model_version_by_alias") as mock_alias:
+            with patch.object(self.loader.client, "search_model_versions") as mock_search:
+                mock_alias.return_value = mock_version
+
+                result = self.loader._get_latest_production_version("test_model")
+
+        assert result == mock_version
+        mock_alias.assert_called_once_with("test_model", "production")
+        mock_search.assert_not_called()
+
+    def test_get_latest_production_version_tag_fallback(self):
+        """Test getting latest production version via lifecycle_stage tag fallback."""
         mock_v1 = Mock()
-        mock_v1.current_stage = "Archived"
         mock_v1.version = "1"
+        mock_v1.tags = {"lifecycle_stage": "archived"}
+        mock_v1.creation_timestamp = 500
 
         mock_v2 = Mock()
-        mock_v2.current_stage = "Production"
         mock_v2.version = "2"
+        mock_v2.tags = {"lifecycle_stage": "production"}
         mock_v2.creation_timestamp = 1000
 
         mock_v3 = Mock()
-        mock_v3.current_stage = "Production"
         mock_v3.version = "3"
+        mock_v3.tags = {"lifecycle_stage": "production"}
         mock_v3.creation_timestamp = 2000
 
-        with patch.object(self.loader.client, "search_model_versions") as mock_search:
-            mock_search.return_value = [mock_v1, mock_v2, mock_v3]
+        with patch.object(self.loader.client, "get_model_version_by_alias") as mock_alias:
+            mock_alias.side_effect = MlflowException("Alias not found")
+            with patch.object(self.loader.client, "search_model_versions") as mock_search:
+                mock_search.return_value = [mock_v1, mock_v2, mock_v3]
 
-            result = self.loader._get_latest_production_version("test_model")
+                result = self.loader._get_latest_production_version("test_model")
 
         assert result == mock_v3
+        mock_alias.assert_called_once_with("test_model", "production")
+        mock_search.assert_called_once_with("name='test_model'")
+
+    def test_get_latest_production_version_legacy_fallback(self):
+        """Test getting latest production version via deprecated current_stage fallback."""
+        mock_v1 = Mock()
+        mock_v1.version = "1"
+        mock_v1.tags = {}
+        mock_v1.current_stage = "Archived"
+        mock_v1.creation_timestamp = 1000
+
+        mock_v2 = Mock()
+        mock_v2.version = "2"
+        mock_v2.tags = {}
+        mock_v2.current_stage = "Production"
+        mock_v2.creation_timestamp = 2000
+
+        with patch.object(self.loader.client, "get_model_version_by_alias") as mock_alias:
+            mock_alias.side_effect = MlflowException("Alias not found")
+            with patch.object(self.loader.client, "search_model_versions") as mock_search:
+                mock_search.return_value = [mock_v1, mock_v2]
+
+                result = self.loader._get_latest_production_version("test_model")
+
+        assert result == mock_v2
+        mock_alias.assert_called_once_with("test_model", "production")
         mock_search.assert_called_once_with("name='test_model'")
 
     def test_get_latest_production_version_none_found(self):
         """Test getting production version when none exist."""
         mock_v1 = Mock()
+        mock_v1.tags = {"lifecycle_stage": "archived"}
         mock_v1.current_stage = "Archived"
+        mock_v1.creation_timestamp = 1000
 
         mock_v2 = Mock()
+        mock_v2.tags = {"lifecycle_stage": "staging"}
         mock_v2.current_stage = "Staging"
+        mock_v2.creation_timestamp = 2000
 
-        with patch.object(self.loader.client, "search_model_versions") as mock_search:
-            mock_search.return_value = [mock_v1, mock_v2]
+        with patch.object(self.loader.client, "get_model_version_by_alias") as mock_alias:
+            mock_alias.side_effect = MlflowException("Alias not found")
+            with patch.object(self.loader.client, "search_model_versions") as mock_search:
+                mock_search.return_value = [mock_v1, mock_v2]
 
-            result = self.loader._get_latest_production_version("test_model")
+                result = self.loader._get_latest_production_version("test_model")
 
         assert result is None
+        mock_alias.assert_called_once_with("test_model", "production")
+        mock_search.assert_called_once_with("name='test_model'")
 
     def test_get_previous_version(self):
         """Test getting previous version."""
@@ -182,9 +234,12 @@ class TestBaselineModelLoader:
         """Test getting model metadata."""
         mock_version = Mock()
         mock_version.version = "2"
-        mock_version.current_stage = "Staging"
+        mock_version.tags = {
+            "accuracy": "0.85",
+            "dataset": "golden_v2",
+            "lifecycle_stage": "staging",
+        }
         mock_version.run_id = "run_789"
-        mock_version.tags = {"accuracy": "0.85", "dataset": "golden_v2"}
         mock_version.creation_timestamp = 1234567890000
 
         with patch.object(self.loader.client, "get_model_version") as mock_get:
@@ -193,22 +248,24 @@ class TestBaselineModelLoader:
             metadata = self.loader.get_model_metadata("test_model", "2")
 
         assert metadata["version"] == "2"
-        assert metadata["stage"] == "Staging"
+        assert metadata["stage"] == "staging"
         assert metadata["run_id"] == "run_789"
-        assert metadata["tags"] == {"accuracy": "0.85", "dataset": "golden_v2"}
+        assert metadata["tags"] == {
+            "accuracy": "0.85",
+            "dataset": "golden_v2",
+            "lifecycle_stage": "staging",
+        }
         assert isinstance(metadata["created_at"], datetime)
 
     def test_list_available_baselines(self):
         """Test listing available baseline models."""
         mock_v1 = Mock()
         mock_v1.version = "1"
-        mock_v1.current_stage = "Archived"
-        mock_v1.tags = {"accuracy": "0.80"}
+        mock_v1.tags = {"accuracy": "0.80", "lifecycle_stage": "archived"}
 
         mock_v2 = Mock()
         mock_v2.version = "2"
-        mock_v2.current_stage = "Production"
-        mock_v2.tags = {"accuracy": "0.85"}
+        mock_v2.tags = {"accuracy": "0.85", "lifecycle_stage": "production"}
 
         with patch.object(self.loader.client, "search_model_versions") as mock_search:
             mock_search.return_value = [mock_v1, mock_v2]
@@ -217,9 +274,9 @@ class TestBaselineModelLoader:
 
         assert len(baselines) == 2
         assert baselines[0]["version"] == "2"  # Production first
-        assert baselines[0]["stage"] == "Production"
+        assert baselines[0]["stage"] == "production"
         assert baselines[1]["version"] == "1"
-        assert baselines[1]["stage"] == "Archived"
+        assert baselines[1]["stage"] == "archived"
 
     def test_clear_cache(self):
         """Test clearing the model cache."""
