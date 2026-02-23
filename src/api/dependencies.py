@@ -8,6 +8,7 @@ import redis
 from fastapi import Depends
 from redis import Redis
 
+from src.api.services.contributor_logger import ContributorLogger
 from src.api.services.evaluation_service import EvaluationService
 from src.api.services.governance.audit_logger import AuditLogger
 from src.api.services.governance.gdpr import GDPRService
@@ -69,3 +70,9 @@ def get_evaluation_service(
         audit_logger=audit_logger,
         license_validator=license_validator,
     )
+
+
+@lru_cache(maxsize=1)
+def get_contributor_logger() -> ContributorLogger:
+    """Return shared contributor logger instance."""
+    return ContributorLogger()
