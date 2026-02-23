@@ -9,6 +9,7 @@ from . import (
     mlflow_proxy,
     mlflow_proxy_improved,
     models,
+    outcomes,
     privacy,
 )
 
@@ -22,4 +23,5 @@ __all__ = [
     "health_mlflow",
     "governance",
     "privacy",
+    "outcomes",
 ]
