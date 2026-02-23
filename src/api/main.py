@@ -1,6 +1,7 @@
 """Main FastAPI application for Hokusai MLOps services."""
 
 import logging
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,7 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from src.api.endpoints import model_serving
-from src.api.routes import dspy, health, health_mlflow, models
+from src.api.routes import dspy, evaluations, health, health_mlflow, models
 from src.api.routes import mlflow_proxy_improved as mlflow_proxy
 
 # TODO: Fix missing APIKeyModel dependency before enabling auth
@@ -61,7 +62,7 @@ app.include_router(health.router, tags=["health"])
 
 # Add explicit root health endpoint for ALB
 @app.get("/health")
-async def root_health_check():
+async def root_health_check() -> Any:
     """Root-level health check endpoint for ALB."""
     from src.api.routes.health import health_check
 
@@ -70,7 +71,7 @@ async def root_health_check():
 
 # Add root endpoint that returns available health paths
 @app.get("/")
-async def root():
+async def root() -> dict[str, Any]:
     """Root endpoint with service information."""
     return {
         "service": "Hokusai Data Pipeline API",
@@ -83,6 +84,7 @@ async def root():
 
 app.include_router(models.router, prefix="/models", tags=["models"])
 app.include_router(dspy.router, tags=["dspy"])
+app.include_router(evaluations.router)
 app.include_router(model_serving.router, tags=["model-serving"])  # Model 21 serving endpoint
 # TODO: Enable auth router after fixing APIKeyModel dependency
 # app.include_router(auth.router, tags=["authentication"])
@@ -101,7 +103,7 @@ app.include_router(health_mlflow.router, prefix="/api/health", tags=["health"])
 
 # Global exception handler
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle uncaught exceptions."""
     logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
