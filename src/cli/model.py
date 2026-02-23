@@ -312,7 +312,12 @@ def list() -> None:
                 click.echo(f"  Model name: {model.name}")
                 if latest_version:
                     click.echo(f"  Latest version: {latest_version.version}")
-                    click.echo(f"  Status: {latest_version.current_stage}")
+                    stage = (
+                        (latest_version.tags or {}).get("lifecycle_stage", "unknown").lower()
+                        if hasattr(latest_version, "tags")
+                        else "unknown"
+                    )
+                    click.echo(f"  Status: {stage}")
                     if latest_version.tags:
                         click.echo(
                             f"  Metric: {latest_version.tags.get('benchmark_metric', 'N/A')}"
