@@ -13,6 +13,7 @@ import mlflow
 from src.dspy_signatures.base import BaseSignature
 from src.services.dspy_model_loader import DSPyModelLoader
 from src.utils.config import get_config
+from src.utils.contributor_logger import build_contributor_attribution
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ class DSPyPipelineExecutor:
         """Initialize DSPy Pipeline Executor.
 
         Args:
+        ----
             cache_enabled: Enable caching of programs and results
             mlflow_tracking: Enable MLflow experiment tracking
             timeout: Execution timeout in seconds
@@ -134,10 +136,12 @@ class DSPyPipelineExecutor:
         """Validate inputs against program signature.
 
         Args:
+        ----
             inputs: Input dictionary
             program: DSPy program instance
 
         Raises:
+        ------
             ValidationError: If inputs are invalid
 
         """
@@ -170,9 +174,11 @@ class DSPyPipelineExecutor:
         """Load DSPy program by model ID.
 
         Args:
+        ----
             model_id: Model identifier
 
         Returns:
+        -------
             DSPy program instance
 
         """
@@ -209,11 +215,13 @@ class DSPyPipelineExecutor:
         """Execute DSPy program with given inputs.
 
         Args:
+        ----
             program: DSPy program instance
             inputs: Input dictionary
             mode: Execution mode
 
         Returns:
+        -------
             Program outputs
 
         """
@@ -259,17 +267,25 @@ class DSPyPipelineExecutor:
         inputs: dict[str, Any] = None,
         mode: ExecutionMode = ExecutionMode.NORMAL,
         retry_on_failure: bool = True,
+        contributor_id: str | None = None,
+        contributor_role: str | None = None,
+        contributors_by_role: dict[str, str] | None = None,
     ) -> ExecutionResult:
         """Execute DSPy program with inputs.
 
         Args:
+        ----
             program: DSPy program instance (optional if model_id provided)
             model_id: Model ID to load (optional if program provided)
             inputs: Input dictionary
             mode: Execution mode
             retry_on_failure: Whether to retry on failure
+            contributor_id: Optional contributor ID for attribution
+            contributor_role: Optional contributor role for contributor_id
+            contributors_by_role: Optional mapping of role -> contributor ID
 
         Returns:
+        -------
             ExecutionResult with outputs and metadata
 
         """
@@ -294,13 +310,23 @@ class DSPyPipelineExecutor:
                 return cached_result
 
         # Initialize result
+        contributor_attribution = build_contributor_attribution(
+            contributor_id=contributor_id,
+            contributor_role=contributor_role,
+            contributors_by_role=contributors_by_role,
+            inputs=inputs,
+        )
+
         result = ExecutionResult(
             success=False,
             outputs=None,
             error=None,
             execution_time=0,
             program_name=program_name,
-            metadata={"mode": mode.value},
+            metadata={
+                "mode": mode.value,
+                "contributor_attribution": contributor_attribution.to_metadata(),
+            },
         )
 
         # Track with MLflow
@@ -315,6 +341,10 @@ class DSPyPipelineExecutor:
                         "input_keys": list(inputs.keys()) if inputs else [],
                     }
                 )
+
+                contributor_tags = contributor_attribution.to_mlflow_tags()
+                if contributor_tags:
+                    mlflow.set_tags(contributor_tags)
             except Exception as e:
                 logger.debug(f"MLflow tracking error: {e}")
                 self.mlflow_tracking = False
@@ -402,16 +432,27 @@ class DSPyPipelineExecutor:
         return result
 
     def execute_batch(
-        self, program: Any = None, model_id: str = None, inputs_list: list[dict[str, Any]] = None
+        self,
+        program: Any = None,
+        model_id: str = None,
+        inputs_list: list[dict[str, Any]] = None,
+        contributor_id: str | None = None,
+        contributor_role: str | None = None,
+        contributors_by_role: dict[str, str] | None = None,
     ) -> list[ExecutionResult]:
         """Execute DSPy program on batch of inputs.
 
         Args:
+        ----
             program: DSPy program instance
             model_id: Model ID to load
             inputs_list: List of input dictionaries
+            contributor_id: Optional contributor ID for attribution
+            contributor_role: Optional contributor role for contributor_id
+            contributors_by_role: Optional mapping of role -> contributor ID
 
         Returns:
+        -------
             List of ExecutionResults
 
         """
@@ -430,6 +471,9 @@ class DSPyPipelineExecutor:
                 program=program,
                 inputs=inputs,
                 retry_on_failure=False,  # Don't retry in batch mode
+                contributor_id=contributor_id,
+                contributor_role=contributor_role,
+                contributors_by_role=contributors_by_role,
             )
             futures.append(future)
 
@@ -472,7 +516,8 @@ class DSPyPipelineExecutor:
     def get_execution_stats(self) -> dict[str, Any]:
         """Get execution statistics.
 
-        Returns:
+        Returns
+        -------
             Dictionary with execution statistics
 
         """

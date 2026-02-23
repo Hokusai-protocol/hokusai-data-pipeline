@@ -35,6 +35,14 @@ PRIMARY_METRIC_KEYS = (
     "benchmark_metric",
 )
 MODEL_ID_KEYS = ("hokusai.model_id", "model_id", "mlflow.runName")
+CONTRIBUTOR_TAG_KEYS = (
+    "contributor_id",
+    "hokusai.contributor.prompt_author_id",
+    "hokusai.contributor.training_data_uploader_id",
+    "hokusai.contributor.human_labeler_id",
+    "hokusai.contributor.roles",
+    "hokusai.contributors",
+)
 
 
 class RunInfoProtocol(Protocol):
@@ -443,6 +451,10 @@ class DeltaOneEvaluator:
             "hokusai.deltaone.n_baseline": str(decision.n_baseline),
             "hokusai.deltaone.evaluated_at": decision.evaluated_at.isoformat(),
         }
+
+        contributor_tags = self._load_deltaone_contributor_tags(decision.run_id)
+        tags.update(contributor_tags)
+
         for key, value in tags.items():
             self._client.set_tag(decision.run_id, key, value)
 
@@ -463,6 +475,7 @@ class DeltaOneEvaluator:
             n_current=decision.n_current,
             n_baseline=decision.n_baseline,
             evaluated_at=decision.evaluated_at.isoformat(),
+            contributor_id=contributor_tags.get("hokusai.deltaone.contributor_id"),
         )
 
     def _create_default_mlflow_client(self: DeltaOneEvaluator) -> MlflowClientProtocol:
@@ -492,6 +505,29 @@ class DeltaOneEvaluator:
     @staticmethod
     def _log_audit_event(event: str, **fields: Any) -> None:
         logger.info("%s", event, extra={"audit_event": event, **fields})
+
+    def _load_deltaone_contributor_tags(self: DeltaOneEvaluator, run_id: str) -> dict[str, str]:
+        """Load contributor tags from the candidate run and namespace them for DeltaOne."""
+        try:
+            run = self._client.get_run(run_id)
+        except Exception as exc:
+            logger.debug("Could not load run %s for contributor tags: %s", run_id, exc)
+            return {}
+
+        source_tags = run.data.tags or {}
+        contributor_tags: dict[str, str] = {}
+        for source_key in CONTRIBUTOR_TAG_KEYS:
+            value = source_tags.get(source_key)
+            if value is None or str(value).strip() == "":
+                continue
+
+            if source_key == "contributor_id":
+                target_key = "hokusai.deltaone.contributor_id"
+            else:
+                target_key = f"hokusai.deltaone.{source_key}"
+            contributor_tags[target_key] = str(value)
+
+        return contributor_tags
 
 
 def detect_delta_one(model_name: str, webhook_url: str | None = None) -> bool:
