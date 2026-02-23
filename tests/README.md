@@ -1,15 +1,10 @@
 # Test Markers
 
-This repository uses pytest marks to keep the default test run independent from live backing services.
+This repository uses pytest marks to classify tests by execution scope (unit, integration, e2e, chaos).
 
 ## Default behavior
 
-`pytest.ini` excludes these marks by default:
-- `integration`
-- `e2e`
-- `chaos`
-
-Default command:
+Default command (runs all tests unless filtered):
 
 ```bash
 pytest tests/ --no-cov
@@ -27,4 +22,12 @@ pytest tests/ --no-cov
 pytest tests/ --no-cov -m integration
 pytest tests/ --no-cov -m e2e
 pytest tests/ --no-cov -m chaos
+```
+
+## Offline-safe local run
+
+Use this when you want to skip service-dependent suites locally:
+
+```bash
+pytest tests/ --no-cov -m "not integration and not e2e and not chaos"
 ```

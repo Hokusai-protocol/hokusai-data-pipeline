@@ -7,6 +7,7 @@ import pytest
 
 from src.utils.mlflow_config import (
     MLFlowConfig,
+    MLflowUnavailableError,
     generate_run_name,
     log_dataset_info,
     log_model_artifact,
@@ -198,8 +199,15 @@ class TestMLFlowRunContext:
     @patch("mlflow.set_tag")
     def test_context_with_error(self, mock_set_tag, mock_start_run):
         """Test context manager with error during run."""
-        # Skip this test as the context manager has a design issue with exception handling
-        pytest.skip("Context manager has exception handling issue - needs refactoring")
+        mock_run = Mock()
+        mock_run.info.run_id = "test_run_123"
+        mock_start_run.return_value = mock_run
+
+        with pytest.raises(MLflowUnavailableError, match="Failed to start MLFlow run"):
+            with mlflow_run_context(run_name="test_run", tags={"env": "test"}):
+                raise ValueError("run failed")
+
+        mock_set_tag.assert_any_call("error", "run failed")
 
     @patch("mlflow.start_run")
     def test_context_start_run_failure(self, mock_start_run):

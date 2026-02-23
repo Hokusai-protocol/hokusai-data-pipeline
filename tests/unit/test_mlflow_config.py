@@ -8,6 +8,7 @@ import pytest
 
 from src.utils.mlflow_config import (
     MLFlowConfig,
+    MLflowUnavailableError,
     generate_run_name,
     log_dataset_info,
     log_model_artifact,
@@ -164,7 +165,7 @@ class TestMLFlowUtilities:
             "metaflow.run_id": "metaflow456",
         }
 
-        with pytest.raises(Exception):
+        with pytest.raises(MLflowUnavailableError, match="Failed to start MLFlow run"):
             with mlflow_run_context(run_name="test_run", tags=tags):
                 raise ValueError("Test error")
 

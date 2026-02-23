@@ -24,9 +24,6 @@ def pytest_collection_modifyitems(items):
         "/tests/test_mlflow_routing_verification.py",
         "/tests/test_model_registration_flow.py",
         "/tests/test_routing.py",
-        "/tests/unit/test_api_",
-        "/tests/unit/test_auth/",
-        "/tests/unit/test_auth_",
     }
 
     for item in items:
@@ -147,15 +144,15 @@ def sample_model_path(temp_dir):
 def mock_mlflow_globally():
     """Mock MLflow globally to prevent actual connections in tests."""
     with (
-        patch("mlflow.set_tracking_uri") as mock_set_uri,
+        patch("mlflow.set_tracking_uri"),
         patch("mlflow.get_experiment_by_name") as mock_get_exp,
         patch("mlflow.create_experiment") as mock_create_exp,
-        patch("mlflow.set_experiment") as mock_set_exp,
+        patch("mlflow.set_experiment"),
         patch("mlflow.start_run") as mock_start_run,
-        patch("mlflow.log_params") as mock_log_params,
-        patch("mlflow.log_metrics") as mock_log_metrics,
-        patch("mlflow.set_tag") as mock_set_tag,
-        patch("mlflow.log_artifact") as mock_log_artifact,
+        patch("mlflow.log_params"),
+        patch("mlflow.log_metrics"),
+        patch("mlflow.set_tag"),
+        patch("mlflow.log_artifact"),
         patch("mlflow.pyfunc.load_model") as mock_load_model,
         patch("mlflow.models.get_model_info") as mock_get_model_info,
     ):
