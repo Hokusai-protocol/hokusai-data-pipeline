@@ -6,6 +6,7 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -19,6 +20,9 @@ from src.api.schemas.evaluations import (
     EvaluationResponse,
     EvaluationStatusResponse,
 )
+from src.api.services.governance.audit_logger import AuditLogger
+from src.api.services.governance.licensing import LicenseValidator
+from src.api.services.privacy.pii_detector import PIIDetector
 
 
 @dataclass
@@ -35,6 +39,8 @@ class EvaluationJobRecord:
     progress_percentage: float
     queue_position: int
     created_at: str
+    private: bool = False
+    storage_backend: str = "external"
     started_at: str | None = None
     completed_at: str | None = None
     error_details: str | None = None
@@ -48,17 +54,30 @@ class EvaluationService:
     IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
     QUEUE_KEY = "eval:queue"
 
-    def __init__(self: EvaluationService, redis_client: Redis) -> None:
+    def __init__(
+        self: EvaluationService,
+        redis_client: Redis,
+        pii_detector: PIIDetector | None = None,
+        audit_logger: AuditLogger | None = None,
+        license_validator: LicenseValidator | None = None,
+    ) -> None:
         self.redis = redis_client
         self.max_cost_usd = float(os.getenv("EVALUATION_MAX_COST_USD", "25"))
+        self.pii_detector = pii_detector
+        self.audit_logger = audit_logger
+        self.license_validator = license_validator
 
     def create_evaluation(
         self: EvaluationService,
         model_id: str,
         payload: EvaluationRequest,
         idempotency_key: str,
+        user_context: dict[str, Any] | None = None,
     ) -> EvaluationResponse:
         """Create an evaluation job or return previous response for same idempotency key."""
+        user_context = user_context or {}
+        user_id = str(user_context.get("user_id", "unknown"))
+
         if not idempotency_key:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -70,6 +89,58 @@ class EvaluationService:
         idempotency_lookup_key = self._idempotency_key(model_id, idempotency_key)
         if existing_job_id := self.redis.get(idempotency_lookup_key):
             return self._response_from_job_id(existing_job_id)
+
+        intended_use = {
+            "commercial": bool(payload.config.parameters.get("commercial_use", False)),
+            "derivative": bool(payload.config.parameters.get("derivative_use", False)),
+        }
+        if self.license_validator is not None:
+            license_result = self.license_validator.validate_license(
+                payload.config.dataset_reference, intended_use
+            )
+            if not license_result.allowed:
+                self._audit(
+                    action="eval.create",
+                    resource_id=model_id,
+                    user_id=user_id,
+                    outcome="denied",
+                    details={"reason": license_result.reason, "stage": "license_validation"},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"License validation failed: {license_result.reason}",
+                )
+
+        pii_findings = self._scan_dataset_reference(payload.config.dataset_reference)
+        if pii_findings:
+            is_admin = self._is_admin(user_context)
+            if payload.config.allow_pii and not is_admin:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="allow_pii override requires admin role",
+                )
+            if not payload.config.allow_pii:
+                self._audit(
+                    action="dataset.upload.blocked_pii",
+                    resource_id=payload.config.dataset_reference,
+                    user_id=user_id,
+                    outcome="denied",
+                    details={"finding_count": len(pii_findings)},
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "message": "PII detected in dataset reference",
+                        "findings": [item.__dict__ for item in pii_findings],
+                    },
+                )
+            self._audit(
+                action="dataset.upload.allow_pii_override",
+                resource_id=payload.config.dataset_reference,
+                user_id=user_id,
+                outcome="success",
+                details={"finding_count": len(pii_findings)},
+            )
 
         estimated_cost = self._estimate_cost(payload)
         if estimated_cost > self.max_cost_usd:
@@ -98,6 +169,8 @@ class EvaluationService:
             progress_percentage=0.0,
             queue_position=queue_position,
             created_at=now.isoformat(),
+            private=payload.config.private,
+            storage_backend="minio" if payload.config.private else "external",
         )
 
         self.redis.setex(
@@ -106,6 +179,17 @@ class EvaluationService:
             json.dumps(job_record.__dict__),
         )
         self.redis.setex(idempotency_lookup_key, self.IDEMPOTENCY_TTL_SECONDS, job_id)
+        self._audit(
+            action="eval.create",
+            resource_id=job_id,
+            user_id=user_id,
+            outcome="success",
+            details={
+                "model_id": model_id,
+                "private": payload.config.private,
+                "dataset_reference": payload.config.dataset_reference,
+            },
+        )
 
         return EvaluationResponse(
             job_id=UUID(job_id),
@@ -186,9 +270,13 @@ class EvaluationService:
             "results_summary": {
                 "status": "completed",
                 "dataset": job_data["dataset_reference"],
+                "private": bool(job_data.get("private", False)),
+                "storage_backend": job_data.get("storage_backend", "external"),
             },
             "metrics": {"accuracy": 0.0},
-            "artifact_urls": [],
+            "artifact_urls": self._artifact_urls_for_job(
+                job_id, bool(job_data.get("private", False))
+            ),
             "created_at": job_data["created_at"],
             "completed_at": completed_at.isoformat(),
         }
@@ -232,6 +320,49 @@ class EvaluationService:
         token_volume = dataset_size * max_tokens
         # Conservative default estimate for OpenAI eval-style workloads.
         return round((token_volume / 1000.0) * 0.002, 6)
+
+    def _scan_dataset_reference(self, dataset_reference: str):
+        if self.pii_detector is None:
+            return []
+        if Path(dataset_reference).exists():
+            scan_result = self.pii_detector.scan_file(dataset_reference)
+            return scan_result.findings
+        return self.pii_detector.scan_text(dataset_reference)
+
+    @staticmethod
+    def _is_admin(user_context: dict[str, Any]) -> bool:
+        token = str(user_context.get("token", "")).lower()
+        user_id = str(user_context.get("user_id", "")).lower()
+        scopes = user_context.get("scopes", [])
+        return "admin" in token or user_id in {"admin", "root"} or "admin" in scopes
+
+    def _artifact_urls_for_job(self, job_id: str, private: bool) -> list[str]:
+        if private:
+            bucket = os.getenv("PRIVATE_EVAL_MINIO_BUCKET", "hokusai-private-evals")
+            return [f"s3://{bucket}/evaluations/{job_id}/manifest.json"]
+        base = os.getenv("EXTERNAL_EVAL_RESULTS_URL")
+        if not base:
+            return []
+        return [f"{base.rstrip('/')}/{job_id}/manifest.json"]
+
+    def _audit(
+        self,
+        action: str,
+        resource_id: str,
+        user_id: str,
+        outcome: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        if self.audit_logger is None:
+            return
+        self.audit_logger.log(
+            action=action,
+            resource_type="evaluation",
+            resource_id=resource_id,
+            user_id=user_id,
+            details=details or {},
+            outcome=outcome,
+        )
 
     def _response_from_job_id(self: EvaluationService, job_id: str) -> EvaluationResponse:
         job_data = self._load_job(job_id)

@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, status
 
-from src.api.dependencies import get_evaluation_service
+from src.api.dependencies import get_audit_logger, get_evaluation_service
 from src.api.schemas.evaluations import (
     EvaluationManifestResponse,
     EvaluationRequest,
@@ -14,6 +14,7 @@ from src.api.schemas.evaluations import (
     EvaluationStatusResponse,
 )
 from src.api.services.evaluation_service import EvaluationService
+from src.api.services.governance.audit_logger import AuditLogger
 from src.middleware.auth import require_auth
 
 router = APIRouter(prefix="/api/v1", tags=["evaluations"])
@@ -37,6 +38,7 @@ async def trigger_evaluation(
         model_id=model_id,
         payload=request,
         idempotency_key=idempotency_key,
+        user_context=_auth,
     )
     background_tasks.add_task(service.execute_evaluation_job, str(response.job_id))
     return response
@@ -50,10 +52,19 @@ async def trigger_evaluation(
 async def get_evaluation_status(
     job_id: UUID,
     service: EvaluationService = Depends(get_evaluation_service),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
     _auth: dict = Depends(require_auth),
 ) -> EvaluationStatusResponse:
     """Get asynchronous evaluation job status."""
-    return service.get_status(str(job_id))
+    response = service.get_status(str(job_id))
+    audit_logger.log(
+        action="eval.status.access",
+        resource_type="evaluation",
+        resource_id=str(job_id),
+        user_id=_auth.get("user_id", "unknown"),
+        outcome="success",
+    )
+    return response
 
 
 @router.get(
@@ -64,7 +75,16 @@ async def get_evaluation_status(
 async def get_evaluation_manifest(
     job_id: UUID,
     service: EvaluationService = Depends(get_evaluation_service),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
     _auth: dict = Depends(require_auth),
 ) -> EvaluationManifestResponse:
     """Retrieve manifest for a completed evaluation job."""
-    return service.get_manifest(str(job_id))
+    response = service.get_manifest(str(job_id))
+    audit_logger.log(
+        action="result.access",
+        resource_type="evaluation_result",
+        resource_id=str(job_id),
+        user_id=_auth.get("user_id", "unknown"),
+        outcome="success",
+    )
+    return response

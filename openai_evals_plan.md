@@ -527,6 +527,12 @@ src/evaluation/
 15. ✅ **Comprehensive testing**
 16. ✅ **Documentation and examples**
 
+### Governance Status Update
+- 2026-02-23: Implemented HOK-338 privacy and governance controls:
+  PII scanning service and APIs, private evaluation mode flag enforcement,
+  dataset licensing validation, audit logging endpoints, retention policy
+  management, GDPR export/delete/consent helpers, and governance schema migration.
+
 ## Success Criteria
 
 Each implementation should:

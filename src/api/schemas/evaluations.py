@@ -25,6 +25,14 @@ class EvaluationConfig(BaseModel):
     eval_type: str = Field(..., min_length=1, description="Evaluation provider/type")
     dataset_reference: str = Field(..., min_length=1, description="Dataset identifier")
     parameters: dict[str, Any] = Field(default_factory=dict)
+    private: bool = Field(
+        default=False,
+        description="When true, store artifacts in private MinIO-only mode",
+    )
+    allow_pii: bool = Field(
+        default=False,
+        description="Allow evaluation when PII findings exist (admin-only override)",
+    )
 
 
 class EvaluationRequest(BaseModel):

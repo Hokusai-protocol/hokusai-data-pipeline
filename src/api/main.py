@@ -11,7 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from src.api.endpoints import model_serving
-from src.api.routes import dspy, evaluations, health, health_mlflow, models
+from src.api.routes import dspy, evaluations, governance, health, health_mlflow, models, privacy
 from src.api.routes import mlflow_proxy_improved as mlflow_proxy
 
 # TODO: Fix missing APIKeyModel dependency before enabling auth
@@ -85,6 +85,8 @@ async def root() -> dict[str, Any]:
 app.include_router(models.router, prefix="/models", tags=["models"])
 app.include_router(dspy.router, tags=["dspy"])
 app.include_router(evaluations.router)
+app.include_router(privacy.router)
+app.include_router(governance.router)
 app.include_router(model_serving.router, tags=["model-serving"])  # Model 21 serving endpoint
 # TODO: Enable auth router after fixing APIKeyModel dependency
 # app.include_router(auth.router, tags=["authentication"])
