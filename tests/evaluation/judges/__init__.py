@@ -1,0 +1,1 @@
+"""Judge template unit tests."""
