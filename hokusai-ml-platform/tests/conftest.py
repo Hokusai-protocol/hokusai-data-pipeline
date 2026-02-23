@@ -1,9 +1,10 @@
 """Pytest configuration and shared fixtures."""
+
 import asyncio
 import shutil
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 from unittest.mock import MagicMock, Mock
 
 import mlflow
@@ -36,10 +37,10 @@ def mock_mlflow_client():
     client = MagicMock()
     client.create_registered_model = Mock(return_value=Mock(name="test_model"))
     client.create_model_version = Mock(return_value=Mock(version="1"))
-    client.get_latest_versions = Mock(return_value=[])
     client.search_model_versions = Mock(return_value=[])
+    client.get_model_version_by_alias = Mock()
     client.set_model_version_tag = Mock()
-    client.transition_model_version_stage = Mock()
+    client.set_registered_model_alias = Mock()
     return client
 
 
@@ -67,17 +68,8 @@ def sample_model_metadata():
         "author": "test_user",
         "description": "Test model for unit tests",
         "training_dataset": "test_dataset_v1",
-        "hyperparameters": {
-            "learning_rate": 0.01,
-            "n_estimators": 100,
-            "max_depth": 5
-        },
-        "metrics": {
-            "accuracy": 0.95,
-            "precision": 0.94,
-            "recall": 0.93,
-            "f1_score": 0.935
-        }
+        "hyperparameters": {"learning_rate": 0.01, "n_estimators": 100, "max_depth": 5},
+        "metrics": {"accuracy": 0.95, "precision": 0.94, "recall": 0.93, "f1_score": 0.935},
     }
 
 
@@ -85,18 +77,9 @@ def sample_model_metadata():
 def sample_inference_data():
     """Sample data for inference testing."""
     return {
-        "features": [
-            0.5, 0.3, 0.8, 0.1, 0.9,
-            0.2, 0.7, 0.4, 0.6, 0.15
-        ],
-        "categorical_features": {
-            "category_a": "value1",
-            "category_b": "value2"
-        },
-        "metadata": {
-            "source": "test",
-            "timestamp": "2024-01-01T00:00:00Z"
-        }
+        "features": [0.5, 0.3, 0.8, 0.1, 0.9, 0.2, 0.7, 0.4, 0.6, 0.15],
+        "categorical_features": {"category_a": "value1", "category_b": "value2"},
+        "metadata": {"source": "test", "timestamp": "2024-01-01T00:00:00Z"},
     }
 
 
@@ -136,8 +119,8 @@ def mock_ab_test_config():
         "success_criteria": {
             "metric": "accuracy",
             "improvement_threshold": 0.02,
-            "confidence_level": 0.95
-        }
+            "confidence_level": 0.95,
+        },
     }
 
 
@@ -153,31 +136,19 @@ def mock_experiment_data():
         "metrics": {
             "model-v1": {"accuracy": 0.85, "f1": 0.82},
             "model-v2": {"accuracy": 0.88, "f1": 0.86},
-            "model-v3": {"accuracy": 0.87, "f1": 0.85}
+            "model-v3": {"accuracy": 0.87, "f1": 0.85},
         },
-        "parameters": {
-            "test_size": 0.2,
-            "random_seed": 42,
-            "stratify": True
-        }
+        "parameters": {"test_size": 0.2, "random_seed": 42, "stratify": True},
     }
 
 
 # Markers for different test categories
 def pytest_configure(config: str) -> None:
     """Configure custom pytest markers."""
-    config.addinivalue_line(
-        "markers", "unit: Unit tests that don't require external services"
-    )
+    config.addinivalue_line("markers", "unit: Unit tests that don't require external services")
     config.addinivalue_line(
         "markers", "integration: Integration tests that may require external services"
     )
-    config.addinivalue_line(
-        "markers", "slow: Tests that take more than 1 second to run"
-    )
-    config.addinivalue_line(
-        "markers", "requires_redis: Tests that require Redis connection"
-    )
-    config.addinivalue_line(
-        "markers", "requires_mlflow: Tests that require MLflow server"
-    )
+    config.addinivalue_line("markers", "slow: Tests that take more than 1 second to run")
+    config.addinivalue_line("markers", "requires_redis: Tests that require Redis connection")
+    config.addinivalue_line("markers", "requires_mlflow: Tests that require MLflow server")

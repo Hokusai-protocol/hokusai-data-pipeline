@@ -1,4 +1,5 @@
 """Model Registry for centralized model management."""
+
 import json
 import logging
 import os
@@ -9,8 +10,8 @@ from typing import Any, Dict, List, Optional
 import mlflow
 from mlflow.tracking import MlflowClient
 
-from .models import HokusaiModel
 from ..auth.client import AuthenticatedClient, get_global_auth
+from .models import HokusaiModel
 
 logger = logging.getLogger(__name__)
 
@@ -62,67 +63,68 @@ class ModelRegistry(AuthenticatedClient):
     """Central registry for all models with MLflow backend."""
 
     def __init__(
-        self, 
+        self,
         tracking_uri: str = None,
         api_key: str = None,
         api_endpoint: str = None,
         auth=None,
-        **kwargs
+        **kwargs,
     ) -> None:
         # Use global auth if available and no explicit auth provided
         if auth is None and api_key is None:
             global_auth = get_global_auth()
             if global_auth:
                 auth = global_auth
-        
+
         # Initialize authenticated client
         super().__init__(api_key=api_key, api_endpoint=api_endpoint, auth=auth, **kwargs)
-        
+
         # Set tracking URI
         if tracking_uri is None:
             # MLflow is accessible via Hokusai API proxy for authenticated access
             # The API endpoint already includes the domain, so we append /mlflow
             default_mlflow_uri = f"{self.api_endpoint}/mlflow"
             tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", default_mlflow_uri)
-        
+
         self.tracking_uri = tracking_uri
         mlflow.set_tracking_uri(tracking_uri)
-        
+
         # Configure MLflow with automatic fallback
         try:
-            from ..config import setup_mlflow, get_mlflow_status
-            
+            from ..config import get_mlflow_status, setup_mlflow
+
             # Get API key for authentication - prefer auth object, then parameter
             auth_api_key = None
             if self._auth and self._auth.api_key:
                 auth_api_key = self._auth.api_key
             elif api_key:  # Use passed api_key parameter
                 auth_api_key = api_key
-                
+
             # Setup MLflow with fallback mechanisms
             mlflow_configured = setup_mlflow(tracking_uri=tracking_uri, api_key=auth_api_key)
-            
+
             if mlflow_configured:
                 status = get_mlflow_status()
                 logger.info(f"MLflow configured successfully: {status}")
                 # Update tracking URI to the one actually being used
-                if status.get('tracking_uri'):
-                    self.tracking_uri = status['tracking_uri']
+                if status.get("tracking_uri"):
+                    self.tracking_uri = status["tracking_uri"]
                     mlflow.set_tracking_uri(self.tracking_uri)
             else:
                 logger.warning("MLflow configuration failed - some features may be limited")
-                
+
         except ImportError:
             logger.warning("MLflow setup module not available - using basic configuration")
             # Fallback to basic configuration
             if self._auth and self._auth.api_key:
                 os.environ["MLFLOW_TRACKING_TOKEN"] = self._auth.api_key
-        
+
         # Try to create client with retry logic
         import time
+
         max_retries = 3
         retry_delay = 1.0
-        
+
         for attempt in range(max_retries):
             try:
                 self.client = MlflowClient(self.tracking_uri)
@@ -131,7 +133,9 @@ class ModelRegistry(AuthenticatedClient):
                 break
             except Exception as e:
                 if attempt < max_retries - 1:
-                    logger.warning(f"Failed to connect to MLflow (attempt {attempt + 1}/{max_retries}): {e}")
+                    logger.warning(
+                        f"Failed to connect to MLflow (attempt {attempt + 1}/{max_retries}): {e}"
+                    )
                     time.sleep(retry_delay * (attempt + 1))
                 else:
                     logger.error(f"Failed to create MLflow client after {max_retries} attempts")
@@ -139,35 +143,38 @@ class ModelRegistry(AuthenticatedClient):
                     self.client = MlflowClient(self.tracking_uri)
 
     def register_baseline(
-        self, 
+        self,
         model: Optional[HokusaiModel] = None,
         model_type: Optional[str] = None,
         model_name: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        **kwargs
+        **kwargs,
     ) -> ModelRegistryEntry:
         """Register a baseline model.
-        
+
         Args:
+        ----
             model: HokusaiModel instance (optional if model_name provided)
             model_type: Type of model (optional, can be derived from model_name)
             model_name: Name of the model (for backward compatibility)
             metadata: Additional metadata
             **kwargs: Additional parameters for backward compatibility
-            
+
         Note:
+        ----
             For backward compatibility, supports both:
             - register_baseline(model=model, model_type="type")
             - register_baseline(model_name="name", model=model, ...)
+
         """
         # Handle backward compatibility
         if model_name and not model_type:
             model_type = model_name
-            
+
         # Extract model from kwargs if not provided directly
         if not model and "model" in kwargs:
             model = kwargs["model"]
-            
+
         # Validate required parameters
         if not model:
             raise ValueError("Model parameter is required")
@@ -222,7 +229,7 @@ class ModelRegistry(AuthenticatedClient):
 
         except Exception as e:
             raise RegistryException(f"Failed to register baseline model: {str(e)}")
-    
+
     def register_baseline_via_api(
         self, model_type: str, mlflow_run_id: str, metadata: Optional[Dict[str, Any]] = None
     ) -> ModelRegistryEntry:
@@ -234,10 +241,10 @@ class ModelRegistry(AuthenticatedClient):
                 json={
                     "model_type": model_type,
                     "mlflow_run_id": mlflow_run_id,
-                    "metadata": metadata or {}
-                }
+                    "metadata": metadata or {},
+                },
             )
-            
+
             # Convert response to ModelRegistryEntry
             return ModelRegistryEntry(
                 model_id=response["model_id"],
@@ -246,9 +253,9 @@ class ModelRegistry(AuthenticatedClient):
                 is_baseline=True,
                 metrics=response.get("metrics", {}),
                 mlflow_version=response.get("mlflow_version"),
-                timestamp=datetime.fromisoformat(response["timestamp"])
+                timestamp=datetime.fromisoformat(response["timestamp"]),
             )
-            
+
         except Exception as e:
             raise RegistryException(f"Failed to register baseline via API: {str(e)}")
 
@@ -391,17 +398,21 @@ class ModelRegistry(AuthenticatedClient):
     def get_latest_model(self, model_type: str) -> Optional[ModelRegistryEntry]:
         """Get the latest model version for a type."""
         try:
-            latest_versions = self.client.get_latest_versions(model_type)
-            if not latest_versions:
+            # Prefer the explicit production alias.
+            try:
+                production_version = self.client.get_model_version_by_alias(
+                    model_type, "production"
+                )
+                return self._version_to_entry(production_version)
+            except Exception:
+                pass
+
+            versions = self.client.search_model_versions(f"name='{model_type}'")
+            if not versions:
                 return None
 
-            # Get the production version if available, otherwise the latest
-            for version in latest_versions:
-                if version.current_stage == "Production":
-                    return self._version_to_entry(version)
-
-            # Return the latest version
-            return self._version_to_entry(latest_versions[0])
+            latest = max(versions, key=lambda version: int(version.version))
+            return self._version_to_entry(latest)
 
         except Exception as e:
             raise RegistryException(f"Failed to get latest model: {str(e)}")
@@ -414,17 +425,28 @@ class ModelRegistry(AuthenticatedClient):
             if not target or target.model_type != model_type:
                 return False
 
-            # Transition current production to archived
+            # Replace deprecated stages with aliases/tags for lifecycle tracking.
             current = self.get_latest_model(model_type)
             if current and current.mlflow_version:
-                self.client.transition_model_version_stage(
-                    name=model_type, version=current.mlflow_version, stage="Archived"
+                self.client.set_model_version_tag(
+                    name=model_type,
+                    version=current.mlflow_version,
+                    key="lifecycle_stage",
+                    value="Archived",
                 )
 
-            # Transition target to production
+            # Point the production alias at the target version.
             if target.mlflow_version:
-                self.client.transition_model_version_stage(
-                    name=model_type, version=target.mlflow_version, stage="Production"
+                self.client.set_registered_model_alias(
+                    name=model_type,
+                    alias="production",
+                    version=target.mlflow_version,
+                )
+                self.client.set_model_version_tag(
+                    name=model_type,
+                    version=target.mlflow_version,
+                    key="lifecycle_stage",
+                    value="Production",
                 )
 
             return True
@@ -444,6 +466,7 @@ class ModelRegistry(AuthenticatedClient):
         """Register a model with Hokusai token metadata.
 
         Args:
+        ----
             model_uri: MLflow model URI (e.g., "runs:/abc123/model")
             model_name: Name for the registered model
             token_id: Hokusai token ID (e.g., "msg-ai")
@@ -452,9 +475,11 @@ class ModelRegistry(AuthenticatedClient):
             additional_tags: Optional additional tags
 
         Returns:
+        -------
             Dict with registration details
 
         Raises:
+        ------
             ValueError: Invalid parameters
             RegistryException: Registration failed
 
@@ -519,9 +544,11 @@ class ModelRegistry(AuthenticatedClient):
         """Validate required Hokusai tags.
 
         Args:
+        ----
             tags: Dictionary of tags to validate
 
         Raises:
+        ------
             RegistryException: Invalid or missing tags
 
         """
@@ -543,10 +570,12 @@ class ModelRegistry(AuthenticatedClient):
         """Get a tokenized model by name and version.
 
         Args:
+        ----
             model_name: Registered model name
             version: Model version
 
         Returns:
+        -------
             Dict with model details including token metadata
 
         """
@@ -572,9 +601,11 @@ class ModelRegistry(AuthenticatedClient):
         """List all models associated with a token.
 
         Args:
+        ----
             token_id: Hokusai token ID
 
         Returns:
+        -------
             List of model details
 
         """
@@ -603,6 +634,7 @@ class ModelRegistry(AuthenticatedClient):
         """Update tags for a model version.
 
         Args:
+        ----
             model_name: Registered model name
             version: Model version
             tags: Tags to update
@@ -620,9 +652,11 @@ class ModelRegistry(AuthenticatedClient):
         """Validate token ID format.
 
         Args:
+        ----
             token_id: Token ID to validate
 
         Raises:
+        ------
             ValueError: Invalid token ID format
 
         """

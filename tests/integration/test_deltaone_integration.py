@@ -1,4 +1,5 @@
 """Integration tests for DeltaOne Detector with MLflow."""
+
 import shutil
 import tempfile
 import unittest
@@ -28,17 +29,23 @@ class TestDeltaOneIntegration(unittest.TestCase):
         """Set up test fixtures for each test."""
         self.model_name = "test_deltaone_model"
 
+    def _latest_version(self, model_name: str):
+        versions = self.client.search_model_versions(f"name='{model_name}'")
+        return max(versions, key=lambda version: int(version.version))
+
     def test_full_deltaone_workflow(self):
         """Test complete DeltaOne detection workflow."""
         # Create and register baseline model
         with mlflow.start_run():
             mlflow.log_metric("accuracy", 0.850)
             mlflow.sklearn.log_model(
-                Mock(spec=["predict"]), "model", registered_model_name=self.model_name  # Mock model
+                Mock(spec=["predict"]),
+                "model",
+                registered_model_name=self.model_name,  # Mock model
             )
 
         # Add baseline tags to first version
-        baseline_version = self.client.get_latest_versions(self.model_name, stages=["None"])[0]
+        baseline_version = self._latest_version(self.model_name)
         self.client.set_model_version_tag(
             self.model_name, baseline_version.version, "benchmark_metric", "accuracy"
         )
@@ -54,7 +61,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
             )
 
         # Add metric tag to new version
-        latest_version = self.client.get_latest_versions(self.model_name, stages=["None"])[0]
+        latest_version = self._latest_version(self.model_name)
         self.client.set_model_version_tag(
             self.model_name, latest_version.version, "benchmark_metric", "accuracy"
         )
@@ -85,7 +92,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
                 )
 
             # Tag baseline
-            version = self.client.get_latest_versions(model_name, stages=["None"])[0]
+            version = self._latest_version(model_name)
             self.client.set_model_version_tag(
                 model_name, version.version, "benchmark_metric", metric_name
             )
@@ -101,7 +108,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
                 )
 
             # Tag new version
-            new_version = self.client.get_latest_versions(model_name, stages=["None"])[0]
+            new_version = self._latest_version(model_name)
             self.client.set_model_version_tag(
                 model_name, new_version.version, "benchmark_metric", metric_name
             )
@@ -122,7 +129,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
             )
 
         # Tag baseline
-        version = self.client.get_latest_versions("test_no_improvement", stages=["None"])[0]
+        version = self._latest_version("test_no_improvement")
         self.client.set_model_version_tag(
             "test_no_improvement", version.version, "benchmark_metric", "accuracy"
         )
@@ -138,7 +145,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
             )
 
         # Tag new version
-        new_version = self.client.get_latest_versions("test_no_improvement", stages=["None"])[0]
+        new_version = self._latest_version("test_no_improvement")
         self.client.set_model_version_tag(
             "test_no_improvement", new_version.version, "benchmark_metric", "accuracy"
         )
@@ -162,7 +169,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
             )
 
         # Tag baseline
-        version = self.client.get_latest_versions("test_webhook_model", stages=["None"])[0]
+        version = self._latest_version("test_webhook_model")
         self.client.set_model_version_tag(
             "test_webhook_model", version.version, "benchmark_metric", "accuracy"
         )
@@ -178,7 +185,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
             )
 
         # Tag new version
-        new_version = self.client.get_latest_versions("test_webhook_model", stages=["None"])[0]
+        new_version = self._latest_version("test_webhook_model")
         self.client.set_model_version_tag(
             "test_webhook_model", new_version.version, "benchmark_metric", "accuracy"
         )
@@ -215,7 +222,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
             )
 
         # Tag baseline
-        version = self.client.get_latest_versions(model_name, stages=["None"])[0]
+        version = self._latest_version(model_name)
         self.client.set_model_version_tag(
             model_name, version.version, "benchmark_metric", "accuracy"
         )
@@ -238,7 +245,7 @@ class TestDeltaOneIntegration(unittest.TestCase):
             )
 
         # Tag latest version
-        latest = self.client.get_latest_versions(model_name, stages=["None"])[0]
+        latest = self._latest_version(model_name)
         self.client.set_model_version_tag(
             model_name, latest.version, "benchmark_metric", "accuracy"
         )

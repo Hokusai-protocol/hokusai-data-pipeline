@@ -42,12 +42,14 @@ class BaselineModelLoader:
         """Load model from MLflow registry with tracking.
 
         Args:
+        ----
             model_name: Name of the model in registry
             version: Model version (defaults to latest)
             run_id: Unique run identifier
             metaflow_run_id: Metaflow run identifier
 
         Returns:
+        -------
             Loaded model object
 
         """
@@ -107,11 +109,13 @@ class BaselineModelLoader:
         """Load model from file path with tracking.
 
         Args:
+        ----
             model_path: Path to model file
             run_id: Unique run identifier
             metaflow_run_id: Metaflow run identifier
 
         Returns:
+        -------
             Loaded model object
 
         """
@@ -176,10 +180,12 @@ class BaselineModelLoader:
         """Load a mock model for testing with tracking.
 
         Args:
+        ----
             run_id: Unique run identifier
             metaflow_run_id: Metaflow run identifier
 
         Returns:
+        -------
             Mock model dictionary
 
         """
@@ -242,97 +248,106 @@ class BaselineModelLoader:
 
     def load_baseline_model(self, model_name: str, use_cache: bool = True):
         """Load baseline model with caching support.
-        
+
         Args:
+        ----
             model_name: Name of the model
             use_cache: Whether to use cached model if available
-            
+
         Returns:
+        -------
             Tuple of (model, version_info)
+
         """
         # Check cache first
         if use_cache and model_name in self.cache:
             logger.info(f"Loading model {model_name} from cache")
             return self.cache[model_name]
-            
+
         # Get latest production version
         version = self._get_latest_production_version(model_name)
         if version:
             model_uri = f"models:/{model_name}/{version.version}"
             model = mlflow.pyfunc.load_model(model_uri)
-            
+
             version_info = {
                 "version": version.version,
                 "stage": version.current_stage,
-                "run_id": version.run_id
+                "run_id": version.run_id,
             }
-            
+
             # Cache the result
             if use_cache:
                 self.cache[model_name] = (model, version_info)
-                
+
             return model, version_info
-        
+
         # Try previous version as fallback
         prev_version = self._get_previous_version(model_name)
         if prev_version:
             model_uri = f"models:/{model_name}/{prev_version.version}"
             model = mlflow.pyfunc.load_model(model_uri)
-            
+
             version_info = {
                 "version": prev_version.version,
                 "stage": prev_version.current_stage,
-                "run_id": prev_version.run_id
+                "run_id": prev_version.run_id,
             }
-            
+
             # Cache the result
             if use_cache:
                 self.cache[model_name] = (model, version_info)
-                
+
             return model, version_info
-            
+
         raise ValueError(f"No baseline model found for {model_name}")
-    
+
     def _get_latest_production_version(self, model_name: str):
         """Get the latest production version of a model.
-        
+
         Args:
+        ----
             model_name: Name of the model
-            
+
         Returns:
+        -------
             Model version object or None
+
         """
         versions = self.client.search_model_versions(f"name='{model_name}'")
-        
+
         # Filter production versions
         prod_versions = [v for v in versions if v.current_stage == "Production"]
-        
+
         if not prod_versions:
             return None
-            
+
         # Sort by creation timestamp (latest first)
         prod_versions.sort(key=lambda v: v.creation_timestamp, reverse=True)
-        
+
         return prod_versions[0]
-    
+
     def _get_previous_version(self, model_name: str, current_version: str = None):
         """Get the previous version of a model.
-        
+
         Args:
+        ----
             model_name: Name of the model
             current_version: Current version to find the previous of (optional)
-            
+
         Returns:
+        -------
             Model version object or None
+
         """
         versions = self.client.search_model_versions(f"name='{model_name}'")
-        
+
         if not versions:
             return None
-            
+
         # Sort by version number (descending)
         versions.sort(key=lambda v: int(v.version), reverse=True)
-        
+
         if current_version:
             # Find the version before the specified current version
             for i, v in enumerate(versions):
@@ -343,29 +358,35 @@ class BaselineModelLoader:
         else:
             # Return second latest if exists, else None (not the latest)
             return versions[1] if len(versions) > 1 else None
-    
+
     def load_specific_version(self, model_name: str, version: str):
         """Load a specific version of a model.
-        
+
         Args:
+        ----
             model_name: Name of the model
             version: Version to load
-            
+
         Returns:
+        -------
             Loaded model
+
         """
         model_uri = f"models:/{model_name}/{version}"
         return mlflow.pyfunc.load_model(model_uri)
-    
+
     def get_model_metadata(self, model_name: str, version: str = None):
         """Get metadata for a model.
-        
+
         Args:
+        ----
             model_name: Name of the model
             version: Specific version to get metadata for (optional)
-            
+
         Returns:
+        -------
             Dictionary with model metadata
+
         """
         try:
             if version:
@@ -378,13 +399,13 @@ class BaselineModelLoader:
                     "run_id": model_version.run_id,
                     "tags": model_version.tags,
                     "created_at": datetime.fromtimestamp(model_version.creation_timestamp / 1000),
-                    "description": model_version.description
+                    "description": model_version.description,
                 }
             else:
                 # Get general model metadata
                 model = self.client.get_registered_model(model_name)
                 versions = self.client.search_model_versions(f"name='{model_name}'")
-                
+
                 return {
                     "name": model.name,
                     "description": model.description,
@@ -393,50 +414,55 @@ class BaselineModelLoader:
                         {
                             "version": v.version,
                             "stage": v.current_stage,
-                            "description": v.description
+                            "description": v.description,
                         }
                         for v in versions[:5]  # Last 5 versions
-                    ]
+                    ],
                 }
         except Exception as e:
             logger.error(f"Error getting metadata for {model_name}: {e}")
             return None
-    
+
     def list_available_baselines(self, model_name: str = None):
         """List available baseline models or versions.
-        
+
         Args:
+        ----
             model_name: If provided, list versions for this model
-        
+
         Returns:
+        -------
             List of model names or version information
+
         """
         try:
             if model_name:
                 # List versions for specific model
                 versions = self.client.search_model_versions(f"name='{model_name}'")
-                
+
                 # Sort by stage priority (Production first) and then by version
                 stage_priority = {"Production": 0, "Staging": 1, "Archived": 2, "None": 3}
-                versions.sort(key=lambda v: (stage_priority.get(v.current_stage, 3), -int(v.version)))
-                
+                versions.sort(
+                    key=lambda v: (stage_priority.get(v.current_stage, 3), -int(v.version))
+                )
+
                 return [
                     {
                         "version": v.version,
                         "stage": v.current_stage,
-                        "tags": v.tags if hasattr(v, 'tags') else {},
-                        "description": v.description if hasattr(v, 'description') else ""
+                        "tags": v.tags if hasattr(v, "tags") else {},
+                        "description": v.description if hasattr(v, "description") else "",
                     }
                     for v in versions
                 ]
             else:
                 # List all model names
-                models = self.client.list_registered_models()
+                models = self.client.search_registered_models()
                 return [model.name for model in models]
         except Exception as e:
             logger.error(f"Error listing baseline models: {e}")
             return []
-    
+
     def clear_cache(self):
         """Clear the model cache."""
         self.cache.clear()
@@ -446,9 +472,11 @@ class BaselineModelLoader:
         """Validate that model has required attributes.
 
         Args:
+        ----
             model: Model object to validate
 
         Returns:
+        -------
             True if valid, raises exception otherwise
 
         """

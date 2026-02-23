@@ -136,7 +136,7 @@ class TestHokusaiModelRegistry:
         mock_model_version.name = "hokusai_classification_improved"
         mock_model_version.version = "1"
         mock_register_model.return_value = mock_model_version
-        
+
         # Mock MLflow client
         mock_client = Mock()
         mock_client_class.return_value = mock_client
@@ -154,7 +154,7 @@ class TestHokusaiModelRegistry:
             mock_model, baseline_id, delta_metrics, contributor_address
         )
 
-        # Verify result  
+        # Verify result
         assert result["model_id"] == "hokusai_classification_improved/1"
         assert result["model_name"] == "hokusai_classification_improved"
         assert result["version"] == "1"
@@ -176,48 +176,48 @@ class TestHokusaiModelRegistry:
         # Mock MLflow client
         mock_client = Mock()
         mock_client_class.return_value = mock_client
-        
+
         # Mock model versions
         mock_v1 = Mock()
         mock_v1.version = "1"
         mock_v1.run_id = "run1"
         mock_v1.creation_timestamp = 1000
-        
+
         mock_v2 = Mock()
         mock_v2.version = "2"
         mock_v2.run_id = "run2"
         mock_v2.creation_timestamp = 2000
-        
+
         mock_v3 = Mock()
         mock_v3.version = "3"
         mock_v3.run_id = "run3"
         mock_v3.creation_timestamp = 3000
-        
+
         mock_client.search_model_versions.return_value = [mock_v3, mock_v1, mock_v2]
-        
+
         # Mock runs
         mock_run1 = Mock()
         mock_run1.data.params = {"is_baseline": "True"}
         mock_run1.data.metrics = {"accuracy": 0.85}
-        
+
         mock_run2 = Mock()
         mock_run2.data.params = {
             "contributor_address": "0x123",
-            "baseline_model_id": "hokusai_classification_baseline/1"
+            "baseline_model_id": "hokusai_classification_baseline/1",
         }
         mock_run2.data.metrics = {"accuracy": 0.87, "accuracy_improvement": 0.02}
-        
+
         mock_run3 = Mock()
         mock_run3.data.params = {
             "contributor_address": "0x456",
-            "baseline_model_id": "hokusai_classification_improved/2"
+            "baseline_model_id": "hokusai_classification_improved/2",
         }
         mock_run3.data.metrics = {"accuracy": 0.88, "accuracy_improvement": 0.01}
-        
+
         mock_client.get_run.side_effect = lambda run_id: {
             "run1": mock_run1,
             "run2": mock_run2,
-            "run3": mock_run3
+            "run3": mock_run3,
         }[run_id]
 
         registry = HokusaiModelRegistry()
@@ -287,11 +287,16 @@ class TestHokusaiModelRegistry:
         registry = HokusaiModelRegistry()
         result = registry.promote_model_to_production("hokusai_classification_improved", "2")
 
-        mock_client.transition_model_version_stage.assert_called_once_with(
+        mock_client.set_registered_model_alias.assert_called_once_with(
             name="hokusai_classification_improved",
             version="2",
-            stage="Production",
-            archive_existing_versions=True,
+            alias="production",
+        )
+        mock_client.set_model_version_tag.assert_called_once_with(
+            name="hokusai_classification_improved",
+            version="2",
+            key="lifecycle_stage",
+            value="Production",
         )
 
         assert result["model_id"] == "hokusai_classification_improved"
@@ -310,25 +315,16 @@ class TestHokusaiModelRegistry:
         mock_model1.name = "hokusai_classification_baseline"
         mock_model1.description = "Baseline classification model"
         mock_model1.tags = {"model_type": "classification"}
-        mock_model1.latest_versions = [
-            Mock(
-                version="1",
-                current_stage="Production",
-            )
-        ]
-        
         mock_model2 = Mock()
         mock_model2.name = "hokusai_regression_improved"
         mock_model2.description = "Improved regression model"
         mock_model2.tags = {"model_type": "regression"}
-        mock_model2.latest_versions = [
-            Mock(
-                version="3",
-                current_stage="Production",
-            )
+
+        mock_client.search_registered_models.return_value = [mock_model1, mock_model2]
+        mock_client.get_model_version_by_alias.side_effect = [
+            Mock(version="1"),
+            Mock(version="3"),
         ]
-        
-        mock_client.list_registered_models.return_value = [mock_model1, mock_model2]
 
         registry = HokusaiModelRegistry()
         production_models = registry.get_production_models()
