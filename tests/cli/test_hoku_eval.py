@@ -212,3 +212,53 @@ def test_eval_run_runtime_error_returns_exit_code_2(monkeypatch) -> None:
     assert result.exit_code == 2
     payload = json.loads(result.output)
     assert payload["status"] == "error"
+
+
+def test_benchmark_register_success(monkeypatch) -> None:
+    runner = CliRunner()
+
+    def _fake_request(**_kwargs):
+        return {"spec_id": "spec-123", "model_id": "model-a"}
+
+    monkeypatch.setattr(hoku_eval, "_benchmark_api_request", _fake_request)
+
+    result = runner.invoke(
+        hoku_eval.benchmark_group,
+        [
+            "register",
+            "--model-id",
+            "model-a",
+            "--dataset-id",
+            "kaggle/mmlu",
+            "--dataset-version",
+            "sha256:" + "a" * 64,
+            "--metric-name",
+            "accuracy",
+            "--output",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "success"
+    assert payload["item"]["spec_id"] == "spec-123"
+
+
+def test_benchmark_list_success(monkeypatch) -> None:
+    runner = CliRunner()
+
+    def _fake_request(**_kwargs):
+        return {"count": 1, "items": [{"spec_id": "spec-123"}]}
+
+    monkeypatch.setattr(hoku_eval, "_benchmark_api_request", _fake_request)
+
+    result = runner.invoke(
+        hoku_eval.benchmark_group,
+        ["list", "--model-id", "model-a", "--output", "json"],
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert payload["status"] == "success"
+    assert payload["count"] == 1

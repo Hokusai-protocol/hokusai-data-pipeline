@@ -1,6 +1,7 @@
 """API routes for Hokusai MLOps services."""
 
 from . import (
+    benchmarks,
     dspy,
     evaluations,
     governance,
@@ -15,6 +16,7 @@ from . import (
 
 __all__ = [
     "health",
+    "benchmarks",
     "models",
     "dspy",
     "evaluations",

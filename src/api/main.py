@@ -12,6 +12,7 @@ from slowapi.util import get_remote_address
 
 from src.api.endpoints import model_serving
 from src.api.routes import (
+    benchmarks,
     dspy,
     evaluations,
     governance,
@@ -96,6 +97,7 @@ app.include_router(dspy.router, tags=["dspy"])
 app.include_router(evaluations.router)
 app.include_router(privacy.router)
 app.include_router(governance.router)
+app.include_router(benchmarks.router)
 app.include_router(outcomes.router)
 app.include_router(model_serving.router, tags=["model-serving"])  # Model 21 serving endpoint
 # TODO: Enable auth router after fixing APIKeyModel dependency
