@@ -23,7 +23,7 @@ class TestHokusaiModelRegistry:
         """Test initialization with default URI."""
         registry = HokusaiModelRegistry()
 
-        assert registry.tracking_uri == "http://mlflow-server:5000"
+        assert registry.tracking_uri == "http://mlflow.hokusai-development.local:5000"
 
     def test_valid_model_types(self):
         """Test valid model types constant."""

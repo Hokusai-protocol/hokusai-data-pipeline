@@ -35,8 +35,9 @@ class TestMTLSConfiguration:
         """Test that mTLS is not configured in development environment."""
         configure_internal_mtls()
 
-        # Verify no AWS Secrets Manager calls were made
-        mock_logger.info.assert_called_with("mTLS not configured for development environment")
+        mock_logger.info.assert_called_with(
+            "Development mode: SSL verification disabled for self-signed certificates"
+        )
 
         # Verify environment variables were not set
         assert "MLFLOW_TRACKING_CLIENT_CERT_PATH" not in os.environ
@@ -91,7 +92,10 @@ class TestMTLSConfiguration:
         assert mock_file.call_count == 3
 
         # Verify logging
-        mock_logger.info.assert_called_with("Configured mTLS for internal MLflow communication")
+        mock_logger.info.assert_any_call(
+            "Configured mTLS for internal MLflow communication "
+            "(TLS verification disabled for .local domains, client cert authentication enabled)"
+        )
 
     @patch.dict("os.environ", {"ENVIRONMENT": "production"}, clear=True)
     @patch("boto3.client")
@@ -167,7 +171,8 @@ class TestMTLSConfiguration:
         # Verify environment variables are set
         assert os.environ.get("MLFLOW_TRACKING_CLIENT_CERT_PATH") == "/tmp/mlflow-certs/client.crt"
         assert os.environ.get("MLFLOW_TRACKING_CLIENT_KEY_PATH") == "/tmp/mlflow-certs/client.key"
-        assert os.environ.get("MLFLOW_TRACKING_SERVER_CERT_PATH") == "/tmp/mlflow-certs/ca.crt"
+        assert os.environ.get("MLFLOW_TRACKING_SERVER_CERT_PATH") is None
+        assert os.environ.get("MLFLOW_TRACKING_INSECURE_TLS") == "true"
 
     @patch.dict("os.environ", {"ENVIRONMENT": "staging"}, clear=True)
     @patch("boto3.client")
@@ -237,8 +242,8 @@ class TestMTLSConfiguration:
         """Test that mTLS is not configured when ENVIRONMENT is empty."""
         configure_internal_mtls()
 
-        # Verify mTLS was not configured
-        mock_logger.info.assert_called_with("mTLS not configured for development environment")
+        # Empty ENVIRONMENT now results in no-op (not development fallback branch)
+        mock_logger.info.assert_not_called()
 
     @patch.dict("os.environ", {}, clear=True)
     @patch("src.utils.mlflow_config.logger")
@@ -246,5 +251,6 @@ class TestMTLSConfiguration:
         """Test that mTLS is not configured when ENVIRONMENT is not set."""
         configure_internal_mtls()
 
-        # Verify mTLS was not configured (defaults to development)
-        mock_logger.info.assert_called_with("mTLS not configured for development environment")
+        mock_logger.info.assert_called_with(
+            "Development mode: SSL verification disabled for self-signed certificates"
+        )

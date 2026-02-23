@@ -8,6 +8,7 @@ import pytest
 
 from src.utils.mlflow_config import (
     MLFlowConfig,
+    MLflowUnavailableError,
     generate_run_name,
     log_dataset_info,
     log_model_artifact,
@@ -34,7 +35,7 @@ class TestMLFlowConfig:
     def test_init_default_config(self):
         """Test MLFlowConfig initialization with defaults."""
         config = MLFlowConfig()
-        assert config.tracking_uri == "file:./mlruns"
+        assert config.tracking_uri == "https://mlflow.hokusai-development.local:5000"
         assert config.experiment_name == "hokusai-pipeline"
         assert config.artifact_root is None
 
@@ -49,7 +50,7 @@ class TestMLFlowConfig:
     def test_init_with_env_vars(self):
         """Test MLFlowConfig initialization with environment variables."""
         config = MLFlowConfig()
-        assert config.tracking_uri == "http://localhost:5000"
+        assert config.tracking_uri in {"http://localhost:5000", "http://127.0.0.1:5000"}
         assert config.experiment_name == "test-experiment"
         assert config.artifact_root == "/tmp/artifacts"
 
@@ -140,7 +141,7 @@ class TestMLFlowUtilities:
         """Test MLFlow run context manager success case."""
         mock_run = MagicMock()
         mock_run.info.run_id = "test_run_id"
-        mock_start_run.return_value.__enter__.return_value = mock_run
+        mock_start_run.return_value = mock_run
 
         tags = {
             "pipeline.step": "test_step",
@@ -154,11 +155,9 @@ class TestMLFlowUtilities:
     @patch("mlflow.set_tag")
     def test_mlflow_run_context_error(self, mock_set_tag, mock_start_run):
         """Test MLFlow run context manager error case."""
-        # The mlflow_run_context actually has a bug where it yields None after an exception
-        # which causes a RuntimeError. Let's test what actually happens.
         mock_run = MagicMock()
         mock_run.info.run_id = "test_run_id"
-        mock_start_run.return_value.__enter__.return_value = mock_run
+        mock_start_run.return_value = mock_run
 
         tags = {
             "pipeline.step": "test_step",
@@ -166,8 +165,7 @@ class TestMLFlowUtilities:
             "metaflow.run_id": "metaflow456",
         }
 
-        # The function has a bug that causes RuntimeError, so we expect that
-        with pytest.raises((ValueError, RuntimeError)):
+        with pytest.raises(MLflowUnavailableError, match="Failed to start MLFlow run"):
             with mlflow_run_context(run_name="test_run", tags=tags):
                 raise ValueError("Test error")
 

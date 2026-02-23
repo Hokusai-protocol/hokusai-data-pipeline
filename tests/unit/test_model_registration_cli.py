@@ -26,12 +26,12 @@ class TestModelRegistrationCLI:
     def mock_dependencies(self):
         """Mock all external dependencies"""
         with (
-            patch("cli.model.DatabaseConnection") as mock_db,
-            patch("cli.model.TokenOperations") as mock_token_ops,
-            patch("cli.model.mlflow") as mock_mlflow,
-            patch("cli.model.EventPublisher") as mock_publisher,
-            patch("cli.model.MetricValidator") as mock_validator,
-            patch("cli.model.BaselineComparator") as mock_comparator,
+            patch("src.cli.model.DatabaseConnection") as mock_db,
+            patch("src.cli.model.TokenOperations") as mock_token_ops,
+            patch("src.cli.model.mlflow") as mock_mlflow,
+            patch("src.cli.model.EventPublisher") as mock_publisher,
+            patch("src.cli.model.MetricValidator") as mock_validator,
+            patch("src.cli.model.BaselineComparator") as mock_comparator,
         ):
             # Configure mocks
             mock_validator.return_value.validate_metric_name.return_value = True

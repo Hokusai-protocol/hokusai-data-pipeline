@@ -1,6 +1,7 @@
 """Tests for data integration module."""
 
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pandas as pd
 import pytest
@@ -10,6 +11,19 @@ from src.modules.data_integration import DataIntegrator
 
 class TestDataIntegrator:
     """Test DataIntegrator class."""
+
+    @pytest.fixture(autouse=True)
+    def _mock_tracking(self):
+        """Patch MLflow tracking helpers so unit tests stay offline."""
+        with (
+            patch("src.modules.data_integration.mlflow_run_context") as mock_run_context,
+            patch("src.modules.data_integration.log_step_parameters"),
+            patch("src.modules.data_integration.log_step_metrics"),
+            patch("src.modules.data_integration.log_dataset_info"),
+        ):
+            mock_run_context.return_value.__enter__ = Mock(return_value=None)
+            mock_run_context.return_value.__exit__ = Mock(return_value=None)
+            yield
 
     @pytest.fixture
     def integrator(self):

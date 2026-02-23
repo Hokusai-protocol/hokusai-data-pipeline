@@ -9,6 +9,13 @@ import pytest
 from src.services.experiment_manager import ExperimentManager
 
 
+@pytest.fixture(autouse=True)
+def mock_mlflow_metric_logging():
+    """Prevent implicit MLflow run creation/network calls in unit tests."""
+    with patch("mlflow.log_metric"), patch("mlflow.active_run", return_value=None):
+        yield
+
+
 class TestExperimentManager:
     """Test suite for ExperimentManager class."""
 
@@ -261,7 +268,9 @@ class TestExperimentManager:
 
     @patch("mlflow.create_experiment")
     @patch("mlflow.get_experiment_by_name")
-    def test_ensure_experiment_exists_already_exists(self, mock_get_experiment, mock_create_experiment):
+    def test_ensure_experiment_exists_already_exists(
+        self, mock_get_experiment, mock_create_experiment
+    ):
         """Test when experiment already exists."""
         # Experiment exists
         mock_experiment = Mock()

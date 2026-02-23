@@ -1,7 +1,7 @@
 """Unit tests for DSPy API endpoints."""
 
-from unittest.mock import MagicMock, Mock, patch
 import sys
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,7 +11,7 @@ mock_boto3 = Mock()
 mock_secrets_client = Mock()
 mock_secrets_client.get_secret_value.return_value = {"SecretString": "test-api-key"}
 mock_boto3.client.return_value = mock_secrets_client
-sys.modules['boto3'] = mock_boto3
+sys.modules["boto3"] = mock_boto3
 
 from src.api.main import app
 from src.services.dspy_pipeline_executor import ExecutionMode, ExecutionResult
@@ -21,18 +21,28 @@ from src.services.dspy_pipeline_executor import ExecutionMode, ExecutionResult
 @pytest.fixture(autouse=True)
 def mock_auth_dependencies():
     """Mock authentication dependencies."""
+
+    # Bypass API key middleware to prevent network auth validation calls.
+    async def passthrough_dispatch(self, request, call_next):
+        return await call_next(request)
+
     # Mock the require_auth dependency to return test user data
     async def mock_require_auth():
         return {"sub": "test-user", "email": "test@example.com"}
-    
-    # Override the dependency in the app
-    from src.middleware.auth import require_auth
-    app.dependency_overrides[require_auth] = mock_require_auth
-    
-    yield
-    
+
+    with patch("src.middleware.auth.APIKeyAuthMiddleware.dispatch", new=passthrough_dispatch):
+        # Ensure middleware stack is rebuilt with patched dispatch in full-suite runs.
+        app.middleware_stack = None
+
+        # Override the dependency in the app
+        from src.middleware.auth import require_auth
+
+        app.dependency_overrides[require_auth] = mock_require_auth
+        yield
+
     # Clean up
     app.dependency_overrides.clear()
+    app.middleware_stack = None
 
 
 @pytest.fixture
@@ -333,14 +343,16 @@ class TestDSPyAPI:
 
     def test_execute_missing_auth(self, client):
         """Test execution without authentication."""
-        # Remove the mock auth for this test
-        with patch("src.api.middleware.auth.require_auth", side_effect=Exception("No token")):
-            response = client.post(
-                "/api/v1/dspy/execute", json={"program_id": "test", "inputs": {"data": "test"}}
-            )
+        # Remove dependency override in this test so missing header fails auth dependency.
+        from src.middleware.auth import require_auth
 
-            # Should fail due to auth middleware
-            assert response.status_code == 401 or response.status_code == 403
+        app.dependency_overrides.pop(require_auth, None)
+        response = client.post(
+            "/api/v1/dspy/execute", json={"program_id": "test", "inputs": {"data": "test"}}
+        )
+
+        # Should fail due to missing auth header.
+        assert response.status_code == 401
 
     def test_execute_invalid_mode(self, client):
         """Test execution with invalid mode."""

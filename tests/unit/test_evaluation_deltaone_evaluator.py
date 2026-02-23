@@ -23,8 +23,10 @@ class TestDetectDeltaOne:
     @patch("src.evaluation.deltaone_evaluator._find_baseline_version")
     @patch("src.evaluation.deltaone_evaluator._get_metric_value")
     @patch("src.evaluation.deltaone_evaluator._calculate_percentage_point_difference")
+    @patch("src.evaluation.deltaone_evaluator.mlflow.log_metric")
     def test_detect_delta_one_with_improvement(
         self,
+        mock_log_metric,
         mock_calc_diff,
         mock_get_metric,
         mock_find_baseline,
@@ -55,6 +57,7 @@ class TestDetectDeltaOne:
         result = detect_delta_one("test_model")
 
         assert result is True
+        assert mock_log_metric.call_count == 2
 
     @patch("src.evaluation.deltaone_evaluator.MlflowClient")
     @patch("src.evaluation.deltaone_evaluator._get_sorted_model_versions")

@@ -16,6 +16,30 @@ import pytest
 from src.utils.config import get_test_config
 
 
+def pytest_collection_modifyitems(items):
+    """Apply standard test marks by directory so default runs stay offline-safe."""
+    integration_like_files = {
+        "/tests/load/",
+        "/tests/test_infrastructure_investigation.py",
+        "/tests/test_mlflow_auth.py",
+        "/tests/test_mlflow_error_handling.py",
+        "/tests/test_mlflow_routing_verification.py",
+        "/tests/test_model_registration_flow.py",
+        "/tests/test_routing.py",
+    }
+
+    for item in items:
+        path = str(item.fspath)
+        if "/tests/integration/" in path:
+            item.add_marker(pytest.mark.integration)
+        elif "/tests/e2e/" in path:
+            item.add_marker(pytest.mark.e2e)
+        elif "/tests/chaos/" in path:
+            item.add_marker(pytest.mark.chaos)
+        elif any(pattern in path for pattern in integration_like_files):
+            item.add_marker(pytest.mark.integration)
+
+
 @pytest.fixture
 def test_config():
     """Get test configuration."""

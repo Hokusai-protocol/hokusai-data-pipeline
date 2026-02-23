@@ -1,7 +1,7 @@
 """Unit tests for model abstraction service."""
 
 from datetime import datetime
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, mock_open, patch
 
 import numpy as np
 import pandas as pd
@@ -302,17 +302,18 @@ class TestSklearnHokusaiModel:
         )
         self.model = SklearnHokusaiModel(None, self.metadata)
 
-    @patch("joblib.load")
-    def test_load_model(self, mock_joblib_load):
+    @patch("pickle.load")
+    @patch("builtins.open", new_callable=mock_open)
+    def test_load_model(self, mock_file_open, mock_pickle_load):
         """Test loading sklearn model."""
         mock_sklearn_model = Mock()
-        mock_joblib_load.return_value = mock_sklearn_model
+        mock_pickle_load.return_value = mock_sklearn_model
 
         self.model.load("/path/to/model.pkl")
 
         assert self.model._model == mock_sklearn_model
         assert self.model._is_loaded is True
-        mock_joblib_load.assert_called_once_with("/path/to/model.pkl")
+        mock_file_open.assert_called_once_with("/path/to/model.pkl", "rb")
 
     def test_predict(self):
         """Test sklearn model prediction."""
@@ -356,7 +357,8 @@ class TestSklearnHokusaiModel:
 
         # Missing column
         X_invalid = pd.DataFrame([[1]], columns=["f1"])
-        assert self.model.validate_input(X_invalid) is False
+        with pytest.raises(ValueError, match="Missing required features"):
+            self.model.validate_input(X_invalid)
 
         # Extra column is okay
         X_extra = pd.DataFrame([[1, 2, 3]], columns=["f1", "f2", "f3"])
@@ -382,7 +384,7 @@ class TestModelFactory:
             feature_types={},
         )
 
-        model = ModelFactory.create_model(metadata)
+        model = ModelFactory.create_model("sklearn", Mock(), metadata)
 
         assert isinstance(model, SklearnHokusaiModel)
         assert model.metadata == metadata
@@ -403,7 +405,7 @@ class TestModelFactory:
             feature_types={},
         )
 
-        model = ModelFactory.create_model(metadata)
+        model = ModelFactory.create_model("xgboost", Mock(), metadata)
 
         assert isinstance(model, XGBoostHokusaiModel)
 
@@ -423,7 +425,7 @@ class TestModelFactory:
             feature_types={},
         )
 
-        model = ModelFactory.create_model(metadata)
+        model = ModelFactory.create_model("tensorflow", Mock(), metadata)
 
         assert isinstance(model, TensorFlowHokusaiModel)
 
@@ -443,7 +445,7 @@ class TestModelFactory:
             feature_types={},
         )
 
-        model = ModelFactory.create_model(metadata)
+        model = ModelFactory.create_model("dspy", Mock(), metadata)
 
         assert isinstance(model, DSPyHokusaiModel)
 
@@ -463,8 +465,8 @@ class TestModelFactory:
             feature_types={},
         )
 
-        with pytest.raises(ValueError, match="Unsupported model framework"):
-            ModelFactory.create_model(metadata)
+        with pytest.raises(ValueError, match="Unsupported model type"):
+            ModelFactory.create_model("unknown", Mock(), metadata)
 
     def test_register_custom_model_class(self):
         """Test registering custom model class."""
@@ -491,7 +493,7 @@ class TestModelFactory:
             def postprocess(self, pred):
                 pass
 
-        ModelFactory.register_model_class("custom", CustomModel)
+        ModelFactory.register_model_type("custom", CustomModel)
 
-        assert "custom" in ModelFactory._model_classes
-        assert ModelFactory._model_classes["custom"] == CustomModel
+        assert "custom" in ModelFactory._model_types
+        assert ModelFactory._model_types["custom"] == CustomModel

@@ -292,8 +292,10 @@ class TestBaselineModelLoader:
 
     def test_mlflow_exception_handling(self):
         """Test handling MLflow exceptions."""
-        with patch.object(self.loader.client, "search_model_versions") as mock_search:
-            mock_search.side_effect = MlflowException("Model not found")
+        with patch.object(self.loader.client, "get_model_version_by_alias") as mock_alias:
+            with patch.object(self.loader.client, "search_model_versions") as mock_search:
+                mock_alias.side_effect = MlflowException("Alias not found")
+                mock_search.side_effect = MlflowException("Model not found")
 
-            with pytest.raises(MlflowException, match="Model not found"):
-                self.loader._get_latest_production_version("nonexistent_model")
+                with pytest.raises(MlflowException, match="Model not found"):
+                    self.loader._get_latest_production_version("nonexistent_model")

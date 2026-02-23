@@ -5,7 +5,7 @@ from unittest.mock import mock_open, patch
 
 import pytest
 
-from src.utils.schema_validator import SchemaValidator
+from src.utils.schema_validator import SchemaValidator, compute_deterministic_hash
 
 
 class TestSchemaValidator:
@@ -76,8 +76,16 @@ class TestSchemaValidator:
             "model_id": "model_123",
             "version": "1.0.0",
             "performance_delta": {"accuracy": 0.03, "f1_score": 0.02},
-            "contributor_address": "0x123abc",
             "computation_hash": "hash123",
+            "metadata": {"pipeline_run_id": "run_1", "timestamp": "2024-01-15T12:00:00Z"},
+            "delta_computation": {"delta_one_score": 0.12},
+            "contributor_info": {"data_hash": "a" * 64},
+            "attestation": {
+                "proof_ready": True,
+                "proof_system": "none",
+                "hash_tree_root": "b" * 64,
+                "public_inputs_hash": "c" * 64,
+            },
         }
 
         is_valid, errors = validator.validate_output(valid_output)
@@ -170,17 +178,15 @@ class TestSchemaValidator:
             },
         }
 
-        is_valid, errors = validator.validate_attestation_format(attestation)
-
-        # Should pass basic validation
+        is_valid, errors = validator.validate_output(attestation)
         assert isinstance(is_valid, bool)
+        assert isinstance(errors, list)
 
     @patch("builtins.open", new_callable=mock_open)
     @patch("json.load")
     def test_compute_output_hash(self, mock_json_load, mock_file_open):
         """Test computing deterministic hash of output."""
         mock_json_load.return_value = self.mock_schema
-        validator = SchemaValidator()
 
         output = {
             "model_id": "model_123",
@@ -189,8 +195,8 @@ class TestSchemaValidator:
             "contributor_address": "0x123abc",
         }
 
-        hash1 = validator.compute_output_hash(output)
-        hash2 = validator.compute_output_hash(output)
+        hash1 = compute_deterministic_hash(output)
+        hash2 = compute_deterministic_hash(output)
 
         # Hashes should be deterministic
         assert hash1 == hash2
@@ -198,7 +204,7 @@ class TestSchemaValidator:
 
         # Different data should produce different hash
         output["model_id"] = "model_456"
-        hash3 = validator.compute_output_hash(output)
+        hash3 = compute_deterministic_hash(output)
         assert hash3 != hash1
 
     @patch("builtins.open", new_callable=mock_open)
