@@ -5,16 +5,17 @@ from __future__ import annotations
 import logging
 import math
 import re
-import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
-import requests
-
 from src.evaluation.hem import HEM
+from src.evaluation.webhook_config import DELTAONE_EVENT_TYPE, load_deltaone_webhook_endpoints
+from src.evaluation.webhook_delivery import send_webhook_with_retry
 
 logger = logging.getLogger(__name__)
+_WEBHOOK_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="deltaone-webhook")
 
 SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 DATASET_HASH_KEYS = (
@@ -594,21 +595,21 @@ def _calculate_percentage_point_difference(baseline: float, current: float) -> f
 
 
 def send_deltaone_webhook(webhook_url: str, payload: dict[str, Any], max_retries: int = 3) -> bool:
-    """Send a DeltaOne webhook notification with retry and backoff."""
-    headers = {"Content-Type": "application/json", "User-Agent": "Hokusai-DeltaOne/1.0"}
+    """Queue DeltaOne webhook notifications for configured endpoints."""
+    endpoints = load_deltaone_webhook_endpoints(
+        event_type=DELTAONE_EVENT_TYPE,
+        legacy_webhook_url=webhook_url,
+    )
+    if not endpoints:
+        logger.info("No active DeltaOne webhook endpoints configured")
+        return False
 
-    for attempt in range(max_retries):
-        try:
-            response = requests.post(webhook_url, json=payload, headers=headers, timeout=10)
-            if response.status_code == 200:
-                logger.info("DeltaOne webhook notification sent successfully")
-                return True
-            logger.warning("Webhook returned status %s", response.status_code)
-        except requests.exceptions.RequestException as exc:
-            logger.error("Webhook request failed (attempt %s): %s", attempt + 1, exc)
-
-        if attempt < max_retries - 1:
-            time.sleep(2**attempt)
-
-    logger.error("Failed to send webhook after %s attempts", max_retries)
-    return False
+    for endpoint in endpoints:
+        _WEBHOOK_EXECUTOR.submit(
+            send_webhook_with_retry,
+            endpoint,
+            DELTAONE_EVENT_TYPE,
+            payload,
+            max_retries,
+        )
+    return True
