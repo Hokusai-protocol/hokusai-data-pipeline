@@ -68,6 +68,7 @@ if [ -n "$UVICORN_SSL_OPTS" ]; then
     exec mlflow server \
         --host 0.0.0.0 \
         --port 5000 \
+        --allowed-hosts "*" \
         --static-prefix /mlflow \
         --backend-store-uri "${BACKEND_STORE_URI}" \
         --default-artifact-root "${DEFAULT_ARTIFACT_ROOT}" \
@@ -77,6 +78,7 @@ else
     exec mlflow server \
         --host 0.0.0.0 \
         --port 5000 \
+        --allowed-hosts "*" \
         --static-prefix /mlflow \
         --backend-store-uri "${BACKEND_STORE_URI}" \
         --default-artifact-root "${DEFAULT_ARTIFACT_ROOT}" \
