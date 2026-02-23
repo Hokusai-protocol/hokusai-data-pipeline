@@ -264,10 +264,10 @@ def _log_run_inputs(
     max_cost: float | None,
 ) -> None:
     """Log evaluation inputs to MLflow for reproducibility."""
-    mlflow_module.set_tag("hoku_eval.model_id", model_id)
-    mlflow_module.set_tag("hoku_eval.eval_spec", eval_spec)
-    mlflow_module.set_tag("hoku_eval.seed", "none" if seed is None else str(seed))
-    mlflow_module.set_tag("hoku_eval.status", "running")
+    mlflow_module.set_tag("hokusai_eval.model_id", model_id)
+    mlflow_module.set_tag("hokusai_eval.eval_spec", eval_spec)
+    mlflow_module.set_tag("hokusai_eval.seed", "none" if seed is None else str(seed))
+    mlflow_module.set_tag("hokusai_eval.status", "running")
 
     mlflow_module.log_param("model_id", model_id)
     mlflow_module.log_param("eval_spec", eval_spec)
@@ -327,7 +327,7 @@ def _run_evaluation(  # noqa: C901
     run_ctx = (
         mlflow.start_run(run_id=resume_decision.run_id)
         if resume_decision.mode == "resume" and resume_decision.run_id
-        else mlflow.start_run(run_name=f"hoku_eval:{model_id}")
+        else mlflow.start_run(run_name=f"hokusai_eval:{model_id}")
     )
 
     with run_ctx as run:
@@ -344,7 +344,7 @@ def _run_evaluation(  # noqa: C901
 
         estimated_cost = preflight["estimated_cost_usd"]
         if max_cost is not None and estimated_cost > max_cost:
-            mlflow.set_tag("hoku_eval.status", "aborted")
+            mlflow.set_tag("hokusai_eval.status", "aborted")
             raise EvaluationValidationError(
                 f"Estimated cost ${estimated_cost:.6f} exceeds configured max cost ${max_cost:.6f}."
             )
@@ -360,7 +360,7 @@ def _run_evaluation(  # noqa: C901
         try:
             result = mlflow.evaluate(**evaluate_kwargs)
         except Exception as exc:
-            mlflow.set_tag("hoku_eval.status", "failed")
+            mlflow.set_tag("hokusai_eval.status", "failed")
             raise EvaluationRuntimeError(str(exc)) from exc
 
         metrics = _extract_metrics(result)
@@ -370,7 +370,7 @@ def _run_evaluation(  # noqa: C901
 
         actual_cost = float(metrics.get("cost_usd", estimated_cost))
         if max_cost is not None and actual_cost > max_cost:
-            mlflow.set_tag("hoku_eval.status", "aborted")
+            mlflow.set_tag("hokusai_eval.status", "aborted")
             raise EvaluationRuntimeError(
                 f"Runtime cost ${actual_cost:.6f} exceeds configured max cost ${max_cost:.6f}."
             )
@@ -392,7 +392,7 @@ def _run_evaluation(  # noqa: C901
                 payload=attestation_payload,
             )
 
-        mlflow.set_tag("hoku_eval.status", "completed")
+        mlflow.set_tag("hokusai_eval.status", "completed")
 
         return {
             "status": "success",

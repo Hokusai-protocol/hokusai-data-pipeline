@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from click.testing import CliRunner
 
-import src.cli.hoku_eval as hoku_eval
+import src.cli.hokusai_eval as hokusai_eval
 
 
 class _FakeRun:
@@ -37,7 +37,7 @@ class _FakeClient:
         return self._matching_runs
 
     def get_run(self, run_id: str):
-        return _FakeRun(run_id=run_id, status="RUNNING", tags={"hoku_eval.status": "running"})
+        return _FakeRun(run_id=run_id, status="RUNNING", tags={"hokusai_eval.status": "running"})
 
 
 class _FakeMlflow:
@@ -84,14 +84,14 @@ class _FakeMlflow:
 
 def test_help_lists_eval_group() -> None:
     runner = CliRunner()
-    result = runner.invoke(hoku_eval.eval_group, ["--help"])
+    result = runner.invoke(hokusai_eval.eval_group, ["--help"])
     assert result.exit_code == 0
     assert "run" in result.output
 
 
 def test_eval_run_help_lists_required_flags() -> None:
     runner = CliRunner()
-    result = runner.invoke(hoku_eval.eval_group, ["run", "--help"])
+    result = runner.invoke(hokusai_eval.eval_group, ["run", "--help"])
     assert result.exit_code == 0
     for flag in (
         "--provider",
@@ -108,10 +108,10 @@ def test_eval_run_help_lists_required_flags() -> None:
 
 def test_dry_run_success_json(monkeypatch) -> None:
     runner = CliRunner()
-    monkeypatch.setattr(hoku_eval, "_load_mlflow_client", lambda: _FakeClient(model_exists=True))
+    monkeypatch.setattr(hokusai_eval, "_load_mlflow_client", lambda: _FakeClient(model_exists=True))
 
     result = runner.invoke(
-        hoku_eval.eval_group,
+        hokusai_eval.eval_group,
         ["run", "model-a", "dataset-v1", "--dry-run", "--output", "json"],
     )
 
@@ -123,10 +123,12 @@ def test_dry_run_success_json(monkeypatch) -> None:
 
 def test_dry_run_validation_error(monkeypatch) -> None:
     runner = CliRunner()
-    monkeypatch.setattr(hoku_eval, "_load_mlflow_client", lambda: _FakeClient(model_exists=False))
+    monkeypatch.setattr(
+        hokusai_eval, "_load_mlflow_client", lambda: _FakeClient(model_exists=False)
+    )
 
     result = runner.invoke(
-        hoku_eval.eval_group,
+        hokusai_eval.eval_group,
         ["run", "missing-model", "dataset-v1", "--dry-run", "--output", "json"],
     )
 
@@ -140,11 +142,11 @@ def test_eval_run_success_with_attestation(monkeypatch) -> None:
     runner = CliRunner()
     fake_mlflow = _FakeMlflow(metrics={"accuracy": 0.93, "cost_usd": 0.2})
 
-    monkeypatch.setattr(hoku_eval, "_load_mlflow", lambda: fake_mlflow)
-    monkeypatch.setattr(hoku_eval, "_load_mlflow_client", lambda: _FakeClient(model_exists=True))
+    monkeypatch.setattr(hokusai_eval, "_load_mlflow", lambda: fake_mlflow)
+    monkeypatch.setattr(hokusai_eval, "_load_mlflow_client", lambda: _FakeClient(model_exists=True))
 
     result = runner.invoke(
-        hoku_eval.eval_group,
+        hokusai_eval.eval_group,
         [
             "run",
             "model-a",
@@ -176,18 +178,18 @@ def test_eval_run_skips_when_matching_completed_run_found(monkeypatch) -> None:
     completed_run = _FakeRun(
         run_id="run-complete",
         status="FINISHED",
-        tags={"hoku_eval.status": "completed"},
+        tags={"hokusai_eval.status": "completed"},
     )
 
-    monkeypatch.setattr(hoku_eval, "_load_mlflow", lambda: fake_mlflow)
+    monkeypatch.setattr(hokusai_eval, "_load_mlflow", lambda: fake_mlflow)
     monkeypatch.setattr(
-        hoku_eval,
+        hokusai_eval,
         "_load_mlflow_client",
         lambda: _FakeClient(model_exists=True, matching_runs=[completed_run]),
     )
 
     result = runner.invoke(
-        hoku_eval.eval_group,
+        hokusai_eval.eval_group,
         ["run", "model-a", "dataset-v1", "--resume", "auto", "--output", "json"],
     )
 
@@ -201,11 +203,11 @@ def test_eval_run_runtime_error_returns_exit_code_2(monkeypatch) -> None:
     runner = CliRunner()
     fake_mlflow = _FakeMlflow(raise_on_evaluate=True)
 
-    monkeypatch.setattr(hoku_eval, "_load_mlflow", lambda: fake_mlflow)
-    monkeypatch.setattr(hoku_eval, "_load_mlflow_client", lambda: _FakeClient(model_exists=True))
+    monkeypatch.setattr(hokusai_eval, "_load_mlflow", lambda: fake_mlflow)
+    monkeypatch.setattr(hokusai_eval, "_load_mlflow_client", lambda: _FakeClient(model_exists=True))
 
     result = runner.invoke(
-        hoku_eval.eval_group,
+        hokusai_eval.eval_group,
         ["run", "model-a", "dataset-v1", "--output", "json"],
     )
 
@@ -220,10 +222,10 @@ def test_benchmark_register_success(monkeypatch) -> None:
     def _fake_request(**_kwargs):
         return {"spec_id": "spec-123", "model_id": "model-a"}
 
-    monkeypatch.setattr(hoku_eval, "_benchmark_api_request", _fake_request)
+    monkeypatch.setattr(hokusai_eval, "_benchmark_api_request", _fake_request)
 
     result = runner.invoke(
-        hoku_eval.benchmark_group,
+        hokusai_eval.benchmark_group,
         [
             "register",
             "--model-id",
@@ -251,10 +253,10 @@ def test_benchmark_list_success(monkeypatch) -> None:
     def _fake_request(**_kwargs):
         return {"count": 1, "items": [{"spec_id": "spec-123"}]}
 
-    monkeypatch.setattr(hoku_eval, "_benchmark_api_request", _fake_request)
+    monkeypatch.setattr(hokusai_eval, "_benchmark_api_request", _fake_request)
 
     result = runner.invoke(
-        hoku_eval.benchmark_group,
+        hokusai_eval.benchmark_group,
         ["list", "--model-id", "model-a", "--output", "json"],
     )
 
