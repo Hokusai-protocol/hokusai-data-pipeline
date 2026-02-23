@@ -1,4 +1,4 @@
-"""Click CLI entrypoint for reproducible ML evaluations."""
+"""Click commands for reproducible ML evaluations."""
 
 from __future__ import annotations
 
@@ -34,7 +34,8 @@ def _load_mlflow() -> Any:
         return importlib.import_module("mlflow")
     except ImportError as exc:
         raise EvaluationRuntimeError(
-            "mlflow is required for hoku eval. Install ML dependencies before running this command."
+            "mlflow is required for hokusai eval. "
+            "Install ML dependencies before running this command."
         ) from exc
 
 
@@ -45,7 +46,8 @@ def _load_mlflow_client() -> Any:
         return module.MlflowClient()
     except ImportError as exc:
         raise EvaluationRuntimeError(
-            "mlflow is required for hoku eval. Install ML dependencies before running this command."
+            "mlflow is required for hokusai eval. "
+            "Install ML dependencies before running this command."
         ) from exc
 
 
@@ -413,12 +415,7 @@ def _handle_dry_run(
     return 0 if preflight["valid"] else 1
 
 
-@click.group(name="hoku")
-def cli() -> None:
-    """Hokusai reproducible evaluation CLI."""
-
-
-@cli.group(name="eval")
+@click.group(name="eval")
 def eval_group() -> None:
     """Manage evaluation commands."""
 
@@ -534,8 +531,8 @@ def run_command(
         raise SystemExit(2) from exc
 
 
-main = cli
+main = eval_group
 
 
 if __name__ == "__main__":
-    cli()
+    eval_group()

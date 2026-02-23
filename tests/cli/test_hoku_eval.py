@@ -1,4 +1,4 @@
-"""Unit tests for hoku eval CLI commands."""
+"""Unit tests for hokusai eval CLI commands."""
 
 from __future__ import annotations
 
@@ -84,14 +84,14 @@ class _FakeMlflow:
 
 def test_help_lists_eval_group() -> None:
     runner = CliRunner()
-    result = runner.invoke(hoku_eval.cli, ["--help"])
+    result = runner.invoke(hoku_eval.eval_group, ["--help"])
     assert result.exit_code == 0
-    assert "eval" in result.output
+    assert "run" in result.output
 
 
 def test_eval_run_help_lists_required_flags() -> None:
     runner = CliRunner()
-    result = runner.invoke(hoku_eval.cli, ["eval", "run", "--help"])
+    result = runner.invoke(hoku_eval.eval_group, ["run", "--help"])
     assert result.exit_code == 0
     for flag in (
         "--provider",
@@ -111,8 +111,8 @@ def test_dry_run_success_json(monkeypatch) -> None:
     monkeypatch.setattr(hoku_eval, "_load_mlflow_client", lambda: _FakeClient(model_exists=True))
 
     result = runner.invoke(
-        hoku_eval.cli,
-        ["eval", "run", "model-a", "dataset-v1", "--dry-run", "--output", "json"],
+        hoku_eval.eval_group,
+        ["run", "model-a", "dataset-v1", "--dry-run", "--output", "json"],
     )
 
     assert result.exit_code == 0
@@ -126,8 +126,8 @@ def test_dry_run_validation_error(monkeypatch) -> None:
     monkeypatch.setattr(hoku_eval, "_load_mlflow_client", lambda: _FakeClient(model_exists=False))
 
     result = runner.invoke(
-        hoku_eval.cli,
-        ["eval", "run", "missing-model", "dataset-v1", "--dry-run", "--output", "json"],
+        hoku_eval.eval_group,
+        ["run", "missing-model", "dataset-v1", "--dry-run", "--output", "json"],
     )
 
     assert result.exit_code == 1
@@ -144,9 +144,8 @@ def test_eval_run_success_with_attestation(monkeypatch) -> None:
     monkeypatch.setattr(hoku_eval, "_load_mlflow_client", lambda: _FakeClient(model_exists=True))
 
     result = runner.invoke(
-        hoku_eval.cli,
+        hoku_eval.eval_group,
         [
-            "eval",
             "run",
             "model-a",
             "dataset-v1",
@@ -188,8 +187,8 @@ def test_eval_run_skips_when_matching_completed_run_found(monkeypatch) -> None:
     )
 
     result = runner.invoke(
-        hoku_eval.cli,
-        ["eval", "run", "model-a", "dataset-v1", "--resume", "auto", "--output", "json"],
+        hoku_eval.eval_group,
+        ["run", "model-a", "dataset-v1", "--resume", "auto", "--output", "json"],
     )
 
     assert result.exit_code == 0
@@ -206,8 +205,8 @@ def test_eval_run_runtime_error_returns_exit_code_2(monkeypatch) -> None:
     monkeypatch.setattr(hoku_eval, "_load_mlflow_client", lambda: _FakeClient(model_exists=True))
 
     result = runner.invoke(
-        hoku_eval.cli,
-        ["eval", "run", "model-a", "dataset-v1", "--output", "json"],
+        hoku_eval.eval_group,
+        ["run", "model-a", "dataset-v1", "--output", "json"],
     )
 
     assert result.exit_code == 2

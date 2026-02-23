@@ -1,5 +1,5 @@
-"""Tests for the main CLI interface.
-"""
+"""Tests for the main CLI interface."""
+
 import os
 import sys
 from unittest.mock import Mock, patch
@@ -29,6 +29,7 @@ class TestCLI:
         result = self.runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         assert "Hokusai Data Pipeline CLI" in result.output
+        assert "eval" in result.output
 
     def test_cli_version(self) -> None:
         """Test that the CLI provides version information."""
@@ -60,6 +61,7 @@ class TestRunCommand:
             # Create a dummy config file
             with open("config.yaml", "w") as f:
                 f.write("model_path: /path/to/model\n")
+                f.write("dataset_path: /path/to/dataset\n")
 
             result = self.runner.invoke(cli, ["run", "--config", "config.yaml"])
             assert result.exit_code == 0
@@ -93,11 +95,10 @@ class TestEvaluateCommand:
         mock_evaluator.return_value = mock_instance
         mock_instance.evaluate.return_value = {"accuracy": 0.95}
 
-        result = self.runner.invoke(cli, [
-            "evaluate",
-            "--model-path", "/path/to/model",
-            "--dataset-path", "/path/to/dataset"
-        ])
+        result = self.runner.invoke(
+            cli,
+            ["evaluate", "--model-path", "/path/to/model", "--dataset-path", "/path/to/dataset"],
+        )
         assert result.exit_code == 0
         mock_evaluator.assert_called_once()
         mock_instance.evaluate.assert_called_once()
@@ -129,15 +130,21 @@ class TestCompareCommand:
         mock_instance.compare.return_value = {
             "model1_accuracy": 0.93,
             "model2_accuracy": 0.95,
-            "improvement": 0.02
+            "improvement": 0.02,
         }
 
-        result = self.runner.invoke(cli, [
-            "compare",
-            "--model1", "/path/to/model1",
-            "--model2", "/path/to/model2",
-            "--dataset", "/path/to/dataset"
-        ])
+        result = self.runner.invoke(
+            cli,
+            [
+                "compare",
+                "--model1",
+                "/path/to/model1",
+                "--model2",
+                "/path/to/model2",
+                "--dataset",
+                "/path/to/dataset",
+            ],
+        )
         assert result.exit_code == 0
         mock_comparator.assert_called_once()
         mock_instance.compare.assert_called_once()
@@ -164,7 +171,7 @@ class TestStatusCommand:
         mock_instance.get_status.return_value = {
             "running": False,
             "last_run": "2024-01-01 12:00:00",
-            "status": "idle"
+            "status": "idle",
         }
 
         result = self.runner.invoke(cli, ["status"])

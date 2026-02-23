@@ -15,7 +15,6 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "hoku=src.cli.hoku_eval:main",
             "hokusai=cli:cli",
             "hokusai-validate=hokusai_validate.cli:main",
         ],

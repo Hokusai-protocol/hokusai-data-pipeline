@@ -253,7 +253,7 @@ hokusai model list
 hokusai performance track --model-id abc123
 
 # Reproducible MLflow evaluation
-hoku eval run model-a dataset-v1 --seed 42 --attest --output json
+hokusai eval run model-a dataset-v1 --seed 42 --attest --output json
 ```
 
 ## Architecture

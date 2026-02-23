@@ -1,4 +1,4 @@
-"""Resume and idempotency helpers for `hoku eval` runs."""
+"""Resume and idempotency helpers for `hokusai eval` runs."""
 
 from __future__ import annotations
 

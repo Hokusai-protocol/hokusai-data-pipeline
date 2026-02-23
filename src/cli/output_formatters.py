@@ -1,4 +1,4 @@
-"""Output formatters for `hoku eval` command results."""
+"""Output formatters for `hokusai eval` command results."""
 
 from __future__ import annotations
 

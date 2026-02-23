@@ -1,4 +1,4 @@
-"""Unit tests for hoku eval output formatters."""
+"""Unit tests for hokusai eval output formatters."""
 
 import json
 

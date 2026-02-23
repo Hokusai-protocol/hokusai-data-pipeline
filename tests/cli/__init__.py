@@ -1,1 +1,1 @@
-"""CLI test package for hoku eval."""
+"""CLI test package for hokusai eval."""

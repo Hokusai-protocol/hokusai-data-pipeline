@@ -1,4 +1,4 @@
-"""Unit tests for hoku eval attestation helpers."""
+"""Unit tests for hokusai eval attestation helpers."""
 
 from __future__ import annotations
 
