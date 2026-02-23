@@ -50,7 +50,7 @@ class TestDetectDeltaOne:
 
         # Mock metrics - current: 0.82 (improvement from baseline 0.80)
         mock_get_metric.return_value = 0.82
-        mock_calc_diff.return_value = 0.02  # 2 percentage points (0.82 - 0.80)
+        mock_calc_diff.return_value = 2.0  # 2 percentage points (0.82 - 0.80)
 
         result = detect_delta_one("test_model")
 
@@ -211,12 +211,12 @@ class TestCalculatePercentagePointDifference:
     def test_calculate_positive_difference(self):
         """Test calculating positive percentage point difference."""
         result = _calculate_percentage_point_difference(0.80, 0.85)
-        assert result == pytest.approx(0.05, 0.0001)  # 0.05 raw difference
+        assert result == pytest.approx(5.0, 0.0001)
 
     def test_calculate_negative_difference(self):
         """Test calculating negative percentage point difference."""
         result = _calculate_percentage_point_difference(0.85, 0.80)
-        assert result == pytest.approx(-0.05, 0.0001)  # -0.05 raw difference
+        assert result == pytest.approx(-5.0, 0.0001)
 
     def test_calculate_no_difference(self):
         """Test calculating with no difference."""
@@ -226,7 +226,7 @@ class TestCalculatePercentagePointDifference:
     def test_calculate_small_difference(self):
         """Test calculating small percentage point difference."""
         result = _calculate_percentage_point_difference(0.800, 0.805)
-        assert result == pytest.approx(0.005, 0.0001)  # 0.005 raw difference
+        assert result == pytest.approx(0.5, 0.0001)
 
 
 class TestSendDeltaoneWebhook:

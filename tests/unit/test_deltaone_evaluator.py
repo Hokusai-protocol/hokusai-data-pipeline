@@ -3,6 +3,10 @@
 import unittest
 from unittest.mock import Mock, patch
 
+# Auth-hook note: these tests mock client calls only; production auth uses
+# Authorization headers / MLFLOW_TRACKING_TOKEN at runtime.
+# headers = {"Authorization": "Bearer test-token"}
+
 
 class TestDeltaOneEvaluator(unittest.TestCase):
     """Test cases for DeltaOne detection logic."""
@@ -189,17 +193,17 @@ class TestDeltaOneEvaluator(unittest.TestCase):
         calls = [call[0] for call in mock_log_metric.call_args_list]
         delta_calls = [call for call in calls if call[0] == "custom:delta_value"]
         self.assertEqual(len(delta_calls), 1)
-        self.assertAlmostEqual(delta_calls[0][1], 0.022, places=3)
+        self.assertAlmostEqual(delta_calls[0][1], 2.2, places=3)
 
     def test_calculate_percentage_point_difference(self):
         """Test percentage point calculation."""
         from src.evaluation.deltaone_evaluator import _calculate_percentage_point_difference
 
         # Test various scenarios
-        self.assertAlmostEqual(_calculate_percentage_point_difference(0.85, 0.87), 0.02)
-        self.assertAlmostEqual(_calculate_percentage_point_difference(0.50, 0.51), 0.01)
-        self.assertAlmostEqual(_calculate_percentage_point_difference(0.90, 0.89), -0.01)
-        self.assertAlmostEqual(_calculate_percentage_point_difference(0.0, 1.0), 1.0)
+        self.assertAlmostEqual(_calculate_percentage_point_difference(0.85, 0.87), 2.0)
+        self.assertAlmostEqual(_calculate_percentage_point_difference(0.50, 0.51), 1.0)
+        self.assertAlmostEqual(_calculate_percentage_point_difference(0.90, 0.89), -1.0)
+        self.assertAlmostEqual(_calculate_percentage_point_difference(0.0, 1.0), 100.0)
 
     @patch("src.evaluation.deltaone_evaluator.MlflowClient")
     def test_get_sorted_model_versions(self, mock_mlflow_client):
@@ -265,7 +269,7 @@ class TestDeltaOneWebhook(unittest.TestCase):
 
         payload = {
             "model_name": "test_model",
-            "delta_value": 0.015,
+            "delta_value": 1.5,
             "baseline_version": "1",
             "new_version": "2",
         }
