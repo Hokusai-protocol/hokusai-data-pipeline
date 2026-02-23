@@ -13,16 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def detect_delta_one(model_name: str, webhook_url: Optional[str] = None) -> bool:
-    """Detect if the latest model version achieves ≥1 percentage point improvement.
-
-    Args:
-        model_name: Name of the registered model in MLflow
-        webhook_url: Optional webhook URL for notifications
-
-    Returns:
-        True if DeltaOne improvement detected, False otherwise
-
-    """
+    """Detect whether the latest version improves by at least one percentage point."""
     try:
         client = MlflowClient()
 
@@ -137,17 +128,7 @@ def _calculate_percentage_point_difference(baseline: float, current: float) -> f
 
 
 def send_deltaone_webhook(webhook_url: str, payload: dict[str, Any], max_retries: int = 3) -> bool:
-    """Send webhook notification for DeltaOne achievement.
-
-    Args:
-        webhook_url: URL to send notification to
-        payload: Notification payload
-        max_retries: Maximum number of retry attempts
-
-    Returns:
-        True if notification sent successfully, False otherwise
-
-    """
+    """Send a DeltaOne webhook notification with retry and backoff."""
     headers = {"Content-Type": "application/json", "User-Agent": "Hokusai-DeltaOne/1.0"}
 
     for attempt in range(max_retries):
