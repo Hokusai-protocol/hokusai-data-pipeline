@@ -7,6 +7,7 @@ import asyncio
 import inspect
 import logging
 import os
+import random
 import signal
 import threading
 import time
@@ -16,6 +17,7 @@ from typing import Any, cast
 import redis
 from redis.exceptions import RedisError
 
+from src.evaluation.adapters import BenchmarkSpec, get_benchmark_adapter
 from src.models.evaluation_job import EvaluationJob
 from src.services.evaluation_queue import EvaluationQueueConfig, EvaluationQueueManager
 
@@ -23,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 EvalExecutor = Callable[[EvaluationJob], dict[str, Any] | Awaitable[dict[str, Any]]]
+ModelFn = Callable[[Any], Any]
+ModelFnResolver = Callable[[EvaluationJob], ModelFn]
 
 
 class EvaluationWorker:
@@ -32,12 +36,14 @@ class EvaluationWorker:
         self,
         queue_manager: EvaluationQueueManager,
         eval_executor: EvalExecutor | None = None,
+        model_fn_resolver: ModelFnResolver | None = None,
         config: EvaluationQueueConfig | None = None,
     ) -> None:
         """Initialize worker with queue and executor."""
         self.queue_manager = queue_manager
         self.config = config or queue_manager.config
         self.eval_executor = eval_executor or self._default_executor
+        self.model_fn_resolver = model_fn_resolver or self._default_model_fn_resolver
         self._stop_event = threading.Event()
         self._redis_retry_delay = 1.0
 
@@ -111,15 +117,66 @@ class EvaluationWorker:
         self._redis_retry_delay = min(self._redis_retry_delay * 2, 30.0)
 
     def _default_executor(self, job: EvaluationJob) -> dict[str, Any]:
-        """Return the placeholder result for an evaluation job."""
-        logger.info("event=eval_worker_mock_execute job_id=%s model_id=%s", job.id, job.model_id)
+        """Run a registered benchmark adapter when configured, else use placeholder behavior."""
+        adapter_type = str(job.eval_config.get("adapter_type", "")).strip()
+        if not adapter_type:
+            logger.info(
+                "event=eval_worker_mock_execute job_id=%s model_id=%s",
+                job.id,
+                job.model_id,
+            )
+            return {
+                "status": "ok",
+                "executor": "placeholder",
+                "job_id": job.id,
+                "model_id": job.model_id,
+                "attempt_count": job.attempt_count,
+            }
+
+        benchmark_spec_raw = job.eval_config.get("benchmark_spec")
+        if not isinstance(benchmark_spec_raw, dict):
+            raise ValueError("benchmark_spec must be a dictionary when adapter_type is configured.")
+
+        benchmark_spec = BenchmarkSpec.from_dict(benchmark_spec_raw)
+        benchmark_spec.model_id = benchmark_spec.model_id or job.model_id
+        benchmark_spec.run_id = benchmark_spec.run_id or job.id
+        benchmark_spec.dry_run = bool(job.eval_config.get("dry_run", benchmark_spec.dry_run))
+        seed = int(job.eval_config.get("seed", 0))
+        _set_seed(seed)
+
+        adapter = get_benchmark_adapter(adapter_type)
+        model_fn = self.model_fn_resolver(job)
+        manifest = adapter.run(spec=benchmark_spec, model_fn=model_fn, seed=seed)
         return {
             "status": "ok",
-            "executor": "placeholder",
+            "executor": "benchmark_adapter",
+            "adapter_type": adapter_type,
             "job_id": job.id,
             "model_id": job.model_id,
             "attempt_count": job.attempt_count,
+            "seed": seed,
+            "dry_run": benchmark_spec.dry_run,
+            "manifest": manifest.to_dict(),
+            "manifest_hash": manifest.compute_hash(),
         }
+
+    def _default_model_fn_resolver(self, job: EvaluationJob) -> ModelFn:
+        def _model_fn(_: Any) -> Any:
+            raise RuntimeError(
+                "No model_fn_resolver configured for benchmark adapter execution. "
+                f"job_id={job.id}"
+            )
+
+        return _model_fn
+
+
+def _set_seed(seed: int) -> None:
+    random.seed(seed)
+    try:
+        import numpy as np  # type: ignore
+    except ImportError:
+        return
+    np.random.seed(seed)
 
 
 def _build_redis_client() -> redis.Redis:
