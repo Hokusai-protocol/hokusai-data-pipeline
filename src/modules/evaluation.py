@@ -1,32 +1,124 @@
 """Module for model evaluation."""
 
-from typing import Any, Optional
+from __future__ import annotations
+
+from contextlib import nullcontext
+from numbers import Real
+from typing import Any, Callable
 
 import numpy as np
-import pandas as pd
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
+import pandas as pd  # type: ignore[import-untyped]
+from sklearn.metrics import (  # type: ignore[import-untyped]
+    accuracy_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 
 
 class ModelEvaluator:
     """Handles model evaluation on benchmark datasets."""
 
-    def __init__(self, metrics: Optional[list[str]] = None) -> None:
+    def __init__(self: ModelEvaluator, metrics: list[str] | None = None) -> None:
         self.metrics = metrics or ["accuracy", "precision", "recall", "f1", "auroc"]
 
+    @staticmethod
+    def _load_mlflow_evaluation() -> tuple[Any, Callable[..., Any]]:
+        """Load MLflow evaluation dependencies lazily."""
+        # MLflow SDK reads Authorization via MLFLOW_TRACKING_TOKEN/environment configuration.
+        try:
+            import mlflow  # type: ignore
+            from mlflow.metrics import make_metric  # type: ignore
+        except ImportError as exc:
+            raise ImportError(
+                "mlflow is required for model evaluation. Install the mlflow extra/dependency."
+            ) from exc
+        return mlflow, make_metric
+
+    @staticmethod
+    def _compute_accuracy(predictions: pd.Series, targets: pd.Series, **_: Any) -> float:
+        return float(accuracy_score(targets, predictions))
+
+    @staticmethod
+    def _compute_precision(predictions: pd.Series, targets: pd.Series, **_: Any) -> float:
+        return float(precision_score(targets, predictions, average="weighted", zero_division=0))
+
+    @staticmethod
+    def _compute_recall(predictions: pd.Series, targets: pd.Series, **_: Any) -> float:
+        return float(recall_score(targets, predictions, average="weighted", zero_division=0))
+
+    @staticmethod
+    def _compute_f1(predictions: pd.Series, targets: pd.Series, **_: Any) -> float:
+        return float(f1_score(targets, predictions, average="weighted", zero_division=0))
+
+    @staticmethod
+    def _compute_auroc(predictions: pd.Series, targets: pd.Series, **kwargs: Any) -> float:
+        # MLflow passes probabilities in evaluator-specific kwargs when available.
+        predicted_probabilities = kwargs.get("predicted_probabilities")
+        if predicted_probabilities is None:
+            return float("nan")
+
+        proba_array = np.asarray(predicted_probabilities)
+        if proba_array.ndim == 2 and proba_array.shape[1] == 2:
+            proba_values: Any = proba_array[:, 1]
+        else:
+            proba_values = proba_array
+
+        try:
+            return float(
+                roc_auc_score(targets, proba_values, average="weighted", multi_class="ovr")
+            )
+        except ValueError:
+            return float("nan")
+
+    def _create_extra_metrics(self: ModelEvaluator, make_metric: Callable[..., Any]) -> list[Any]:
+        metric_definitions: dict[str, Callable[..., float]] = {
+            "accuracy": self._compute_accuracy,
+            "precision": self._compute_precision,
+            "recall": self._compute_recall,
+            "f1": self._compute_f1,
+            "auroc": self._compute_auroc,
+        }
+
+        extra_metrics: list[Any] = []
+        for metric_name in self.metrics:
+            metric_fn = metric_definitions.get(metric_name)
+            if metric_fn is None:
+                continue
+
+            extra_metrics.append(
+                make_metric(eval_fn=metric_fn, greater_is_better=True, name=metric_name)
+            )
+
+        return extra_metrics
+
+    @staticmethod
+    def _normalize_metric_value(metric_value: Any) -> float | None:
+        if isinstance(metric_value, Real):
+            value = float(metric_value)
+            if np.isnan(value):
+                return None
+            return value
+
+        if hasattr(metric_value, "aggregate_results") and isinstance(
+            metric_value.aggregate_results, dict
+        ):
+            score = metric_value.aggregate_results.get("score")
+            if isinstance(score, Real):
+                value = float(score)
+                if np.isnan(value):
+                    return None
+                return value
+
+        return None
+
     def evaluate_mock_model(
-        self, model: dict[str, Any], X_test: pd.DataFrame, y_test: pd.Series
+        self: ModelEvaluator, model: dict[str, Any], X_test: pd.DataFrame, y_test: pd.Series
     ) -> dict[str, float]:
-        """Evaluate a mock model.
+        """Evaluate a mock model."""
+        _ = (X_test, y_test)
 
-        Args:
-            model: Mock model dictionary
-            X_test: Test features
-            y_test: Test labels
-
-        Returns:
-            Evaluation metrics
-
-        """
         # For mock models, return the stored metrics with slight variation
         base_metrics = model.get("metrics", {})
 
@@ -43,71 +135,49 @@ class ModelEvaluator:
         return evaluated_metrics
 
     def evaluate_sklearn_model(
-        self, model: Any, X_test: pd.DataFrame, y_test: pd.Series, threshold: float = 0.5
-    ) -> dict[str, float]:
-        """Evaluate a scikit-learn model.
+        self: ModelEvaluator,
+        model: Any,
+        X_test: pd.DataFrame,
+        y_test: pd.Series,
+        threshold: float = 0.5,
+    ) -> dict[str, float | None]:
+        """Evaluate a scikit-learn model through `mlflow.evaluate()`."""
+        _ = threshold
 
-        Args:
-            model: Trained sklearn model
-            X_test: Test features
-            y_test: Test labels
-            threshold: Classification threshold
+        mlflow, make_metric = self._load_mlflow_evaluation()
+        extra_metrics = self._create_extra_metrics(make_metric)
 
-        Returns:
-            Evaluation metrics
+        run_context = nullcontext()
+        if mlflow.active_run() is None:
+            run_context = mlflow.start_run()
 
-        """
-        # Get predictions
-        y_pred = model.predict(X_test)
-
-        # Get probabilities if available
-        y_proba = None
-        if hasattr(model, "predict_proba"):
-            y_proba = model.predict_proba(X_test)
-            # For binary classification, use positive class probabilities
-            if y_proba.shape[1] == 2:
-                y_proba = y_proba[:, 1]
-
-        # Calculate metrics
-        metrics = {}
-
-        if "accuracy" in self.metrics:
-            metrics["accuracy"] = accuracy_score(y_test, y_pred)
-
-        if "precision" in self.metrics:
-            metrics["precision"] = precision_score(
-                y_test, y_pred, average="weighted", zero_division=0
+        with run_context:
+            results = mlflow.evaluate(
+                model=model,
+                data=X_test,
+                targets=y_test,
+                model_type="classifier",
+                extra_metrics=extra_metrics,
             )
 
-        if "recall" in self.metrics:
-            metrics["recall"] = recall_score(y_test, y_pred, average="weighted", zero_division=0)
+        raw_metrics = getattr(results, "metrics", {}) or {}
+        metrics: dict[str, float | None] = {}
 
-        if "f1" in self.metrics:
-            metrics["f1"] = f1_score(y_test, y_pred, average="weighted", zero_division=0)
-
-        if "auroc" in self.metrics and y_proba is not None:
-            try:
-                metrics["auroc"] = roc_auc_score(
-                    y_test, y_proba, average="weighted", multi_class="ovr"
-                )
-            except ValueError:
-                # AUROC not defined for the given case
-                metrics["auroc"] = None
+        for metric_name in self.metrics:
+            value = self._normalize_metric_value(raw_metrics.get(metric_name))
+            if value is None and metric_name == "auroc":
+                metrics[metric_name] = None
+                continue
+            if value is not None:
+                metrics[metric_name] = value
 
         return metrics
 
-    def evaluate_model(self, model: Any, X_test: pd.DataFrame, y_test: pd.Series) -> dict[str, Any]:
-        """Evaluate any model type.
-
-        Args:
-            model: Model to evaluate
-            X_test: Test features
-            y_test: Test labels
-
-        Returns:
-            Evaluation results
-
-        """
+    def evaluate_model(
+        self: ModelEvaluator, model: Any, X_test: pd.DataFrame, y_test: pd.Series
+    ) -> dict[str, Any]:
+        """Evaluate any supported model type."""
+        metrics: dict[str, Any]
         # Check if mock model
         if isinstance(model, dict) and model.get("type", "").startswith("mock"):
             metrics = self.evaluate_mock_model(model, X_test, y_test)
@@ -123,18 +193,9 @@ class ModelEvaluator:
         }
 
     def compare_models(
-        self, baseline_metrics: dict[str, float], new_metrics: dict[str, float]
+        self: ModelEvaluator, baseline_metrics: dict[str, float], new_metrics: dict[str, float]
     ) -> dict[str, dict[str, float]]:
-        """Compare two models' metrics.
-
-        Args:
-            baseline_metrics: Baseline model metrics
-            new_metrics: New model metrics
-
-        Returns:
-            Comparison results
-
-        """
+        """Compare two models' metric dictionaries."""
         comparison = {}
 
         for metric in self.metrics:
@@ -155,18 +216,11 @@ class ModelEvaluator:
         return comparison
 
     def calculate_delta_score(
-        self, comparison: dict[str, dict[str, float]], weights: Optional[dict[str, float]] = None
+        self: ModelEvaluator,
+        comparison: dict[str, dict[str, float]],
+        weights: dict[str, float] | None = None,
     ) -> float:
-        """Calculate overall delta score.
-
-        Args:
-            comparison: Model comparison results
-            weights: Metric weights (defaults to equal weights)
-
-        Returns:
-            Delta score
-
-        """
+        """Calculate the weighted overall delta score."""
         if not weights:
             # Default equal weights
             weights = dict.fromkeys(comparison.keys(), 1.0)
@@ -176,7 +230,7 @@ class ModelEvaluator:
         weights = {k: v / total_weight for k, v in weights.items()}
 
         # Calculate weighted delta
-        delta_score = 0
+        delta_score = 0.0
         for metric, values in comparison.items():
             if metric in weights and values.get("absolute_delta") is not None:
                 delta_score += weights[metric] * values["absolute_delta"]
@@ -184,24 +238,13 @@ class ModelEvaluator:
         return delta_score
 
     def create_evaluation_report(
-        self,
+        self: ModelEvaluator,
         baseline_results: dict[str, Any],
         new_results: dict[str, Any],
         comparison: dict[str, dict[str, float]],
         delta_score: float,
     ) -> dict[str, Any]:
-        """Create comprehensive evaluation report.
-
-        Args:
-            baseline_results: Baseline evaluation results
-            new_results: New model evaluation results
-            comparison: Comparison results
-            delta_score: Overall delta score
-
-        Returns:
-            Evaluation report
-
-        """
+        """Create a comprehensive evaluation report."""
         return {
             "baseline_model": {
                 "metrics": baseline_results["metrics"],
