@@ -82,6 +82,7 @@ class BenchmarkSpecService:
         metric_direction: str,
         input_schema: dict[str, Any],
         output_schema: dict[str, Any],
+        provider: str = "hokusai",
         tiebreak_rules: dict[str, Any] | None = None,
         eval_container_digest: str | None = None,
         is_active: bool = True,
@@ -90,6 +91,9 @@ class BenchmarkSpecService:
         if metric_direction not in VALID_METRIC_DIRECTIONS:
             raise ValueError("metric_direction must be one of: higher_is_better, lower_is_better")
 
+        if provider not in {"hokusai", "kaggle"}:
+            raise ValueError("provider must be one of: hokusai, kaggle")
+
         now = datetime.now(timezone.utc)
         spec_id = str(uuid4())
 
@@ -97,6 +101,7 @@ class BenchmarkSpecService:
             if session is not None:
                 row = BenchmarkSpec(
                     spec_id=spec_id,
+                    provider=provider,
                     model_id=model_id,
                     dataset_id=dataset_id,
                     dataset_version=dataset_version,
@@ -122,6 +127,7 @@ class BenchmarkSpecService:
 
         record = {
             "spec_id": spec_id,
+            "provider": provider,
             "model_id": model_id,
             "dataset_id": dataset_id,
             "dataset_version": dataset_version,
@@ -221,6 +227,7 @@ class BenchmarkSpecService:
     def _encode_row(row: BenchmarkSpec) -> dict[str, Any]:
         return {
             "spec_id": str(row.spec_id),
+            "provider": row.provider,
             "model_id": row.model_id,
             "dataset_id": row.dataset_id,
             "dataset_version": row.dataset_version,

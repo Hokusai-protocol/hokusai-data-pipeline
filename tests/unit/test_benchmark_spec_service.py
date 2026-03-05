@@ -60,6 +60,58 @@ def test_service_update_is_immutable() -> None:
         service.update_spec("spec-123", {"metric_name": "f1_macro"})
 
 
+def test_register_with_explicit_provider() -> None:
+    service = BenchmarkSpecService()
+
+    created = service.register_spec(
+        model_id="model-kaggle",
+        dataset_id="kaggle/arc",
+        dataset_version="sha256:" + "c" * 64,
+        eval_split="test",
+        metric_name="accuracy",
+        metric_direction="higher_is_better",
+        input_schema={},
+        output_schema={},
+        provider="kaggle",
+    )
+
+    assert created["provider"] == "kaggle"
+
+
+def test_register_defaults_provider_to_hokusai() -> None:
+    service = BenchmarkSpecService()
+
+    created = service.register_spec(
+        model_id="model-default",
+        dataset_id="hokusai/test",
+        dataset_version="sha256:" + "d" * 64,
+        eval_split="test",
+        metric_name="accuracy",
+        metric_direction="higher_is_better",
+        input_schema={},
+        output_schema={},
+    )
+
+    assert created["provider"] == "hokusai"
+
+
+def test_register_rejects_invalid_provider() -> None:
+    service = BenchmarkSpecService()
+
+    with pytest.raises(ValueError, match="provider must be one of"):
+        service.register_spec(
+            model_id="model-bad",
+            dataset_id="bad/dataset",
+            dataset_version="sha256:" + "e" * 64,
+            eval_split="test",
+            metric_name="accuracy",
+            metric_direction="higher_is_better",
+            input_schema={},
+            output_schema={},
+            provider="invalid",
+        )
+
+
 def test_model_update_hook_raises_immutable_error() -> None:
     with pytest.raises(ValueError, match="immutable"):
         _prevent_benchmark_spec_update(None, None, None)

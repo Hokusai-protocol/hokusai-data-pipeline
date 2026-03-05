@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/v1/benchmarks", tags=["benchmarks"])
 class BenchmarkSpecCreateRequest(BaseModel):
     """Payload for benchmark spec registration."""
 
+    provider: str = Field(default="hokusai", pattern="^(hokusai|kaggle)$")
     model_id: str
     dataset_id: str
     dataset_version: str
