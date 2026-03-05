@@ -5,11 +5,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Index, String, UniqueConstraint, event
+from sqlalchemy import Boolean, DateTime, Enum, Index, String, UniqueConstraint, event
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db_base import Base
+
+PROVIDER_ENUM = Enum("hokusai", "kaggle", name="benchmark_provider", create_constraint=True)
 
 
 class BenchmarkSpec(Base):
@@ -26,6 +28,7 @@ class BenchmarkSpec(Base):
     )
 
     spec_id: Mapped[str] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    provider: Mapped[str] = mapped_column(PROVIDER_ENUM, nullable=False)
     model_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     dataset_id: Mapped[str] = mapped_column(String(255), nullable=False)
     dataset_version: Mapped[str] = mapped_column(String(255), nullable=False)
