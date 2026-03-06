@@ -98,13 +98,13 @@ async def update_evaluation_schedule(
     return result
 
 
-@router.delete("", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete("")
 async def delete_evaluation_schedule(
     model_id: str,
     service: EvaluationScheduleService = Depends(get_evaluation_schedule_service),
     audit_logger: AuditLogger = Depends(get_audit_logger),
     _auth: dict[str, Any] = Depends(require_auth),
-) -> None:
+) -> Response:
     """Delete the evaluation schedule for a model."""
     deleted = service.delete_schedule(model_id)
     if not deleted:
@@ -119,3 +119,4 @@ async def delete_evaluation_schedule(
         user_id=_auth.get("user_id", "unknown"),
         outcome="success",
     )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
