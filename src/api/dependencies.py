@@ -13,6 +13,7 @@ from src.api.services.contributor_logger import ContributorLogger
 from src.api.services.evaluation_service import EvaluationService
 from src.api.services.governance.audit_logger import AuditLogger
 from src.api.services.governance.benchmark_specs import BenchmarkSpecService
+from src.api.services.governance.evaluation_schedule import EvaluationScheduleService
 from src.api.services.governance.gdpr import GDPRService
 from src.api.services.governance.licensing import LicenseValidator
 from src.api.services.governance.retention import RetentionManager
@@ -64,6 +65,14 @@ def get_gdpr_service() -> GDPRService:
 def get_benchmark_spec_service() -> BenchmarkSpecService:
     """Return shared benchmark spec service instance."""
     return BenchmarkSpecService()
+
+
+@lru_cache(maxsize=1)
+def get_evaluation_schedule_service() -> EvaluationScheduleService:
+    """Return shared evaluation schedule service instance."""
+    return EvaluationScheduleService(
+        benchmark_spec_service=get_benchmark_spec_service(),
+    )
 
 
 def get_evaluation_service(

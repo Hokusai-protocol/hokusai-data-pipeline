@@ -6,6 +6,7 @@ import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 
 from src.api.dependencies import get_audit_logger, get_benchmark_spec_service, get_pii_detector
 from src.api.schemas.benchmark_spec import (
@@ -169,13 +170,13 @@ async def update_benchmark_spec(
     return _model_to_response(result)
 
 
-@router.delete("/{spec_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{spec_id}")
 async def delete_benchmark_spec(
     spec_id: str,
     service: BenchmarkSpecService = Depends(get_benchmark_spec_service),
     audit_logger: AuditLogger = Depends(get_audit_logger),
     _auth: dict[str, Any] = Depends(require_auth),
-) -> None:
+) -> Response:
     """Delete a benchmark spec."""
     deleted = service.delete_spec(spec_id)
     if not deleted:
@@ -190,6 +191,7 @@ async def delete_benchmark_spec(
         user_id=_auth.get("user_id", "unknown"),
         outcome="success",
     )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 MAX_UPLOAD_SIZE_BYTES = 500 * 1024 * 1024  # 500 MB

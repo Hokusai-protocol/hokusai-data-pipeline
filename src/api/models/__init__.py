@@ -7,6 +7,7 @@ from .audit_log import AuditLog
 from .benchmark_spec import BenchmarkSpec
 from .consent_record import ConsentRecord
 from .dataset_license import DatasetLicense
+from .evaluation_schedule import EvaluationSchedule
 from .inference_log import InferenceLog
 from .retention_policy import RetentionPolicy
 from .schema_models import (
@@ -37,6 +38,7 @@ __all__ = [
     "HealthCheckResponse",
     "AuditLog",
     "BenchmarkSpec",
+    "EvaluationSchedule",
     "RetentionPolicy",
     "ConsentRecord",
     "DatasetLicense",

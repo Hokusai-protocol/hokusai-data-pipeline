@@ -3,6 +3,7 @@
 from . import (
     benchmarks,
     dspy,
+    evaluation_schedule,
     evaluations,
     governance,
     health,
@@ -17,6 +18,7 @@ from . import (
 __all__ = [
     "health",
     "benchmarks",
+    "evaluation_schedule",
     "models",
     "dspy",
     "evaluations",
