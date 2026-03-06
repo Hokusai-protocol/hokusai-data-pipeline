@@ -123,6 +123,39 @@ class EvaluationScheduleService:
 
         return record
 
+    def get_due_schedules(self: EvaluationScheduleService, limit: int = 5) -> list[dict[str, Any]]:
+        """Return enabled schedules whose next_run_at is at or before now."""
+        with self._session_scope() as session:
+            if session is not None:
+                now = datetime.now(timezone.utc)
+                rows = (
+                    session.query(EvaluationSchedule)
+                    .filter(
+                        EvaluationSchedule.enabled.is_(True),
+                        EvaluationSchedule.next_run_at <= now,
+                    )
+                    .order_by(EvaluationSchedule.next_run_at.asc())
+                    .limit(limit)
+                    .all()
+                )
+                return [self._encode_row(r) for r in rows]
+
+        with self._lock:
+            now = datetime.now(timezone.utc)
+            results = []
+            for schedule in self._in_memory_schedules.values():
+                if not schedule.get("enabled", False):
+                    continue
+                next_run = schedule.get("next_run_at")
+                if next_run is None:
+                    continue
+                if isinstance(next_run, str):
+                    next_run = datetime.fromisoformat(next_run)
+                if next_run <= now:
+                    results.append(dict(schedule))
+            results.sort(key=lambda s: s.get("next_run_at", ""))
+            return results[:limit]
+
     def get_schedule(self: EvaluationScheduleService, model_id: str) -> dict[str, Any] | None:
         """Fetch the evaluation schedule for a model."""
         with self._session_scope() as session:
