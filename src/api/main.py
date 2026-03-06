@@ -1,6 +1,7 @@
 """Main FastAPI application for Hokusai MLOps services."""
 
 import logging
+import os
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -143,10 +144,40 @@ async def startup_event() -> None:
 
     # Initialize database connections, caches, etc.
 
+    # Start evaluation scheduler if enabled
+    if os.getenv("ENABLE_EVALUATION_SCHEDULER", "false").lower() == "true":
+        try:
+            from src.api.dependencies import (
+                get_benchmark_spec_service,
+                get_evaluation_schedule_service,
+                get_redis_client,
+            )
+            from src.api.services.evaluation_scheduler import EvaluationScheduler
+            from src.api.services.evaluation_service import EvaluationService
+            from src.services.evaluation_queue import EvaluationQueueManager
+
+            redis_client = get_redis_client()
+            scheduler = EvaluationScheduler(
+                schedule_service=get_evaluation_schedule_service(),
+                evaluation_service=EvaluationService(
+                    redis_client=redis_client,
+                    benchmark_spec_service=get_benchmark_spec_service(),
+                ),
+                queue_manager=EvaluationQueueManager(redis_client=redis_client),
+            )
+            app.state.evaluation_scheduler = scheduler
+            await scheduler.start()
+        except Exception as e:
+            logger.error(f"Failed to start evaluation scheduler: {e}")
+
 
 # Shutdown event
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
     """Cleanup on shutdown."""
     logger.info("Shutting down Hokusai MLOps API...")
-    # Close database connections, flush caches, etc.
+
+    # Stop evaluation scheduler if running
+    scheduler = getattr(app.state, "evaluation_scheduler", None)
+    if scheduler is not None:
+        await scheduler.stop()
