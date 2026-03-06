@@ -217,11 +217,89 @@ class BenchmarkSpecService:
             return None
         return sorted(candidates, key=lambda item: item["created_at"], reverse=True)[0]
 
+    def list_specs_paginated(
+        self: BenchmarkSpecService,
+        *,
+        model_id: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """List benchmark specs with pagination, returning (items, total)."""
+        with self._session_scope() as session:
+            if session is not None:
+                query = session.query(BenchmarkSpec)
+                if model_id:
+                    query = query.filter(BenchmarkSpec.model_id == model_id)
+                total = query.count()
+                rows = (
+                    query.order_by(BenchmarkSpec.created_at.desc())
+                    .offset((page - 1) * page_size)
+                    .limit(page_size)
+                    .all()
+                )
+                return [self._encode_row(row) for row in rows], total
+
+        with self._lock:
+            items = list(self._in_memory_specs.values())
+        if model_id:
+            items = [item for item in items if item["model_id"] == model_id]
+        items = sorted(items, key=lambda item: item["created_at"], reverse=True)
+        total = len(items)
+        start = (page - 1) * page_size
+        return items[start : start + page_size], total
+
     def update_spec(self: BenchmarkSpecService, spec_id: str, _changes: dict[str, Any]) -> None:
         """Benchmark specs are immutable; updates are rejected."""
         raise BenchmarkSpecImmutableError(
             f"Benchmark spec {spec_id} is immutable; create a new spec version instead"
         )
+
+    def update_spec_fields(
+        self: BenchmarkSpecService, spec_id: str, changes: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """Update spec fields using core SQL to bypass ORM immutability guard.
+
+        Returns the updated spec dict, or None if not found.
+        """
+        from sqlalchemy import update
+
+        with self._session_scope() as session:
+            if session is not None:
+                row = session.query(BenchmarkSpec).filter(BenchmarkSpec.spec_id == spec_id).first()
+                if row is None:
+                    return None
+                if changes:
+                    session.execute(
+                        update(BenchmarkSpec)
+                        .where(BenchmarkSpec.spec_id == spec_id)
+                        .values(**changes)
+                    )
+                    session.commit()
+                    session.refresh(row)
+                return self._encode_row(row)
+
+        with self._lock:
+            if spec_id not in self._in_memory_specs:
+                return None
+            self._in_memory_specs[spec_id].update(changes)
+            return dict(self._in_memory_specs[spec_id])
+
+    def delete_spec(self: BenchmarkSpecService, spec_id: str) -> bool:
+        """Delete a benchmark spec. Returns True if deleted, False if not found."""
+        with self._session_scope() as session:
+            if session is not None:
+                row = session.query(BenchmarkSpec).filter(BenchmarkSpec.spec_id == spec_id).first()
+                if row is None:
+                    return False
+                session.delete(row)
+                session.commit()
+                return True
+
+        with self._lock:
+            if spec_id in self._in_memory_specs:
+                del self._in_memory_specs[spec_id]
+                return True
+            return False
 
     @staticmethod
     def _encode_row(row: BenchmarkSpec) -> dict[str, Any]:
