@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.api.models import BenchmarkSpec
+from src.api.services.dataset_validator import DatasetValidator
 from src.api.services.privacy.pii_detector import PIIDetector, PIIScanResult
 
 logger = logging.getLogger(__name__)
@@ -322,6 +323,7 @@ class BenchmarkSpecService:
         pii_detector: PIIDetector,
         allow_pii: bool = False,
         spec_fields: dict[str, Any],
+        dataset_validator: DatasetValidator | None = None,
     ) -> dict[str, Any]:
         """Upload a dataset file to S3, scan for PII, and create a BenchmarkSpec atomically.
 
@@ -342,6 +344,17 @@ class BenchmarkSpecService:
             df = pd.read_parquet(buf)
         else:
             raise ValueError(f"Unsupported file type: {suffix}")
+
+        # Dataset format validation
+        if dataset_validator is not None:
+            target_column = (spec_fields.get("output_schema") or {}).get("target_column", "")
+            input_columns = (spec_fields.get("input_schema") or {}).get("columns", [])
+            dataset_validator.validate(
+                df,
+                target_column=target_column,
+                input_columns=input_columns,
+                file_size_bytes=file_size,
+            )
 
         # PII scan
         scan_result: PIIScanResult = pii_detector.scan_dataframe(df)

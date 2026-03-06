@@ -10,6 +10,7 @@ from fastapi import Depends, Request
 from redis import Redis
 
 from src.api.services.contributor_logger import ContributorLogger
+from src.api.services.dataset_validator import DatasetValidator
 from src.api.services.evaluation_service import EvaluationService
 from src.api.services.governance.audit_logger import AuditLogger
 from src.api.services.governance.benchmark_specs import BenchmarkSpecService
@@ -59,6 +60,12 @@ def get_gdpr_service() -> GDPRService:
     """Return shared GDPR service."""
     service = GDPRService()
     return service
+
+
+@lru_cache(maxsize=1)
+def get_dataset_validator() -> DatasetValidator:
+    """Return shared dataset validator instance."""
+    return DatasetValidator()
 
 
 @lru_cache(maxsize=1)

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from starlette.responses import Response
 
 from src.api.main import app
+from src.api.services.dataset_validator import DatasetValidationError, DatasetValidator
 from src.api.services.governance.audit_logger import AuditLogger
 from src.api.services.governance.benchmark_specs import BenchmarkSpecService
 from src.api.services.privacy.pii_detector import PIIDetector, PIIScanResult
@@ -30,12 +31,19 @@ def _make_authed_client() -> tuple[TestClient, MagicMock, MagicMock, MagicMock]:
     mock_service = MagicMock(spec=BenchmarkSpecService)
     mock_audit = MagicMock(spec=AuditLogger)
     mock_pii = MagicMock(spec=PIIDetector)
+    mock_validator = MagicMock(spec=DatasetValidator)
 
-    from src.api.dependencies import get_audit_logger, get_benchmark_spec_service, get_pii_detector
+    from src.api.dependencies import (
+        get_audit_logger,
+        get_benchmark_spec_service,
+        get_dataset_validator,
+        get_pii_detector,
+    )
 
     app.dependency_overrides[get_benchmark_spec_service] = lambda: mock_service
     app.dependency_overrides[get_audit_logger] = lambda: mock_audit
     app.dependency_overrides[get_pii_detector] = lambda: mock_pii
+    app.dependency_overrides[get_dataset_validator] = lambda: mock_validator
 
     return TestClient(app, raise_server_exceptions=False), mock_service, mock_audit, mock_pii
 
@@ -413,3 +421,67 @@ class TestUploadServiceMethod:
         delete_kwargs = mock_s3.delete_object.call_args.kwargs
         assert delete_kwargs["Bucket"] == "test-bucket"
         assert delete_kwargs["Key"].startswith("datasets/model-42/")
+
+
+class TestUploadDatasetValidation:
+    @patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+        _passthrough_middleware_dispatch,
+    )
+    def test_validation_error_returns_422_with_structured_detail(self) -> None:
+        from src.api.services.dataset_validator import ValidationError, ValidationResult
+
+        client, svc, audit, pii = _make_authed_client()
+        try:
+            result = ValidationResult(
+                valid=False,
+                errors=[
+                    ValidationError(
+                        code="target_column_not_found",
+                        message="Column 'label' not found in dataset. Available columns: a, b",
+                    ),
+                    ValidationError(
+                        code="insufficient_rows",
+                        message="Dataset has 5 row(s), but at least 50 are required",
+                    ),
+                ],
+            )
+            svc.upload_dataset.side_effect = DatasetValidationError(result)
+            resp = client.post(
+                "/api/v1/benchmarks/upload/model-1",
+                files={"file": ("test.csv", CSV_CONTENT, "text/csv")},
+                data={"target_column": "label"},
+            )
+            assert resp.status_code == 422
+            detail = resp.json()["detail"]
+            assert detail["valid"] is False
+            assert len(detail["errors"]) == 2
+            assert detail["errors"][0]["code"] == "target_column_not_found"
+            assert detail["errors"][1]["code"] == "insufficient_rows"
+        finally:
+            _cleanup_overrides()
+
+    @patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+        _passthrough_middleware_dispatch,
+    )
+    def test_validator_passed_to_upload_dataset(self) -> None:
+        client, svc, audit, pii = _make_authed_client()
+        try:
+            svc.upload_dataset.return_value = {
+                "s3_uri": "s3://test-bucket/datasets/model-1/v1/test.csv",
+                "sha256_hash": CSV_HASH,
+                "spec_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                "filename": "test.csv",
+                "file_size_bytes": len(CSV_CONTENT),
+            }
+            resp = client.post(
+                "/api/v1/benchmarks/upload/model-1",
+                files={"file": ("test.csv", CSV_CONTENT, "text/csv")},
+            )
+            assert resp.status_code == 201
+            call_kwargs = svc.upload_dataset.call_args.kwargs
+            assert "dataset_validator" in call_kwargs
+            assert call_kwargs["dataset_validator"] is not None
+        finally:
+            _cleanup_overrides()

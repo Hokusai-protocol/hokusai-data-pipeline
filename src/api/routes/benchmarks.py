@@ -8,7 +8,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 
-from src.api.dependencies import get_audit_logger, get_benchmark_spec_service, get_pii_detector
+from src.api.dependencies import (
+    get_audit_logger,
+    get_benchmark_spec_service,
+    get_dataset_validator,
+    get_pii_detector,
+)
 from src.api.schemas.benchmark_spec import (
     BenchmarkSpecCreate,
     BenchmarkSpecListResponse,
@@ -16,6 +21,7 @@ from src.api.schemas.benchmark_spec import (
     BenchmarkSpecUpdate,
     DatasetUploadResponse,
 )
+from src.api.services.dataset_validator import DatasetValidationError, DatasetValidator
 from src.api.services.governance.audit_logger import AuditLogger
 from src.api.services.governance.benchmark_specs import (
     BenchmarkSpecConflictError,
@@ -214,6 +220,7 @@ async def upload_benchmark_dataset(
     allow_pii: bool = Form(default=False),
     service: BenchmarkSpecService = Depends(get_benchmark_spec_service),
     pii_detector: PIIDetector = Depends(get_pii_detector),
+    dataset_validator: DatasetValidator = Depends(get_dataset_validator),
     audit_logger: AuditLogger = Depends(get_audit_logger),
     _auth: dict[str, Any] = Depends(require_auth),
 ) -> dict[str, Any]:
@@ -253,7 +260,13 @@ async def upload_benchmark_dataset(
             pii_detector=pii_detector,
             allow_pii=allow_pii,
             spec_fields=spec_fields,
+            dataset_validator=dataset_validator,
         )
+    except DatasetValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.result.to_dict(),
+        ) from exc
     except PIIFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
