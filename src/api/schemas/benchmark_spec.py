@@ -84,3 +84,13 @@ class BenchmarkSpecListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class DatasetUploadResponse(BaseModel):
+    """Response returned after a successful dataset upload to S3."""
+
+    s3_uri: str
+    sha256_hash: str
+    spec_id: str
+    filename: str
+    file_size_bytes: int
