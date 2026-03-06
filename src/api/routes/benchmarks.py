@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 
 from src.api.dependencies import get_audit_logger, get_benchmark_spec_service
 from src.api.schemas.benchmark_spec import (
@@ -165,7 +166,7 @@ async def update_benchmark_spec(
     return _model_to_response(result)
 
 
-@router.delete("/{spec_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{spec_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_benchmark_spec(
     spec_id: str,
     service: BenchmarkSpecService = Depends(get_benchmark_spec_service),

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 
 from src.api.dependencies import get_audit_logger, get_evaluation_schedule_service
 from src.api.schemas.evaluation_schedule import (
@@ -97,7 +98,7 @@ async def update_evaluation_schedule(
     return result
 
 
-@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_evaluation_schedule(
     model_id: str,
     service: EvaluationScheduleService = Depends(get_evaluation_schedule_service),
