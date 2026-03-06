@@ -2,22 +2,26 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
-from src.api.dependencies import get_audit_logger, get_benchmark_spec_service
+from src.api.dependencies import get_audit_logger, get_benchmark_spec_service, get_pii_detector
 from src.api.schemas.benchmark_spec import (
     BenchmarkSpecCreate,
     BenchmarkSpecListResponse,
     BenchmarkSpecResponse,
     BenchmarkSpecUpdate,
+    DatasetUploadResponse,
 )
 from src.api.services.governance.audit_logger import AuditLogger
 from src.api.services.governance.benchmark_specs import (
     BenchmarkSpecConflictError,
     BenchmarkSpecService,
+    PIIFoundError,
 )
+from src.api.services.privacy.pii_detector import PIIDetector
 from src.middleware.auth import require_auth
 
 router = APIRouter(prefix="/api/v1/benchmarks", tags=["benchmarks"])
@@ -186,3 +190,85 @@ async def delete_benchmark_spec(
         user_id=_auth.get("user_id", "unknown"),
         outcome="success",
     )
+
+
+MAX_UPLOAD_SIZE_BYTES = 500 * 1024 * 1024  # 500 MB
+ALLOWED_EXTENSIONS = {".csv", ".parquet"}
+
+
+@router.post(
+    "/upload/{model_id}",
+    response_model=DatasetUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_benchmark_dataset(
+    model_id: str,
+    file: UploadFile = File(...),
+    eval_split: str = Form(default="test"),
+    metric_name: str = Form(default="accuracy"),
+    metric_direction: str = Form(default="higher_is_better"),
+    target_column: str = Form(default="target"),
+    input_columns: str = Form(default=""),
+    allow_pii: bool = Form(default=False),
+    service: BenchmarkSpecService = Depends(get_benchmark_spec_service),
+    pii_detector: PIIDetector = Depends(get_pii_detector),
+    audit_logger: AuditLogger = Depends(get_audit_logger),
+    _auth: dict[str, Any] = Depends(require_auth),
+) -> dict[str, Any]:
+    """Upload a dataset file to S3 and create a BenchmarkSpec with provider=hokusai."""
+    filename = file.filename or "upload.csv"
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only CSV and Parquet files are supported",
+        )
+
+    file_bytes = await file.read()
+
+    if len(file_bytes) > MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File exceeds maximum upload size",
+        )
+
+    # Parse input_columns from comma-separated string
+    columns = [c.strip() for c in input_columns.split(",") if c.strip()] if input_columns else []
+
+    spec_fields: dict[str, Any] = {
+        "eval_split": eval_split,
+        "metric_name": metric_name,
+        "metric_direction": metric_direction,
+        "input_schema": {"columns": columns},
+        "output_schema": {"target_column": target_column},
+    }
+
+    try:
+        result = service.upload_dataset(
+            model_id=model_id,
+            filename=filename,
+            file_bytes=file_bytes,
+            pii_detector=pii_detector,
+            allow_pii=allow_pii,
+            spec_fields=spec_fields,
+        )
+    except PIIFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    audit_logger.log(
+        action="benchmark_spec.dataset_uploaded",
+        resource_type="benchmark_spec",
+        resource_id=result["spec_id"],
+        user_id=_auth.get("user_id", "unknown"),
+        details={"s3_uri": result["s3_uri"], "filename": filename},
+        outcome="success",
+    )
+    return result
