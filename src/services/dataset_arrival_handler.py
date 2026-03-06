@@ -205,32 +205,39 @@ class DatasetArrivalHandler:
         return arrival
 
     def _trigger_reeval(self, model_id: str, spec: dict[str, Any], s3_uri: str) -> bool:
-        """Enqueue a re-evaluation job. Returns True if enqueued."""
-        from src.models.evaluation_job import EvaluationJob, EvaluationJobPriority
+        """Enqueue a re-evaluation job with deduplication. Returns True if enqueued."""
+        from src.models.evaluation_job import EvaluationJobPriority
 
         try:
-            job = EvaluationJob(
-                model_id=model_id,
-                eval_config={
-                    "trigger": "dataset_arrival",
-                    "dataset_uri": s3_uri,
-                    "benchmark_spec": {
-                        "spec_id": spec.get("spec_id"),
-                        "metric_name": spec.get("metric_name"),
-                        "metric_direction": spec.get("metric_direction"),
-                        "eval_split": spec.get("eval_split"),
-                    },
+            eval_config = {
+                "trigger": "dataset_arrival",
+                "dataset_uri": s3_uri,
+                "benchmark_spec": {
+                    "spec_id": spec.get("spec_id"),
+                    "metric_name": spec.get("metric_name"),
+                    "metric_direction": spec.get("metric_direction"),
+                    "eval_split": spec.get("eval_split"),
                 },
+            }
+            job_id = self._evaluation_queue_manager.enqueue_with_dedup(
+                model_id=model_id,
+                trigger_source="data_arrival",
+                eval_config=eval_config,
                 priority=EvaluationJobPriority.NORMAL.value,
                 metadata={"trigger_source": "s3_dataset_arrival"},
             )
-            self._evaluation_queue_manager.enqueue(job)
+            if job_id:
+                logger.info(
+                    "event=dataset_arrival_reeval_enqueued model_id=%s job_id=%s",
+                    model_id,
+                    job_id,
+                )
+                return True
             logger.info(
-                "event=dataset_arrival_reeval_enqueued model_id=%s job_id=%s",
+                "event=dataset_arrival_reeval_deduplicated model_id=%s",
                 model_id,
-                job.id,
             )
-            return True
+            return False
         except Exception as exc:
             logger.error(
                 "event=dataset_arrival_reeval_failed model_id=%s error=%s",
