@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
+import io
+import logging
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -10,11 +14,15 @@ from threading import Lock
 from typing import Any, Callable
 from uuid import uuid4
 
+import boto3
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.api.models import BenchmarkSpec
+from src.api.services.privacy.pii_detector import PIIDetector, PIIScanResult
+
+logger = logging.getLogger(__name__)
 
 SessionFactory = Callable[[], Session]
 
@@ -27,6 +35,10 @@ class BenchmarkSpecImmutableError(ValueError):
 
 class BenchmarkSpecConflictError(ValueError):
     """Raised when a unique model/dataset/dataset_version binding already exists."""
+
+
+class PIIFoundError(ValueError):
+    """Raised when PII is detected in an uploaded dataset and allow_pii is not set."""
 
 
 @lru_cache(maxsize=4)
@@ -300,6 +312,93 @@ class BenchmarkSpecService:
                 del self._in_memory_specs[spec_id]
                 return True
             return False
+
+    def upload_dataset(
+        self: BenchmarkSpecService,
+        *,
+        model_id: str,
+        filename: str,
+        file_bytes: bytes,
+        pii_detector: PIIDetector,
+        allow_pii: bool = False,
+        spec_fields: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Upload a dataset file to S3, scan for PII, and create a BenchmarkSpec atomically.
+
+        Returns dict with s3_uri, sha256_hash, spec_id, filename, file_size_bytes.
+        """
+        import pandas as pd
+
+        # Compute SHA-256 hash
+        sha256_hash = hashlib.sha256(file_bytes).hexdigest()
+        file_size = len(file_bytes)
+
+        # Load into DataFrame for PII scan
+        suffix = os.path.splitext(filename)[1].lower()
+        buf = io.BytesIO(file_bytes)
+        if suffix == ".csv":
+            df = pd.read_csv(buf)
+        elif suffix == ".parquet":
+            df = pd.read_parquet(buf)
+        else:
+            raise ValueError(f"Unsupported file type: {suffix}")
+
+        # PII scan
+        scan_result: PIIScanResult = pii_detector.scan_dataframe(df)
+        if scan_result.total_findings > 0 and not allow_pii:
+            raise PIIFoundError(
+                f"PII detected in uploaded dataset: {scan_result.total_findings} finding(s). "
+                "Set allow_pii=true to proceed."
+            )
+
+        # Upload to S3
+        bucket = os.environ.get("HOKUSAI_DATASET_BUCKET")
+        if not bucket:
+            raise ValueError("HOKUSAI_DATASET_BUCKET environment variable is not set")
+
+        version = f"v{uuid4().hex[:8]}"
+        s3_key = f"datasets/{model_id}/{version}/{filename}"
+        s3_uri = f"s3://{bucket}/{s3_key}"
+
+        s3_client = boto3.client("s3")
+        s3_client.put_object(
+            Bucket=bucket,
+            Key=s3_key,
+            Body=file_bytes,
+            ServerSideEncryption="aws:kms",
+            Metadata={
+                "model_id": model_id,
+                "sha256": sha256_hash,
+                "uploaded_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+        # Create BenchmarkSpec atomically; clean up S3 on failure
+        try:
+            result = self.register_spec(
+                model_id=model_id,
+                dataset_id=s3_uri,
+                dataset_version=version,
+                provider="hokusai",
+                **spec_fields,
+            )
+        except Exception:
+            # Clean up orphaned S3 object
+            try:
+                s3_client.delete_object(Bucket=bucket, Key=s3_key)
+            except Exception:
+                logger.warning(
+                    "Failed to clean up S3 object %s after spec creation failure", s3_key
+                )
+            raise
+
+        return {
+            "s3_uri": s3_uri,
+            "sha256_hash": sha256_hash,
+            "spec_id": result["spec_id"],
+            "filename": filename,
+            "file_size_bytes": file_size,
+        }
 
     @staticmethod
     def _encode_row(row: BenchmarkSpec) -> dict[str, Any]:
