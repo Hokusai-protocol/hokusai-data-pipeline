@@ -14,6 +14,7 @@ from src.api.endpoints import model_serving
 from src.api.routes import (
     benchmarks,
     dspy,
+    evaluation_schedule,
     evaluations,
     governance,
     health,
@@ -98,6 +99,7 @@ app.include_router(evaluations.router)
 app.include_router(privacy.router)
 app.include_router(governance.router)
 app.include_router(benchmarks.router)
+app.include_router(evaluation_schedule.router)
 app.include_router(outcomes.router)
 app.include_router(model_serving.router, tags=["model-serving"])  # Model 21 serving endpoint
 # TODO: Enable auth router after fixing APIKeyModel dependency
