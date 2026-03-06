@@ -47,6 +47,7 @@ class EvaluationJob:
     attempt_count: int = 0
     max_attempts: int = 3
     timeout_seconds: int = 1800
+    trigger_source: str = "manual"
     result: dict[str, Any] | None = None
     error_message: str | None = None
     next_retry_at: datetime | None = None
@@ -69,6 +70,7 @@ class EvaluationJob:
             "result": self.result,
             "error_message": self.error_message,
             "metadata": self.metadata,
+            "trigger_source": self.trigger_source,
             "next_retry_at": self.next_retry_at.isoformat() if self.next_retry_at else None,
         }
 
@@ -92,6 +94,7 @@ class EvaluationJob:
             "result": json.dumps(payload["result"], sort_keys=True) if payload["result"] else "",
             "error_message": payload["error_message"] or "",
             "metadata": json.dumps(payload["metadata"], sort_keys=True),
+            "trigger_source": payload.get("trigger_source", "manual"),
             "next_retry_at": payload["next_retry_at"] or "",
             "queue_score": str(payload["queue_score"]),
         }
@@ -118,6 +121,7 @@ class EvaluationJob:
             timeout_seconds=int(data.get("timeout_seconds", 1800)),
             result=data.get("result"),
             error_message=data.get("error_message"),
+            trigger_source=data.get("trigger_source", "manual"),
             metadata=data.get("metadata") or {},
             next_retry_at=(
                 datetime.fromisoformat(data["next_retry_at"]) if data.get("next_retry_at") else None
@@ -148,6 +152,7 @@ class EvaluationJob:
             "result": json.loads(parsed["result"]) if parsed.get("result") else None,
             "error_message": parsed.get("error_message") or None,
             "metadata": json.loads(parsed["metadata"]) if parsed.get("metadata") else {},
+            "trigger_source": parsed.get("trigger_source", "manual"),
             "next_retry_at": parsed.get("next_retry_at") or None,
         }
         return cls.from_dict(payload)

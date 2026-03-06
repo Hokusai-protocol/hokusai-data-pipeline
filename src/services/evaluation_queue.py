@@ -15,7 +15,7 @@ from typing import Any
 import redis
 from redis.exceptions import RedisError
 
-from src.models.evaluation_job import EvaluationJob, EvaluationJobStatus
+from src.models.evaluation_job import EvaluationJob, EvaluationJobPriority, EvaluationJobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,8 @@ class EvaluationQueueManager:
         self.redis = redis_client
         self.config = config or EvaluationQueueConfig.from_env()
         self.dequeue_script = self.redis.register_script(self._dequeue_lua())
+        self._debounce_window = max(0, int(os.getenv("EVALUATION_DEBOUNCE_WINDOW_SECONDS", "300")))
+        self._memory_debounce: dict[str, float] = {}
 
     def enqueue(self, job: EvaluationJob) -> str:
         """Enqueue a job using priority ordering with FIFO tie-breaks."""
@@ -85,6 +87,99 @@ class EvaluationQueueManager:
             job.priority,
         )
         return job.id
+
+    def enqueue_with_dedup(
+        self,
+        model_id: str,
+        trigger_source: str = "data_arrival",
+        eval_config: dict[str, Any] | None = None,
+        priority: int = EvaluationJobPriority.NORMAL.value,
+        metadata: dict[str, Any] | None = None,
+    ) -> str | None:
+        """Enqueue an evaluation job with debounce-based deduplication.
+
+        If a debounce key exists for the model_id, the enqueue is skipped.
+        Only data-arrival triggered evaluations should use this method.
+        """
+        if not model_id:
+            raise ValueError("model_id is required")
+
+        if self._is_debounced(model_id):
+            logger.info(
+                "event=eval_dedup_skipped model_id=%s reason=debounce_active",
+                model_id,
+            )
+            return None
+
+        job = EvaluationJob(
+            model_id=model_id,
+            eval_config=eval_config or {},
+            priority=priority,
+            trigger_source=trigger_source,
+            metadata=metadata or {},
+        )
+        job_id = self.enqueue(job)
+        self._set_debounce(model_id)
+        return job_id
+
+    def batch_enqueue_data_arrivals(
+        self,
+        model_ids: list[str],
+        eval_config: dict[str, Any] | None = None,
+        priority: int = EvaluationJobPriority.NORMAL.value,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, str | None]:
+        """Enqueue evaluation jobs for multiple models with deduplication.
+
+        Deduplicates within the batch and against existing debounce keys.
+        Returns a mapping of model_id to job_id (or None if deduplicated).
+        """
+        results: dict[str, str | None] = {}
+        for mid in dict.fromkeys(model_ids):
+            results[mid] = self.enqueue_with_dedup(
+                model_id=mid,
+                trigger_source="data_arrival",
+                eval_config=eval_config,
+                priority=priority,
+                metadata=metadata,
+            )
+        return results
+
+    def _debounce_key(self, model_id: str) -> str:
+        return f"{self.config.key_prefix}:debounce:{model_id}"
+
+    def _is_debounced(self, model_id: str) -> bool:
+        if self._debounce_window <= 0:
+            return False
+        try:
+            if self.redis.exists(self._debounce_key(model_id)):
+                return True
+        except RedisError:
+            logger.warning("event=debounce_redis_fallback model_id=%s", model_id)
+            now = time.time()
+            self._cleanup_stale_debounce(now)
+            last = self._memory_debounce.get(model_id)
+            if last is not None and (now - last) < self._debounce_window:
+                return True
+        return False
+
+    def _set_debounce(self, model_id: str) -> None:
+        if self._debounce_window <= 0:
+            return
+        self._memory_debounce[model_id] = time.time()
+        try:
+            self.redis.setex(
+                self._debounce_key(model_id),
+                self._debounce_window,
+                "1",
+            )
+        except RedisError:
+            logger.warning("event=debounce_set_redis_fallback model_id=%s", model_id)
+
+    def _cleanup_stale_debounce(self, now: float) -> None:
+        stale = [k for k, v in self._memory_debounce.items() if (now - v) >= self._debounce_window]
+        for k in stale:
+            del self._memory_debounce[k]
 
     def dequeue(self, model_id: str | None = None) -> EvaluationJob | None:
         """Atomically dequeue the next eligible pending job."""

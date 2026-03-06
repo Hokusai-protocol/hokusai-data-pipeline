@@ -168,14 +168,16 @@ def test_handle_s3_event_updates_benchmark_spec() -> None:
 
 def test_handle_s3_event_triggers_reeval_when_queue_available() -> None:
     handler = _make_handler(has_eval_queue=True)
+    handler._evaluation_queue_manager.enqueue_with_dedup.return_value = "job-123"
     results = handler.handle_s3_event(_s3_event_body())
 
     assert results[0]["reeval_triggered"] is True
-    handler._evaluation_queue_manager.enqueue.assert_called_once()
+    handler._evaluation_queue_manager.enqueue_with_dedup.assert_called_once()
 
-    enqueued_job = handler._evaluation_queue_manager.enqueue.call_args[0][0]
-    assert enqueued_job.model_id == "model-a"
-    assert enqueued_job.eval_config["trigger"] == "dataset_arrival"
+    call_kwargs = handler._evaluation_queue_manager.enqueue_with_dedup.call_args[1]
+    assert call_kwargs["model_id"] == "model-a"
+    assert call_kwargs["trigger_source"] == "data_arrival"
+    assert call_kwargs["eval_config"]["trigger"] == "dataset_arrival"
 
 
 def test_handle_s3_event_no_benchmark_spec() -> None:
