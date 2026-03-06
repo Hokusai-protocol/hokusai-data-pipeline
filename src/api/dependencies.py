@@ -60,11 +60,18 @@ def get_gdpr_service() -> GDPRService:
     return service
 
 
+@lru_cache(maxsize=1)
+def get_benchmark_spec_service() -> BenchmarkSpecService:
+    """Return shared benchmark spec service instance."""
+    return BenchmarkSpecService()
+
+
 def get_evaluation_service(
     redis_client: Redis = Depends(get_redis_client),
     pii_detector: PIIDetector = Depends(get_pii_detector),
     audit_logger: AuditLogger = Depends(get_audit_logger),
     license_validator: LicenseValidator = Depends(get_license_validator),
+    benchmark_spec_service: BenchmarkSpecService = Depends(get_benchmark_spec_service),
 ) -> EvaluationService:
     """Return a service instance for evaluation operations."""
     return EvaluationService(
@@ -72,6 +79,7 @@ def get_evaluation_service(
         pii_detector=pii_detector,
         audit_logger=audit_logger,
         license_validator=license_validator,
+        benchmark_spec_service=benchmark_spec_service,
     )
 
 
@@ -79,12 +87,6 @@ def get_evaluation_service(
 def get_contributor_logger() -> ContributorLogger:
     """Return shared contributor logger instance."""
     return ContributorLogger()
-
-
-@lru_cache(maxsize=1)
-def get_benchmark_spec_service() -> BenchmarkSpecService:
-    """Return shared benchmark spec service instance."""
-    return BenchmarkSpecService()
 
 
 async def get_current_user(request: Request) -> dict[str, Any]:

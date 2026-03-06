@@ -21,6 +21,7 @@ from src.api.schemas.evaluations import (
     EvaluationStatusResponse,
 )
 from src.api.services.governance.audit_logger import AuditLogger
+from src.api.services.governance.benchmark_specs import BenchmarkSpecService
 from src.api.services.governance.licensing import LicenseValidator
 from src.api.services.privacy.pii_detector import PIIDetector
 from src.api.services.token_mint_hook import TokenMintHook
@@ -64,6 +65,7 @@ class EvaluationService:
         audit_logger: AuditLogger | None = None,
         license_validator: LicenseValidator | None = None,
         deltaone_mint_orchestrator: DeltaOneMintOrchestrator | None = None,
+        benchmark_spec_service: BenchmarkSpecService | None = None,
     ) -> None:
         self.redis = redis_client
         self.max_cost_usd = float(os.getenv("EVALUATION_MAX_COST_USD", "25"))
@@ -71,6 +73,7 @@ class EvaluationService:
         self.audit_logger = audit_logger
         self.license_validator = license_validator
         self._deltaone_mint_orchestrator = deltaone_mint_orchestrator
+        self._benchmark_spec_service = benchmark_spec_service
 
     def create_evaluation(
         self: EvaluationService,
@@ -90,6 +93,11 @@ class EvaluationService:
             )
 
         self._validate_model_exists(model_id)
+
+        dataset_reference = self._resolve_dataset_reference(
+            payload.config.dataset_reference, model_id
+        )
+        payload.config.dataset_reference = dataset_reference
 
         idempotency_lookup_key = self._idempotency_key(model_id, idempotency_key)
         if existing_job_id := self.redis.get(idempotency_lookup_key):
@@ -331,6 +339,39 @@ class EvaluationService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Model {model_id} not found",
             ) from exc
+
+    def _resolve_dataset_reference(
+        self: EvaluationService,
+        dataset_reference: str | None,
+        model_id: str,
+    ) -> str:
+        """Resolve dataset_reference, falling back to BenchmarkSpec when missing."""
+        ref = (dataset_reference or "").strip()
+        if ref and ref.lower() != "benchmark":
+            return ref
+
+        if self._benchmark_spec_service is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"No dataset_reference provided and model '{model_id}' has no active "
+                    "BenchmarkSpec. Provide a dataset_reference or create a BenchmarkSpec "
+                    "for this model."
+                ),
+            )
+
+        spec = self._benchmark_spec_service.get_active_spec_for_model(model_id)
+        if spec is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"No dataset_reference provided and model '{model_id}' has no active "
+                    "BenchmarkSpec. Provide a dataset_reference or create a BenchmarkSpec "
+                    "for this model."
+                ),
+            )
+
+        return spec["dataset_id"]
 
     def _estimate_cost(self: EvaluationService, payload: EvaluationRequest) -> float:
         parameters = payload.config.parameters

@@ -23,7 +23,13 @@ class EvaluationConfig(BaseModel):
     """Configuration payload for a new evaluation request."""
 
     eval_type: str = Field(..., min_length=1, description="Evaluation provider/type")
-    dataset_reference: str = Field(..., min_length=1, description="Dataset identifier")
+    dataset_reference: str | None = Field(
+        default=None,
+        description=(
+            "Dataset identifier (S3 URI). When omitted or set to 'benchmark', "
+            "the model's active BenchmarkSpec dataset is used automatically."
+        ),
+    )
     parameters: dict[str, Any] = Field(default_factory=dict)
     private: bool = Field(
         default=False,
