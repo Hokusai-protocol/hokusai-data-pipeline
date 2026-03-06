@@ -21,6 +21,7 @@ from src.api.services.governance.retention import RetentionManager
 from src.api.services.privacy.pii_detector import PIIDetector
 from src.api.utils.config import get_settings
 from src.middleware.auth import get_current_user as middleware_get_current_user
+from src.services.dataset_arrival_handler import DatasetArrivalHandler
 
 
 @lru_cache(maxsize=1)
@@ -103,6 +104,14 @@ def get_evaluation_service(
 def get_contributor_logger() -> ContributorLogger:
     """Return shared contributor logger instance."""
     return ContributorLogger()
+
+
+@lru_cache(maxsize=1)
+def get_dataset_arrival_handler() -> DatasetArrivalHandler:
+    """Return shared dataset arrival handler instance."""
+    return DatasetArrivalHandler(
+        benchmark_spec_service=get_benchmark_spec_service(),
+    )
 
 
 async def get_current_user(request: Request) -> dict[str, Any]:
