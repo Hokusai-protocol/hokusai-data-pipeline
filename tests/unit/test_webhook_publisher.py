@@ -78,13 +78,29 @@ class TestWebhookPublisher:
         return {
             "model_id": sample_message.model_id,
             "idempotency_key": str(UUID("12345678-1234-5678-1234-567812345678")),
+            "status": "registered",
+            "token_id": sample_message.token_symbol,
+            "token_identifier": sample_message.token_symbol,
+            "proposal_identifier": sample_message.token_symbol,
+            "model_name": sample_message.model_name,
+            "version": sample_message.model_version,
+            "metric_name": sample_message.metric_name,
+            "baseline_value": sample_message.baseline_value,
+            "current_value": sample_message.current_value,
+            "mlflow_run_id": sample_message.mlflow_run_id,
             "registered_version": sample_message.model_version,
             "timestamp": sample_message.timestamp.isoformat(),
             "token_symbol": sample_message.token_symbol,
             "baseline_metrics": {sample_message.metric_name: sample_message.baseline_value},
             "metadata": {
                 "model_name": sample_message.model_name,
+                "model_version": sample_message.model_version,
                 "mlflow_run_id": sample_message.mlflow_run_id,
+                "metric_name": sample_message.metric_name,
+                "baseline_value": sample_message.baseline_value,
+                "current_value": sample_message.current_value,
+                "status": "registered",
+                "proposal_identifier": sample_message.token_symbol,
                 "improvement_percentage": sample_message.improvement_percentage,
                 "contributor_address": sample_message.contributor_address,
                 "experiment_name": sample_message.experiment_name,
@@ -474,6 +490,13 @@ class TestWebhookPublisher:
         required_fields = [
             "model_id",
             "idempotency_key",
+            "status",
+            "token_id",
+            "proposal_identifier",
+            "model_name",
+            "version",
+            "metric_name",
+            "baseline_value",
             "registered_version",
             "timestamp",
             "token_symbol",
@@ -486,6 +509,13 @@ class TestWebhookPublisher:
         # Verify types
         assert isinstance(payload["model_id"], str)
         assert isinstance(payload["idempotency_key"], str)
+        assert isinstance(payload["status"], str)
+        assert isinstance(payload["token_id"], str)
+        assert isinstance(payload["proposal_identifier"], str)
+        assert isinstance(payload["model_name"], str)
+        assert isinstance(payload["version"], str)
+        assert isinstance(payload["metric_name"], str)
+        assert isinstance(payload["baseline_value"], float)
         assert isinstance(payload["registered_version"], str)
         assert isinstance(payload["timestamp"], str)
         assert isinstance(payload["token_symbol"], str)

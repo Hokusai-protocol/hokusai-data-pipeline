@@ -72,6 +72,21 @@ For proposal-attached registration:
 
 ## Usage Guide
 
+### Proposal Registration Webhook Contract
+
+When a tokenized registration emits the `model_ready_to_deploy` webhook, consumers should rely on these canonical payload fields:
+
+- `token_id`: token identifier used to attach the registration to an existing proposal
+- `proposal_identifier`: canonical proposal key; defaults to `token_id` unless explicitly supplied via `proposal_identifier`, `proposal_ticker`, `canonical_identifier`, or `ticker`
+- `model_name`
+- `version`
+- `mlflow_run_id`: included when the model URI is a `runs:/...` reference
+- `metric_name`
+- `baseline_value`
+- `status`: always `registered`
+
+For backward compatibility, the webhook still includes `token_symbol`, `registered_version`, `baseline_metrics`, and the nested `metadata` object.
+
 ### Basic Model Registration
 
 ```python

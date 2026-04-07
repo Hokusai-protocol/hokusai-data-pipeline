@@ -511,12 +511,20 @@ class ModelRegistry(AuthenticatedClient):
                 description=f"Token: {token_id}, Metric: {metric_name}",
             )
 
+            mlflow_run_id = self._extract_run_id_from_uri(model_uri)
+            proposal_identifier = self._resolve_proposal_identifier(token_id, additional_tags)
+
             # Set required Hokusai tags
             tags = {
                 "hokusai_token_id": token_id,
                 "benchmark_metric": metric_name,
                 "benchmark_value": str(baseline_value),
+                "hokusai_status": "registered",
+                "hokusai_proposal_identifier": proposal_identifier,
             }
+
+            if mlflow_run_id:
+                tags["mlflow_run_id"] = mlflow_run_id
 
             # Add any additional tags
             if additional_tags:
@@ -532,8 +540,12 @@ class ModelRegistry(AuthenticatedClient):
                 "model_name": model_name,
                 "version": model_version.version,
                 "token_id": token_id,
+                "token_identifier": token_id,
+                "proposal_identifier": proposal_identifier,
                 "metric_name": metric_name,
                 "baseline_value": baseline_value,
+                "mlflow_run_id": mlflow_run_id,
+                "status": "registered",
                 "tags": tags,
             }
 
@@ -676,6 +688,30 @@ class ModelRegistry(AuthenticatedClient):
 
         if token_id.startswith("-") or token_id.endswith("-"):
             raise ValueError("Invalid token ID: cannot start or end with hyphen")
+
+    def _extract_run_id_from_uri(self, model_uri: str) -> Optional[str]:
+        """Extract an MLflow run ID from a runs:/ URI when present."""
+        if model_uri.startswith("runs:/"):
+            parts = model_uri.split("/")
+            if len(parts) >= 2 and parts[1]:
+                return parts[1]
+        return None
+
+    def _resolve_proposal_identifier(
+        self, token_id: str, additional_tags: Optional[Dict[str, str]] = None
+    ) -> str:
+        """Resolve the canonical proposal identifier stored with the registration."""
+        if additional_tags:
+            for key in (
+                "proposal_identifier",
+                "proposal_ticker",
+                "canonical_identifier",
+                "ticker",
+            ):
+                value = additional_tags.get(key)
+                if value:
+                    return str(value)
+        return token_id
 
     def delete_model_version(self, model_id: str) -> bool:
         """Delete a specific model version."""

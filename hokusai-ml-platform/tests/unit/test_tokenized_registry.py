@@ -1,4 +1,5 @@
 """Unit tests for token-aware MLflow model registry functionality."""
+
 from unittest.mock import Mock, patch
 
 import pytest
@@ -45,7 +46,7 @@ class TestTokenizedModelRegistry:
             model_name="MSG-AI",
             token_id="msg-ai",
             metric_name="reply_rate",
-            baseline_value=0.1342
+            baseline_value=0.1342,
         )
 
         # Verify model was created
@@ -55,20 +56,21 @@ class TestTokenizedModelRegistry:
         expected_tags = [
             ("hokusai_token_id", "msg-ai"),
             ("benchmark_metric", "reply_rate"),
-            ("benchmark_value", "0.1342")
+            ("benchmark_value", "0.1342"),
         ]
 
         for tag_name, tag_value in expected_tags:
             registry.client.set_model_version_tag.assert_any_call(
-                name="MSG-AI",
-                version="1",
-                key=tag_name,
-                value=tag_value
+                name="MSG-AI", version="1", key=tag_name, value=tag_value
             )
 
         assert result["model_name"] == "MSG-AI"
         assert result["version"] == "1"
         assert result["token_id"] == "msg-ai"
+        assert result["token_identifier"] == "msg-ai"
+        assert result["proposal_identifier"] == "msg-ai"
+        assert result["mlflow_run_id"] == "abc123"
+        assert result["status"] == "registered"
 
     def test_register_tokenized_model_invalid_baseline_value(self, registry) -> None:
         """Test registration with invalid baseline value."""
@@ -78,7 +80,7 @@ class TestTokenizedModelRegistry:
                 model_name="MSG-AI",
                 token_id="msg-ai",
                 metric_name="reply_rate",
-                baseline_value="invalid"
+                baseline_value="invalid",
             )
 
     def test_register_tokenized_model_missing_required_params(self, registry) -> None:
@@ -89,7 +91,7 @@ class TestTokenizedModelRegistry:
                 model_name="MSG-AI",
                 token_id=None,
                 metric_name="reply_rate",
-                baseline_value=0.1342
+                baseline_value=0.1342,
             )
 
     def test_validate_hokusai_tags_success(self, registry) -> None:
@@ -97,7 +99,7 @@ class TestTokenizedModelRegistry:
         tags = {
             "hokusai_token_id": "msg-ai",
             "benchmark_metric": "reply_rate",
-            "benchmark_value": "0.1342"
+            "benchmark_value": "0.1342",
         }
 
         # Should not raise any exception
@@ -107,7 +109,7 @@ class TestTokenizedModelRegistry:
         """Test validation with missing required tags."""
         tags = {
             "hokusai_token_id": "msg-ai",
-            "benchmark_metric": "reply_rate"
+            "benchmark_metric": "reply_rate",
             # Missing benchmark_value
         }
 
@@ -119,7 +121,7 @@ class TestTokenizedModelRegistry:
         tags = {
             "hokusai_token_id": 123,  # Should be string
             "benchmark_metric": "reply_rate",
-            "benchmark_value": "0.1342"
+            "benchmark_value": "0.1342",
         }
 
         with pytest.raises(RegistryException, match="Tag hokusai_token_id must be a str"):
@@ -130,7 +132,7 @@ class TestTokenizedModelRegistry:
         tags = {
             "hokusai_token_id": "msg-ai",
             "benchmark_metric": "reply_rate",
-            "benchmark_value": "not-a-number"
+            "benchmark_value": "not-a-number",
         }
 
         with pytest.raises(RegistryException, match="benchmark_value must be convertible to float"):
@@ -145,7 +147,7 @@ class TestTokenizedModelRegistry:
         mock_version.tags = {
             "hokusai_token_id": "msg-ai",
             "benchmark_metric": "reply_rate",
-            "benchmark_value": "0.1342"
+            "benchmark_value": "0.1342",
         }
 
         registry.client.get_model_version.return_value = mock_version
@@ -173,7 +175,7 @@ class TestTokenizedModelRegistry:
         mock_v1.tags = {
             "hokusai_token_id": "msg-ai",
             "benchmark_metric": "reply_rate",
-            "benchmark_value": "0.15"
+            "benchmark_value": "0.15",
         }
 
         # Mock version for MSG-AI v2
@@ -183,7 +185,7 @@ class TestTokenizedModelRegistry:
         mock_v2.tags = {
             "hokusai_token_id": "msg-ai",
             "benchmark_metric": "reply_rate",
-            "benchmark_value": "0.16"
+            "benchmark_value": "0.16",
         }
 
         # Mock version for OTHER-MODEL
@@ -223,20 +225,14 @@ class TestTokenizedModelRegistry:
         """Test updating model tags."""
         registry.client.set_model_version_tag.return_value = None
 
-        new_tags = {
-            "benchmark_metric": "conversion_rate",
-            "benchmark_value": "0.2345"
-        }
+        new_tags = {"benchmark_metric": "conversion_rate", "benchmark_value": "0.2345"}
 
         registry.update_model_tags("MSG-AI", "1", new_tags)
 
         # Verify tags were updated
         for key, value in new_tags.items():
             registry.client.set_model_version_tag.assert_any_call(
-                name="MSG-AI",
-                version="1",
-                key=key,
-                value=value
+                name="MSG-AI", version="1", key=key, value=value
             )
 
     def test_validate_token_id_valid(self, registry) -> None:
@@ -262,10 +258,7 @@ class TestTokenizedModelRegistry:
         registry.client.create_model_version.return_value = mock_version
         registry.client.set_model_version_tag.return_value = None
 
-        additional_tags = {
-            "dataset": "customer_interactions",
-            "environment": "production"
-        }
+        additional_tags = {"dataset": "customer_interactions", "environment": "production"}
 
         result = registry.register_tokenized_model(
             model_uri="runs:/abc123/model",
@@ -273,17 +266,36 @@ class TestTokenizedModelRegistry:
             token_id="msg-ai",
             metric_name="reply_rate",
             baseline_value=0.1342,
-            additional_tags=additional_tags
+            additional_tags=additional_tags,
         )
 
         # Verify additional tags were set
         for key, value in additional_tags.items():
             registry.client.set_model_version_tag.assert_any_call(
-                name="MSG-AI",
-                version="1",
-                key=key,
-                value=value
+                name="MSG-AI", version="1", key=key, value=value
             )
+
+    def test_register_tokenized_model_uses_explicit_proposal_identifier(self, registry) -> None:
+        """Test registration preserves an explicit proposal identifier."""
+        mock_version = Mock()
+        mock_version.version = "1"
+        registry.client.create_model_version.return_value = mock_version
+        registry.client.set_model_version_tag.return_value = None
+
+        result = registry.register_tokenized_model(
+            model_uri="models:/MSG-AI/1",
+            model_name="MSG-AI",
+            token_id="msg-ai",
+            metric_name="reply_rate",
+            baseline_value=0.1342,
+            additional_tags={"proposal_identifier": "HOK-1135"},
+        )
+
+        assert result["proposal_identifier"] == "HOK-1135"
+        assert result["mlflow_run_id"] is None
+        registry.client.set_model_version_tag.assert_any_call(
+            name="MSG-AI", version="1", key="hokusai_proposal_identifier", value="HOK-1135"
+        )
 
     def test_mlflow_exception_handling(self, registry) -> None:
         """Test handling of MLflow exceptions."""
@@ -295,5 +307,5 @@ class TestTokenizedModelRegistry:
                 model_name="MSG-AI",
                 token_id="msg-ai",
                 metric_name="reply_rate",
-                baseline_value=0.1342
+                baseline_value=0.1342,
             )
