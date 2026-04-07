@@ -63,13 +63,13 @@ with experiment_manager.start_experiment("my_first_model"):
 
 ### 1. Register a Model with Token Association
 
-If you have a token created on the Hokusai platform:
+If you are fulfilling an existing proposal on the Hokusai platform, use the proposal's model name and token ticker directly. Do not create a separate model record first:
 
 ```python
 # Register model with token
 result = registry.register_tokenized_model(
     model_uri=f"runs:/{run_id}/model",
-    model_name="MY-TOKEN-MODEL",
+    model_name="proposal-my-token-model",
     token_id="my-token",
     metric_name="accuracy",
     baseline_value=0.85
@@ -78,7 +78,7 @@ result = registry.register_tokenized_model(
 
 ### 2. Track Model Improvements
 
-When you have new data to improve your model:
+When you have new data to improve your model, register a new version against that same proposal-owned model instead of submitting a new model:
 
 ```python
 from hokusai.tracking import PerformanceTracker
