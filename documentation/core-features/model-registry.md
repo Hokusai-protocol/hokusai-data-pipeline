@@ -28,7 +28,7 @@ Before using the Model Registry, you need:
 
 ### Token-Aware Registration
 
-Every model in Hokusai is associated with a token that represents ownership and enables rewards:
+Every model in Hokusai is associated with a token that represents ownership and enables rewards. When you fulfill an existing proposal, use the proposal-owned model name and token ticker directly in `register_tokenized_model()`. You do not need to create a separate model entry first.
 
 ```python
 import os
@@ -44,10 +44,11 @@ registry = ModelRegistry()
 # Register a model with token metadata
 model_info = registry.register_tokenized_model(
     model_uri="runs:/abc123/model",
-    name="sentiment-analyzer",
-    token_id="SENT-001",
-    benchmark_metric="f1_score",
-    benchmark_value="0.85"
+    model_name="proposal-sentiment-analyzer",
+    token_id="sent-ai",
+    metric_name="f1_score",
+    baseline_value=0.85,
+    additional_tags={"registration_flow": "proposal_fulfillment"}
 )
 ```
 
@@ -56,8 +57,18 @@ model_info = registry.register_tokenized_model(
 When registering a tokenized model, you must provide:
 
 - `token_id`: Unique identifier for the Hokusai token
-- `benchmark_metric`: The metric used to measure improvements (e.g., "accuracy", "f1_score")
-- `benchmark_value`: Baseline performance value for comparison
+- `metric_name`: The metric used to measure improvements (e.g., `"accuracy"`, `"f1_score"`)
+- `baseline_value`: Baseline performance value for comparison
+
+### Proposal Fulfillment Flow
+
+For proposal-attached registration:
+
+- Read the proposal's model name and token ticker from the website submit flow.
+- Log your trained model to MLflow.
+- Call `register_tokenized_model()` with that existing `model_name` and `token_id`.
+- Treat the first accepted registration as the proposal fulfillment.
+- Register later improvements as new versions on the same model after adding better data or training, not as a new model submission.
 
 ## Usage Guide
 
@@ -96,10 +107,11 @@ with mlflow.start_run() as run:
     model_uri = f"runs:/{run.info.run_id}/model"
     registered_model = registry.register_tokenized_model(
         model_uri=model_uri,
-        name="my-classifier",
-        token_id="CLASS-001",
-        benchmark_metric="accuracy",
-        benchmark_value="0.92"
+        model_name="proposal-my-classifier",
+        token_id="class-ai",
+        metric_name="accuracy",
+        baseline_value=0.92,
+        additional_tags={"registration_flow": "proposal_fulfillment"}
     )
 ```
 
@@ -109,20 +121,20 @@ with mlflow.start_run() as run:
 # Register baseline version
 baseline = registry.register_tokenized_model(
     model_uri="runs:/baseline_run/model",
-    name="image-classifier",
-    token_id="IMG-001",
-    benchmark_metric="accuracy",
-    benchmark_value="0.85"
+    model_name="proposal-image-classifier",
+    token_id="img-ai",
+    metric_name="accuracy",
+    baseline_value=0.85
 )
 
 # Register improved version
 improved = registry.register_tokenized_model(
     model_uri="runs:/improved_run/model",
-    name="image-classifier",
-    token_id="IMG-001",
-    benchmark_metric="accuracy",
-    benchmark_value="0.87",  # Improved!
-    tags={
+    model_name="proposal-image-classifier",
+    token_id="img-ai",
+    metric_name="accuracy",
+    baseline_value=0.87,  # Improved!
+    additional_tags={
         "contributor": "0x742d35Cc6634C0532925a3b844Bc9e7595f5b4e1",
         "data_contribution": "1000_labeled_images"
     }
@@ -133,15 +145,12 @@ improved = registry.register_tokenized_model(
 
 ```python
 # Get a specific model version
-model = registry.get_tokenized_model("image-classifier", version="2")
+model = registry.get_tokenized_model("proposal-image-classifier", version="2")
 
 # List all models for a token
-token_models = registry.list_models_by_token("IMG-001")
+token_models = registry.list_models_by_token("img-ai")
 for model in token_models:
-    print(f"{model.name} v{model.version}: {model.tags}")
-
-# Get latest model version
-latest = registry.get_latest_model_version("image-classifier")
+    print(f"{model['model_name']} v{model['version']}: {model['tags']}")
 ```
 
 ### Model Metadata and Tags
@@ -151,11 +160,11 @@ Add custom metadata to track contributions and improvements:
 ```python
 registry.register_tokenized_model(
     model_uri=model_uri,
-    name="nlp-model",
-    token_id="NLP-001",
-    benchmark_metric="perplexity",
-    benchmark_value="25.3",
-    tags={
+    model_name="proposal-nlp-model",
+    token_id="nlp-ai",
+    metric_name="perplexity",
+    baseline_value=25.3,
+    additional_tags={
         # Contributor information
         "contributor_address": "0x123...",
         "contribution_type": "fine_tuning_data",
@@ -178,15 +187,14 @@ Follow these naming conventions for token IDs:
 
 ```python
 # Good token IDs
-"MSG-AI"        # Uppercase, hyphenated
-"SENT-001"      # With version number
-"IMG-DETECT"    # Descriptive suffix
+"msg-ai"        # Lowercase, hyphenated
+"sent-001"      # With version number
+"img-detect"    # Descriptive suffix
 
 # Invalid token IDs (will be rejected)
-"msg_ai"        # Lowercase
-"MSGAI"         # No separator
+"msg_ai"        # Underscore not allowed
+"MSGAI"         # Uppercase not allowed
 "MSG AI"        # Spaces not allowed
-"123-MSG"       # Must start with letter
 ```
 
 ## Integration with DeltaOne
@@ -199,23 +207,23 @@ from hokusai.evaluation.deltaone_evaluator import detect_delta_one
 # Register baseline
 registry.register_tokenized_model(
     model_uri="runs:/baseline/model",
-    name="predictor",
-    token_id="PRED-001",
-    benchmark_metric="rmse",
-    benchmark_value="0.15"
+    model_name="proposal-predictor",
+    token_id="pred-ai",
+    metric_name="rmse",
+    baseline_value=0.15
 )
 
 # Register improved version
 registry.register_tokenized_model(
     model_uri="runs:/improved/model",
-    name="predictor",
-    token_id="PRED-001",
-    benchmark_metric="rmse",
-    benchmark_value="0.13"  # 2pp improvement!
+    model_name="proposal-predictor",
+    token_id="pred-ai",
+    metric_name="rmse",
+    baseline_value=0.13  # 2pp improvement!
 )
 
 # DeltaOne will automatically detect the improvement
-if detect_delta_one("predictor"):
+if detect_delta_one("proposal-predictor"):
     print("DeltaOne achieved! Rewards will be distributed.")
 ```
 
@@ -226,7 +234,7 @@ if detect_delta_one("predictor"):
 Track the complete improvement history of a model:
 
 ```python
-lineage = registry.get_model_lineage("sentiment-analyzer")
+lineage = registry.get_model_lineage("proposal-sentiment-analyzer")
 
 for version in lineage:
     print(f"Version {version.version}:")
@@ -260,10 +268,10 @@ models_to_register = [
 for model_info in models_to_register:
     registry.register_tokenized_model(
         model_uri=model_info["uri"],
-        name=model_info["name"],
+        model_name=model_info["name"],
         token_id=model_info["token_id"],
-        benchmark_metric=model_info["metric"],
-        benchmark_value=model_info["value"]
+        metric_name=model_info["metric"],
+        baseline_value=float(model_info["value"])
     )
 ```
 
@@ -305,7 +313,7 @@ Always include relevant metadata:
 ```python
 tags = {
     # Required by Hokusai
-    "hokusai_token_id": "MODEL-001",
+    "hokusai_token_id": "model-001",
     "benchmark_metric": "accuracy",
     "benchmark_value": "0.92",
     
@@ -343,10 +351,10 @@ try:
 except ValueError as e:
     if "Token ID format invalid" in str(e):
         # Fix token ID format
-        token_id = token_id.upper().replace("_", "-")
+        token_id = token_id.lower().replace("_", "-")
     elif "Benchmark value must be numeric" in str(e):
         # Convert to float
-        benchmark_value = str(float(benchmark_value))
+        baseline_value = float(baseline_value)
 except Exception as e:
     print(f"Registration failed: {e}")
 ```
@@ -359,27 +367,27 @@ except Exception as e:
 ```python
 def register_tokenized_model(
     model_uri: str,
-    name: str,
+    model_name: str,
     token_id: str,
-    benchmark_metric: str,
-    benchmark_value: str,
-    tags: Optional[Dict[str, str]] = None
-) -> RegisteredModel
+    metric_name: str,
+    baseline_value: float,
+    additional_tags: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]
 ```
 
 #### `get_tokenized_model()`
 ```python
 def get_tokenized_model(
-    name: str,
+    model_name: str,
     version: Optional[str] = None
-) -> ModelVersion
+) -> Dict[str, Any]
 ```
 
 #### `list_models_by_token()`
 ```python
 def list_models_by_token(
     token_id: str
-) -> List[ModelVersion]
+) -> List[Dict[str, Any]]
 ```
 
 ## Related Topics

@@ -28,9 +28,9 @@ manager = ExperimentManager(registry)
 print("✅ Hokusai ML Platform initialized!")
 ```
 
-## 2. Register a Baseline Model
+## 2. Fulfill a Proposal with Your First Registration
 
-Let's register a simple model as our baseline:
+If you are registering against an existing proposal, take the model name and token ticker from the website submit flow and use them directly in the SDK call. Do not create a separate model entry before this step.
 
 ```python
 from sklearn.datasets import make_classification
@@ -57,22 +57,23 @@ with mlflow.start_run(run_name="baseline_model") as run:
     mlflow.log_metric("accuracy", accuracy)
     mlflow.sklearn.log_model(model, "model")
     
-    # Register as baseline with Hokusai
+    # Register against the existing proposal
     model_uri = f"runs:/{run.info.run_id}/model"
     registered_model = registry.register_tokenized_model(
         model_uri=model_uri,
-        name="quickstart-classifier",
-        token_id="quickstart-token",
-        benchmark_metric="accuracy",
-        benchmark_value=str(accuracy)
+        model_name="proposal-quickstart-classifier",
+        token_id="quickstart-ai",
+        metric_name="accuracy",
+        baseline_value=accuracy,
+        additional_tags={"registration_flow": "proposal_fulfillment"}
     )
     
-    print(f"✅ Baseline model registered with accuracy: {accuracy:.4f}")
+    print(f"✅ Proposal fulfilled with accuracy: {accuracy:.4f}")
 ```
 
 ## 3. Contribute Data and Improve the Model
 
-Now let's simulate a data contribution that improves the model:
+After the first accepted registration fulfills the proposal, future gains should come from additional data and better training. Register those gains as new versions on the same proposal-owned model:
 
 ```python
 # Simulate contributed data (in practice, this would come from contributors)
@@ -102,6 +103,15 @@ with mlflow.start_run(run_name="improved_model") as run:
     mlflow.log_metric("accuracy", accuracy_improved)
     mlflow.log_param("data_contribution", "500_samples")
     mlflow.sklearn.log_model(improved_model, "model")
+
+    registry.register_tokenized_model(
+        model_uri=f"runs:/{run.info.run_id}/model",
+        model_name="proposal-quickstart-classifier",
+        token_id="quickstart-ai",
+        metric_name="accuracy",
+        baseline_value=accuracy_improved,
+        additional_tags={"data_contribution": "500_samples"}
+    )
     
     print(f"✅ Improved model accuracy: {accuracy_improved:.4f}")
     print(f"📈 Improvement: {(accuracy_improved - accuracy) * 100:.2f} percentage points")
@@ -115,7 +125,7 @@ Check if the improvement qualifies for rewards:
 from hokusai.evaluation.deltaone_evaluator import detect_delta_one
 
 # Check for DeltaOne achievement
-delta_one_achieved = detect_delta_one("quickstart-classifier")
+delta_one_achieved = detect_delta_one("proposal-quickstart-classifier")
 
 if delta_one_achieved:
     print("🎉 DeltaOne achieved! Model improved by ≥1 percentage point")
@@ -217,10 +227,11 @@ def main():
         
         registry.register_tokenized_model(
             model_uri=f"runs:/{mlflow.active_run().info.run_id}/model",
-            name="quickstart-model",
-            token_id="QUICK-001",
-            benchmark_metric="accuracy",
-            benchmark_value=str(accuracy)
+            model_name="proposal-quickstart-model",
+            token_id="quickstart-ai",
+            metric_name="accuracy",
+            baseline_value=accuracy,
+            additional_tags={"registration_flow": "proposal_fulfillment"}
         )
         print(f"✅ Baseline accuracy: {accuracy:.4f}")
     
@@ -237,6 +248,15 @@ def main():
         accuracy_improved = accuracy_score(y_test, improved_model.predict(X_test))
         mlflow.log_metric("accuracy", accuracy_improved)
         mlflow.sklearn.log_model(improved_model, "model")
+
+        registry.register_tokenized_model(
+            model_uri=f"runs:/{mlflow.active_run().info.run_id}/model",
+            model_name="proposal-quickstart-model",
+            token_id="quickstart-ai",
+            metric_name="accuracy",
+            baseline_value=accuracy_improved,
+            additional_tags={"data_contribution": "500_samples"}
+        )
         
         improvement = (accuracy_improved - accuracy) * 100
         print(f"✅ Improved accuracy: {accuracy_improved:.4f}")
@@ -244,7 +264,7 @@ def main():
     
     # 5. Check DeltaOne
     print("\n🎯 Checking for DeltaOne achievement...")
-    if detect_delta_one("quickstart-model"):
+    if detect_delta_one("proposal-quickstart-model"):
         print("🎉 DeltaOne achieved! Contributors eligible for rewards!")
     else:
         print("📊 Model improved but didn't reach DeltaOne threshold")

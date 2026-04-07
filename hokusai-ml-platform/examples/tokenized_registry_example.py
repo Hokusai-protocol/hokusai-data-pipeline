@@ -1,4 +1,6 @@
-"""Example usage of the Token-Aware MLflow Model Registry."""  # noqa: T201
+"""Example usage of the Token-Aware MLflow Model Registry."""
+
+# ruff: noqa: T201
 
 from hokusai.core.registry import ModelRegistry
 
@@ -27,8 +29,8 @@ def main() -> None:
     # Initialize the registry (uses environment variables by default)
     registry = ModelRegistry()
 
-    # Example 1: Register a new tokenized model
-    print("Example 1: Registering a tokenized model")
+    # Example 1: Fulfill an existing proposal with the proposal-owned model name and ticker
+    print("Example 1: Fulfilling an existing proposal")
     print("-" * 50)
 
     try:
@@ -36,11 +38,12 @@ def main() -> None:
         # For this example, we'll use a dummy model URI
         result = registry.register_tokenized_model(
             model_uri="runs:/abc123def456/model",
-            model_name="MSG-AI",
+            model_name="proposal-msg-ai",
             token_id="msg-ai",
             metric_name="reply_rate",
             baseline_value=0.1342,
             additional_tags={
+                "registration_flow": "proposal_fulfillment",
                 "dataset": "customer_interactions_v2",
                 "environment": "production",
                 "team": "messaging",
@@ -51,6 +54,7 @@ def main() -> None:
         print(f"Version: {result['version']}")
         print(f"Token ID: {result['token_id']}")
         print(f"Metric: {result['metric_name']} = {result['baseline_value']}")
+        print("First accepted registration fulfills the proposal.")
         print()
 
     except Exception as e:
@@ -62,7 +66,7 @@ def main() -> None:
     print("-" * 50)
 
     try:
-        model = registry.get_tokenized_model("MSG-AI", "1")
+        model = registry.get_tokenized_model("proposal-msg-ai", "1")
         print(f"Retrieved model: {model['model_name']} v{model['version']}")
         print(f"Token: {model['token_id']}")
         print(f"Performance: {model['metric_name']} = {model['baseline_value']}")
@@ -96,7 +100,7 @@ def main() -> None:
 
     try:
         registry.update_model_tags(
-            "MSG-AI",
+            "proposal-msg-ai",
             "1",
             {
                 "benchmark_value": "0.1456",  # Updated performance
@@ -114,10 +118,8 @@ def main() -> None:
     print("Example 5: Integration with standard MLflow")
     print("-" * 50)
 
-    # You can still use the existing register_baseline and register_improved_model methods
-    # alongside the new tokenized model functionality
-    print("The token-aware registry extends the existing functionality")
-    print("You can use both approaches as needed for your use case")
+    print("Use the proposal's model name and token ticker from the website submit flow.")
+    print("Future improvements should register new versions on that same model.")
 
 
 def validate_token_examples() -> None:

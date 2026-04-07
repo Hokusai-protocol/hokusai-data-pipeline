@@ -77,7 +77,9 @@ registry = ModelRegistry()
 print("✅ Hokusai ML Platform installed successfully!")
 ```
 
-## Step 3: Train and Register Your Model
+## Step 3: Train and Fulfill a Proposal Registration
+
+If you are responding to an existing proposal on the Hokusai website, do not create a separate model record first. Use the proposal's existing model name and token ticker when you call `register_tokenized_model()`. The first accepted registration fulfills that proposal. Later improvements should be registered as new versions against the same proposal-owned model after adding more data, not by submitting a brand new model.
 
 ### Option A: Complete Example with Hokusai ML Platform SDK
 
@@ -165,15 +167,16 @@ def main():
             mlflow.log_param("n_estimators", 100)
             mlflow.log_param("feature_count", X.shape[1])
             
-            # Register with token metadata
+            # Register against the existing proposal model and token
             model_uri = f"runs:/{run.info.run_id}/model"
             registered_model = registry.register_tokenized_model(
                 model_uri=model_uri,
-                name="customer-churn-predictor",
-                token_id="CHURN-001",
-                benchmark_metric="accuracy",
-                benchmark_value=str(accuracy),
-                tags={
+                model_name="proposal-customer-churn",
+                token_id="churn-ai",
+                metric_name="accuracy",
+                baseline_value=accuracy,
+                additional_tags={
+                    "registration_flow": "proposal_fulfillment",
                     "author": "data-science-team",
                     "use_case": "customer_retention",
                     "industry": "telecom",
@@ -191,9 +194,9 @@ def main():
             )
             
             print(f"\n✅ Model registered successfully!")
-            print(f"   Name: {registered_model.name}")
-            print(f"   Version: {registered_model.version}")
-            print(f"   Token ID: CHURN-001")
+            print(f"   Name: {registered_model['model_name']}")
+            print(f"   Version: {registered_model['version']}")
+            print(f"   Token ID: {registered_model['token_id']}")
             print(f"   MLflow Run ID: {run.info.run_id}")
 
 if __name__ == "__main__":
@@ -248,6 +251,8 @@ with mlflow.start_run() as run:
 
 ## Step 4: Register Model Improvements
 
+After the first accepted registration fulfills the proposal, keep using the same proposal-owned model name and token ticker for future versions. Improvements should come from additional data or better training, not from creating a second proposal submission.
+
 When you improve your model, register the new version to track progress:
 
 ```python
@@ -277,11 +282,11 @@ with experiment_manager.start_experiment("customer_churn_improved"):
         model_uri = f"runs:/{run.info.run_id}/model"
         improved_version = registry.register_tokenized_model(
             model_uri=model_uri,
-            name="customer-churn-predictor",
-            token_id="CHURN-001",
-            benchmark_metric="accuracy",
-            benchmark_value=str(improved_accuracy),
-            tags={
+            model_name="proposal-customer-churn",
+            token_id="churn-ai",
+            metric_name="accuracy",
+            baseline_value=improved_accuracy,
+            additional_tags={
                 "previous_version": "1",
                 "improvement": "3_percent",
                 "deltaone_achieved": "true" if delta["accuracy"] >= 0.01 else "false"
@@ -322,22 +327,22 @@ print("✅ A/B test configured - 10% of traffic will use the improved model")
 
 ```python
 # Get model information
-model = registry.get_tokenized_model("customer-churn-predictor")
-print(f"Latest version: {model.version}")
-print(f"Token ID: {model.tags['hokusai_token_id']}")
-print(f"Performance: {model.tags['benchmark_value']}")
+model = registry.get_tokenized_model("proposal-customer-churn")
+print(f"Latest version: {model['version']}")
+print(f"Token ID: {model['token_id']}")
+print(f"Performance: {model['baseline_value']}")
 
 # List all versions
-versions = registry.list_models_by_token("CHURN-001")
+versions = registry.list_models_by_token("churn-ai")
 for v in versions:
-    print(f"Version {v.version}: {v.tags['benchmark_value']}")
+    print(f"Version {v['version']}: {v['baseline_value']}")
 ```
 
 ### View Model Lineage
 
 ```python
 # Get complete model history
-lineage = registry.get_model_lineage("customer-churn-predictor")
+lineage = registry.get_model_lineage("proposal-customer-churn")
 for version in lineage:
     print(f"Version {version['version']}:")
     print(f"  - Metric: {version['metrics']['accuracy']}")
@@ -546,19 +551,19 @@ mlflow.set_tracking_uri("https://registry.hokus.ai/api/mlflow")
 #### `register_tokenized_model()`
 ```python
 registry.register_tokenized_model(
-    model_uri: str,           # MLflow model URI
-    name: str,                # Model name
-    token_id: str,            # Hokusai token ID
-    benchmark_metric: str,    # Metric name
-    benchmark_value: str,     # Baseline value
-    tags: Dict[str, str]      # Additional metadata
+    model_uri: str,                           # MLflow model URI
+    model_name: str,                          # Proposal-owned or registered model name
+    token_id: str,                            # Token ticker from the proposal
+    metric_name: str,                         # Metric name
+    baseline_value: float,                    # Baseline value
+    additional_tags: Optional[Dict[str, str]] = None
 )
 ```
 
 #### `get_tokenized_model()`
 ```python
 model = registry.get_tokenized_model(
-    name: str,                # Model name
+    model_name: str,          # Model name
     version: Optional[str]    # Specific version (default: latest)
 )
 ```
