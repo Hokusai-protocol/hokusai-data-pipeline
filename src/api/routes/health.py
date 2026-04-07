@@ -169,10 +169,32 @@ except ImportError:
     psutil = None
 
 
+def _build_lightweight_health_response(response: Response | None = None) -> HealthCheckResponse:
+    """Return a cheap health response suitable for ECS and ALB checks."""
+    if response:
+        response.status_code = 200
+
+    return HealthCheckResponse(
+        status="healthy",
+        version="1.0.0",
+        services={
+            "api": "healthy",
+            "dependency_checks": "skipped",
+        },
+        timestamp=datetime.utcnow(),
+    )
+
+
 @router.get("/health", response_model=HealthCheckResponse)
 async def health_check(detailed: bool = False, response: Response = None):
     """Check health status of the API and dependent services."""
     logger.info("Health check requested", extra={"detailed": detailed})
+
+    # Keep the default /health endpoint lightweight so ECS and ALB checks
+    # don't block on downstream dependency timeouts or retries.
+    if not detailed:
+        return _build_lightweight_health_response(response)
+
     services_status = {}
 
     # Check MLFlow using enhanced status function with graceful degradation and DNS info
