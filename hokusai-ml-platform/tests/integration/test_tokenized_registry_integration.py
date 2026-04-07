@@ -1,4 +1,5 @@
 """Integration tests for token-aware MLflow registry with real MLflow server."""
+
 import shutil
 import tempfile
 
@@ -60,11 +61,15 @@ class TestTokenizedRegistryIntegration:
             model_name="test-model",
             token_id="test-token",
             metric_name="accuracy",
-            baseline_value=0.85
+            baseline_value=0.85,
         )
 
         assert result["model_name"] == "test-model"
         assert result["token_id"] == "test-token"
+        assert result["token_identifier"] == "test-token"
+        assert result["proposal_identifier"] == "test-token"
+        assert result["status"] == "registered"
+        assert result["mlflow_run_id"] is not None
         assert "version" in result
 
         # Retrieve the model
@@ -100,7 +105,7 @@ class TestTokenizedRegistryIntegration:
             model_name="multi-version-model",
             token_id="multi-token",
             metric_name="f1_score",
-            baseline_value=0.75
+            baseline_value=0.75,
         )
 
         # Create and register second version
@@ -116,7 +121,7 @@ class TestTokenizedRegistryIntegration:
             model_name="multi-version-model",
             token_id="multi-token",
             metric_name="f1_score",
-            baseline_value=0.78  # Improved
+            baseline_value=0.78,  # Improved
         )
 
         # Verify both versions exist
@@ -139,21 +144,17 @@ class TestTokenizedRegistryIntegration:
             model_name="update-test-model",
             token_id="update-token",
             metric_name="precision",
-            baseline_value=0.90
+            baseline_value=0.90,
         )
 
         # Update tags
         new_tags = {
             "benchmark_value": "0.92",
             "evaluation_date": "2024-01-15",
-            "notes": "Improved with additional training data"
+            "notes": "Improved with additional training data",
         }
 
-        registry.update_model_tags(
-            "update-test-model",
-            result["version"],
-            new_tags
-        )
+        registry.update_model_tags("update-test-model", result["version"], new_tags)
 
         # Retrieve and verify
         updated = registry.get_tokenized_model("update-test-model", result["version"])
@@ -169,7 +170,7 @@ class TestTokenizedRegistryIntegration:
                 model_name="invalid-model",
                 token_id="test-token",
                 metric_name="accuracy",
-                baseline_value=0.85
+                baseline_value=0.85,
             )
 
     def test_concurrent_registrations(self, registry, mlflow_server) -> None:
@@ -198,7 +199,7 @@ class TestTokenizedRegistryIntegration:
                 model_name=f"concurrent-model-{idx}",
                 token_id=f"concurrent-token-{idx}",
                 metric_name="accuracy",
-                baseline_value=0.80 + idx * 0.01
+                baseline_value=0.80 + idx * 0.01,
             )
 
         # Register multiple models concurrently
@@ -214,7 +215,7 @@ class TestTokenizedRegistryIntegration:
 
 @pytest.mark.skipif(
     not pytest.config.getoption("--integration", default=False),
-    reason="Integration tests require --integration flag"
+    reason="Integration tests require --integration flag",
 )
 def test_with_real_mlflow_server() -> None:
     """Test with actual MLflow server if available."""
