@@ -9,19 +9,19 @@ resource "aws_ecs_task_definition" "api_updated" {
   memory                   = var.api_memory
   execution_role_arn       = aws_iam_role.ecs_task_execution.arn
   task_role_arn           = aws_iam_role.ecs_task.arn
-  
+
   container_definitions = jsonencode([
     {
       name  = "${var.project_name}-api"
       image = "${aws_ecr_repository.api.repository_url}:${var.api_image_tag}"
-      
+
       portMappings = [
         {
           containerPort = 8001
           protocol      = "tcp"
         }
       ]
-      
+
       environment = [
         {
           name  = "ENVIRONMENT"
@@ -60,7 +60,7 @@ resource "aws_ecs_task_definition" "api_updated" {
           value = "true"
         }
       ]
-      
+
       secrets = [
         {
           name      = "SECRET_KEY"
@@ -71,7 +71,7 @@ resource "aws_ecs_task_definition" "api_updated" {
           valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:database_password::"
         }
       ]
-      
+
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -80,7 +80,7 @@ resource "aws_ecs_task_definition" "api_updated" {
           "awslogs-stream-prefix" = "ecs"
         }
       }
-      
+
       healthCheck = {
         command     = ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
         interval    = 30
@@ -102,21 +102,21 @@ resource "aws_ecs_service" "api_updated" {
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.api_updated.arn
   desired_count   = var.api_desired_count
-  
+
   launch_type = "FARGATE"
-  
+
   network_configuration {
     subnets          = module.vpc.private_subnets
     security_groups  = [aws_security_group.ecs_tasks.id]
     assign_public_ip = false
   }
-  
+
   load_balancer {
     target_group_arn = aws_lb_target_group.api.arn
     container_name   = "${var.project_name}-api"
     container_port   = 8001
   }
-  
+
   depends_on = [
     aws_lb_listener.http,
     aws_service_discovery_service.mlflow

@@ -23,6 +23,7 @@ mlflow_cpu = 512
 mlflow_memory = 1024
 mlflow_desired_count = 1
 
+db_engine_version = "15.17"
 db_instance_class = "db.t3.micro"
 
 # Optional: Security settings

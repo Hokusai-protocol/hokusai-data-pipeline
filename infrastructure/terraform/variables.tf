@@ -55,6 +55,12 @@ variable "db_instance_class" {
   default     = "db.t3.micro"
 }
 
+variable "db_engine_version" {
+  description = "RDS PostgreSQL engine version"
+  type        = string
+  default     = "15.17"
+}
+
 variable "api_image_tag" {
   description = "Docker image tag for API service"
   type        = string

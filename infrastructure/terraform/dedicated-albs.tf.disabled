@@ -147,7 +147,7 @@ resource "aws_lb_listener" "auth_http" {
 # HTTPS Listener for Auth
 resource "aws_lb_listener" "auth_https" {
   count = var.certificate_arn != "" ? 1 : 0
-  
+
   load_balancer_arn = aws_lb.auth.arn
   port              = "443"
   protocol          = "HTTPS"
@@ -163,7 +163,7 @@ resource "aws_lb_listener" "auth_https" {
 # Auth API v1 routing rule
 resource "aws_lb_listener_rule" "auth_api_v1" {
   count = var.certificate_arn != "" ? 1 : 0
-  
+
   listener_arn = aws_lb_listener.auth_https[0].arn
   priority     = 100
 
@@ -182,7 +182,7 @@ resource "aws_lb_listener_rule" "auth_api_v1" {
 # Auth health check rule
 resource "aws_lb_listener_rule" "auth_health" {
   count = var.certificate_arn != "" ? 1 : 0
-  
+
   listener_arn = aws_lb_listener.auth_https[0].arn
   priority     = 90
 
@@ -238,7 +238,7 @@ resource "aws_lb_listener" "registry_http" {
 # HTTPS Listener for Registry
 resource "aws_lb_listener" "registry_https" {
   count = var.certificate_arn != "" ? 1 : 0
-  
+
   load_balancer_arn = aws_lb.registry.arn
   port              = "443"
   protocol          = "HTTPS"
@@ -254,7 +254,7 @@ resource "aws_lb_listener" "registry_https" {
 # Registry MLflow routing rule
 resource "aws_lb_listener_rule" "dedicated_registry_mlflow" {
   count = var.certificate_arn != "" ? 1 : 0
-  
+
   listener_arn = aws_lb_listener.registry_https[0].arn
   priority     = 100
 
@@ -273,7 +273,7 @@ resource "aws_lb_listener_rule" "dedicated_registry_mlflow" {
 # Registry API MLflow proxy routing
 resource "aws_lb_listener_rule" "dedicated_registry_api_mlflow" {
   count = var.certificate_arn != "" ? 1 : 0
-  
+
   listener_arn = aws_lb_listener.registry_https[0].arn
   priority     = 110
 
@@ -292,7 +292,7 @@ resource "aws_lb_listener_rule" "dedicated_registry_api_mlflow" {
 # Registry API general routing
 resource "aws_lb_listener_rule" "dedicated_registry_api" {
   count = var.certificate_arn != "" ? 1 : 0
-  
+
   listener_arn = aws_lb_listener.registry_https[0].arn
   priority     = 120
 
@@ -339,7 +339,7 @@ output "registry_alb_zone_id" {
 # Auth subdomain
 resource "aws_route53_record" "auth" {
   count = var.route53_zone_id != "" ? 1 : 0
-  
+
   zone_id = var.route53_zone_id
   name    = "auth.hokus.ai"
   type    = "A"
@@ -354,7 +354,7 @@ resource "aws_route53_record" "auth" {
 # Registry subdomain
 resource "aws_route53_record" "registry" {
   count = var.route53_zone_id != "" ? 1 : 0
-  
+
   zone_id = var.route53_zone_id
   name    = "registry.hokus.ai"
   type    = "A"

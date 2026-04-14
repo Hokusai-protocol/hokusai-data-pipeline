@@ -1,13 +1,13 @@
 terraform {
   required_version = ">= 1.0"
-  
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
   }
-  
+
   backend "s3" {
     # Backend configuration will be provided via backend config file
     # or terraform init -backend-config options
@@ -16,7 +16,7 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
-  
+
   default_tags {
     tags = {
       Project     = var.project_name
@@ -28,21 +28,21 @@ provider "aws" {
 
 # VPC Configuration
 module "vpc" {
-  source = "terraform-aws-modules/vpc/aws"
+  source  = "terraform-aws-modules/vpc/aws"
   version = "~> 5.0"
-  
+
   name = "${var.project_name}-${var.environment}-vpc"
   cidr = var.vpc_cidr
-  
+
   azs             = data.aws_availability_zones.available.names
   private_subnets = var.private_subnet_cidrs
   public_subnets  = var.public_subnet_cidrs
-  
-  enable_nat_gateway = true
-  single_nat_gateway = var.environment != "production"
+
+  enable_nat_gateway   = true
+  single_nat_gateway   = var.environment != "production"
   enable_dns_hostnames = true
   enable_dns_support   = true
-  
+
   tags = {
     Name = "${var.project_name}-${var.environment}-vpc"
   }
@@ -53,28 +53,28 @@ resource "aws_security_group" "alb" {
   name_prefix = "${var.project_name}-alb-"
   description = "Security group for Application Load Balancer"
   vpc_id      = module.vpc.vpc_id
-  
+
   ingress {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  
+
   ingress {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  
+
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  
+
   lifecycle {
     create_before_destroy = true
   }
@@ -84,21 +84,21 @@ resource "aws_security_group" "ecs_tasks" {
   name_prefix = "${var.project_name}-ecs-tasks-"
   description = "Security group for ECS tasks"
   vpc_id      = module.vpc.vpc_id
-  
+
   ingress {
     from_port       = 0
     to_port         = 65535
     protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
-  
+
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  
+
   lifecycle {
     create_before_destroy = true
   }
@@ -108,14 +108,14 @@ resource "aws_security_group" "rds" {
   name_prefix = "${var.project_name}-rds-"
   description = "Security group for RDS PostgreSQL"
   vpc_id      = module.vpc.vpc_id
-  
+
   ingress {
     from_port       = 5432
     to_port         = 5432
     protocol        = "tcp"
     security_groups = [aws_security_group.ecs_tasks.id]
   }
-  
+
   lifecycle {
     create_before_destroy = true
   }
@@ -124,7 +124,7 @@ resource "aws_security_group" "rds" {
 # S3 Buckets
 resource "aws_s3_bucket" "mlflow_artifacts" {
   bucket = "hokusai-mlflow-artifacts-${var.environment}"
-  
+
   lifecycle {
     prevent_destroy = true
   }
@@ -132,7 +132,7 @@ resource "aws_s3_bucket" "mlflow_artifacts" {
 
 resource "aws_s3_bucket_versioning" "mlflow_artifacts" {
   bucket = aws_s3_bucket.mlflow_artifacts.id
-  
+
   versioning_configuration {
     status = "Enabled"
   }
@@ -140,7 +140,7 @@ resource "aws_s3_bucket_versioning" "mlflow_artifacts" {
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "mlflow_artifacts" {
   bucket = aws_s3_bucket.mlflow_artifacts.id
-  
+
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
@@ -150,15 +150,15 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "mlflow_artifacts"
 
 resource "aws_s3_bucket_lifecycle_configuration" "mlflow_artifacts" {
   bucket = aws_s3_bucket.mlflow_artifacts.id
-  
+
   rule {
     id     = "expire-old-versions"
     status = "Enabled"
-    
+
     filter {
       prefix = ""
     }
-    
+
     noncurrent_version_expiration {
       noncurrent_days = 90
     }
@@ -167,7 +167,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "mlflow_artifacts" {
 
 resource "aws_s3_bucket" "pipeline_data" {
   bucket = "hokusai-pipeline-data-${var.environment}"
-  
+
   lifecycle {
     prevent_destroy = true
   }
@@ -175,7 +175,7 @@ resource "aws_s3_bucket" "pipeline_data" {
 
 resource "aws_s3_bucket_versioning" "pipeline_data" {
   bucket = aws_s3_bucket.pipeline_data.id
-  
+
   versioning_configuration {
     status = "Enabled"
   }
@@ -183,7 +183,7 @@ resource "aws_s3_bucket_versioning" "pipeline_data" {
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "pipeline_data" {
   bucket = aws_s3_bucket.pipeline_data.id
-  
+
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
@@ -200,7 +200,7 @@ resource "aws_db_subnet_group" "mlflow" {
 resource "aws_db_parameter_group" "mlflow" {
   name   = "${var.project_name}-mlflow-${var.environment}"
   family = "postgres15"
-  
+
   parameter {
     name  = "log_connections"
     value = "1"
@@ -209,38 +209,38 @@ resource "aws_db_parameter_group" "mlflow" {
 
 resource "aws_db_instance" "mlflow" {
   identifier = "${var.project_name}-mlflow-${var.environment}"
-  
+
   engine         = "postgres"
-  engine_version = "15.12"
+  engine_version = var.db_engine_version
   instance_class = var.db_instance_class
-  
+
   allocated_storage     = 20
   max_allocated_storage = 100
   storage_encrypted     = true
-  
+
   db_name  = "mlflow_db"
   username = "mlflow"
   password = var.database_password
-  
+
   vpc_security_group_ids = [aws_security_group.rds.id]
   db_subnet_group_name   = aws_db_subnet_group.mlflow.name
   parameter_group_name   = aws_db_parameter_group.mlflow.name
-  
+
   backup_retention_period = 7
-  backup_window          = "03:00-04:00"
-  maintenance_window     = "sun:04:00-sun:05:00"
-  
-  multi_az               = var.environment == "production"
-  deletion_protection    = var.environment == "production"
-  skip_final_snapshot    = var.environment != "production"
-  
+  backup_window           = "03:00-04:00"
+  maintenance_window      = "sun:04:00-sun:05:00"
+
+  multi_az            = var.environment == "production"
+  deletion_protection = var.environment == "production"
+  skip_final_snapshot = var.environment != "production"
+
   enabled_cloudwatch_logs_exports = ["postgresql"]
 }
 
 # ECS Cluster
 resource "aws_ecs_cluster" "main" {
   name = "${var.project_name}-${var.environment}"
-  
+
   setting {
     name  = "containerInsights"
     value = "enabled"
@@ -249,9 +249,9 @@ resource "aws_ecs_cluster" "main" {
 
 resource "aws_ecs_cluster_capacity_providers" "main" {
   cluster_name = aws_ecs_cluster.main.name
-  
+
   capacity_providers = ["FARGATE", "FARGATE_SPOT"]
-  
+
   default_capacity_provider_strategy {
     base              = 1
     weight            = 100
@@ -265,10 +265,10 @@ resource "aws_lb" "main" {
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets           = module.vpc.public_subnets
-  
+  subnets            = module.vpc.public_subnets
+
   enable_deletion_protection = var.environment == "production"
-  enable_http2              = true
+  enable_http2               = true
 }
 
 resource "aws_lb_target_group" "api" {
@@ -277,7 +277,7 @@ resource "aws_lb_target_group" "api" {
   protocol    = "HTTP"
   vpc_id      = module.vpc.vpc_id
   target_type = "ip"
-  
+
   health_check {
     enabled             = true
     healthy_threshold   = 2
@@ -289,7 +289,7 @@ resource "aws_lb_target_group" "api" {
     timeout             = 5
     unhealthy_threshold = 2
   }
-  
+
   deregistration_delay = 30
 }
 
@@ -299,7 +299,7 @@ resource "aws_lb_target_group" "mlflow" {
   protocol    = "HTTP"
   vpc_id      = module.vpc.vpc_id
   target_type = "ip"
-  
+
   health_check {
     enabled             = true
     healthy_threshold   = 2
@@ -311,7 +311,7 @@ resource "aws_lb_target_group" "mlflow" {
     timeout             = 5
     unhealthy_threshold = 2
   }
-  
+
   deregistration_delay = 30
 }
 
@@ -319,10 +319,10 @@ resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = "80"
   protocol          = "HTTP"
-  
+
   default_action {
     type = "fixed-response"
-    
+
     fixed_response {
       content_type = "text/plain"
       message_body = "Not Found"
@@ -335,12 +335,12 @@ resource "aws_lb_listener" "http" {
 resource "aws_lb_listener_rule" "api" {
   listener_arn = aws_lb_listener.http.arn
   priority     = 100
-  
+
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.api.arn
   }
-  
+
   condition {
     path_pattern {
       values = ["/api*"]
@@ -351,19 +351,19 @@ resource "aws_lb_listener_rule" "api" {
 # Host-based routing for registry.hokus.ai - MLflow path
 resource "aws_lb_listener_rule" "registry_mlflow" {
   listener_arn = aws_lb_listener.http.arn
-  priority     = 40  # Highest priority for specific path on specific host
-  
+  priority     = 40 # Highest priority for specific path on specific host
+
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.mlflow.arn
   }
-  
+
   condition {
     host_header {
       values = ["registry.hokus.ai"]
     }
   }
-  
+
   condition {
     path_pattern {
       values = ["/mlflow", "/mlflow/*"]
@@ -374,13 +374,13 @@ resource "aws_lb_listener_rule" "registry_mlflow" {
 # Host-based routing for registry.hokus.ai - API (everything else)
 resource "aws_lb_listener_rule" "registry_api" {
   listener_arn = aws_lb_listener.http.arn
-  priority     = 50  # Lower priority - catches all other paths
-  
+  priority     = 50 # Lower priority - catches all other paths
+
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.api.arn
   }
-  
+
   condition {
     host_header {
       values = ["registry.hokus.ai"]
@@ -392,12 +392,12 @@ resource "aws_lb_listener_rule" "registry_api" {
 resource "aws_lb_listener_rule" "mlflow" {
   listener_arn = aws_lb_listener.http.arn
   priority     = 200
-  
+
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.mlflow.arn
   }
-  
+
   condition {
     path_pattern {
       values = ["/mlflow", "/mlflow/*"]
@@ -408,7 +408,7 @@ resource "aws_lb_listener_rule" "mlflow" {
 # IAM Roles
 resource "aws_iam_role" "ecs_task_execution" {
   name = "${var.project_name}-ecs-execution-${var.environment}"
-  
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -430,7 +430,7 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
 
 resource "aws_iam_role" "ecs_task" {
   name = "${var.project_name}-ecs-task-${var.environment}"
-  
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -448,7 +448,7 @@ resource "aws_iam_role" "ecs_task" {
 resource "aws_iam_role_policy" "ecs_task_s3" {
   name = "${var.project_name}-ecs-s3-${var.environment}"
   role = aws_iam_role.ecs_task.id
-  
+
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -494,12 +494,12 @@ resource "aws_cloudwatch_metric_alarm" "api_health" {
   threshold           = "1"
   alarm_description   = "This metric monitors API health"
   treat_missing_data  = "breaching"
-  
+
   dimensions = {
     TargetGroup  = aws_lb_target_group.api.arn_suffix
     LoadBalancer = aws_lb.main.arn_suffix
   }
-  
+
   alarm_actions = [aws_sns_topic.alerts.arn]
 }
 
@@ -513,11 +513,11 @@ resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
   statistic           = "Average"
   threshold           = "80"
   alarm_description   = "This metric monitors RDS CPU utilization"
-  
+
   dimensions = {
     DBInstanceIdentifier = aws_db_instance.mlflow.id
   }
-  
+
   alarm_actions = [aws_sns_topic.alerts.arn]
 }
 
@@ -528,18 +528,18 @@ resource "aws_sns_topic" "alerts" {
 
 # Secrets Manager
 resource "aws_secretsmanager_secret" "api_keys" {
-  name = "${var.project_name}/api-keys/${var.environment}"
+  name        = "${var.project_name}/api-keys/${var.environment}"
   description = "API keys for Hokusai platform"
-  
+
   lifecycle {
     prevent_destroy = true
   }
 }
 
 resource "aws_secretsmanager_secret" "app_secrets" {
-  name = "${var.project_name}/app-secrets/${var.environment}"
+  name        = "${var.project_name}/app-secrets/${var.environment}"
   description = "Application secrets for Hokusai platform"
-  
+
   lifecycle {
     prevent_destroy = true
   }
@@ -553,20 +553,20 @@ resource "aws_ecs_task_definition" "api" {
   cpu                      = var.api_cpu
   memory                   = var.api_memory
   execution_role_arn       = aws_iam_role.ecs_task_execution.arn
-  task_role_arn           = aws_iam_role.ecs_task.arn
-  
+  task_role_arn            = aws_iam_role.ecs_task.arn
+
   container_definitions = jsonencode([
     {
       name  = "${var.project_name}-api"
       image = "${aws_ecr_repository.api.repository_url}:${var.api_image_tag}"
-      
+
       portMappings = [
         {
           containerPort = 8001
           protocol      = "tcp"
         }
       ]
-      
+
       environment = [
         {
           name  = "ENVIRONMENT"
@@ -589,7 +589,7 @@ resource "aws_ecs_task_definition" "api" {
           value = var.auth_service_id
         }
       ]
-      
+
       secrets = [
         {
           name      = "SECRET_KEY"
@@ -600,7 +600,7 @@ resource "aws_ecs_task_definition" "api" {
           valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:database_password::"
         }
       ]
-      
+
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -609,7 +609,7 @@ resource "aws_ecs_task_definition" "api" {
           "awslogs-stream-prefix" = "ecs"
         }
       }
-      
+
       healthCheck = {
         command     = ["CMD-SHELL", "curl -f http://localhost:8001/health || exit 1"]
         interval    = 30
@@ -628,20 +628,20 @@ resource "aws_ecs_task_definition" "mlflow" {
   cpu                      = var.mlflow_cpu
   memory                   = var.mlflow_memory
   execution_role_arn       = aws_iam_role.ecs_task_execution.arn
-  task_role_arn           = aws_iam_role.ecs_task.arn
-  
+  task_role_arn            = aws_iam_role.ecs_task.arn
+
   container_definitions = jsonencode([
     {
       name  = "${var.project_name}-mlflow"
       image = "${aws_ecr_repository.mlflow.repository_url}:${var.mlflow_image_tag}"
-      
+
       portMappings = [
         {
           containerPort = 5000
           protocol      = "tcp"
         }
       ]
-      
+
       environment = [
         {
           name  = "ENVIRONMENT"
@@ -656,7 +656,7 @@ resource "aws_ecs_task_definition" "mlflow" {
           value = "s3://${aws_s3_bucket.mlflow_artifacts.id}/artifacts"
         }
       ]
-      
+
       logConfiguration = {
         logDriver = "awslogs"
         options = {
@@ -665,7 +665,7 @@ resource "aws_ecs_task_definition" "mlflow" {
           "awslogs-stream-prefix" = "ecs"
         }
       }
-      
+
       healthCheck = {
         command     = ["CMD-SHELL", "curl -f http://localhost:5000/mlflow || exit 1"]
         interval    = 30
@@ -683,21 +683,21 @@ resource "aws_ecs_service" "api" {
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.api.arn
   desired_count   = var.api_desired_count
-  
+
   launch_type = "FARGATE"
-  
+
   network_configuration {
     subnets          = module.vpc.private_subnets
     security_groups  = [aws_security_group.ecs_tasks.id]
     assign_public_ip = false
   }
-  
+
   load_balancer {
     target_group_arn = aws_lb_target_group.api.arn
     container_name   = "${var.project_name}-api"
     container_port   = 8001
   }
-  
+
   depends_on = [aws_lb_listener.http]
 }
 
@@ -706,21 +706,21 @@ resource "aws_ecs_service" "mlflow" {
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.mlflow.arn
   desired_count   = var.mlflow_desired_count
-  
+
   launch_type = "FARGATE"
-  
+
   network_configuration {
     subnets          = module.vpc.private_subnets
     security_groups  = [aws_security_group.ecs_tasks.id]
     assign_public_ip = false
   }
-  
+
   load_balancer {
     target_group_arn = aws_lb_target_group.mlflow.arn
     container_name   = "${var.project_name}-mlflow"
     container_port   = 5000
   }
-  
+
   depends_on = [aws_lb_listener.http]
 }
 
@@ -728,7 +728,7 @@ resource "aws_ecs_service" "mlflow" {
 resource "aws_ecr_repository" "api" {
   name                 = "${var.project_name}-api"
   image_tag_mutability = "MUTABLE"
-  
+
   image_scanning_configuration {
     scan_on_push = true
   }
@@ -737,7 +737,7 @@ resource "aws_ecr_repository" "api" {
 resource "aws_ecr_repository" "mlflow" {
   name                 = "${var.project_name}-mlflow"
   image_tag_mutability = "MUTABLE"
-  
+
   image_scanning_configuration {
     scan_on_push = true
   }
@@ -749,7 +749,7 @@ resource "aws_lb" "mlflow_internal" {
   internal           = true
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
-  subnets           = module.vpc.private_subnets
+  subnets            = module.vpc.private_subnets
 }
 
 # Add HTTPS listener (placeholder - requires certificate)
@@ -759,17 +759,17 @@ resource "aws_lb_listener" "https" {
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS-1-2-2017-01"
   certificate_arn   = var.certificate_arn != "" ? var.certificate_arn : null
-  
+
   default_action {
     type = "fixed-response"
-    
+
     fixed_response {
       content_type = "text/plain"
       message_body = "Not Found"
       status_code  = "404"
     }
   }
-  
+
   count = var.certificate_arn != "" ? 1 : 0
 }
 

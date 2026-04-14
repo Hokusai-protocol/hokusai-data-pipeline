@@ -6,18 +6,18 @@
 resource "aws_lb_listener_rule" "auth_service_api" {
   listener_arn = aws_lb_listener.http.arn
   priority     = 80  # Higher priority than general API rules
-  
+
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.api.arn
   }
-  
+
   condition {
     host_header {
       values = ["auth.hokus.ai"]
     }
   }
-  
+
   condition {
     path_pattern {
       values = ["/api/*"]
@@ -30,12 +30,12 @@ resource "aws_lb_listener_rule" "auth_service_api" {
 resource "aws_lb_listener_rule" "api_v1" {
   listener_arn = aws_lb_listener.http.arn
   priority     = 95
-  
+
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.api.arn
   }
-  
+
   condition {
     path_pattern {
       values = [
@@ -45,7 +45,7 @@ resource "aws_lb_listener_rule" "api_v1" {
       ]
     }
   }
-  
+
   lifecycle {
     # This will replace the existing aws_lb_listener_rule.api resource
     create_before_destroy = true
@@ -56,12 +56,12 @@ resource "aws_lb_listener_rule" "api_v1" {
 resource "aws_lb_listener_rule" "api_mlflow_proxy" {
   listener_arn = aws_lb_listener.http.arn
   priority     = 85  # Higher priority than api_v1 rule
-  
+
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.api.arn  # Goes to API service which has the proxy
   }
-  
+
   condition {
     path_pattern {
       values = ["/api/mlflow/*"]
@@ -72,21 +72,21 @@ resource "aws_lb_listener_rule" "api_mlflow_proxy" {
 # HTTPS versions of the same rules
 resource "aws_lb_listener_rule" "https_auth_service_api" {
   count = var.certificate_arn != "" ? 1 : 0
-  
+
   listener_arn = aws_lb_listener.https[0].arn
   priority     = 80
-  
+
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.api.arn
   }
-  
+
   condition {
     host_header {
       values = ["auth.hokus.ai"]
     }
   }
-  
+
   condition {
     path_pattern {
       values = ["/api/*"]
@@ -96,15 +96,15 @@ resource "aws_lb_listener_rule" "https_auth_service_api" {
 
 resource "aws_lb_listener_rule" "https_api_v1" {
   count = var.certificate_arn != "" ? 1 : 0
-  
+
   listener_arn = aws_lb_listener.https[0].arn
   priority     = 95
-  
+
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.api.arn
   }
-  
+
   condition {
     path_pattern {
       values = [
@@ -114,7 +114,7 @@ resource "aws_lb_listener_rule" "https_api_v1" {
       ]
     }
   }
-  
+
   lifecycle {
     create_before_destroy = true
   }
@@ -122,15 +122,15 @@ resource "aws_lb_listener_rule" "https_api_v1" {
 
 resource "aws_lb_listener_rule" "https_api_mlflow_proxy" {
   count = var.certificate_arn != "" ? 1 : 0
-  
+
   listener_arn = aws_lb_listener.https[0].arn
   priority     = 85
-  
+
   action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.api.arn
   }
-  
+
   condition {
     path_pattern {
       values = ["/api/mlflow/*"]

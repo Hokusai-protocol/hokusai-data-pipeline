@@ -260,6 +260,29 @@ To reduce costs in non-production environments:
 
 4. Enable S3 lifecycle policies for old artifacts
 
+## RDS Minor Version Upgrades
+
+The MLflow RDS instance engine version is controlled by `db_engine_version` in
+`terraform/terraform.tfvars`. The default is now PostgreSQL `15.17`.
+
+To upgrade a deployed environment such as `hokusai-mlflow-development`:
+
+```hcl
+db_engine_version = "15.17"
+```
+
+Then run:
+
+```bash
+cd infrastructure
+./scripts/deploy.sh
+```
+
+Review the Terraform plan carefully before applying. A PostgreSQL minor version
+upgrade on RDS requires a database restart, so schedule it during a maintenance
+window for `development` if you want to control the downtime instead of waiting
+for AWS to force the upgrade later.
+
 ## Support
 
 For issues or questions:

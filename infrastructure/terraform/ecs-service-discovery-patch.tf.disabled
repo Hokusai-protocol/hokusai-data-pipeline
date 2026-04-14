@@ -8,26 +8,26 @@ resource "aws_ecs_service" "api_with_discovery" {
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.api.arn
   desired_count   = var.api_desired_count
-  
+
   launch_type = "FARGATE"
-  
+
   network_configuration {
     subnets          = module.vpc.private_subnets
     security_groups  = [aws_security_group.ecs_tasks.id]
     assign_public_ip = false
   }
-  
+
   load_balancer {
     target_group_arn = aws_lb_target_group.registry_api.arn
     container_name   = "${var.project_name}-api"
     container_port   = 8001
   }
-  
+
   # Service Discovery Registration
   service_registries {
     registry_arn = aws_service_discovery_service.api.arn
   }
-  
+
   depends_on = [aws_lb_listener.registry_https]
 }
 
@@ -37,26 +37,26 @@ resource "aws_ecs_service" "mlflow_with_discovery" {
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.mlflow.arn
   desired_count   = var.mlflow_desired_count
-  
+
   launch_type = "FARGATE"
-  
+
   network_configuration {
     subnets          = module.vpc.private_subnets
     security_groups  = [aws_security_group.ecs_tasks.id]
     assign_public_ip = false
   }
-  
+
   load_balancer {
     target_group_arn = aws_lb_target_group.registry_mlflow.arn
     container_name   = "${var.project_name}-mlflow"
     container_port   = 5000
   }
-  
+
   # Service Discovery Registration
   service_registries {
     registry_arn = aws_service_discovery_service.mlflow.arn
   }
-  
+
   depends_on = [aws_lb_listener.registry_https]
 }
 

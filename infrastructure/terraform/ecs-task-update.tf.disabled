@@ -15,11 +15,11 @@ resource "aws_ecs_task_definition" "registry_api" {
     {
       name  = "api"
       image = "${var.ecr_repository_url}:latest"
-      
+
       # Increased resource limits
       cpu    = 1024
       memory = 2048
-      
+
       # Health check configuration
       healthCheck = {
         command     = ["CMD-SHELL", "curl -f http://localhost:8000/health/live || exit 1"]
@@ -101,10 +101,10 @@ resource "aws_ecs_task_definition" "mlflow" {
     {
       name  = "mlflow"
       image = "${var.mlflow_ecr_repository_url}:latest"
-      
+
       cpu    = 2048
       memory = 4096
-      
+
       healthCheck = {
         command     = ["CMD-SHELL", "curl -f http://localhost:5000/health || exit 1"]
         interval    = 60
