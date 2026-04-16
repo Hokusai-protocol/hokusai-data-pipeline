@@ -45,7 +45,7 @@ registry = ModelRegistry()
 model_info = registry.register_tokenized_model(
     model_uri="runs:/abc123/model",
     model_name="proposal-sentiment-analyzer",
-    token_id="sent-ai",
+    token_id="SENT-AI",
     metric_name="f1_score",
     baseline_value=0.85,
     additional_tags={"registration_flow": "proposal_fulfillment"}
@@ -123,7 +123,7 @@ with mlflow.start_run() as run:
     registered_model = registry.register_tokenized_model(
         model_uri=model_uri,
         model_name="proposal-my-classifier",
-        token_id="class-ai",
+        token_id="CLASS-AI",
         metric_name="accuracy",
         baseline_value=0.92,
         additional_tags={"registration_flow": "proposal_fulfillment"}
@@ -137,7 +137,7 @@ with mlflow.start_run() as run:
 baseline = registry.register_tokenized_model(
     model_uri="runs:/baseline_run/model",
     model_name="proposal-image-classifier",
-    token_id="img-ai",
+    token_id="IMG-AI",
     metric_name="accuracy",
     baseline_value=0.85
 )
@@ -146,7 +146,7 @@ baseline = registry.register_tokenized_model(
 improved = registry.register_tokenized_model(
     model_uri="runs:/improved_run/model",
     model_name="proposal-image-classifier",
-    token_id="img-ai",
+    token_id="IMG-AI",
     metric_name="accuracy",
     baseline_value=0.87,  # Improved!
     additional_tags={
@@ -163,7 +163,7 @@ improved = registry.register_tokenized_model(
 model = registry.get_tokenized_model("proposal-image-classifier", version="2")
 
 # List all models for a token
-token_models = registry.list_models_by_token("img-ai")
+token_models = registry.list_models_by_token("IMG-AI")
 for model in token_models:
     print(f"{model['model_name']} v{model['version']}: {model['tags']}")
 ```
@@ -176,7 +176,7 @@ Add custom metadata to track contributions and improvements:
 registry.register_tokenized_model(
     model_uri=model_uri,
     model_name="proposal-nlp-model",
-    token_id="nlp-ai",
+    token_id="NLP-AI",
     metric_name="perplexity",
     baseline_value=25.3,
     additional_tags={
@@ -202,14 +202,14 @@ Follow these naming conventions for token IDs:
 
 ```python
 # Good token IDs
-"msg-ai"        # Lowercase, hyphenated
-"sent-001"      # With version number
-"img-detect"    # Descriptive suffix
+"MSG-AI"        # Uppercase, hyphenated
+"SENT-001"      # With version number
+"IMG-DETECT"    # Descriptive suffix
 
 # Invalid token IDs (will be rejected)
-"msg_ai"        # Underscore not allowed
-"MSGAI"         # Uppercase not allowed
+"MSG_AI"        # Underscore not allowed
 "MSG AI"        # Spaces not allowed
+"-MSG-AI"       # Cannot start with hyphen
 ```
 
 ## Integration with DeltaOne
@@ -223,7 +223,7 @@ from hokusai.evaluation.deltaone_evaluator import detect_delta_one
 registry.register_tokenized_model(
     model_uri="runs:/baseline/model",
     model_name="proposal-predictor",
-    token_id="pred-ai",
+    token_id="PRED-AI",
     metric_name="rmse",
     baseline_value=0.15
 )
@@ -232,7 +232,7 @@ registry.register_tokenized_model(
 registry.register_tokenized_model(
     model_uri="runs:/improved/model",
     model_name="proposal-predictor",
-    token_id="pred-ai",
+    token_id="PRED-AI",
     metric_name="rmse",
     baseline_value=0.13  # 2pp improvement!
 )
@@ -328,7 +328,7 @@ Always include relevant metadata:
 ```python
 tags = {
     # Required by Hokusai
-    "hokusai_token_id": "model-001",
+    "hokusai_token_id": "MODEL-001",
     "benchmark_metric": "accuracy",
     "benchmark_value": "0.92",
     
@@ -366,7 +366,7 @@ try:
 except ValueError as e:
     if "Token ID format invalid" in str(e):
         # Fix token ID format
-        token_id = token_id.lower().replace("_", "-")
+        token_id = token_id.upper().replace("_", "-")
     elif "Benchmark value must be numeric" in str(e):
         # Convert to float
         baseline_value = float(baseline_value)

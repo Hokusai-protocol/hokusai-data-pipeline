@@ -4,12 +4,10 @@ This guide covers various methods to install the hokusai-ml-platform package.
 
 ## Quick Start
 
-### Install from PyPI (Coming Soon)
-
-Once published to PyPI, you can install the package using pip:
+### Install from PyPI (Recommended)
 
 ```bash
-pip install hokusai-ml-platform
+pip install "hokusai-ml-platform[ml]"
 ```
 
 ### Install from GitHub
@@ -17,17 +15,17 @@ pip install hokusai-ml-platform
 Install the latest version directly from GitHub:
 
 ```bash
-pip install git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform
+pip install "git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform[ml]"
 ```
 
 Install a specific version or branch:
 
 ```bash
 # Install from a specific branch
-pip install git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git@main#subdirectory=hokusai-ml-platform
+pip install "git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git@main#subdirectory=hokusai-ml-platform[ml]"
 
 # Install from a specific tag/release
-pip install git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git@v1.0.0#subdirectory=hokusai-ml-platform
+pip install "git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git@v1.0.0#subdirectory=hokusai-ml-platform[ml]"
 ```
 
 ### Install for Development
@@ -54,14 +52,14 @@ pip install -e ".[dev]"
 Add to your `requirements.txt`:
 
 ```txt
-# From PyPI (when available)
-hokusai-ml-platform>=1.0.0
+# From PyPI
+hokusai-ml-platform[ml]>=1.0.0
 
 # From GitHub
-git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git@main#subdirectory=hokusai-ml-platform
+git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git@main#subdirectory=hokusai-ml-platform[ml]
 
 # For private repositories with authentication
-git+https://${GITHUB_TOKEN}@github.com/Hokusai-protocol/hokusai-data-pipeline.git@main#subdirectory=hokusai-ml-platform
+git+https://${GITHUB_TOKEN}@github.com/Hokusai-protocol/hokusai-data-pipeline.git@main#subdirectory=hokusai-ml-platform[ml]
 ```
 
 Then install:
@@ -77,7 +75,7 @@ Add to your project's `pyproject.toml`:
 ```toml
 [project]
 dependencies = [
-    "hokusai-ml-platform @ git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git@main#subdirectory=hokusai-ml-platform",
+    "hokusai-ml-platform[ml] @ git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git@main#subdirectory=hokusai-ml-platform",
 ]
 ```
 
@@ -123,7 +121,7 @@ export GITHUB_TOKEN=your_token_here
 3. Install using the token:
 
 ```bash
-pip install git+https://${GITHUB_TOKEN}@github.com/Hokusai-protocol/hokusai-data-pipeline.git@main#subdirectory=hokusai-ml-platform
+pip install "git+https://${GITHUB_TOKEN}@github.com/Hokusai-protocol/hokusai-data-pipeline.git@main#subdirectory=hokusai-ml-platform[ml]"
 ```
 
 ### Using SSH Keys
@@ -131,7 +129,7 @@ pip install git+https://${GITHUB_TOKEN}@github.com/Hokusai-protocol/hokusai-data
 If you have SSH keys configured:
 
 ```bash
-pip install git+ssh://git@github.com/Hokusai-protocol/hokusai-data-pipeline.git@main#subdirectory=hokusai-ml-platform
+pip install "git+ssh://git@github.com/Hokusai-protocol/hokusai-data-pipeline.git@main#subdirectory=hokusai-ml-platform[ml]"
 ```
 
 ## Troubleshooting

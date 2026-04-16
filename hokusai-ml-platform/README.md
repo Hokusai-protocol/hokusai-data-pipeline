@@ -15,20 +15,23 @@ The Hokusai ML Platform provides a unified infrastructure for managing machine l
 
 ## Installation
 
+### Install from PyPI
+
+```bash
+# Install the SDK with model-registration dependencies
+pip install "hokusai-ml-platform[ml]"
+```
+
 ### Install from GitHub
 
 ```bash
-# Install latest version
-pip install git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform
+# Install latest version directly from the repository
+pip install "git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform[ml]"
 
 # Install with optional dependencies
 pip install "git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform[gtm]"
 pip install "git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform[pipeline]"
 ```
-
-### Install from PyPI
-
-**Note**: PyPI package is coming soon. For now, please install from GitHub.
 
 ### Development Installation
 
@@ -84,6 +87,19 @@ inference_pipeline = HokusaiInferencePipeline(
 ```
 
 ### 3. Register a Model
+
+```bash
+hokusai model register \
+  --token-id MSG-AI \
+  --model-path ./models/final.pkl \
+  --metric reply_rate \
+  --baseline 0.1342
+```
+
+The packaged CLI uploads the local artifact into MLflow and registers it against the
+token without requiring a checkout of `hokusai-data-pipeline`.
+
+Or use the Python SDK directly:
 
 ```python
 from hokusai.core.models import ModelFactory, ModelType

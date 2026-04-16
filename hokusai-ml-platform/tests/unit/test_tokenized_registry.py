@@ -54,7 +54,7 @@ class TestTokenizedModelRegistry:
 
         # Verify required tags were set
         expected_tags = [
-            ("hokusai_token_id", "msg-ai"),
+            ("hokusai_token_id", "MSG-AI"),
             ("benchmark_metric", "reply_rate"),
             ("benchmark_value", "0.1342"),
         ]
@@ -66,9 +66,9 @@ class TestTokenizedModelRegistry:
 
         assert result["model_name"] == "MSG-AI"
         assert result["version"] == "1"
-        assert result["token_id"] == "msg-ai"
-        assert result["token_identifier"] == "msg-ai"
-        assert result["proposal_identifier"] == "msg-ai"
+        assert result["token_id"] == "MSG-AI"
+        assert result["token_identifier"] == "MSG-AI"
+        assert result["proposal_identifier"] == "MSG-AI"
         assert result["mlflow_run_id"] == "abc123"
         assert result["status"] == "registered"
 
@@ -173,7 +173,7 @@ class TestTokenizedModelRegistry:
         mock_v1.name = "MSG-AI"
         mock_v1.version = "1"
         mock_v1.tags = {
-            "hokusai_token_id": "msg-ai",
+            "hokusai_token_id": "MSG-AI",
             "benchmark_metric": "reply_rate",
             "benchmark_value": "0.15",
         }
@@ -183,7 +183,7 @@ class TestTokenizedModelRegistry:
         mock_v2.name = "MSG-AI"
         mock_v2.version = "2"
         mock_v2.tags = {
-            "hokusai_token_id": "msg-ai",
+            "hokusai_token_id": "MSG-AI",
             "benchmark_metric": "reply_rate",
             "benchmark_value": "0.16",
         }
@@ -219,7 +219,7 @@ class TestTokenizedModelRegistry:
         results = registry.list_models_by_token("msg-ai")
 
         assert len(results) == 2
-        assert all(m["token_id"] == "msg-ai" for m in results)
+        assert all(m["token_id"] == "MSG-AI" for m in results)
 
     def test_update_model_tags(self, registry) -> None:
         """Test updating model tags."""
@@ -237,7 +237,7 @@ class TestTokenizedModelRegistry:
 
     def test_validate_token_id_valid(self, registry) -> None:
         """Test token ID validation with valid ID."""
-        valid_ids = ["msg-ai", "lead-scorer", "churn-predictor-v2"]
+        valid_ids = ["msg-ai", "MSG-AI", "Lead-Scorer", "churn-predictor-v2"]
 
         for token_id in valid_ids:
             # Should not raise exception
@@ -250,6 +250,11 @@ class TestTokenizedModelRegistry:
         for token_id in invalid_ids:
             with pytest.raises(ValueError, match="Invalid token ID"):
                 registry.validate_token_id(token_id)
+
+    def test_normalize_token_id_uppercases_canonical_value(self, registry) -> None:
+        """Token IDs should be stored in uppercase canonical form."""
+        assert registry.normalize_token_id("msg-ai") == "MSG-AI"
+        assert registry.normalize_token_id("Msg-Ai") == "MSG-AI"
 
     def test_register_tokenized_model_with_additional_tags(self, registry) -> None:
         """Test registration with additional custom tags."""

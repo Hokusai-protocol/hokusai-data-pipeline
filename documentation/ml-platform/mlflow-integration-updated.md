@@ -230,7 +230,7 @@ client.set_model_version_tag(
     name=model_name,
     version="1",
     key="hokusai_token_id",
-    value="my-token"
+    value="MY-TOKEN"
 )
 client.set_model_version_tag(
     name=model_name,
@@ -266,7 +266,7 @@ with mlflow.start_run() as run:
     result = registry.register_tokenized_model(
         model_uri=f"runs:/{run.info.run_id}/model",
         model_name="my-model",
-        token_id="my-token",
+        token_id="MY-TOKEN",
         metric_name="accuracy",
         baseline_value=0.85
     )

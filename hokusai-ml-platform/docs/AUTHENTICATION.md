@@ -168,7 +168,7 @@ with mlflow.start_run() as run:
     result = registry.register_tokenized_model(
         model_uri=model_uri,
         model_name="proposal-my-classifier",
-        token_id="class-ai",
+        token_id="CLASS-AI",
         metric_name="accuracy",
         baseline_value=0.92
     )

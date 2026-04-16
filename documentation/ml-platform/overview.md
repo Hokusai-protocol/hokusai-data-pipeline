@@ -144,19 +144,19 @@ result = pipeline.predict("lead-scorer", data)
 
 ## Installation
 
-### From PyPI (Coming Soon)
+### From PyPI
 ```bash
 # Basic installation
-pip install hokusai-ml-platform
+pip install "hokusai-ml-platform[ml]"
 
 # With ML framework support
-pip install hokusai-ml-platform[ml]
+pip install "hokusai-ml-platform[ml]"
 
 # With all features
-pip install hokusai-ml-platform[all]
+pip install "hokusai-ml-platform[ml,gtm,pipeline]"
 ```
 
-### From Source (Current)
+### From Source
 ```bash
 # Clone the repository
 git clone https://github.com/Hokusai-protocol/hokusai-data-pipeline.git

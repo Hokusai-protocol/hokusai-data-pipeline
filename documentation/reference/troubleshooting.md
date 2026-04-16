@@ -18,9 +18,10 @@ RegistryException: Failed to register baseline model: API request to endpoint /a
 
 **Solution:**
 
-1. **Set MLflow authentication token**:
+1. **Set the Hokusai API key and use it for MLflow too**:
    ```bash
-   export MLFLOW_TRACKING_TOKEN="your-mlflow-token"
+   export HOKUSAI_API_KEY="your-hokusai-api-key"
+   export MLFLOW_TRACKING_TOKEN="$HOKUSAI_API_KEY"
    ```
 
 2. **Use mock mode for local development**:
@@ -39,9 +40,9 @@ See the [MLflow Authentication Guide](../guides/mlflow-authentication.md) for de
 
 **Error:** `setuptools.errors.InvalidConfigError: License classifiers have been superseded`
 
-**Solution:** Install from GitHub:
+**Solution:** Install the packaged SDK with ML dependencies:
 ```bash
-pip install git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform
+pip install "hokusai-ml-platform[ml]"
 ```
 
 ## Environment Variables
@@ -49,7 +50,7 @@ pip install git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#su
 Essential environment variables:
 
 - `HOKUSAI_API_KEY`: Your Hokusai API key
-- `MLFLOW_TRACKING_TOKEN`: MLflow authentication token
+- `MLFLOW_TRACKING_TOKEN`: Same value as `HOKUSAI_API_KEY` when authenticating MLflow
 - `MLFLOW_TRACKING_URI`: MLflow server URL (default: http://registry.hokus.ai/mlflow)
 - `HOKUSAI_MOCK_MODE`: Enable mock mode (true/false)
 - `HOKUSAI_OPTIONAL_MLFLOW`: Allow fallback to mock mode (true/false, default: true)

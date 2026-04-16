@@ -90,7 +90,8 @@ Issues = "https://github.com/Hokusai-protocol/hokusai-data-pipeline/issues"
 Changelog = "https://github.com/Hokusai-protocol/hokusai-data-pipeline/blob/main/CHANGELOG.md"
 
 [project.scripts]
-hokusai-ml-platform = "cli.model:model"
+hokusai = "hokusai.cli:cli"
+hokusai-ml-platform = "hokusai.cli:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]

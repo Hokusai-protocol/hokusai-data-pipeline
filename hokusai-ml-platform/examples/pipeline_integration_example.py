@@ -1,4 +1,5 @@
 """Example of integrating token-aware registry with Metaflow pipeline."""
+
 from hokusai.core.registry import ModelRegistry
 from metaflow import FlowSpec, step
 
@@ -9,7 +10,7 @@ class TokenAwarePipelineFlow(FlowSpec):
     @step
     def start(self) -> None:
         """Initialize pipeline parameters."""
-        self.token_id = "msg-ai"
+        self.token_id = "MSG-AI"
         self.metric_name = "reply_rate"
         self.model_name = "MSG-AI"
         self.tracking_uri = "http://localhost:5000"
@@ -167,7 +168,6 @@ class TokenAwarePipelineFlow(FlowSpec):
 
 def run_existing_pipeline_integration() -> None:
     """Show how to integrate with existing pipeline steps."""
-
     print("\nIntegrating with Existing Pipeline")
     print("-" * 50)
 

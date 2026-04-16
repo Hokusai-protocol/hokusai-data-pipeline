@@ -13,8 +13,8 @@ This guide provides step-by-step instructions for registering your machine learn
 
 Hokusai provides two main approaches for model registration:
 
-1. **Using the Hokusai ML Platform SDK** (Recommended) - Full integration with model versioning, A/B testing, and performance tracking
-2. **Direct MLflow API** - Lightweight approach for basic model registration
+1. **Using the packaged Hokusai CLI** (Recommended) - Fastest path from a local model artifact to a registered tokenized model
+2. **Using the Hokusai ML Platform SDK** - Best when you already use MLflow in code and want programmatic control
 
 ## Prerequisites
 
@@ -27,13 +27,19 @@ Before you begin, ensure you have:
 
 ## Step 1: Install the Hokusai ML Platform
 
-### Option A: Install from GitHub (Recommended)
+### Option A: Install from PyPI (Recommended)
 
 ```bash
-pip install git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform
+pip install "hokusai-ml-platform[ml]"
 ```
 
-### Option B: Install for Development
+### Option B: Install from GitHub
+
+```bash
+pip install "git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform[ml]"
+```
+
+### Option C: Install for Development
 
 ```bash
 # Clone the repository
@@ -60,28 +66,25 @@ You can obtain your API key from:
 3. Click "Generate New Key"
 4. Copy the key and store it securely
 
-### Verify Installation
-
-Test that everything is set up correctly:
-
-```python
-from hokusai.core import ModelRegistry
-import os
-
-# Verify API key is set
-if not os.getenv("HOKUSAI_API_KEY"):
-    raise ValueError("Please set HOKUSAI_API_KEY environment variable")
-
-# This should not raise any errors
-registry = ModelRegistry()
-print("✅ Hokusai ML Platform installed successfully!")
-```
-
 ## Step 3: Train and Fulfill a Proposal Registration
 
 If you are responding to an existing proposal on the Hokusai website, do not create a separate model record first. Use the proposal's existing model name and token ticker when you call `register_tokenized_model()`. The first accepted registration fulfills that proposal. Later improvements should be registered as new versions against the same proposal-owned model after adding more data, not by submitting a brand new model.
 
-### Option A: Complete Example with Hokusai ML Platform SDK
+### Option A: Register from the Command Line
+
+This is the shortest path when you already have a trained model artifact on disk:
+
+```bash
+export HOKUSAI_API_KEY="your-api-key-here"
+
+hokusai model register \
+  --token-id CHURN-AI \
+  --model-path ./models/churn_predictor.pkl \
+  --metric accuracy \
+  --baseline 0.91
+```
+
+### Option B: Complete Example with Hokusai ML Platform SDK
 
 This approach provides full integration with Hokusai's features including version management, A/B testing, and performance tracking:
 
@@ -172,7 +175,7 @@ def main():
             registered_model = registry.register_tokenized_model(
                 model_uri=model_uri,
                 model_name="proposal-customer-churn",
-                token_id="churn-ai",
+                token_id="CHURN-AI",
                 metric_name="accuracy",
                 baseline_value=accuracy,
                 additional_tags={
@@ -203,7 +206,7 @@ if __name__ == "__main__":
     main()
 ```
 
-### Option B: Simple Registration with Direct MLflow
+### Option C: Simple Registration with Direct MLflow
 
 For a simpler approach using MLflow directly:
 
@@ -283,7 +286,7 @@ with experiment_manager.start_experiment("customer_churn_improved"):
         improved_version = registry.register_tokenized_model(
             model_uri=model_uri,
             model_name="proposal-customer-churn",
-            token_id="churn-ai",
+            token_id="CHURN-AI",
             metric_name="accuracy",
             baseline_value=improved_accuracy,
             additional_tags={
@@ -333,7 +336,7 @@ print(f"Token ID: {model['token_id']}")
 print(f"Performance: {model['baseline_value']}")
 
 # List all versions
-versions = registry.list_models_by_token("churn-ai")
+versions = registry.list_models_by_token("CHURN-AI")
 for v in versions:
     print(f"Version {v['version']}: {v['baseline_value']}")
 ```
@@ -527,7 +530,7 @@ Error: Request entity too large
 ```
 Error: Token ID format invalid
 ```
-**Solution**: Use uppercase letters with hyphens:
+**Solution**: Use uppercase letters, numbers, and hyphens:
 - ✅ Good: `MODEL-001`, `SENT-AI`, `IMG-DETECT`
 - ❌ Bad: `model_001`, `sentai`, `img detect`
 

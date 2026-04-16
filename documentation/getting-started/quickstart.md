@@ -30,6 +30,20 @@ print("✅ Hokusai ML Platform initialized!")
 
 ## 2. Fulfill a Proposal with Your First Registration
 
+If you already have a trained artifact on disk, the fastest path is:
+
+```bash
+export HOKUSAI_API_KEY="your-api-key-here"
+
+hokusai model register \
+  --token-id QUICKSTART-AI \
+  --model-path ./models/baseline.pkl \
+  --metric accuracy \
+  --baseline 0.84
+```
+
+If you want to do the same thing from Python and MLflow, use the SDK flow below.
+
 If you are registering against an existing proposal, take the model name and token ticker from the website submit flow and use them directly in the SDK call. Do not create a separate model entry before this step.
 
 ```python
@@ -62,7 +76,7 @@ with mlflow.start_run(run_name="baseline_model") as run:
     registered_model = registry.register_tokenized_model(
         model_uri=model_uri,
         model_name="proposal-quickstart-classifier",
-        token_id="quickstart-ai",
+        token_id="QUICKSTART-AI",
         metric_name="accuracy",
         baseline_value=accuracy,
         additional_tags={"registration_flow": "proposal_fulfillment"}
@@ -107,7 +121,7 @@ with mlflow.start_run(run_name="improved_model") as run:
     registry.register_tokenized_model(
         model_uri=f"runs:/{run.info.run_id}/model",
         model_name="proposal-quickstart-classifier",
-        token_id="quickstart-ai",
+        token_id="QUICKSTART-AI",
         metric_name="accuracy",
         baseline_value=accuracy_improved,
         additional_tags={"data_contribution": "500_samples"}
@@ -228,7 +242,7 @@ def main():
         registry.register_tokenized_model(
             model_uri=f"runs:/{mlflow.active_run().info.run_id}/model",
             model_name="proposal-quickstart-model",
-            token_id="quickstart-ai",
+            token_id="QUICKSTART-AI",
             metric_name="accuracy",
             baseline_value=accuracy,
             additional_tags={"registration_flow": "proposal_fulfillment"}
@@ -252,7 +266,7 @@ def main():
         registry.register_tokenized_model(
             model_uri=f"runs:/{mlflow.active_run().info.run_id}/model",
             model_name="proposal-quickstart-model",
-            token_id="quickstart-ai",
+            token_id="QUICKSTART-AI",
             metric_name="accuracy",
             baseline_value=accuracy_improved,
             additional_tags={"data_contribution": "500_samples"}

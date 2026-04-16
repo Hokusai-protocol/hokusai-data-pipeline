@@ -20,8 +20,8 @@ The core evaluation system that:
 - Ensures reproducible and deterministic results
 - Supports multiple data formats and ML frameworks
 
-### 2. Hokusai ML Platform (Coming Soon)
-A planned Python package (`hokusai-ml-platform`) that will provide:
+### 2. Hokusai ML Platform
+A Python package (`hokusai-ml-platform`) that provides:
 - Reusable ML components for model management
 - A/B testing framework for model comparison
 - Model registry and versioning system

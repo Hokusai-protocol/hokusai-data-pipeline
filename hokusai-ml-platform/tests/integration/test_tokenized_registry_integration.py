@@ -65,23 +65,23 @@ class TestTokenizedRegistryIntegration:
         )
 
         assert result["model_name"] == "test-model"
-        assert result["token_id"] == "test-token"
-        assert result["token_identifier"] == "test-token"
-        assert result["proposal_identifier"] == "test-token"
+        assert result["token_id"] == "TEST-TOKEN"
+        assert result["token_identifier"] == "TEST-TOKEN"
+        assert result["proposal_identifier"] == "TEST-TOKEN"
         assert result["status"] == "registered"
         assert result["mlflow_run_id"] is not None
         assert "version" in result
 
         # Retrieve the model
         retrieved = registry.get_tokenized_model("test-model", result["version"])
-        assert retrieved["token_id"] == "test-token"
+        assert retrieved["token_id"] == "TEST-TOKEN"
         assert retrieved["metric_name"] == "accuracy"
         assert retrieved["baseline_value"] == 0.85
 
         # List models by token
         models = registry.list_models_by_token("test-token")
         assert len(models) == 1
-        assert models[0]["token_id"] == "test-token"
+        assert models[0]["token_id"] == "TEST-TOKEN"
 
     def test_multiple_versions_same_token(self, registry, mlflow_server) -> None:
         """Test registering multiple model versions for same token."""
@@ -210,7 +210,7 @@ class TestTokenizedRegistryIntegration:
         # Verify all registered successfully
         assert len(results) == 3
         for i, result in enumerate(results):
-            assert result["token_id"] == f"concurrent-token-{i}"
+            assert result["token_id"] == f"CONCURRENT-TOKEN-{i}"
 
 
 @pytest.mark.skipif(

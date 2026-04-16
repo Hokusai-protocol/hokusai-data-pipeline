@@ -20,18 +20,16 @@ Before installing Hokusai ML Platform, ensure you have:
 
 ## Installation Methods
 
-### 1. Install from GitHub (Current Method)
+### 1. Install from PyPI (Recommended)
 
 ```bash
-pip install git+https://github.com/hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform
+pip install "hokusai-ml-platform[ml]"
 ```
 
-### 2. Install from PyPI (Coming Soon)
-
-Once published to PyPI:
+### 2. Install from GitHub
 
 ```bash
-pip install hokusai-ml-platform
+pip install "git+https://github.com/hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform[ml]"
 ```
 
 ### 3. Development Installation
@@ -206,11 +204,11 @@ docker run -d -p 6379:6379 redis:7-alpine
 
 **Solution**:
 ```bash
-# Reinstall with all dependencies
-pip install hokusai-ml-platform[all]
+# Install the core package plus ML registration support
+pip install "hokusai-ml-platform[ml]"
 
 # Or install specific extras
-pip install hokusai-ml-platform[dspy,inference]
+pip install "hokusai-ml-platform[gtm,pipeline]"
 ```
 
 ## Platform-Specific Instructions

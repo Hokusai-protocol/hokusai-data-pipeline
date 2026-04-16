@@ -316,7 +316,7 @@ Request body:
   "name": "my-model",
   "version": "1",
   "key": "hokusai_token_id",
-  "value": "my-token"
+  "value": "MY-TOKEN"
 }
 ```
 
@@ -372,7 +372,7 @@ Request body:
 {
   "model_uri": "runs:/abc123/model",
   "model_name": "my-model",
-  "token_id": "my-token",
+  "token_id": "MY-TOKEN",
   "metric_name": "accuracy",
   "baseline_value": 0.85
 }
@@ -497,7 +497,7 @@ While the REST API is available for any language, we provide official SDKs:
 
 ### Python
 ```bash
-pip install git+https://github.com/Hokusai-protocol/hokusai-data-pipeline.git#subdirectory=hokusai-ml-platform
+pip install "hokusai-ml-platform[ml]"
 ```
 
 ### Using with MLflow Client

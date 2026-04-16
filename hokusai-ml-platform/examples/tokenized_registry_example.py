@@ -38,8 +38,8 @@ def main() -> None:
         # For this example, we'll use a dummy model URI
         result = registry.register_tokenized_model(
             model_uri="runs:/abc123def456/model",
-            model_name="proposal-msg-ai",
-            token_id="msg-ai",
+            model_name="proposal-MSG-AI",
+            token_id="MSG-AI",
             metric_name="reply_rate",
             baseline_value=0.1342,
             additional_tags={
@@ -66,7 +66,7 @@ def main() -> None:
     print("-" * 50)
 
     try:
-        model = registry.get_tokenized_model("proposal-msg-ai", "1")
+        model = registry.get_tokenized_model("proposal-MSG-AI", "1")
         print(f"Retrieved model: {model['model_name']} v{model['version']}")
         print(f"Token: {model['token_id']}")
         print(f"Performance: {model['metric_name']} = {model['baseline_value']}")
@@ -81,8 +81,8 @@ def main() -> None:
     print("-" * 50)
 
     try:
-        models = registry.list_models_by_token("msg-ai")
-        print(f"Found {len(models)} models for token 'msg-ai':")
+        models = registry.list_models_by_token("MSG-AI")
+        print(f"Found {len(models)} models for token 'MSG-AI':")
         for model in models:
             print(
                 f"  - {model['model_name']} v{model['version']}: "
@@ -100,7 +100,7 @@ def main() -> None:
 
     try:
         registry.update_model_tags(
-            "proposal-msg-ai",
+            "proposal-MSG-AI",
             "1",
             {
                 "benchmark_value": "0.1456",  # Updated performance
@@ -131,7 +131,7 @@ def validate_token_examples() -> None:
     print("\nToken ID Validation Examples")
     print("-" * 50)
 
-    valid_tokens = ["msg-ai", "lead-scorer", "churn-predictor-v2", "recommendation-engine-prod"]
+    valid_tokens = ["MSG-AI", "LEAD-SCORER", "CHURN-PREDICTOR-V2", "RECOMMENDATION-ENGINE-PROD"]
 
     invalid_tokens = [
         "MSG AI",  # Contains space

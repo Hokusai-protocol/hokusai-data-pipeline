@@ -493,6 +493,7 @@ class ModelRegistry(AuthenticatedClient):
 
         # Validate token ID format
         self.validate_token_id(token_id)
+        normalized_token_id = self.normalize_token_id(token_id)
 
         try:
             # Create or get registered model
@@ -512,11 +513,13 @@ class ModelRegistry(AuthenticatedClient):
             )
 
             mlflow_run_id = self._extract_run_id_from_uri(model_uri)
-            proposal_identifier = self._resolve_proposal_identifier(token_id, additional_tags)
+            proposal_identifier = self._resolve_proposal_identifier(
+                normalized_token_id, additional_tags
+            )
 
             # Set required Hokusai tags
             tags = {
-                "hokusai_token_id": token_id,
+                "hokusai_token_id": normalized_token_id,
                 "benchmark_metric": metric_name,
                 "benchmark_value": str(baseline_value),
                 "hokusai_status": "registered",
@@ -539,8 +542,8 @@ class ModelRegistry(AuthenticatedClient):
             return {
                 "model_name": model_name,
                 "version": model_version.version,
-                "token_id": token_id,
-                "token_identifier": token_id,
+                "token_id": normalized_token_id,
+                "token_identifier": normalized_token_id,
                 "proposal_identifier": proposal_identifier,
                 "metric_name": metric_name,
                 "baseline_value": baseline_value,
@@ -623,13 +626,16 @@ class ModelRegistry(AuthenticatedClient):
         """
         try:
             models = []
+            normalized_token_id = self.normalize_token_id(token_id)
 
             # Search across all registered models
             for rm in self.client.search_registered_models():
                 versions = self.client.search_model_versions(f"name='{rm.name}'")
 
                 for version in versions:
-                    if version.tags.get("hokusai_token_id") == token_id:
+                    if self.normalize_token_id(version.tags.get("hokusai_token_id", "")) == (
+                        normalized_token_id
+                    ):
                         try:
                             model_data = self.get_tokenized_model(rm.name, version.version)
                             models.append(model_data)
@@ -680,14 +686,17 @@ class ModelRegistry(AuthenticatedClient):
         if len(token_id) > 64:
             raise ValueError("Invalid token ID: too long (max 64 chars)")
 
-        # Allow lowercase letters, numbers, and hyphens
-        if not re.match(r"^[a-z0-9-]+$", token_id):
-            raise ValueError(
-                "Invalid token ID: must contain only lowercase letters, numbers, and hyphens"
-            )
+        # Allow letters, numbers, and hyphens. Stored form is uppercase.
+        if not re.match(r"^[A-Za-z0-9-]+$", token_id):
+            raise ValueError("Invalid token ID: must contain only letters, numbers, and hyphens")
 
         if token_id.startswith("-") or token_id.endswith("-"):
             raise ValueError("Invalid token ID: cannot start or end with hyphen")
+
+    def normalize_token_id(self, token_id: str) -> str:
+        """Normalize a token ID to its canonical uppercase representation."""
+        self.validate_token_id(token_id)
+        return token_id.upper()
 
     def _extract_run_id_from_uri(self, model_uri: str) -> Optional[str]:
         """Extract an MLflow run ID from a runs:/ URI when present."""
