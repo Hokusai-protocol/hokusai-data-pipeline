@@ -241,8 +241,11 @@ class WebhookPublisher(AbstractPublisher):
         content_for_key = f"{message.model_id}:{message.token_symbol}:{message.mlflow_run_id}:{message.model_version}"
         idempotency_key = str(uuid.uuid5(uuid.NAMESPACE_DNS, content_for_key))
 
-        # Build payload
+        # Build payload in the SDK format accepted by the Hokusai site webhook
+        # (validateWebhookPayload in hokusai-site/packages/web/src/lib/webhook-utils.ts).
+        # The site requires event_type; without it the payload fails schema validation.
         payload = {
+            "event_type": "model_registered",
             "model_id": message.model_id,
             "idempotency_key": idempotency_key,
             "status": message.status,
@@ -250,6 +253,7 @@ class WebhookPublisher(AbstractPublisher):
             "token_identifier": message.token_symbol,
             "proposal_identifier": message.proposal_identifier,
             "model_name": message.model_name,
+            "model_version": message.model_version,
             "version": message.model_version,
             "metric_name": message.metric_name,
             "baseline_value": message.baseline_value,

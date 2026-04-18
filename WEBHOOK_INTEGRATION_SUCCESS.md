@@ -1,15 +1,22 @@
-# ✅ Webhook Integration Successfully Fixed
+# Webhook Integration Status
 
 ## Summary
-The webhook integration between the Hokusai data pipeline and website is now fully operational. When models are registered using `register_tokenized_model()`, the website is automatically notified and updates the token status from DRAFT to REGISTERED.
+Site notification is wired into the **packaged CLI** (`hokusai model register`). After a
+successful MLflow registration the CLI POSTs a `model_registered` event to the Hokusai
+site webhook at `https://hokus.ai/api/mlflow/registered` (or the URL in
+`HOKUSAI_SITE_WEBHOOK_URL`). The webhook publisher used by `EnhancedModelRegistry` also
+sends a correctly-shaped payload.
 
-## What Was Fixed
+> **Note (HOK-1362):** An earlier version of this document incorrectly claimed that
+> `register_tokenized_model()` automatically sent website notifications. It did not. That
+> oversight is now fixed — see HOK-1362 for details.
 
-### 1. Code Changes
-- ✅ Updated `register_tokenized_model()` to send webhook notifications
-- ✅ Added `_notify_registration()` method to handle webhook logic
-- ✅ Token IDs now accept both uppercase and lowercase (normalized to uppercase)
-- ✅ Fixed API parameter names (name→model_name, benchmark_metric→metric_name, etc.)
+## What Is Implemented
+
+### 1. Code Changes (HOK-1362)
+- ✅ `hokusai model register` CLI calls `_notify_site_of_registration()` after MLflow registration
+- ✅ `WebhookPublisher._create_webhook_payload()` now includes `event_type: model_registered` so the site schema validation passes
+- ✅ CLI accepts `--site-webhook-url` and `--webhook-secret` flags; both fall back to env vars
 
 ### 2. Configuration
 - ✅ Added webhook configuration to `.env`:
