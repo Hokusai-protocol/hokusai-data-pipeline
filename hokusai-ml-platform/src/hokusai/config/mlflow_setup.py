@@ -73,7 +73,8 @@ class MLflowSetup:
         # If optional MLflow is enabled, just log and continue
         if os.environ.get("HOKUSAI_OPTIONAL_MLFLOW"):
             logger.warning(
-                "MLflow configuration failed but HOKUSAI_OPTIONAL_MLFLOW is set - continuing without MLflow"
+                "MLflow configuration failed but HOKUSAI_OPTIONAL_MLFLOW is set"
+                " - continuing without MLflow"
             )
             self.is_configured = False
             return False
@@ -101,9 +102,11 @@ class MLflowSetup:
 
             # Test connection
             logger.info(
-                f"Testing MLflow connection to {self.tracking_uri} with auth method: {self.auth_method}"
+                "Testing MLflow connection to %s with auth method: %s",
+                self.tracking_uri,
+                self.auth_method,
             )
-            experiments = mlflow.search_experiments()
+            mlflow.search_experiments()
 
             logger.info(f"Successfully connected to MLflow at {self.tracking_uri}")
             self.is_configured = True
@@ -111,12 +114,28 @@ class MLflowSetup:
             return True
 
         except MlflowException as e:
-            if "403" in str(e):
-                logger.error(f"Authentication failed for {self.tracking_uri}: {e}")
-            elif "404" in str(e):
-                logger.error(f"MLflow endpoint not found at {self.tracking_uri}: {e}")
+            e_str = str(e)
+            if "401" in e_str:
+                logger.error(
+                    "Authentication rejected by %s (401): check that your API key is valid."
+                    " Error: %s",
+                    self.tracking_uri,
+                    e,
+                )
+            elif "403" in e_str:
+                logger.error("Authentication failed for %s (403): %s", self.tracking_uri, e)
+            elif "404" in e_str:
+                logger.error("MLflow endpoint not found at %s (404): %s", self.tracking_uri, e)
+            elif "502" in e_str or "503" in e_str or "504" in e_str:
+                logger.error(
+                    "MLflow upstream unreachable at %s (%s): the server returned a gateway error. "
+                    "Error: %s",
+                    self.tracking_uri,
+                    "502/503/504",
+                    e,
+                )
             else:
-                logger.error(f"Failed to connect to MLflow at {self.tracking_uri}: {e}")
+                logger.error("Failed to connect to MLflow at %s: %s", self.tracking_uri, e)
             return False
         except Exception as e:
             logger.error(f"Unexpected error connecting to MLflow: {e}")
@@ -150,7 +169,7 @@ class MLflowSetup:
 
             # Test connection
             logger.info(f"Testing local MLflow connection at {self.LOCAL_TRACKING_URI}")
-            experiments = mlflow.search_experiments()
+            mlflow.search_experiments()
 
             logger.info(f"Successfully connected to local MLflow at {self.LOCAL_TRACKING_URI}")
             self.tracking_uri = self.LOCAL_TRACKING_URI
