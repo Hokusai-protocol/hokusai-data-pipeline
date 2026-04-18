@@ -109,6 +109,20 @@ target-version = ["py38", "py39", "py310", "py311"]
 profile = "black"
 line_length = 88
 
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# Ignore rules that are violated throughout the existing codebase and were
+# never enforced (pre-commit hook added after these files were written).
+ignore = [
+    "ANN",    # type-annotation rules (ANN101, ANN204, etc.)
+    "D400",   # docstring first line must end with period
+    "D415",   # docstring first line must end with punctuation
+    "UP035",  # typing.Dict deprecated — use dict
+    "UP006",  # Dict in annotations — use dict
+]
+
 [tool.mypy]
 python_version = "3.8"
 warn_return_any = true
