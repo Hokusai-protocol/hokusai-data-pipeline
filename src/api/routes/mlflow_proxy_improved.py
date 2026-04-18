@@ -7,6 +7,8 @@ import os
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 
+from src.utils.mlflow_mtls import mlflow_mtls_httpx_kwargs
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -17,25 +19,6 @@ MLFLOW_SERVER_URL = os.getenv(
 )  # Use service discovery DNS
 PROXY_TIMEOUT = 30.0  # seconds
 ENABLE_DEBUG_LOGGING = os.getenv("MLFLOW_PROXY_DEBUG", "false").lower() == "true"
-
-
-def _mlflow_mtls_httpx_kwargs() -> dict:
-    """Httpx kwargs for talking to internal MLflow.
-
-    MLflow serves TLS with an internal CA; the api-entrypoint stages the CA
-    bundle and this service's client cert/key on disk and points at them via
-    env. When the files are absent (local dev, tests) we return an empty dict
-    so the default verify/no-cert behavior applies.
-    """
-    kwargs: dict = {}
-    ca = os.getenv("MLFLOW_CA_BUNDLE_PATH")
-    if ca and os.path.isfile(ca):
-        kwargs["verify"] = ca
-    client_cert = os.getenv("MLFLOW_CLIENT_CERT_PATH")
-    client_key = os.getenv("MLFLOW_CLIENT_KEY_PATH")
-    if client_cert and client_key and os.path.isfile(client_cert) and os.path.isfile(client_key):
-        kwargs["cert"] = (client_cert, client_key)
-    return kwargs
 
 
 async def proxy_request(
@@ -135,7 +118,7 @@ async def proxy_request(
     try:
         # Create async HTTP client with retry capability
         async with httpx.AsyncClient(
-            timeout=PROXY_TIMEOUT, **_mlflow_mtls_httpx_kwargs()
+            timeout=PROXY_TIMEOUT, **mlflow_mtls_httpx_kwargs()
         ) as client:
             # Make the request to MLflow
             response = await client.request(
@@ -238,7 +221,7 @@ async def mlflow_health_check():
     }
 
     try:
-        async with httpx.AsyncClient(timeout=5.0, **_mlflow_mtls_httpx_kwargs()) as client:
+        async with httpx.AsyncClient(timeout=5.0, **mlflow_mtls_httpx_kwargs()) as client:
             # Check basic connectivity
             try:
                 response = await client.get(f"{MLFLOW_SERVER_URL}/health")
@@ -350,7 +333,7 @@ async def mlflow_detailed_health_check():
         {"name": "artifacts_api", "path": "/api/2.0/mlflow-artifacts/artifacts", "method": "GET"},
     ]
 
-    async with httpx.AsyncClient(timeout=5.0, **_mlflow_mtls_httpx_kwargs()) as client:
+    async with httpx.AsyncClient(timeout=5.0, **mlflow_mtls_httpx_kwargs()) as client:
         for test in test_endpoints:
             try:
                 # Adjust path for external vs internal MLflow
