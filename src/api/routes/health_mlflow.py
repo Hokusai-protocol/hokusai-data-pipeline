@@ -7,6 +7,8 @@ from typing import Any, Dict
 import httpx
 from fastapi import APIRouter, HTTPException
 
+from src.utils.mlflow_mtls import mlflow_mtls_httpx_kwargs
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -31,7 +33,7 @@ async def mlflow_health_check() -> Dict[str, Any]:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, **mlflow_mtls_httpx_kwargs()) as client:
             # Check basic connectivity
             try:
                 response = await client.get(f"{MLFLOW_SERVER_URL}/health")
@@ -126,7 +128,7 @@ async def mlflow_detailed_health_check() -> Dict[str, Any]:
         {"name": "metrics_history", "path": "/api/2.0/mlflow/metrics/get-history", "method": "GET"},
     ]
 
-    async with httpx.AsyncClient(timeout=5.0) as client:
+    async with httpx.AsyncClient(timeout=5.0, **mlflow_mtls_httpx_kwargs()) as client:
         for test in test_endpoints:
             try:
                 # Adjust path for external vs internal MLflow
@@ -161,7 +163,7 @@ async def mlflow_detailed_health_check() -> Dict[str, Any]:
 async def mlflow_connectivity_check() -> Dict[str, Any]:
     """Simple connectivity check for MLflow server."""
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        async with httpx.AsyncClient(timeout=3.0, **mlflow_mtls_httpx_kwargs()) as client:
             response = await client.get(f"{MLFLOW_SERVER_URL}/health")
 
             return {
