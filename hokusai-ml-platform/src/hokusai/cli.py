@@ -77,6 +77,7 @@ def register_model(
         metric=metric,
         baseline=baseline,
         tracking_uri=registry.tracking_uri,
+        api_key=registry._auth.api_key,
     )
 
     additional_tags = {}
@@ -109,23 +110,28 @@ def _log_model_artifact(
     metric: str,
     baseline: float,
     tracking_uri: str,
+    api_key: str | None = None,
 ) -> str:
     """Log a local artifact as an MLflow pyfunc model and return its URI."""
+    import os
+
     import mlflow
 
     class _ArtifactReferenceModel(mlflow.pyfunc.PythonModel):
         """Minimal pyfunc wrapper that preserves the original artifact."""
 
-        def load_context(self, context) -> None:  # type: ignore[override]
-            self.model_artifact_path = context.artifacts["model_artifact"]
+        def load_context(self, context: object) -> None:  # type: ignore[override]  # noqa: ANN101
+            self.model_artifact_path = context.artifacts["model_artifact"]  # type: ignore[attr-defined]
 
-        def predict(self, context, model_input, params=None):  # type: ignore[override]
+        def predict(self, context: object, model_input: object, params: object = None) -> None:  # type: ignore[override]  # noqa: ANN101
             raise NotImplementedError(
                 "This registered artifact is intended for registry/deployment workflows."
             )
 
     resolved_path = model_path.resolve()
     mlflow.set_tracking_uri(tracking_uri)
+    if api_key:
+        os.environ["MLFLOW_TRACKING_TOKEN"] = api_key
 
     with mlflow.start_run() as run:
         mlflow.log_param("hokusai_token_id", token_id)
@@ -140,7 +146,7 @@ def _log_model_artifact(
         return f"runs:/{run.info.run_id}/model"
 
 
-def _load_model_registry():
+def _load_model_registry() -> type:
     """Import ModelRegistry lazily so the CLI stays importable without [ml]."""
     try:
         from hokusai.core.registry import ModelRegistry

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -13,7 +14,7 @@ SDK_SRC = Path(__file__).parent.parent / "src"
 if str(SDK_SRC) not in sys.path:
     sys.path.insert(0, str(SDK_SRC))
 
-from hokusai.cli import cli
+from hokusai.cli import _log_model_artifact, cli  # noqa: E402
 
 
 def test_model_register_uses_packaged_registry(tmp_path: Path) -> None:
@@ -57,6 +58,9 @@ def test_model_register_uses_packaged_registry(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     log_model.assert_called_once()
+    # Verify api_key is forwarded so MLFLOW_TRACKING_TOKEN can be set
+    _, kwargs = log_model.call_args
+    assert "api_key" in kwargs
     mock_registry.register_tokenized_model.assert_called_once_with(
         model_uri="runs:/run-123/model",
         model_name="hokusai-MSG-AI",
@@ -99,3 +103,36 @@ def test_model_register_surfaces_missing_ml_extra(tmp_path: Path) -> None:
 
     assert result.exit_code != 0
     assert "pip install 'hokusai-ml-platform[ml]'" in result.output
+
+
+def test_log_model_artifact_sets_mlflow_tracking_token(tmp_path: Path) -> None:
+    """_log_model_artifact must set MLFLOW_TRACKING_TOKEN before mlflow.start_run()."""
+    artifact_path = tmp_path / "model.pkl"
+    artifact_path.write_text("test-model")
+
+    token_seen: list[str | None] = []
+
+    def fake_start_run():
+        token_seen.append(os.environ.get("MLFLOW_TRACKING_TOKEN"))
+        return Mock(
+            __enter__=lambda s: Mock(info=Mock(run_id="run-abc")), __exit__=Mock(return_value=False)
+        )
+
+    with (
+        patch("mlflow.set_tracking_uri"),
+        patch("mlflow.start_run", side_effect=fake_start_run),
+        patch("mlflow.log_param"),
+        patch("mlflow.pyfunc.log_model"),
+    ):
+        _log_model_artifact(
+            model_path=artifact_path,
+            token_id="MSG-AI",
+            metric="reply_rate",
+            baseline=0.5,
+            tracking_uri="https://registry.hokus.ai/api/mlflow",
+            api_key="test-key-123",
+        )
+
+    assert token_seen == [
+        "test-key-123"
+    ], "MLFLOW_TRACKING_TOKEN must be set before mlflow.start_run()"
