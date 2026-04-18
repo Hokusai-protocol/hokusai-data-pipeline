@@ -525,6 +525,24 @@ class TestWebhookPublisher:
         # Verify UUID format for idempotency key
         UUID(payload["idempotency_key"])  # Should not raise exception
 
+    def test_payload_includes_event_type_for_site_compatibility(self, publisher, sample_message):
+        """Payload must include event_type so the Hokusai site webhook accepts it.
+
+        The site's validateWebhookPayload (webhook-utils.ts) requires event_type as the
+        first field in the SDK schema; without it, every POST returns 400.
+        """
+        payload = publisher._create_webhook_payload(sample_message)
+
+        assert "event_type" in payload, "event_type missing from webhook payload"
+        assert payload["event_type"] == "model_registered"
+
+    def test_payload_includes_model_version_for_site_compatibility(self, publisher, sample_message):
+        """Payload must include model_version (in addition to version) for the SDK schema."""
+        payload = publisher._create_webhook_payload(sample_message)
+
+        assert "model_version" in payload
+        assert payload["model_version"] == sample_message.model_version
+
     def test_error_logging_on_failure(self, publisher, sample_payload, caplog):
         """Test error logging on webhook failure."""
         with patch.object(publisher._client, "post", new_callable=AsyncMock) as mock_post:
