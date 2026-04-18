@@ -19,6 +19,25 @@ PROXY_TIMEOUT = 30.0  # seconds
 ENABLE_DEBUG_LOGGING = os.getenv("MLFLOW_PROXY_DEBUG", "false").lower() == "true"
 
 
+def _mlflow_mtls_httpx_kwargs() -> dict:
+    """Httpx kwargs for talking to internal MLflow.
+
+    MLflow serves TLS with an internal CA; the api-entrypoint stages the CA
+    bundle and this service's client cert/key on disk and points at them via
+    env. When the files are absent (local dev, tests) we return an empty dict
+    so the default verify/no-cert behavior applies.
+    """
+    kwargs: dict = {}
+    ca = os.getenv("MLFLOW_CA_BUNDLE_PATH")
+    if ca and os.path.isfile(ca):
+        kwargs["verify"] = ca
+    client_cert = os.getenv("MLFLOW_CLIENT_CERT_PATH")
+    client_key = os.getenv("MLFLOW_CLIENT_KEY_PATH")
+    if client_cert and client_key and os.path.isfile(client_cert) and os.path.isfile(client_key):
+        kwargs["cert"] = (client_cert, client_key)
+    return kwargs
+
+
 async def proxy_request(
     request: Request, path: str, mlflow_base_url: str = MLFLOW_SERVER_URL
 ) -> Response:
@@ -92,14 +111,13 @@ async def proxy_request(
         headers["X-Hokusai-API-Key-Id"] = str(request.state.api_key_id)
         logger.info(f"Adding user context: user_id={request.state.user_id}")
 
-    # Remove only headers that shouldn't be forwarded
-    # CRITICAL: We MUST forward authentication headers to MLflow
-    # MLflow requires authentication to authorize requests
+    # Remove only headers that shouldn't be forwarded.
+    # CRITICAL: the Authorization (Bearer token — MLFLOW_TRACKING_TOKEN) and
+    # X-API-Key headers MUST be forwarded unchanged; MLflow auth depends on
+    # them. Only host/content-length are dropped.
     headers_to_remove = [
         "host",  # We'll use MLflow's host
         "content-length",  # Will be recalculated
-        # NOTE: We intentionally keep authorization and x-api-key headers
-        # They are required for MLflow authentication
     ]
     for header in headers_to_remove:
         headers.pop(header, None)
@@ -116,7 +134,9 @@ async def proxy_request(
 
     try:
         # Create async HTTP client with retry capability
-        async with httpx.AsyncClient(timeout=PROXY_TIMEOUT) as client:
+        async with httpx.AsyncClient(
+            timeout=PROXY_TIMEOUT, **_mlflow_mtls_httpx_kwargs()
+        ) as client:
             # Make the request to MLflow
             response = await client.request(
                 method=method,
@@ -218,7 +238,7 @@ async def mlflow_health_check():
     }
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, **_mlflow_mtls_httpx_kwargs()) as client:
             # Check basic connectivity
             try:
                 response = await client.get(f"{MLFLOW_SERVER_URL}/health")
@@ -330,7 +350,7 @@ async def mlflow_detailed_health_check():
         {"name": "artifacts_api", "path": "/api/2.0/mlflow-artifacts/artifacts", "method": "GET"},
     ]
 
-    async with httpx.AsyncClient(timeout=5.0) as client:
+    async with httpx.AsyncClient(timeout=5.0, **_mlflow_mtls_httpx_kwargs()) as client:
         for test in test_endpoints:
             try:
                 # Adjust path for external vs internal MLflow
