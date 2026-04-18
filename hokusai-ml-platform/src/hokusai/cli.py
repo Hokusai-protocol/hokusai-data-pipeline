@@ -157,43 +157,41 @@ def _notify_site_of_registration(
     Returns True if the site acknowledged the event (HTTP 2xx), False otherwise.
     Never raises — failure is non-fatal to the overall registration.
     """
-    url = (
-        site_webhook_url or os.environ.get("HOKUSAI_SITE_WEBHOOK_URL") or _DEFAULT_SITE_WEBHOOK_URL
-    )
-    secret = (
-        webhook_secret
-        or os.environ.get("HOKUSAI_SITE_WEBHOOK_SECRET")
-        or os.environ.get("WEBHOOK_SECRET")
-    )
-
-    payload: dict[str, Any] = {
-        "event_type": "model_registered",
-        "token_id": result["token_id"],
-        "model_name": result["model_name"],
-        "model_version": str(result["version"]),
-        "mlflow_run_id": result.get("mlflow_run_id"),
-        "metric_name": result.get("metric_name"),
-        "baseline_value": result.get("baseline_value"),
-        "status": "registered",
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "tags": result.get("tags") or {},
-    }
-
-    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-
-    req = urllib.request.Request(url, data=body, method="POST")  # noqa: S310
-    req.add_header("Content-Type", "application/json")
-
-    if secret:
-        sig = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-        req.add_header("X-Hokusai-Signature", f"sha256={sig}")
-    else:
-        logger.warning(
-            "No webhook secret configured — the site may reject unsigned notifications. "
-            "Set HOKUSAI_SITE_WEBHOOK_SECRET."
-        )
-
     try:
+        url = (
+            site_webhook_url
+            or os.environ.get("HOKUSAI_SITE_WEBHOOK_URL")
+            or _DEFAULT_SITE_WEBHOOK_URL
+        )
+        secret = webhook_secret or os.environ.get("HOKUSAI_SITE_WEBHOOK_SECRET")
+
+        payload: dict[str, Any] = {
+            "event_type": "model_registered",
+            "token_id": result["token_id"],
+            "model_name": result["model_name"],
+            "model_version": str(result["version"]),
+            "mlflow_run_id": result.get("mlflow_run_id"),
+            "metric_name": result.get("metric_name"),
+            "baseline_value": result.get("baseline_value"),
+            "status": "registered",
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "tags": result.get("tags") or {},
+        }
+
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+        req = urllib.request.Request(url, data=body, method="POST")  # noqa: S310
+        req.add_header("Content-Type", "application/json")
+
+        if secret:
+            sig = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+            req.add_header("X-Hokusai-Signature", f"sha256={sig}")
+        else:
+            logger.warning(
+                "No webhook secret configured — the site may reject unsigned notifications. "
+                "Set HOKUSAI_SITE_WEBHOOK_SECRET."
+            )
+
         with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
             return 200 <= resp.status < 300
     except urllib.error.HTTPError as exc:
