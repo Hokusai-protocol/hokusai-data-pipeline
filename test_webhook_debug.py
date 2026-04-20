@@ -18,14 +18,14 @@ def test_different_signatures():
     payload = {
         "event_type": "model_registered",
         "timestamp": datetime.utcnow().isoformat(),
-        "token_id": "LSCOR",
+        "token_id": "HLEAD",
         "model_name": "Sales lead scoring model",
-        "model_version": "4",
+        "model_version": "1",
         "mlflow_run_id": "test_run_id_123",
         "metric_name": "accuracy",
         "baseline_value": 0.933,
         "status": "REGISTERED",
-        "tags": {"author": "GTM Backend Team", "version": "1.0.0", "dataset": "Kaggle B2B Sales"},
+        "tags": {"author": "GTM Backend Team", "version": "1.0.0", "dataset": "SaaS-Sales"},
     }
 
     # Method 1: Compact JSON (no spaces)
@@ -58,7 +58,7 @@ def test_different_signatures():
     print(f"4. Raw signature (no prefix): {sig_raw[:20]}...")
 
     # Try each format
-    webhook_url = "https://hokus.ai/api/mlflow/registered"
+    webhook_url = "https://hokus.ai/api/webhooks/model-registration"
 
     formats = [
         ("Compact JSON with sha256= prefix", payload_compact, f"sha256={sig_compact}"),

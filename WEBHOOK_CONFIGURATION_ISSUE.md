@@ -5,7 +5,7 @@ The webhook integration is implemented but there's a **webhook secret mismatch**
 
 ## What's Working
 ✅ Model registration in MLflow works  
-✅ Webhook is sent to `https://hokus.ai/api/mlflow/registered`  
+✅ Webhook is sent to `https://hokus.ai/api/webhooks/model-registration`  
 ✅ Website endpoint exists and validates signatures  
 ✅ Correct header name: `x-mlflow-signature`  
 
@@ -18,7 +18,7 @@ The website is configured with a different `WEBHOOK_SECRET` than what we're usin
 
 ### Data Pipeline Side (.env)
 ```env
-WEBHOOK_URL=https://hokus.ai/api/mlflow/registered
+WEBHOOK_URL=https://hokus.ai/api/webhooks/model-registration
 WEBHOOK_SECRET=test_webhook_secret_for_development
 ```
 

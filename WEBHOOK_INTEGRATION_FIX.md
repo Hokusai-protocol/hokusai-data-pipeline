@@ -12,12 +12,12 @@ The SDK's `register_tokenized_model()` method was not sending webhook notificati
 Modified `/hokusai-ml-platform/src/hokusai/core/registry.py`:
 - Added `_notify_registration()` method to send webhook notifications
 - Modified `register_tokenized_model()` to call `_notify_registration()` after successful registration
-- Webhook sends notification to `https://hokus.ai/api/mlflow/registered`
+- Webhook sends notification to `https://hokus.ai/api/webhooks/model-registration`
 
 ### 2. Webhook Configuration
 Added to `.env`:
 ```env
-WEBHOOK_URL=https://hokus.ai/api/mlflow/registered
+WEBHOOK_URL=https://hokus.ai/api/webhooks/model-registration
 WEBHOOK_SECRET=test_webhook_secret_for_development
 ```
 
@@ -52,7 +52,7 @@ The webhook sends the following payload when a model is registered:
 4. Token IDs now accept both uppercase and lowercase (normalized to uppercase)
 
 ### ⚠️ Issue Found
-The Hokusai website endpoint (`https://hokus.ai/api/mlflow/registered`) returns:
+The Hokusai website endpoint (`https://hokus.ai/api/webhooks/model-registration`) returns:
 ```json
 {"success":false,"error":"Webhook secret not configured"}
 ```
@@ -68,7 +68,7 @@ WEBHOOK_SECRET=test_webhook_secret_for_development
 ```
 
 ### 2. Update Webhook Handler
-The webhook handler at `/api/mlflow/registered` should:
+The webhook handler at `/api/webhooks/model-registration` should:
 1. Verify the HMAC signature from `X-Hokusai-Signature` header
 2. Parse the payload to extract `token_id`
 3. Update the token status from DRAFT to REGISTERED in the database

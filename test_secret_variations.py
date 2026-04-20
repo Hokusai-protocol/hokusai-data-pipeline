@@ -7,7 +7,7 @@ import json
 
 import requests
 
-webhook_url = "https://hokus.ai/api/mlflow/registered"
+webhook_url = "https://hokus.ai/api/webhooks/model-registration"
 
 # Simple test payload
 payload = {"test": "hello"}

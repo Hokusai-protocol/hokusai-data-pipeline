@@ -9,7 +9,7 @@ import requests
 
 # Test with the exact same secret the website should have
 webhook_secret = "test_webhook_secret_for_development"
-webhook_url = "https://hokus.ai/api/mlflow/registered"
+webhook_url = "https://hokus.ai/api/webhooks/model-registration"
 
 # Simple test payload
 payload = {"test": "hello"}
