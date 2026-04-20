@@ -3,7 +3,7 @@
 ## Summary
 Site notification is wired into the **packaged CLI** (`hokusai model register`). After a
 successful MLflow registration the CLI POSTs a `model_registered` event to the Hokusai
-site webhook at `https://hokus.ai/api/mlflow/registered` (or the URL in
+site webhook at `https://hokus.ai/api/webhooks/model-registration` (or the URL in
 `HOKUSAI_SITE_WEBHOOK_URL`). The webhook publisher used by `EnhancedModelRegistry` also
 sends a correctly-shaped payload.
 
@@ -21,7 +21,7 @@ sends a correctly-shaped payload.
 ### 2. Configuration
 - ✅ Added webhook configuration to `.env`:
   ```env
-  WEBHOOK_URL=https://hokus.ai/api/mlflow/registered
+  WEBHOOK_URL=https://hokus.ai/api/webhooks/model-registration
   WEBHOOK_SECRET=test_webhook_secret_for_development
   ```
 
@@ -47,7 +47,7 @@ registry.register_tokenized_model(
 The system automatically:
 1. Registers the model in MLflow ✅
 2. Normalizes token ID to uppercase (LSCOR) ✅
-3. Sends webhook to https://hokus.ai/api/mlflow/registered ✅
+3. Sends webhook to https://hokus.ai/api/webhooks/model-registration ✅
 4. Website validates signature and updates status to REGISTERED ✅
 
 ## Webhook Payload Format

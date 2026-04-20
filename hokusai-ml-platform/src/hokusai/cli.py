@@ -17,7 +17,7 @@ import click
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_SITE_WEBHOOK_URL = "https://hokus.ai/api/mlflow/registered"
+_DEFAULT_SITE_WEBHOOK_URL = "https://hokus.ai/api/webhooks/model-registration"
 
 
 @click.group()
@@ -71,7 +71,7 @@ def model() -> None:
     default=None,
     help=(
         "URL of the Hokusai site webhook endpoint. "
-        f"Defaults to HOKUSAI_SITE_WEBHOOK_URL or {_DEFAULT_SITE_WEBHOOK_URL}."
+        f"Defaults to HOKUSAI_SITE_WEBHOOK_URL, WEBHOOK_URL, or {_DEFAULT_SITE_WEBHOOK_URL}."
     ),
 )
 @click.option(
@@ -142,7 +142,8 @@ def register_model(
         click.echo(
             "  Warning: site notification failed. The model is registered in MLflow but the "
             "Hokusai site may not reflect the new status yet. Check HOKUSAI_SITE_WEBHOOK_SECRET "
-            "and HOKUSAI_SITE_WEBHOOK_URL, then re-run with the same arguments or contact support.",
+            "/ WEBHOOK_SECRET and HOKUSAI_SITE_WEBHOOK_URL / WEBHOOK_URL, then re-run with the "
+            "same arguments or contact support.",
             err=True,
         )
 
@@ -158,41 +159,46 @@ def _notify_site_of_registration(
     Returns True if the site acknowledged the event (HTTP 2xx), False otherwise.
     Never raises — failure is non-fatal to the overall registration.
     """
-    try:
-        url = (
-            site_webhook_url
-            or os.environ.get("HOKUSAI_SITE_WEBHOOK_URL")
-            or _DEFAULT_SITE_WEBHOOK_URL
+    url = (
+        site_webhook_url
+        or os.environ.get("HOKUSAI_SITE_WEBHOOK_URL")
+        or os.environ.get("WEBHOOK_URL")
+        or _DEFAULT_SITE_WEBHOOK_URL
+    )
+    secret = (
+        webhook_secret
+        or os.environ.get("HOKUSAI_SITE_WEBHOOK_SECRET")
+        or os.environ.get("WEBHOOK_SECRET")
+    )
+
+    payload: dict[str, Any] = {
+        "event_type": "model_registered",
+        "token_id": result["token_id"],
+        "model_name": result["model_name"],
+        "model_version": str(result["version"]),
+        "mlflow_run_id": result.get("mlflow_run_id"),
+        "metric_name": result.get("metric_name"),
+        "baseline_value": result.get("baseline_value"),
+        "status": "registered",
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "tags": result.get("tags") or {},
+    }
+
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+    req = urllib.request.Request(url, data=body, method="POST")  # noqa: S310
+    req.add_header("Content-Type", "application/json")
+
+    if secret:
+        sig = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+        req.add_header("X-Hokusai-Signature", f"sha256={sig}")
+    else:
+        logger.warning(
+            "No webhook secret configured — the site may reject unsigned notifications. "
+            "Set HOKUSAI_SITE_WEBHOOK_SECRET or WEBHOOK_SECRET."
         )
-        secret = webhook_secret or os.environ.get("HOKUSAI_SITE_WEBHOOK_SECRET")
 
-        payload: dict[str, Any] = {
-            "event_type": "model_registered",
-            "token_id": result["token_id"],
-            "model_name": result["model_name"],
-            "model_version": str(result["version"]),
-            "mlflow_run_id": result.get("mlflow_run_id"),
-            "metric_name": result.get("metric_name"),
-            "baseline_value": result.get("baseline_value"),
-            "status": "registered",
-            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "tags": result.get("tags") or {},
-        }
-
-        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-
-        req = urllib.request.Request(url, data=body, method="POST")  # noqa: S310
-        req.add_header("Content-Type", "application/json")
-
-        if secret:
-            sig = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-            req.add_header("X-Hokusai-Signature", f"sha256={sig}")
-        else:
-            logger.warning(
-                "No webhook secret configured — the site may reject unsigned notifications. "
-                "Set HOKUSAI_SITE_WEBHOOK_SECRET."
-            )
-
+    try:
         with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
             return 200 <= resp.status < 300
     except urllib.error.HTTPError as exc:
@@ -212,9 +218,12 @@ def _log_model_artifact(
     tracking_uri: str,
     api_key: str | None = None,
 ) -> str:
-    """Log a local artifact as an MLflow pyfunc model and return its URI."""
-    import os
+    """Log a local artifact as an MLflow pyfunc model and return its URI.
 
+    MLflow authentication (MLFLOW_TRACKING_TOKEN / HOKUSAI_API_KEY) is configured by
+    ModelRegistry.__init__ before this function is called, so no explicit auth headers
+    are set here.
+    """
     import mlflow
 
     class _ArtifactReferenceModel(mlflow.pyfunc.PythonModel):

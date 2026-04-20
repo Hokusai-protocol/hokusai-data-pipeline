@@ -15,7 +15,7 @@ import requests
 def test_model_registration_webhook():
     """Test the complete model registration webhook flow."""
     # Load environment variables
-    webhook_url = os.getenv("WEBHOOK_URL", "https://hokus.ai/api/mlflow/registered")
+    webhook_url = os.getenv("WEBHOOK_URL", "https://hokus.ai/api/webhooks/model-registration")
     webhook_secret = os.getenv("WEBHOOK_SECRET", "test_webhook_secret_for_development")
 
     print("=" * 60)
@@ -26,16 +26,16 @@ def test_model_registration_webhook():
 
     # Simulate a real model registration
     model_info = {
-        "token_id": "LSCOR",
+        "token_id": "HLEAD",
         "model_name": "Sales lead scoring model",
-        "model_version": "5",  # Next version after 4
+        "model_version": "1",
         "mlflow_run_id": "actual_run_abc123",
         "metric_name": "accuracy",
         "baseline_value": 0.933,
         "tags": {
             "author": "GTM Backend Team",
             "version": "1.0.1",
-            "dataset": "Kaggle B2B Sales",
+            "dataset": "SaaS-Sales",
             "improved": "true",
         },
     }

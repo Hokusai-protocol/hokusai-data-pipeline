@@ -17,7 +17,7 @@ import requests
 def test_webhook_notification():
     """Test sending a webhook notification to the Hokusai website."""
     # Load environment variables
-    webhook_url = os.getenv("WEBHOOK_URL", "https://hokus.ai/api/mlflow/registered")
+    webhook_url = os.getenv("WEBHOOK_URL", "https://hokus.ai/api/webhooks/model-registration")
     webhook_secret = os.getenv("WEBHOOK_SECRET", "test_webhook_secret_for_development")
 
     print(f"Testing webhook notification to: {webhook_url}")
@@ -26,18 +26,18 @@ def test_webhook_notification():
     # Create a test payload similar to what would be sent after model registration
     payload = {
         "model": {
-            "id": "LSCOR",  # Website expects 'id' field
+            "id": "HLEAD",  # Website expects 'id' field
             "name": "Sales lead scoring model",
-            "version": "4",
+            "version": "1",
             "mlflow_run_id": "test_run_id_123",
             "metric_name": "accuracy",
             "baseline_value": 0.933,
-            "token_id": "LSCOR",
+            "token_id": "HLEAD",
             "status": "registered",  # Must be lowercase
             "tags": {
                 "author": "GTM Backend Team",
                 "version": "1.0.0",
-                "dataset": "Kaggle B2B Sales",
+                "dataset": "SaaS-Sales",
             },
         },
         "source": "mlflow",

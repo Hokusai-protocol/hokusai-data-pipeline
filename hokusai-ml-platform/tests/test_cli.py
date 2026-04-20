@@ -136,3 +136,67 @@ def test_log_model_artifact_sets_mlflow_tracking_token(tmp_path: Path) -> None:
     assert token_seen == [
         "test-key-123"
     ], "MLFLOW_TRACKING_TOKEN must be set before mlflow.start_run()"
+
+
+def test_model_register_uses_webhook_url_env_fallback(tmp_path: Path) -> None:
+    """The packaged CLI should honor WEBHOOK_URL when site-specific env vars are unset."""
+    runner = CliRunner()
+    artifact_path = tmp_path / "model.pkl"
+    artifact_path.write_text("test-model")
+
+    mock_registry = Mock()
+    mock_registry.tracking_uri = "file:///tmp/mlruns"
+    mock_registry.register_tokenized_model.return_value = {
+        "model_name": "hokusai-MSG-AI",
+        "version": "7",
+        "token_id": "MSG-AI",
+        "proposal_identifier": "MSG-AI",
+        "mlflow_run_id": "run-123",
+        "status": "registered",
+    }
+
+    response = Mock()
+    response.status = 200
+    response.__enter__ = Mock(return_value=response)
+    response.__exit__ = Mock(return_value=None)
+
+    with (
+        patch.dict(
+            os.environ,
+            {
+                "WEBHOOK_URL": "https://configured.example/webhook",
+                "WEBHOOK_SECRET": "test-secret",
+            },
+            clear=False,
+        ),
+        patch.dict(
+            os.environ,
+            {
+                "HOKUSAI_SITE_WEBHOOK_URL": "",
+                "HOKUSAI_SITE_WEBHOOK_SECRET": "",
+            },
+            clear=False,
+        ),
+        patch("hokusai.cli._load_model_registry", return_value=lambda **_: mock_registry),
+        patch("hokusai.cli._log_model_artifact", return_value="runs:/run-123/model"),
+        patch("hokusai.cli.urllib.request.urlopen", return_value=response) as urlopen,
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "model",
+                "register",
+                "--token-id",
+                "MSG-AI",
+                "--model-path",
+                str(artifact_path),
+                "--metric",
+                "reply_rate",
+                "--baseline",
+                "0.1342",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    request = urlopen.call_args.args[0]
+    assert request.full_url == "https://configured.example/webhook"
