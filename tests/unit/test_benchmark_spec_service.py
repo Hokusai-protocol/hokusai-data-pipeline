@@ -115,3 +115,38 @@ def test_register_rejects_invalid_provider() -> None:
 def test_model_update_hook_raises_immutable_error() -> None:
     with pytest.raises(ValueError, match="immutable"):
         _prevent_benchmark_spec_update(None, None, None)
+
+
+def test_register_spec_with_baseline_value() -> None:
+    service = BenchmarkSpecService()
+
+    created = service.register_spec(
+        model_id="model-baseline",
+        dataset_id="kaggle/mmlu",
+        dataset_version="sha256:" + "f" * 64,
+        eval_split="test",
+        metric_name="accuracy",
+        metric_direction="higher_is_better",
+        input_schema={},
+        output_schema={},
+        baseline_value=0.75,
+    )
+
+    assert created["baseline_value"] == 0.75
+
+
+def test_register_spec_without_baseline_value_defaults_to_none() -> None:
+    service = BenchmarkSpecService()
+
+    created = service.register_spec(
+        model_id="model-no-baseline",
+        dataset_id="kaggle/mmlu",
+        dataset_version="sha256:" + "g" * 64,
+        eval_split="test",
+        metric_name="accuracy",
+        metric_direction="higher_is_better",
+        input_schema={},
+        output_schema={},
+    )
+
+    assert created["baseline_value"] is None
