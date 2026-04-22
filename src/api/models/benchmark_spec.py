@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Enum, Index, String, UniqueConstraint, event
+from sqlalchemy import Boolean, DateTime, Enum, Float, Index, String, UniqueConstraint, event
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,6 +38,7 @@ class BenchmarkSpec(Base):
     tiebreak_rules: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     input_schema: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     output_schema: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    baseline_value: Mapped[float | None] = mapped_column(Float, nullable=True)
     eval_container_digest: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)

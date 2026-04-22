@@ -98,6 +98,7 @@ class BenchmarkSpecService:
         provider: str = "hokusai",
         tiebreak_rules: dict[str, Any] | None = None,
         eval_container_digest: str | None = None,
+        baseline_value: float | None = None,
         is_active: bool = True,
     ) -> dict[str, Any]:
         """Create an immutable benchmark spec record."""
@@ -125,6 +126,7 @@ class BenchmarkSpecService:
                     input_schema=input_schema,
                     output_schema=output_schema,
                     eval_container_digest=eval_container_digest,
+                    baseline_value=baseline_value,
                     created_at=now,
                     is_active=is_active,
                 )
@@ -151,6 +153,7 @@ class BenchmarkSpecService:
             "input_schema": input_schema,
             "output_schema": output_schema,
             "eval_container_digest": eval_container_digest,
+            "baseline_value": baseline_value,
             "created_at": now.isoformat(),
             "is_active": is_active,
         }
@@ -428,6 +431,7 @@ class BenchmarkSpecService:
             "input_schema": row.input_schema,
             "output_schema": row.output_schema,
             "eval_container_digest": row.eval_container_digest,
+            "baseline_value": row.baseline_value,
             "created_at": row.created_at.isoformat(),
             "is_active": row.is_active,
         }

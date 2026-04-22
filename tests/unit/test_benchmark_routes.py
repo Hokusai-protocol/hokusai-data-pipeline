@@ -32,6 +32,7 @@ SAMPLE_SPEC = {
     "input_schema": {"columns": ["text"]},
     "output_schema": {"target_column": "label"},
     "eval_container_digest": None,
+    "baseline_value": None,
     "created_at": "2024-01-01T00:00:00+00:00",
     "is_active": True,
 }
@@ -286,6 +287,77 @@ class TestDeleteBenchmarkSpec:
             assert resp.status_code == 404
         finally:
             _cleanup_overrides()
+
+
+class TestBaselineValue:
+    @patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+        _passthrough_middleware_dispatch,
+    )
+    def test_create_with_baseline_value_roundtrip(self) -> None:
+        spec_with_baseline = {**SAMPLE_SPEC, "baseline_value": 0.85}
+        client, svc, _ = _make_authed_client()
+        try:
+            svc.register_spec.return_value = spec_with_baseline
+            payload = {**CREATE_PAYLOAD, "baseline_value": 0.85}
+            resp = client.post("/api/v1/benchmarks", json=payload)
+            assert resp.status_code == 201
+            assert resp.json()["baseline_value"] == 0.85
+        finally:
+            _cleanup_overrides()
+
+    @patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+        _passthrough_middleware_dispatch,
+    )
+    def test_create_without_baseline_value_returns_null(self) -> None:
+        client, svc, _ = _make_authed_client()
+        try:
+            svc.register_spec.return_value = SAMPLE_SPEC
+            resp = client.post("/api/v1/benchmarks", json=CREATE_PAYLOAD)
+            assert resp.status_code == 201
+            assert resp.json()["baseline_value"] is None
+        finally:
+            _cleanup_overrides()
+
+    @patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+        _passthrough_middleware_dispatch,
+    )
+    def test_update_baseline_value(self) -> None:
+        updated = {**SAMPLE_SPEC, "baseline_value": 0.9}
+        client, svc, _ = _make_authed_client()
+        try:
+            svc.update_spec_fields.return_value = updated
+            resp = client.put(
+                f"/api/v1/benchmarks/{SAMPLE_SPEC['spec_id']}",
+                json={"baseline_value": 0.9},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["baseline_value"] == 0.9
+        finally:
+            _cleanup_overrides()
+
+    def test_create_schema_rejects_infinite_baseline_value(self) -> None:
+        import math
+
+        import pytest
+        from pydantic import ValidationError
+
+        from src.api.schemas.benchmark_spec import BenchmarkSpecCreate
+
+        with pytest.raises(ValidationError, match="finite"):
+            BenchmarkSpecCreate(
+                model_id="m",
+                provider="hokusai",
+                dataset_reference="s3://b/f.csv",
+                eval_split="test",
+                target_column="label",
+                input_columns=[],
+                metric_name="accuracy",
+                metric_direction="higher_is_better",
+                baseline_value=math.inf,
+            )
 
 
 class TestAuthEnforcement:

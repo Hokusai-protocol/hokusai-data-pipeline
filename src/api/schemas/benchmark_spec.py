@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class BenchmarkProvider(str, Enum):
@@ -39,6 +40,14 @@ class BenchmarkSpecCreate(BaseModel):
     metric_direction: MetricDirection
     dataset_version: str | None = None
     metadata: dict[str, Any] | None = None
+    baseline_value: float | None = None
+
+    @field_validator("baseline_value")
+    @classmethod
+    def _baseline_must_be_finite(cls: type, v: float | None) -> float | None:
+        if v is not None and not math.isfinite(v):
+            raise ValueError("baseline_value must be a finite number")
+        return v
 
 
 class BenchmarkSpecUpdate(BaseModel):
@@ -54,6 +63,14 @@ class BenchmarkSpecUpdate(BaseModel):
     metric_direction: MetricDirection | None = None
     dataset_version: str | None = None
     metadata: dict[str, Any] | None = None
+    baseline_value: float | None = None
+
+    @field_validator("baseline_value")
+    @classmethod
+    def _baseline_must_be_finite(cls: type, v: float | None) -> float | None:
+        if v is not None and not math.isfinite(v):
+            raise ValueError("baseline_value must be a finite number")
+        return v
 
 
 class BenchmarkSpecResponse(BaseModel):
@@ -72,6 +89,7 @@ class BenchmarkSpecResponse(BaseModel):
     metric_direction: MetricDirection
     dataset_version: str | None = None
     metadata: dict[str, Any] | None = None
+    baseline_value: float | None = None
     created_at: datetime
     updated_at: datetime | None = None
     is_active: bool

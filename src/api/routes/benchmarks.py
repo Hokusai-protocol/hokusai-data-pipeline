@@ -58,6 +58,7 @@ def _schema_to_model_fields(data: dict[str, Any]) -> dict[str, Any]:
         "metric_name",
         "metric_direction",
         "dataset_version",
+        "baseline_value",
     ]:
         if field in data and data[field] is not None:
             mapped[field] = data[field]
@@ -80,6 +81,7 @@ def _model_to_response(data: dict[str, Any]) -> dict[str, Any]:
         "metric_direction": data.get("metric_direction", ""),
         "dataset_version": data.get("dataset_version"),
         "metadata": data.get("tiebreak_rules"),
+        "baseline_value": data.get("baseline_value"),
         "created_at": data.get("created_at"),
         "updated_at": None,
         "is_active": data.get("is_active", True),
