@@ -12,9 +12,15 @@ from urllib import error, parse, request
 
 import click
 
+from src.cli._api import BenchmarkSpecLookupError, fetch_benchmark_spec
 from src.cli.attestation import create_attestation, log_attestation
 from src.cli.output_formatters import format_output
 from src.cli.resume import ResumeDecision, resolve_resume_decision
+from src.evaluation.custom_eval import (
+    CustomEvalError,
+    CustomEvalRuntimeError,
+    run_custom_eval,
+)
 
 DEFAULT_ESTIMATED_COST_USD = 0.10
 DEFAULT_MODEL_TYPE = "classifier"
@@ -462,7 +468,7 @@ def eval_group() -> None:
 
 @eval_group.command(name="run")
 @click.argument("model_id")
-@click.argument("eval_spec")
+@click.argument("eval_spec", default="", required=False)
 @click.option("--provider", type=str, default=None, help="Model provider override.")
 @click.option("--seed", type=int, default=None, help="Deterministic random seed.")
 @click.option("--temperature", type=float, default=None, help="Model temperature override.")
@@ -488,6 +494,20 @@ def eval_group() -> None:
     show_default=True,
     help="Output format.",
 )
+@click.option(
+    "--benchmark-spec-id",
+    "benchmark_spec_id",
+    default=None,
+    type=str,
+    help="BenchmarkSpec ID; routes to custom eval execution.",
+)
+@click.option(
+    "--api-url",
+    "eval_api_url",
+    default=None,
+    type=str,
+    help="Hokusai API base URL (used with --benchmark-spec-id).",
+)
 def run_command(
     model_id: str,
     eval_spec: str,
@@ -499,6 +519,8 @@ def run_command(
     resume: str | None,
     attest: bool,
     output_format: str,
+    benchmark_spec_id: str | None,
+    eval_api_url: str | None,
 ) -> None:
     """Run an MLflow-backed evaluation for MODEL_ID against EVAL_SPEC."""
     if max_cost is not None and max_cost <= 0:
@@ -509,10 +531,73 @@ def run_command(
         _emit(output_format, payload)
         raise SystemExit(1)
 
+    # Guard: cannot combine eval_spec path with --benchmark-spec-id
+    if benchmark_spec_id and eval_spec and _looks_like_path(eval_spec):
+        _emit(
+            output_format,
+            {
+                "status": "invalid",
+                "message": "Cannot specify both a built-in eval_spec path and --benchmark-spec-id.",
+            },
+        )
+        raise SystemExit(1)
+
     normalized_resume = resume
     if normalized_resume and normalized_resume.lower() in {"true", "yes"}:
         normalized_resume = "auto"
 
+    # --benchmark-spec-id path
+    if benchmark_spec_id:
+        _run_command_benchmark_spec_path(
+            output_format=output_format,
+            model_id=model_id,
+            benchmark_spec_id=benchmark_spec_id,
+            eval_api_url=eval_api_url,
+            max_cost=max_cost,
+            dry_run=dry_run,
+            seed=seed,
+            temperature=temperature,
+        )
+
+    # Legacy path: eval_spec is required when --benchmark-spec-id is absent
+    if not eval_spec:
+        _emit(
+            output_format,
+            {
+                "status": "invalid",
+                "message": "eval_spec is required when --benchmark-spec-id is not set.",
+            },
+        )
+        raise SystemExit(1)
+
+    _run_command_legacy_eval_path(
+        output_format=output_format,
+        model_id=model_id,
+        eval_spec=eval_spec,
+        provider=provider,
+        seed=seed,
+        temperature=temperature,
+        max_cost=max_cost,
+        normalized_resume=normalized_resume,
+        attest=attest,
+        dry_run=dry_run,
+    )
+
+
+def _run_command_legacy_eval_path(
+    *,
+    output_format: str,
+    model_id: str,
+    eval_spec: str,
+    provider: str | None,
+    seed: int | None,
+    temperature: float | None,
+    max_cost: float | None,
+    normalized_resume: str | None,
+    attest: bool,
+    dry_run: bool,
+) -> None:
+    """Execute the legacy eval_spec-based evaluation path."""
     try:
         if dry_run:
             code = _handle_dry_run(
@@ -541,34 +626,168 @@ def run_command(
         _emit(output_format, payload)
         raise SystemExit(0)
     except EvaluationValidationError as exc:
-        _emit(
-            output_format,
-            {
-                "status": "invalid",
-                "message": str(exc),
-            },
-        )
+        _emit(output_format, {"status": "invalid", "message": str(exc)})
         raise SystemExit(1) from exc
     except EvaluationRuntimeError as exc:
-        _emit(
-            output_format,
-            {
-                "status": "error",
-                "message": str(exc),
-            },
-        )
+        _emit(output_format, {"status": "error", "message": str(exc)})
         raise SystemExit(2) from exc
     except SystemExit:
         raise
     except Exception as exc:
-        _emit(
-            output_format,
-            {
-                "status": "error",
-                "message": f"Unexpected error: {exc}",
-            },
-        )
+        _emit(output_format, {"status": "error", "message": f"Unexpected error: {exc}"})
         raise SystemExit(2) from exc
+
+
+def _run_command_benchmark_spec_path(
+    *,
+    output_format: str,
+    model_id: str,
+    benchmark_spec_id: str,
+    eval_api_url: str | None,
+    max_cost: float | None,
+    dry_run: bool,
+    seed: int | None,
+    temperature: float | None,
+) -> None:
+    """Fetch spec and dispatch (or dry-run) for the --benchmark-spec-id path."""
+    try:
+        spec = fetch_benchmark_spec(
+            benchmark_spec_id,
+            api_url=eval_api_url,
+            api_key=os.getenv("HOKUSAI_API_KEY"),
+        )
+    except BenchmarkSpecLookupError as exc:
+        _emit(output_format, {"status": "invalid", "message": str(exc)})
+        raise SystemExit(1) from exc
+
+    if dry_run:
+        code = _handle_dry_run_custom(
+            output=output_format,
+            model_id=model_id,
+            benchmark_spec=spec,
+            benchmark_spec_id=benchmark_spec_id,
+            max_cost=max_cost,
+        )
+        raise SystemExit(code)
+
+    _execute_benchmark_spec_eval(
+        output_format=output_format,
+        model_id=model_id,
+        benchmark_spec_id=benchmark_spec_id,
+        spec=spec,
+        max_cost=max_cost,
+        seed=seed,
+        temperature=temperature,
+    )
+
+
+def _execute_benchmark_spec_eval(
+    *,
+    output_format: str,
+    model_id: str,
+    benchmark_spec_id: str,
+    spec: dict[str, Any],
+    max_cost: float | None,
+    seed: int | None,
+    temperature: float | None,
+) -> None:
+    """Dispatch a custom eval via BenchmarkSpec and raise SystemExit with the outcome."""
+    try:
+        mlflow = _load_mlflow()
+        client = _load_mlflow_client()
+        payload = run_custom_eval(
+            model_id=model_id,
+            benchmark_spec=spec,
+            benchmark_spec_id=benchmark_spec_id,
+            mlflow_module=mlflow,
+            mlflow_client=client,
+            cli_max_cost=max_cost,
+            seed=seed,
+            temperature=temperature,
+        )
+        _emit(output_format, payload)
+        raise SystemExit(0)
+    except BenchmarkSpecLookupError as exc:
+        _emit(output_format, {"status": "invalid", "message": str(exc)})
+        raise SystemExit(1) from exc
+    except CustomEvalRuntimeError as exc:
+        _emit(output_format, {"status": "error", "message": str(exc)})
+        raise SystemExit(2) from exc
+    except CustomEvalError as exc:
+        _emit(output_format, {"status": "invalid", "message": str(exc)})
+        raise SystemExit(1) from exc
+    except SystemExit:
+        raise
+    except Exception as exc:
+        _emit(output_format, {"status": "error", "message": f"Unexpected error: {exc}"})
+        raise SystemExit(2) from exc
+
+
+def _handle_dry_run_custom(
+    *,
+    output: str,
+    model_id: str,
+    benchmark_spec: dict[str, Any],
+    benchmark_spec_id: str,
+    max_cost: float | None,
+) -> int:
+    """Dry-run for --benchmark-spec-id: translate spec and project cost without starting a run."""
+    from src.evaluation.custom_eval import (
+        DatasetHashUnresolvableError,
+        compute_dataset_hash,
+        is_genai_spec,
+        project_cost,
+    )
+    from src.evaluation.spec_translation import SpecTranslationError, translate_benchmark_spec
+
+    try:
+        runtime_spec = translate_benchmark_spec(benchmark_spec)
+    except SpecTranslationError as exc:
+        _emit(output, {"status": "invalid", "dry_run": True, "message": str(exc)})
+        return 1
+
+    dataset_reference = benchmark_spec.get("dataset_reference", "")
+    from src.evaluation.custom_eval import _is_remote
+
+    local_path = dataset_reference if not _is_remote(dataset_reference) else None
+
+    try:
+        dataset_hash = compute_dataset_hash(
+            spec_dataset_version=benchmark_spec.get("dataset_version"),
+            dataset_path=local_path,
+        )
+    except DatasetHashUnresolvableError:
+        dataset_hash = "<unresolvable>"
+
+    policy = runtime_spec.measurement_policy or {}
+    spec_cap = policy.get("max_cost_usd")
+    cap_usd = float(spec_cap) if spec_cap is not None else max_cost
+
+    genai = is_genai_spec(runtime_spec)
+    projected_cost: float | None = None
+    if genai:
+        from src.evaluation.custom_eval import _count_rows
+
+        num_samples = _count_rows(local_path) or 0
+        projection = project_cost(runtime_spec, num_samples, cap_usd)
+        projected_cost = projection.projected_usd
+
+    payload: dict[str, Any] = {
+        "status": "valid",
+        "dry_run": True,
+        "plan": {
+            "model_id": model_id,
+            "benchmark_spec_id": benchmark_spec_id,
+            "dataset_reference": dataset_reference,
+            "dataset_hash": dataset_hash,
+            "primary_metric": runtime_spec.primary_metric.name,
+            "eval_mode": "genai" if genai else "deterministic",
+            "max_cost": cap_usd,
+            "projected_cost_usd": projected_cost,
+        },
+    }
+    _emit(output, payload)
+    return 0
 
 
 @click.group(name="benchmark")
