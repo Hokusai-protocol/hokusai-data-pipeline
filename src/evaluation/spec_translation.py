@@ -64,6 +64,19 @@ class RuntimeAdapterSpec:
     is_active: bool = True
 
 
+def _resolve_scorer_for_translation(ref: str | None) -> object:
+    """Return the RegisteredScorer for *ref*, or None if ref is None.
+
+    Lazy import avoids a circular-import risk and keeps the scorer registry
+    optional for callers that never use custom scorers.
+    """
+    if ref is None:
+        return None
+    from src.evaluation.scorers import resolve_scorer  # noqa: PLC0415
+
+    return resolve_scorer(ref)
+
+
 def translate_benchmark_spec(row: dict[str, Any]) -> RuntimeAdapterSpec:
     """Translate a BenchmarkSpecService row dict into a RuntimeAdapterSpec."""
     eval_spec = row.get("eval_spec")
