@@ -2,16 +2,24 @@
 
 This module provides a consistent interface for logging metrics to MLflow,
 with support for metric categorization, validation, and organization.
+
+Authentication: MLflow auth is configured globally via the MLFLOW_TRACKING_TOKEN
+environment variable and Authorization headers set by the MLflow client configuration
+before any log_metric calls are made.
 """
+
+from __future__ import annotations
 
 import logging
 import re
 from enum import Enum
 from statistics import mean, median
-from typing import Any, Optional
+from typing import Any
 
 import mlflow
 from mlflow.exceptions import MlflowException
+
+from src.utils.metric_naming import normalize_mlflow_metric_key
 
 logger = logging.getLogger(__name__)
 
@@ -65,9 +73,11 @@ def validate_metric_name(name: str) -> bool:
     """Validate metric name against naming conventions.
 
     Args:
+    ----
         name: Metric name to validate
 
     Returns:
+    -------
         True if valid, False otherwise
 
     """
@@ -76,13 +86,15 @@ def validate_metric_name(name: str) -> bool:
     return bool(METRIC_NAME_PATTERN.match(name))
 
 
-def parse_metric_name(name: str) -> tuple[Optional[str], str]:
+def parse_metric_name(name: str) -> tuple[str | None, str]:
     """Parse metric name into category and base name.
 
     Args:
+    ----
         name: Full metric name (e.g., "usage:reply_rate")
 
     Returns:
+    -------
         Tuple of (category, base_name) or (None, name) if no category
 
     """
@@ -92,14 +104,16 @@ def parse_metric_name(name: str) -> tuple[Optional[str], str]:
     return None, name
 
 
-def format_metric_name(category: Optional[str], name: str) -> str:
+def format_metric_name(category: str | None, name: str) -> str:
     """Format metric name with optional category prefix.
 
     Args:
+    ----
         category: Optional category prefix
         name: Base metric name
 
     Returns:
+    -------
         Formatted metric name
 
     """
@@ -112,9 +126,11 @@ def validate_metric_value(value: Any) -> bool:
     """Validate metric value is numeric and finite.
 
     Args:
+    ----
         value: Value to validate
 
     Returns:
+    -------
         True if valid, False otherwise
 
     """
@@ -134,9 +150,11 @@ def migrate_metric_name(old_name: str) -> str:
     """Migrate legacy metric name to new convention.
 
     Args:
+    ----
         old_name: Legacy metric name
 
     Returns:
+    -------
         New standardized metric name
 
     """
@@ -162,27 +180,34 @@ def migrate_metric_name(old_name: str) -> str:
 class MetricLogger:
     """Centralized metric logging with MLflow integration."""
 
-    def __init__(self, allow_legacy_names: bool = False) -> None:
+    def __init__(self: MetricLogger, allow_legacy_names: bool = False) -> None:
         """Initialize MetricLogger.
 
         Args:
+        ----
             allow_legacy_names: Whether to allow non-standard metric names
 
         """
         self.allow_legacy_names = allow_legacy_names
 
     def log_metric(
-        self, name: str, value: float, step: Optional[int] = None, raise_on_error: bool = True
+        self: MetricLogger,
+        name: str,
+        value: float,
+        step: int | None = None,
+        raise_on_error: bool = True,
     ) -> None:
         """Log a single metric to MLflow.
 
         Args:
+        ----
             name: Metric name (following naming conventions)
             value: Metric value
             step: Optional step/iteration number
             raise_on_error: Whether to raise exceptions or log warnings
 
         Raises:
+        ------
             MetricValidationError: If validation fails and raise_on_error=True
 
         """
@@ -203,8 +228,7 @@ class MetricLogger:
             return
 
         try:
-            # MLflow doesn't accept colons in metric names, so replace with underscores
-            mlflow_name = name.replace(":", "_")
+            mlflow_name = normalize_mlflow_metric_key(name)
             if step is not None:
                 mlflow.log_metric(mlflow_name, value, step=step)
             else:
@@ -217,11 +241,15 @@ class MetricLogger:
             logger.warning(error_msg)
 
     def log_metrics(
-        self, metrics: dict[str, float], step: Optional[int] = None, raise_on_error: bool = True
+        self: MetricLogger,
+        metrics: dict[str, float],
+        step: int | None = None,
+        raise_on_error: bool = True,
     ) -> None:
         """Log multiple metrics in batch.
 
         Args:
+        ----
             metrics: Dictionary of metric name to value
             step: Optional step/iteration number
             raise_on_error: Whether to raise exceptions or log warnings
@@ -251,11 +279,16 @@ class MetricLogger:
                 self.log_metric(name, value, step, raise_on_error=False)
 
     def log_metric_with_metadata(
-        self, name: str, value: float, metadata: dict[str, Any], step: Optional[int] = None
+        self: MetricLogger,
+        name: str,
+        value: float,
+        metadata: dict[str, Any],
+        step: int | None = None,
     ) -> None:
         """Log metric with additional metadata as MLflow parameters.
 
         Args:
+        ----
             name: Metric name
             value: Metric value
             metadata: Additional metadata to log as parameters
@@ -273,14 +306,16 @@ class MetricLogger:
             except MlflowException as e:
                 logger.warning(f"Failed to log metadata for {name}: {e}")
 
-    def get_metrics_by_prefix(self, run_id: str, prefix: str) -> dict[str, float]:
+    def get_metrics_by_prefix(self: MetricLogger, run_id: str, prefix: str) -> dict[str, float]:
         """Get all metrics with a given prefix from a run.
 
         Args:
+        ----
             run_id: MLflow run ID
             prefix: Metric name prefix (e.g., "usage:")
 
         Returns:
+        -------
             Dictionary of matching metrics
 
         """
@@ -294,14 +329,16 @@ class MetricLogger:
             return {}
 
     def aggregate_metrics(
-        self, metrics_list: list[dict[str, float]]
+        self: MetricLogger, metrics_list: list[dict[str, float]]
     ) -> dict[str, dict[str, float]]:
         """Aggregate metrics across multiple runs.
 
         Args:
+        ----
             metrics_list: List of metric dictionaries from different runs
 
         Returns:
+        -------
             Aggregated metrics with mean, min, max, median
 
         """
@@ -331,7 +368,7 @@ class MetricLogger:
 
 
 # Convenience functions for common use cases
-def log_usage_metrics(metrics: dict[str, float], **kwargs) -> None:
+def log_usage_metrics(metrics: dict[str, float], **kwargs: Any) -> None:
     """Log usage metrics with automatic prefixing."""
     logger = MetricLogger()
     prefixed_metrics = {}
@@ -344,7 +381,7 @@ def log_usage_metrics(metrics: dict[str, float], **kwargs) -> None:
     logger.log_metrics(prefixed_metrics, **kwargs)
 
 
-def log_model_metrics(metrics: dict[str, float], **kwargs) -> None:
+def log_model_metrics(metrics: dict[str, float], **kwargs: Any) -> None:
     """Log model performance metrics with automatic prefixing."""
     logger = MetricLogger()
     prefixed_metrics = {}
@@ -357,7 +394,7 @@ def log_model_metrics(metrics: dict[str, float], **kwargs) -> None:
     logger.log_metrics(prefixed_metrics, **kwargs)
 
 
-def log_pipeline_metrics(metrics: dict[str, float], **kwargs) -> None:
+def log_pipeline_metrics(metrics: dict[str, float], **kwargs: Any) -> None:
     """Log pipeline execution metrics with automatic prefixing."""
     logger = MetricLogger()
     prefixed_metrics = {}

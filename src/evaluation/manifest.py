@@ -9,6 +9,7 @@ from hashlib import sha256
 from typing import Any
 
 from src.evaluation.validation import validate_manifest
+from src.utils.metric_naming import derive_mlflow_name
 
 HEM_SCHEMA_VERSION = "hokusai.eval.manifest/v1"
 
@@ -143,9 +144,19 @@ def create_hem_from_mlflow_run(
             "Missing primary metric. Provide primary_metric_name or set run tag "
             "'hokusai.primary_metric'."
         )
-    if resolved_primary_metric not in metric_map:
+
+    # Three-tier lookup: normalized MLflow key → literal canonical name → raise.
+    primary_mlflow_key = derive_mlflow_name(resolved_primary_metric)
+    if primary_mlflow_key in metric_map:
+        primary_metric_value = metric_map[primary_mlflow_key]
+        primary_mlflow_key_used = primary_mlflow_key
+    elif resolved_primary_metric in metric_map:
+        primary_metric_value = metric_map[resolved_primary_metric]
+        primary_mlflow_key_used = resolved_primary_metric
+    else:
         raise ValueError(
-            f"Primary metric '{resolved_primary_metric}' not found in MLflow run metrics."
+            f"Primary metric '{resolved_primary_metric}' not found in MLflow run metrics. "
+            f"Tried normalized key '{primary_mlflow_key}' and literal '{resolved_primary_metric}'."
         )
 
     spec_dataset_id = benchmark_spec.get("dataset_id") if benchmark_spec else None
@@ -197,7 +208,8 @@ def create_hem_from_mlflow_run(
         },
         primary_metric={
             "name": resolved_primary_metric,
-            "value": metric_map[resolved_primary_metric],
+            "mlflow_name": primary_mlflow_key_used,
+            "value": primary_metric_value,
             "higher_is_better": tags.get("hokusai.primary_metric.higher_is_better", "true").lower()
             == "true",
         },

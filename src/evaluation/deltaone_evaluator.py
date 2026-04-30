@@ -13,6 +13,7 @@ from typing import Any, Protocol
 from src.evaluation.hem import HEM
 from src.evaluation.webhook_config import DELTAONE_EVENT_TYPE, load_deltaone_webhook_endpoints
 from src.evaluation.webhook_delivery import send_webhook_with_retry
+from src.utils.metric_naming import derive_mlflow_name
 
 logger = logging.getLogger(__name__)
 _WEBHOOK_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="deltaone-webhook")
@@ -306,15 +307,18 @@ class DeltaOneEvaluator:
         metric_name = str(spec["metric_name"])
         expected_dataset_hash = _normalize_dataset_hash(str(spec["dataset_version"]))
         min_examples = _derive_min_examples_from_spec(spec, default=self.min_examples)
+        expected_mlflow_name = _derive_expected_mlflow_name(spec)
 
         evaluated_at = datetime.now(timezone.utc)
         candidate = self._extract_metrics_from_run(
             mlflow_run_id,
             expected_metric_name=metric_name,
+            expected_mlflow_name=expected_mlflow_name,
         )
         baseline = self._extract_metrics_from_run(
             baseline_mlflow_run_id,
             expected_metric_name=metric_name,
+            expected_mlflow_name=expected_mlflow_name,
         )
 
         self._log_audit_event(
@@ -446,6 +450,7 @@ class DeltaOneEvaluator:
         self: DeltaOneEvaluator,
         mlflow_run_id: str,
         expected_metric_name: str | None = None,
+        expected_mlflow_name: str | None = None,
     ) -> HEM:
         """Extract HEM fields from a single MLflow run via one client call."""
         run = self._client.get_run(mlflow_run_id)
@@ -463,8 +468,7 @@ class DeltaOneEvaluator:
                     "'hokusai.primary_metric', 'primary_metric', or 'benchmark_metric'."
                 )
 
-        if metric_name not in metrics:
-            raise ValueError(f"Primary metric '{metric_name}' missing from run metrics.")
+        resolved_key = _resolve_metric_key(metric_name, expected_mlflow_name, metrics)
 
         sample_size_raw = self._first_non_empty(tags, SAMPLE_SIZE_KEYS) or self._first_non_empty(
             params, SAMPLE_SIZE_KEYS
@@ -495,7 +499,7 @@ class DeltaOneEvaluator:
 
         return HEM(
             metric_name=metric_name,
-            metric_value=float(metrics[metric_name]),
+            metric_value=float(metrics[resolved_key]),
             sample_size=sample_size,
             dataset_hash=dataset_hash,
             timestamp=timestamp,
@@ -799,6 +803,47 @@ def _normalize_dataset_hash(dataset_version: str) -> str:
     if dataset_version.startswith("sha256:"):
         return dataset_version
     return f"sha256:{dataset_version}"
+
+
+def _resolve_metric_key(
+    metric_name: str,
+    expected_mlflow_name: str | None,
+    metrics: dict[str, float],
+) -> str:
+    """Return the key in *metrics* that corresponds to *metric_name* (three-tier lookup).
+
+    Tier 1: explicit *expected_mlflow_name* when present and found.
+    Tier 2: colon-normalized form of *metric_name*.
+    Tier 3: literal *metric_name*.
+    Raises ``ValueError`` listing all tried keys when none resolves.
+    """
+    normalized_name = derive_mlflow_name(metric_name)
+    if expected_mlflow_name and expected_mlflow_name in metrics:
+        tier = "mlflow_name"
+        resolved = expected_mlflow_name
+    elif normalized_name in metrics:
+        tier = "normalized_name"
+        resolved = normalized_name
+    elif metric_name in metrics:
+        tier = "literal"
+        resolved = metric_name
+    else:
+        raise ValueError(
+            f"Primary metric '{metric_name}' missing from run metrics. "
+            f"Tried mlflow_name={expected_mlflow_name!r}, "
+            f"normalized={normalized_name!r}, "
+            f"literal={metric_name!r}."
+        )
+    logger.debug("DeltaOne primary-metric resolved via tier=%s", tier)
+    return resolved
+
+
+def _derive_expected_mlflow_name(spec: dict[str, Any]) -> str | None:
+    """Extract ``eval_spec.primary_metric.mlflow_name`` from a benchmark spec dict."""
+    eval_spec = spec.get("eval_spec") or {}
+    primary_metric = eval_spec.get("primary_metric") or {}
+    mlflow_name = primary_metric.get("mlflow_name")
+    return mlflow_name if mlflow_name else None
 
 
 def _derive_min_examples_from_spec(spec: dict[str, Any], default: int) -> int:

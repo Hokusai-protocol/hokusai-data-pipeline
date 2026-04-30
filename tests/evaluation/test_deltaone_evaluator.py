@@ -261,6 +261,144 @@ def test_evaluate_for_model_uses_active_benchmark_spec() -> None:
     assert decision.reason == "accepted"
 
 
+def test_extract_metrics_three_tier_fallback_normalized_name() -> None:
+    """Tier-2: canonical colon name resolves via underscore-normalized key."""
+    run = SimpleNamespace(
+        info=SimpleNamespace(run_id="run-ns", start_time=1_700_000_000_000, experiment_id="1"),
+        data=SimpleNamespace(
+            metrics={"workflow_success_rate_under_budget": 0.85},
+            tags={
+                "hokusai.primary_metric": "workflow:success_rate_under_budget",
+                "hokusai.dataset.num_samples": "500",
+                "hokusai.dataset.hash": "sha256:" + "c" * 64,
+                "hokusai.model_id": "model-c",
+            },
+            params={},
+        ),
+    )
+    client = _FakeMlflowClient({"run-ns": run})
+    evaluator = DeltaOneEvaluator(mlflow_client=client)
+
+    hem = evaluator._extract_metrics_from_run(
+        "run-ns", expected_metric_name="workflow:success_rate_under_budget"
+    )
+
+    assert hem.metric_value == pytest.approx(0.85)
+    assert hem.metric_name == "workflow:success_rate_under_budget"
+
+
+def test_extract_metrics_three_tier_fallback_literal() -> None:
+    """Tier-3: when the metric key is already the literal canonical name."""
+    run = SimpleNamespace(
+        info=SimpleNamespace(run_id="run-lit", start_time=1_700_000_000_000, experiment_id="1"),
+        data=SimpleNamespace(
+            metrics={"accuracy": 0.92},
+            tags={
+                "hokusai.primary_metric": "accuracy",
+                "hokusai.dataset.num_samples": "500",
+                "hokusai.dataset.hash": "sha256:" + "d" * 64,
+                "hokusai.model_id": "model-d",
+            },
+            params={},
+        ),
+    )
+    client = _FakeMlflowClient({"run-lit": run})
+    evaluator = DeltaOneEvaluator(mlflow_client=client)
+
+    hem = evaluator._extract_metrics_from_run("run-lit", expected_metric_name="accuracy")
+
+    assert hem.metric_value == pytest.approx(0.92)
+
+
+def test_extract_metrics_raises_with_helpful_message_when_all_tiers_miss() -> None:
+    """All three tiers miss → ValueError with tried keys listed."""
+    run = SimpleNamespace(
+        info=SimpleNamespace(run_id="run-miss", start_time=1_700_000_000_000, experiment_id="1"),
+        data=SimpleNamespace(
+            metrics={"completely_different_metric": 0.5},
+            tags={
+                "hokusai.dataset.num_samples": "500",
+                "hokusai.dataset.hash": "sha256:" + "e" * 64,
+                "hokusai.model_id": "model-e",
+            },
+            params={},
+        ),
+    )
+    client = _FakeMlflowClient({"run-miss": run})
+    evaluator = DeltaOneEvaluator(mlflow_client=client)
+
+    with pytest.raises(ValueError) as exc_info:
+        evaluator._extract_metrics_from_run(
+            "run-miss",
+            expected_metric_name="workflow:my_metric",
+            expected_mlflow_name="workflow_my_metric",
+        )
+    msg = str(exc_info.value)
+    assert "workflow:my_metric" in msg
+    assert "workflow_my_metric" in msg
+
+
+def test_evaluate_for_model_resolves_namespaced_metric() -> None:
+    """evaluate_for_model resolves metric when eval_spec carries mlflow_name."""
+    namespaced_mlflow_key = "workflow_success_rate_under_budget"
+    canonical_name = "workflow:success_rate_under_budget"
+    dataset_hash = "sha256:" + "f" * 64
+
+    run = SimpleNamespace(
+        info=SimpleNamespace(run_id="cand", start_time=1_700_000_000_000, experiment_id="1"),
+        data=SimpleNamespace(
+            metrics={namespaced_mlflow_key: 0.87},
+            tags={
+                "hokusai.primary_metric": canonical_name,
+                "hokusai.dataset.num_samples": "10000",
+                "hokusai.dataset.hash": dataset_hash,
+                "hokusai.model_id": "model-f",
+            },
+            params={},
+        ),
+    )
+    baseline_run = SimpleNamespace(
+        info=SimpleNamespace(run_id="base", start_time=1_700_000_000_000, experiment_id="1"),
+        data=SimpleNamespace(
+            metrics={namespaced_mlflow_key: 0.85},
+            tags={
+                "hokusai.primary_metric": canonical_name,
+                "hokusai.dataset.num_samples": "10000",
+                "hokusai.dataset.hash": dataset_hash,
+                "hokusai.model_id": "model-f",
+            },
+            params={},
+        ),
+    )
+    client = _FakeMlflowClient({"cand": run, "base": baseline_run})
+
+    class _Resolver:
+        def get_active_spec_for_model(self, _model_id: str) -> dict[str, object]:
+            return {
+                "spec_id": "spec-ns",
+                "dataset_version": dataset_hash,
+                "metric_name": canonical_name,
+                "tiebreak_rules": {"min_examples": 1000},
+                "input_schema": {},
+                "eval_spec": {
+                    "primary_metric": {
+                        "mlflow_name": namespaced_mlflow_key,
+                    }
+                },
+            }
+
+    evaluator = DeltaOneEvaluator(
+        mlflow_client=client,
+        cooldown_hours=0,
+        min_examples=800,
+        delta_threshold_pp=1.0,
+        benchmark_spec_resolver=_Resolver(),
+    )
+
+    decision = evaluator.evaluate_for_model("model-f", "cand", "base")
+    assert decision.accepted is True
+
+
 def test_evaluate_for_model_rejects_dataset_not_in_spec() -> None:
     runs = {
         "candidate": _make_run(
