@@ -22,6 +22,13 @@ RUN python -m spacy download en_core_web_sm
 COPY src/ ./src/
 COPY tests/ ./tests/
 
+# Alembic migration harness (run via scripts/run_migrations.sh as a one-shot
+# ECS task in the deploy pipeline; see .github/workflows/deploy.yml).
+COPY alembic.ini /app/alembic.ini
+COPY migrations/ /app/migrations/
+COPY scripts/run_migrations.sh /app/run_migrations.sh
+RUN chmod +x /app/run_migrations.sh
+
 # Entrypoint fetches MLflow mTLS client certs from Secrets Manager when
 # MLFLOW_MTLS_ENABLED=true, then execs the CMD.
 COPY scripts/api-entrypoint.sh /app/api-entrypoint.sh

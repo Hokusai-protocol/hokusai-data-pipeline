@@ -118,10 +118,96 @@ jobs:
         docker push $ECR_REGISTRY/$ECR_REPOSITORY_MLFLOW:latest
         echo "image=$ECR_REGISTRY/$ECR_REPOSITORY_MLFLOW:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
+  migrate:
+    name: Run DB Migrations
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      id-token: write
+      contents: read
+
+    env:
+      ECS_CLUSTER: hokusai-development
+      API_TASK_FAMILY: hokusai-api-development
+      ECS_SUBNET: subnet-08cb7663096ac0017
+      ECS_SECURITY_GROUP: sg-0864e6f6aee2a5cf4
+      LOG_GROUP: /ecs/hokusai-api-development
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Register migration task definition with new image
+      id: register-td
+      run: |
+        ECR_REGISTRY=$(aws ecr describe-repositories --repository-names $ECR_REPOSITORY_API --query 'repositories[0].repositoryUri' --output text | cut -d'/' -f1)
+        IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY_API:${{ github.sha }}"
+
+        # Take the live API task definition, swap the image to the new one,
+        # and register a new revision. The migration one-shot runs against
+        # this revision; we don't update the API service to it here.
+        TASK_DEF=$(aws ecs describe-task-definition --task-definition "$API_TASK_FAMILY" --query 'taskDefinition')
+        NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$IMAGE" '
+          .containerDefinitions[0].image = $IMAGE |
+          del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
+        ')
+        echo "$NEW_TASK_DEF" > /tmp/migrate-task-def.json
+        TD_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/migrate-task-def.json --query 'taskDefinition.taskDefinitionArn' --output text)
+        echo "task_definition_arn=$TD_ARN" >> "$GITHUB_OUTPUT"
+        echo "Registered migration task def: $TD_ARN"
+
+    - name: Run alembic upgrade head as one-shot ECS task
+      id: run-migrate
+      run: |
+        TD_ARN="${{ steps.register-td.outputs.task_definition_arn }}"
+        OVERRIDES=$(jq -n '{
+          containerOverrides: [{
+            name: "hokusai-api",
+            command: ["sh","-c","/app/run_migrations.sh"]
+          }]
+        }')
+        TASK_ARN=$(aws ecs run-task \
+          --cluster "$ECS_CLUSTER" \
+          --task-definition "$TD_ARN" \
+          --launch-type FARGATE \
+          --network-configuration "awsvpcConfiguration={subnets=[$ECS_SUBNET],securityGroups=[$ECS_SECURITY_GROUP],assignPublicIp=DISABLED}" \
+          --overrides "$OVERRIDES" \
+          --region "$AWS_REGION" \
+          --query 'tasks[0].taskArn' --output text)
+        TASK_ID="${TASK_ARN##*/}"
+        echo "task_id=$TASK_ID" >> "$GITHUB_OUTPUT"
+        echo "Migration task started: $TASK_ID"
+
+        aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$TASK_ID" --region "$AWS_REGION"
+
+        EXIT_CODE=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$TASK_ID" --region "$AWS_REGION" --query 'tasks[0].containers[0].exitCode' --output text)
+        echo "Migration exit code: $EXIT_CODE"
+
+        echo "::group::migration logs"
+        aws logs get-log-events \
+          --log-group-name "$LOG_GROUP" \
+          --log-stream-name "ecs/hokusai-api/$TASK_ID" \
+          --region "$AWS_REGION" \
+          --query 'events[*].message' --output text || true
+        echo "::endgroup::"
+
+        if [ "$EXIT_CODE" != "0" ]; then
+          echo "::error::alembic upgrade head failed with exit code $EXIT_CODE; aborting deploy."
+          exit 1
+        fi
+
   deploy:
     name: Deploy to Development
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, migrate]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     permissions:
