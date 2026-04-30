@@ -153,6 +153,46 @@ Even rows created before HOK-1500 (with no `eval_spec` stored) will return a syn
 `eval_spec` in `GET /api/v1/benchmarks/{spec_id}`. Consumers do not need special handling
 for the `null` case.
 
+## Metric Naming Contract (HOK-1502)
+
+### Canonical name vs. MLflow key
+
+Every metric has two identifiers:
+
+| Identifier | Allowed characters | Example |
+|------------|-------------------|---------|
+| **Canonical Hokusai name** (`name`) | Any valid string, including colons | `workflow:success_rate_under_budget` |
+| **MLflow key** (`mlflow_name`) | Letters, digits, `_`, `-`, `.`, `/`, space — **no colons** | `workflow_success_rate_under_budget` |
+
+### Normalization rule (v1)
+
+The only transformation is **colon → underscore**.  The single source of truth is
+`src/utils/metric_naming.py`.  Any change to the replacement logic there must be reflected
+in `MetricLogger` and verified against `DeltaOneEvaluator`.
+
+### Auto-derivation
+
+`MetricSpec.mlflow_name` and `GuardrailSpec.mlflow_name` are populated automatically by a
+Pydantic `model_validator` when the field is omitted or empty.  Clients may supply an
+explicit override only if it is already a valid MLflow key (colons cause `ValidationError`).
+
+### DeltaOne three-tier lookup
+
+When DeltaOne resolves the primary metric value from an MLflow run it tries three keys in
+order, stopping at the first hit:
+
+1. **`mlflow_name` from eval_spec** — `eval_spec.primary_metric.mlflow_name` (preferred).
+2. **Normalized canonical name** — `derive_mlflow_name(canonical_name)` (colon → underscore).
+3. **Literal canonical name** — the raw `metric_name` string from the spec.
+
+All three tiers being exhausted raises a `ValueError` listing every key tried.
+
+### Migration note
+
+Pre-existing eval_spec rows without `mlflow_name` continue to load correctly; the Pydantic
+validator computes it on read.  Pre-existing HEMs without `mlflow_name` in `primary_metric`
+resolve via tier-2 or tier-3 fallback.  No database backfill is required.
+
 ## Scope Boundaries
 
 This task covers:

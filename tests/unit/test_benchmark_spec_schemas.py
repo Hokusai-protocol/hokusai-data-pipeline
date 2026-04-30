@@ -295,6 +295,32 @@ class TestMetricSpec:
         with pytest.raises(ValidationError):
             MetricSpec(name="accuracy", direction="maximize")
 
+    def test_mlflow_name_auto_populated_from_name(self):
+        ms = MetricSpec(name="workflow:success_rate_under_budget", direction="higher_is_better")
+        assert ms.mlflow_name == "workflow_success_rate_under_budget"
+
+    def test_mlflow_name_safe_name_equals_name(self):
+        ms = MetricSpec(name="accuracy", direction="higher_is_better")
+        assert ms.mlflow_name == "accuracy"
+
+    def test_mlflow_name_explicit_override_accepted(self):
+        ms = MetricSpec(name="x", direction="higher_is_better", mlflow_name="custom_key")
+        assert ms.mlflow_name == "custom_key"
+
+    def test_mlflow_name_rejects_colon(self):
+        with pytest.raises(ValidationError) as exc_info:
+            MetricSpec(name="x", direction="higher_is_better", mlflow_name="bad:key")
+        assert "colon" in str(exc_info.value).lower() or ":" in str(exc_info.value)
+
+    def test_mlflow_name_empty_string_treated_as_omitted(self):
+        ms = MetricSpec(name="my:metric", direction="higher_is_better", mlflow_name="")
+        assert ms.mlflow_name == "my_metric"
+
+    def test_mlflow_name_included_in_model_dump(self):
+        ms = MetricSpec(name="workflow:sr", direction="higher_is_better")
+        dumped = ms.model_dump()
+        assert dumped["mlflow_name"] == "workflow_sr"
+
 
 class TestGuardrailSpec:
     def test_valid_guardrail(self):
@@ -310,6 +336,16 @@ class TestGuardrailSpec:
     def test_guardrail_missing_threshold_rejected(self):
         with pytest.raises(ValidationError):
             GuardrailSpec(name="latency", direction="lower_is_better")
+
+    def test_guardrail_mlflow_name_auto_populated(self):
+        g = GuardrailSpec(name="latency:p99", direction="lower_is_better", threshold=200.0)
+        assert g.mlflow_name == "latency_p99"
+
+    def test_guardrail_mlflow_name_rejects_colon(self):
+        with pytest.raises(ValidationError):
+            GuardrailSpec(
+                name="x", direction="lower_is_better", threshold=1.0, mlflow_name="bad:key"
+            )
 
 
 class TestEvalSpec:
@@ -373,3 +409,16 @@ class TestEvalSpec:
         )
         assert update.eval_spec is not None
         assert update.eval_spec.primary_metric.name == "f1"
+
+    def test_eval_spec_round_trip_carries_mlflow_name(self):
+        es = EvalSpec(
+            primary_metric={"name": "workflow:sr", "direction": "higher_is_better"},
+            secondary_metrics=[{"name": "a:b", "direction": "lower_is_better"}],
+            guardrails=[
+                {"name": "latency:p99", "direction": "lower_is_better", "threshold": 200.0}
+            ],
+        )
+        dumped = es.model_dump()
+        assert dumped["primary_metric"]["mlflow_name"] == "workflow_sr"
+        assert dumped["secondary_metrics"][0]["mlflow_name"] == "a_b"
+        assert dumped["guardrails"][0]["mlflow_name"] == "latency_p99"

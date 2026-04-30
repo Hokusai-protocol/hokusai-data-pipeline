@@ -8,7 +8,9 @@ from enum import Enum
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from src.utils.metric_naming import derive_mlflow_name
 
 
 class BenchmarkProvider(str, Enum):
@@ -26,21 +28,42 @@ class MetricDirection(str, Enum):
 
 
 class MetricSpec(BaseModel):
-    """Specification for a single evaluation metric."""
+    """Specification for a single evaluation metric.
+
+    ``mlflow_name`` is the exact key written to MLflow for this metric;
+    auto-derived from ``name`` when not supplied (colons replaced by
+    underscores).
+    """
 
     name: str
     direction: Literal["higher_is_better", "lower_is_better"]
     threshold: float | None = None
     unit: str | None = None
+    mlflow_name: str | None = None
+
+    @model_validator(mode="after")
+    def _populate_and_validate_mlflow_name(self: MetricSpec) -> MetricSpec:
+        self.mlflow_name = derive_mlflow_name(self.name, override=self.mlflow_name)
+        return self
 
 
 class GuardrailSpec(BaseModel):
-    """A hard constraint that blocks promotion if breached."""
+    """A hard constraint that blocks promotion if breached.
+
+    ``mlflow_name`` is the exact key written to MLflow for this guardrail;
+    auto-derived from ``name`` when not supplied.
+    """
 
     name: str
     direction: Literal["higher_is_better", "lower_is_better"]
     threshold: float
     blocking: bool = True
+    mlflow_name: str | None = None
+
+    @model_validator(mode="after")
+    def _populate_and_validate_mlflow_name(self: GuardrailSpec) -> GuardrailSpec:
+        self.mlflow_name = derive_mlflow_name(self.name, override=self.mlflow_name)
+        return self
 
 
 class EvalSpec(BaseModel):

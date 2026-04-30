@@ -91,6 +91,7 @@ HEM_V1_SCHEMA: dict[str, object] = {
                 "name": {"type": "string", "minLength": 1},
                 "value": {"type": "number"},
                 "higher_is_better": {"type": "boolean"},
+                "mlflow_name": {"type": "string", "minLength": 1},
             },
         }
     },
