@@ -135,7 +135,7 @@ def register(  # noqa: C901
 
             spec_metric = spec.get("metric_name")
             spec_baseline = spec.get("baseline_value")
-            if spec_baseline is None:
+            if spec_baseline is None and baseline is None:
                 raise click.ClickException(
                     f"Benchmark spec '{benchmark_spec_id}' has no baseline_value; "
                     "set one on the Hokusai site or pass --baseline explicitly."
@@ -146,14 +146,24 @@ def register(  # noqa: C901
                     f"Warning: --metric ({metric}) overrides spec metric ({spec_metric})",
                     err=True,
                 )
-            if baseline is not None and not _floats_equal(baseline, float(spec_baseline)):
+            if (
+                baseline is not None
+                and spec_baseline is not None
+                and not _floats_equal(baseline, float(spec_baseline))
+            ):
                 click.echo(
                     f"Warning: --baseline ({baseline}) overrides spec baseline ({spec_baseline})",
                     err=True,
                 )
 
             metric = metric if metric is not None else spec_metric
-            baseline = baseline if baseline is not None else float(spec_baseline)
+            baseline = (
+                baseline
+                if baseline is not None
+                else float(spec_baseline)
+                if spec_baseline is not None
+                else None
+            )
 
             click.echo(
                 f"Resolved benchmark spec {benchmark_spec_id}: "
