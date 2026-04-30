@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
+import numpy as np
+
+from src.evaluation import comparators as _comparators
 from src.evaluation.hem import HEM
 from src.evaluation.webhook_config import DELTAONE_EVENT_TYPE, load_deltaone_webhook_endpoints
 from src.evaluation.webhook_delivery import send_webhook_with_retry
@@ -397,16 +400,24 @@ class DeltaOneEvaluator:
             self._persist_decision(decision)
             return decision
 
+        metric_family = (spec.get("eval_spec") or {}).get("metric_family", "proportion")
+        treatment_arr = _hem_to_array(candidate, metric_family)
+        control_arr = _hem_to_array(baseline, metric_family)
+
+        comparator_result = _comparators.dispatch(
+            metric_family,
+            treatment_arr,
+            control_arr,
+            alpha=0.05,
+            min_effect=self.delta_threshold_pp / 100.0,
+        )
+
         delta_pp = _calculate_percentage_point_difference(
             baseline=baseline.metric_value,
             current=candidate.metric_value,
         )
-        significant, ci_low, ci_high = self._is_statistically_significant(
-            baseline_metric=baseline.metric_value,
-            current_metric=candidate.metric_value,
-            baseline_n=baseline.sample_size,
-            current_n=candidate.sample_size,
-        )
+        ci_low = comparator_result.ci_low if comparator_result.ci_low is not None else 0.0
+        ci_high = comparator_result.ci_high if comparator_result.ci_high is not None else 0.0
 
         if delta_pp < self.delta_threshold_pp:
             decision = self._build_decision(
@@ -421,7 +432,7 @@ class DeltaOneEvaluator:
             self._persist_decision(decision)
             return decision
 
-        if not significant:
+        if not comparator_result.passed:
             decision = self._build_decision(
                 accepted=False,
                 reason="not_statistically_significant",
@@ -805,6 +816,21 @@ def _get_metric_value(client: MlflowClientProtocol, version: Any, metric_name: s
 def _calculate_percentage_point_difference(baseline: float, current: float) -> float:
     """Calculate percentage-point difference from ratio metrics."""
     return (current - baseline) * 100.0
+
+
+def _hem_to_array(hem: HEM, metric_family: str = "proportion") -> np.ndarray:
+    """Reconstruct a per-observation array from HEM aggregate fields.
+
+    For proportion: binary 0/1 array of length n.
+    For other families: constant array of length n (v1 limitation — real
+    per-observation data would require loading MLflow artifacts).
+    """
+    n = hem.sample_size
+    if metric_family == "proportion":
+        successes = round(hem.metric_value * n)
+        successes = max(0, min(successes, n))
+        return np.array([1] * successes + [0] * (n - successes), dtype=np.float64)
+    return np.full(n, hem.metric_value, dtype=np.float64)
 
 
 def _normalize_dataset_hash(dataset_version: str) -> str:
