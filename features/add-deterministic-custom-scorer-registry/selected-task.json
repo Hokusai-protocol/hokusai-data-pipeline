@@ -1,0 +1,13 @@
+{
+  "taskId": "HOK-1503",
+  "title": "Add deterministic custom scorer registry",
+  "description": "Add deterministic custom scorer registry\n\nCreate a registry for deterministic business outcome scorers.\n\nScope:\n\n* Add `src/evaluation/scorers/`.\n* Define scorer metadata: scorer_ref, source hash, input schema, output metric keys, metric_family, deterministic aggregation semantics.\n* Keep boundary clear: scorers are deterministic outcome aggregations; `src/evaluation/judges/` remains LLM-as-judge diagnostics/reward-model support.\n* Add resolver used by adapters and spec translation.\n\nAcceptance criteria:\n\n* Registry can resolve a scorer by stable ref.\n* Source hash is available for HEM provenance.\n* Tests cover missing/unknown scorer refs.",
+  "labels": [
+    "Area: Evaluation",
+    "Feature: Custom Evals"
+  ],
+  "workflowType": "feature",
+  "featureName": "add-deterministic-custom-scorer-registry",
+  "contextPath": "features/add-deterministic-custom-scorer-registry/selected-task.json",
+  "selectedAt": "2026-04-30T19:55:36Z"
+}
