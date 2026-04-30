@@ -6,14 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-
-class MetricFamily(str, Enum):
-    """High-level category for the metric a scorer produces."""
-
-    OUTCOME = "OUTCOME"
-    QUALITY = "QUALITY"
-    COST = "COST"
-    LATENCY = "LATENCY"
+from src.evaluation.schema import MetricFamily
 
 
 class Aggregation(str, Enum):

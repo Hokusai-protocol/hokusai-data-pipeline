@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from src.evaluation.schema import MetricFamily as SchemaMetricFamily
 from src.evaluation.scorers import (
     Aggregation,
     MetricFamily,
@@ -230,8 +231,8 @@ def test_builtin_metric_keys_are_mlflow_safe():
 
 
 def test_builtin_metric_families_are_valid():
-    """Verify every built-in scorer's metric_family is a valid MetricFamily enum value."""
-    valid_families = set(MetricFamily)
+    """Verify every built-in scorer's metric_family is a valid value from schema.py."""
+    valid_families = set(SchemaMetricFamily)
     for meta in list_scorers():
         assert meta.metric_family in valid_families, (
             f"Scorer {meta.scorer_ref!r} has invalid metric_family {meta.metric_family!r}; "

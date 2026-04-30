@@ -2,6 +2,18 @@
 
 from __future__ import annotations
 
+from enum import Enum
+
+
+class MetricFamily(str, Enum):
+    """High-level category for the metric a scorer produces."""
+
+    OUTCOME = "OUTCOME"
+    QUALITY = "QUALITY"
+    COST = "COST"
+    LATENCY = "LATENCY"
+
+
 HEM_V1_SCHEMA: dict[str, object] = {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Hokusai Evaluation Manifest v1",
