@@ -150,3 +150,73 @@ def test_register_spec_without_baseline_value_defaults_to_none() -> None:
     )
 
     assert created["baseline_value"] is None
+
+
+def test_register_spec_with_eval_spec_in_memory() -> None:
+    service = BenchmarkSpecService()
+    eval_spec = {
+        "primary_metric": {"name": "accuracy", "direction": "higher_is_better"},
+        "secondary_metrics": [],
+        "guardrails": [],
+        "min_examples": 500,
+    }
+
+    created = service.register_spec(
+        model_id="model-eval-spec",
+        dataset_id="kaggle/mmlu",
+        dataset_version="sha256:" + "h" * 64,
+        eval_split="test",
+        metric_name="accuracy",
+        metric_direction="higher_is_better",
+        input_schema={},
+        output_schema={},
+        eval_spec=eval_spec,
+    )
+
+    assert created["eval_spec"] == eval_spec
+
+    listed = service.list_specs(model_id="model-eval-spec")
+    assert len(listed) == 1
+    assert listed[0]["eval_spec"] == eval_spec
+
+
+def test_register_spec_without_eval_spec_returns_none() -> None:
+    service = BenchmarkSpecService()
+
+    created = service.register_spec(
+        model_id="model-no-eval-spec",
+        dataset_id="kaggle/mmlu",
+        dataset_version="sha256:" + "i" * 64,
+        eval_split="test",
+        metric_name="accuracy",
+        metric_direction="higher_is_better",
+        input_schema={},
+        output_schema={},
+    )
+
+    assert created["eval_spec"] is None
+
+
+def test_update_spec_fields_passes_eval_spec_through() -> None:
+    service = BenchmarkSpecService()
+    eval_spec = {
+        "primary_metric": {"name": "f1", "direction": "higher_is_better"},
+        "secondary_metrics": [],
+        "guardrails": [],
+    }
+
+    created = service.register_spec(
+        model_id="model-update-eval-spec",
+        dataset_id="kaggle/mmlu",
+        dataset_version="sha256:" + "j" * 64,
+        eval_split="test",
+        metric_name="accuracy",
+        metric_direction="higher_is_better",
+        input_schema={},
+        output_schema={},
+    )
+    assert created["eval_spec"] is None
+
+    updated = service.update_spec_fields(created["spec_id"], {"eval_spec": eval_spec})
+    assert updated is not None
+    assert updated["eval_spec"] == eval_spec

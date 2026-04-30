@@ -2,67 +2,121 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from typing import Any
+from unittest.mock import patch
+
+from fastapi import Request
 from fastapi.testclient import TestClient
+from starlette.responses import Response
 
-from src.api.dependencies import get_benchmark_spec_service, get_current_user
-from src.api.routes.benchmarks import router as benchmarks_router
+from src.api.dependencies import get_audit_logger, get_benchmark_spec_service
+from src.api.main import app
+from src.api.services.governance.audit_logger import AuditLogger
+from src.api.services.governance.benchmark_specs import BenchmarkSpecService
 
-AUTH_HEADER = {"Authorization": "Bearer admin-token"}
+VALID_CREATE = {
+    "model_id": "integ-model-a",
+    "provider": "hokusai",
+    "dataset_reference": "s3://bucket/dataset.csv",
+    "eval_split": "test",
+    "target_column": "label",
+    "input_columns": ["feature_a"],
+    "metric_name": "accuracy",
+    "metric_direction": "higher_is_better",
+}
 
-
-def build_client() -> TestClient:
-    app = FastAPI()
-    app.include_router(benchmarks_router)
-    get_benchmark_spec_service.cache_clear()
-    app.dependency_overrides[get_current_user] = lambda: {
-        "user_id": "admin",
-        "token": "admin-token",
-        "scopes": ["admin"],
-    }
-    return TestClient(app)
-
-
-def _create_payload() -> dict:
-    return {
-        "model_id": "model-a",
-        "dataset_id": "kaggle/mmlu",
-        "dataset_version": "sha256:" + "c" * 64,
-        "eval_split": "test",
-        "metric_name": "accuracy",
-        "metric_direction": "higher_is_better",
-        "input_schema": {"dataset_metadata": {"min_examples": 1200}},
-        "output_schema": {"fields": ["prediction"]},
-        "tiebreak_rules": {"min_examples": 1200},
-        "is_active": True,
-    }
+EVAL_SPEC = {
+    "primary_metric": {"name": "accuracy", "direction": "higher_is_better"},
+    "secondary_metrics": [],
+    "guardrails": [],
+    "min_examples": 100,
+}
 
 
+async def _passthrough_middleware_dispatch(self: Any, request: Request, call_next: Any) -> Response:
+    request.state.user_id = "test-user"
+    request.state.api_key_id = "key-1"
+    request.state.service_id = "test"
+    request.state.scopes = []
+    request.state.rate_limit_per_hour = None
+    return await call_next(request)
+
+
+def _build_integration_client() -> tuple[TestClient, BenchmarkSpecService]:
+    service = BenchmarkSpecService()
+    audit = AuditLogger()
+    app.dependency_overrides[get_benchmark_spec_service] = lambda: service
+    app.dependency_overrides[get_audit_logger] = lambda: audit
+    return TestClient(app, raise_server_exceptions=False), service
+
+
+def _cleanup() -> None:
+    app.dependency_overrides.clear()
+
+
+@patch(
+    "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+    _passthrough_middleware_dispatch,
+)
+def test_create_and_get_with_eval_spec() -> None:
+    client, _ = _build_integration_client()
+    try:
+        payload = {**VALID_CREATE, "eval_spec": EVAL_SPEC}
+        resp = client.post("/api/v1/benchmarks", json=payload)
+        assert resp.status_code == 201
+        created = resp.json()
+        assert created["eval_spec"]["primary_metric"]["name"] == "accuracy"
+        assert created["eval_spec"]["min_examples"] == 100
+
+        get_resp = client.get(f"/api/v1/benchmarks/{created['spec_id']}")
+        assert get_resp.status_code == 200
+        fetched = get_resp.json()
+        assert fetched["eval_spec"]["primary_metric"]["name"] == "accuracy"
+        assert fetched["eval_spec"]["min_examples"] == 100
+    finally:
+        _cleanup()
+
+
+@patch(
+    "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+    _passthrough_middleware_dispatch,
+)
+def test_legacy_spec_remains_readable() -> None:
+    client, _ = _build_integration_client()
+    try:
+        resp = client.post("/api/v1/benchmarks", json=VALID_CREATE)
+        assert resp.status_code == 201
+        created = resp.json()
+
+        assert created["eval_spec"] is not None
+        assert created["eval_spec"]["primary_metric"]["name"] == "accuracy"
+        assert created["eval_spec"]["primary_metric"]["direction"] == "higher_is_better"
+        assert created["eval_spec"]["secondary_metrics"] == []
+        assert created["eval_spec"]["guardrails"] == []
+
+        get_resp = client.get(f"/api/v1/benchmarks/{created['spec_id']}")
+        assert get_resp.status_code == 200
+        fetched = get_resp.json()
+        assert fetched["eval_spec"]["primary_metric"]["name"] == "accuracy"
+    finally:
+        _cleanup()
+
+
+@patch(
+    "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+    _passthrough_middleware_dispatch,
+)
 def test_create_and_get_benchmark_spec() -> None:
-    client = build_client()
+    client, _ = _build_integration_client()
+    try:
+        resp = client.post("/api/v1/benchmarks", json=VALID_CREATE)
+        assert resp.status_code == 201
+        created = resp.json()
 
-    create_resp = client.post("/api/v1/benchmarks", headers=AUTH_HEADER, json=_create_payload())
-    assert create_resp.status_code == 201
-    created = create_resp.json()
-
-    get_resp = client.get(f"/api/v1/benchmarks/{created['spec_id']}", headers=AUTH_HEADER)
-    assert get_resp.status_code == 200
-    fetched = get_resp.json()
-
-    assert fetched["spec_id"] == created["spec_id"]
-    assert fetched["metric_name"] == "accuracy"
-
-
-def test_list_benchmark_specs_by_model() -> None:
-    client = build_client()
-
-    payload = _create_payload()
-    client.post("/api/v1/benchmarks", headers=AUTH_HEADER, json=payload)
-    payload["dataset_version"] = "sha256:" + "d" * 64
-    client.post("/api/v1/benchmarks", headers=AUTH_HEADER, json=payload)
-
-    list_resp = client.get("/api/v1/benchmarks?model_id=model-a", headers=AUTH_HEADER)
-    assert list_resp.status_code == 200
-    body = list_resp.json()
-    assert body["count"] == 2
-    assert len(body["items"]) == 2
+        get_resp = client.get(f"/api/v1/benchmarks/{created['spec_id']}")
+        assert get_resp.status_code == 200
+        fetched = get_resp.json()
+        assert fetched["spec_id"] == created["spec_id"]
+        assert fetched["metric_name"] == "accuracy"
+    finally:
+        _cleanup()

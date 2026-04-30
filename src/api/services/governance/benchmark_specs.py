@@ -99,6 +99,7 @@ class BenchmarkSpecService:
         tiebreak_rules: dict[str, Any] | None = None,
         eval_container_digest: str | None = None,
         baseline_value: float | None = None,
+        eval_spec: dict[str, Any] | None = None,
         is_active: bool = True,
     ) -> dict[str, Any]:
         """Create an immutable benchmark spec record."""
@@ -125,6 +126,7 @@ class BenchmarkSpecService:
                     tiebreak_rules=tiebreak_rules,
                     input_schema=input_schema,
                     output_schema=output_schema,
+                    eval_spec=eval_spec,
                     eval_container_digest=eval_container_digest,
                     baseline_value=baseline_value,
                     created_at=now,
@@ -152,6 +154,7 @@ class BenchmarkSpecService:
             "tiebreak_rules": tiebreak_rules,
             "input_schema": input_schema,
             "output_schema": output_schema,
+            "eval_spec": eval_spec,
             "eval_container_digest": eval_container_digest,
             "baseline_value": baseline_value,
             "created_at": now.isoformat(),
@@ -430,6 +433,7 @@ class BenchmarkSpecService:
             "tiebreak_rules": row.tiebreak_rules,
             "input_schema": row.input_schema,
             "output_schema": row.output_schema,
+            "eval_spec": row.eval_spec,
             "eval_container_digest": row.eval_container_digest,
             "baseline_value": row.baseline_value,
             "created_at": row.created_at.isoformat(),

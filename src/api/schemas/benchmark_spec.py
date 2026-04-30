@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -25,6 +25,37 @@ class MetricDirection(str, Enum):
     lower_is_better = "lower_is_better"
 
 
+class MetricSpec(BaseModel):
+    """Specification for a single evaluation metric."""
+
+    name: str
+    direction: Literal["higher_is_better", "lower_is_better"]
+    threshold: float | None = None
+    unit: str | None = None
+
+
+class GuardrailSpec(BaseModel):
+    """A hard constraint that blocks promotion if breached."""
+
+    name: str
+    direction: Literal["higher_is_better", "lower_is_better"]
+    threshold: float
+    blocking: bool = True
+
+
+class EvalSpec(BaseModel):
+    """Custom outcome evaluation contract attached to a benchmark spec."""
+
+    measurement_policy: dict[str, Any] | None = None
+    primary_metric: MetricSpec
+    secondary_metrics: list[MetricSpec] = []
+    guardrails: list[GuardrailSpec] = []
+    unit_of_analysis: str | None = None
+    min_examples: int | None = Field(default=None, ge=1)
+    label_policy: dict[str, Any] | None = None
+    coverage_policy: dict[str, Any] | None = None
+
+
 class BenchmarkSpecCreate(BaseModel):
     """Request body for creating a new benchmark spec."""
 
@@ -41,6 +72,7 @@ class BenchmarkSpecCreate(BaseModel):
     dataset_version: str | None = None
     metadata: dict[str, Any] | None = None
     baseline_value: float | None = None
+    eval_spec: EvalSpec | None = None
 
     @field_validator("baseline_value")
     @classmethod
@@ -64,6 +96,7 @@ class BenchmarkSpecUpdate(BaseModel):
     dataset_version: str | None = None
     metadata: dict[str, Any] | None = None
     baseline_value: float | None = None
+    eval_spec: EvalSpec | None = None
 
     @field_validator("baseline_value")
     @classmethod
@@ -90,6 +123,7 @@ class BenchmarkSpecResponse(BaseModel):
     dataset_version: str | None = None
     metadata: dict[str, Any] | None = None
     baseline_value: float | None = None
+    eval_spec: EvalSpec | None = None
     created_at: datetime
     updated_at: datetime | None = None
     is_active: bool

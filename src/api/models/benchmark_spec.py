@@ -38,6 +38,7 @@ class BenchmarkSpec(Base):
     tiebreak_rules: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     input_schema: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     output_schema: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    eval_spec: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     baseline_value: Mapped[float | None] = mapped_column(Float, nullable=True)
     eval_container_digest: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
