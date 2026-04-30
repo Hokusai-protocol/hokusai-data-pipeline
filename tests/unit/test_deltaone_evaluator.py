@@ -313,5 +313,66 @@ class TestDeltaOneWebhook(unittest.TestCase):
         self.assertEqual(args[4], 3)
 
 
+class TestPersistDecisionHemLogging(unittest.TestCase):
+    """Tests for best-effort HEM logging in _persist_decision."""
+
+    def _make_decision(self) -> object:
+        from datetime import datetime, timezone
+
+        from src.evaluation.deltaone_evaluator import DeltaOneDecision
+
+        return DeltaOneDecision(
+            accepted=True,
+            reason="accepted",
+            run_id="run-candidate",
+            baseline_run_id="run-baseline",
+            model_id="model-x",
+            dataset_hash="sha256:abc",
+            metric_name="accuracy",
+            delta_percentage_points=1.5,
+            ci95_low_percentage_points=0.2,
+            ci95_high_percentage_points=2.8,
+            n_current=1000,
+            n_baseline=1000,
+            evaluated_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        )
+
+    def _make_evaluator(self) -> object:
+        from src.evaluation.deltaone_evaluator import DeltaOneEvaluator
+
+        mock_client = Mock()
+        mock_run = Mock()
+        mock_run.data.tags = {}
+        mock_client.get_run.return_value = mock_run
+        mock_client.set_tag = Mock()
+        return DeltaOneEvaluator(mlflow_client=mock_client, cooldown_hours=0)
+
+    @patch("src.evaluation.manifest.log_hem_to_mlflow")
+    @patch("src.evaluation.manifest.create_hem_from_mlflow_run")
+    def test_persist_decision_logs_hem_artifact(self, mock_create, mock_log):
+        """HEM logging is called with the candidate run_id."""
+        fake_hem = Mock()
+        mock_create.return_value = fake_hem
+
+        evaluator = self._make_evaluator()
+        decision = self._make_decision()
+        evaluator._persist_decision(decision)
+
+        mock_create.assert_called_once_with("run-candidate")
+        mock_log.assert_called_once_with(fake_hem, run_id="run-candidate")
+
+    @patch("src.evaluation.manifest.log_hem_to_mlflow", side_effect=RuntimeError("mlflow down"))
+    @patch("src.evaluation.manifest.create_hem_from_mlflow_run")
+    def test_persist_decision_continues_when_hem_logging_fails(self, mock_create, mock_log):
+        """A HEM logging failure does not propagate out of _persist_decision."""
+        mock_create.side_effect = RuntimeError("cannot connect to mlflow")
+
+        evaluator = self._make_evaluator()
+        decision = self._make_decision()
+
+        # Should not raise
+        evaluator._persist_decision(decision)
+
+
 if __name__ == "__main__":
     unittest.main()

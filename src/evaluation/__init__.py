@@ -29,6 +29,7 @@ __all__ = [
     "HokusaiEvaluationManifest",
     "create_hem_from_mlflow_run",
     "log_hem_to_mlflow",
+    "hash_scorer_source",
     "validate_manifest",
 ]
 
@@ -63,6 +64,7 @@ _MODULE_MAP: dict[str, tuple[str, str]] = {
     "HokusaiEvaluationManifest": ("src.evaluation.manifest", "HokusaiEvaluationManifest"),
     "create_hem_from_mlflow_run": ("src.evaluation.manifest", "create_hem_from_mlflow_run"),
     "log_hem_to_mlflow": ("src.evaluation.manifest", "log_hem_to_mlflow"),
+    "hash_scorer_source": ("src.evaluation.manifest", "hash_scorer_source"),
     "validate_manifest": ("src.evaluation.validation", "validate_manifest"),
 }
 

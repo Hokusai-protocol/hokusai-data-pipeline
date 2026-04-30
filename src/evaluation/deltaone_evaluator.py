@@ -647,6 +647,14 @@ class DeltaOneEvaluator:
             contributor_id=contributor_tags.get("hokusai.deltaone.contributor_id"),
         )
 
+        try:
+            from src.evaluation.manifest import create_hem_from_mlflow_run, log_hem_to_mlflow
+
+            hem = create_hem_from_mlflow_run(decision.run_id)
+            log_hem_to_mlflow(hem, run_id=decision.run_id)
+        except Exception:
+            logger.warning("event=hem_manifest_log_failed run_id=%s", decision.run_id)
+
     def _create_default_mlflow_client(self: DeltaOneEvaluator) -> MlflowClientProtocol:
         if MlflowClient is not None:
             return MlflowClient()

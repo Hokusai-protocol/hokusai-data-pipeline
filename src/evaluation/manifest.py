@@ -13,6 +13,20 @@ from src.utils.metric_naming import derive_mlflow_name
 
 HEM_SCHEMA_VERSION = "hokusai.eval.manifest/v1"
 
+# Fields in to_dict that are omitted when None (nullable) or falsy/empty (nonempty).
+_NULLABLE_FIELDS = (
+    "mlflow_dataset_id",
+    "uncertainty",
+    "artifacts",
+    "provenance",
+    "measurement_policy",
+    "eval_spec_version",
+    "input_dataset_hash",
+    "label_snapshot_hash",
+    "coverage",
+)
+_NONEMPTY_FIELDS = ("scorer_refs", "scorer_source_hashes", "guardrail_results")
+
 
 @dataclass
 class HokusaiEvaluationManifest:
@@ -32,6 +46,14 @@ class HokusaiEvaluationManifest:
     uncertainty: dict[str, Any] | None = None
     artifacts: list[dict[str, Any]] | None = None
     provenance: dict[str, Any] | None = None
+    scorer_refs: list[dict[str, Any]] = field(default_factory=list)
+    scorer_source_hashes: dict[str, str] = field(default_factory=dict)
+    measurement_policy: dict[str, Any] | None = None
+    guardrail_results: list[dict[str, Any]] = field(default_factory=list)
+    eval_spec_version: str | None = None
+    input_dataset_hash: str | None = None
+    label_snapshot_hash: str | None = None
+    coverage: dict[str, Any] | None = None
 
     def to_dict(self: HokusaiEvaluationManifest) -> dict[str, Any]:
         """Serialize the manifest to a JSON-serializable dictionary."""
@@ -45,14 +67,10 @@ class HokusaiEvaluationManifest:
             "created_at": self.created_at,
             "mlflow_run_id": self.mlflow_run_id,
         }
-        if self.mlflow_dataset_id is not None:
-            result["mlflow_dataset_id"] = self.mlflow_dataset_id
-        if self.uncertainty is not None:
-            result["uncertainty"] = self.uncertainty
-        if self.artifacts is not None:
-            result["artifacts"] = self.artifacts
-        if self.provenance is not None:
-            result["provenance"] = self.provenance
+        result.update(
+            {f: getattr(self, f) for f in _NULLABLE_FIELDS if getattr(self, f) is not None}
+        )
+        result.update({f: getattr(self, f) for f in _NONEMPTY_FIELDS if getattr(self, f)})
         return result
 
     @classmethod
@@ -77,6 +95,14 @@ class HokusaiEvaluationManifest:
             uncertainty=data.get("uncertainty"),
             artifacts=data.get("artifacts"),
             provenance=data.get("provenance"),
+            scorer_refs=data.get("scorer_refs", []),
+            scorer_source_hashes=data.get("scorer_source_hashes", {}),
+            measurement_policy=data.get("measurement_policy"),
+            guardrail_results=data.get("guardrail_results", []),
+            eval_spec_version=data.get("eval_spec_version"),
+            input_dataset_hash=data.get("input_dataset_hash"),
+            label_snapshot_hash=data.get("label_snapshot_hash"),
+            coverage=data.get("coverage"),
         )
 
     def compute_hash(self: HokusaiEvaluationManifest) -> str:
@@ -217,12 +243,21 @@ def create_hem_from_mlflow_run(
         mlflow_run_id=run.info.run_id,
         mlflow_dataset_id=tags.get("hokusai.mlflow_dataset_id") or tags.get("mlflow.dataset_id"),
         provenance=clean_provenance,
+        eval_spec_version=tags.get("hokusai.eval_spec_version"),
+        input_dataset_hash=tags.get("hokusai.input_dataset_hash"),
+        label_snapshot_hash=tags.get("hokusai.label_snapshot_hash"),
     )
     errors = validate_manifest(manifest.to_dict())
     if errors:
         joined = "; ".join(errors)
         raise ValueError(f"Created manifest is invalid: {joined}")
     return manifest
+
+
+def hash_scorer_source(source: str) -> str:
+    """SHA-256 of canonical scorer source: strip + LF-normalize + UTF-8."""
+    canonical = source.strip().replace("\r\n", "\n").replace("\r", "\n")
+    return sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def log_hem_to_mlflow(manifest: HokusaiEvaluationManifest, run_id: str | None = None) -> None:

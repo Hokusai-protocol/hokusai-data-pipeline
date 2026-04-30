@@ -81,6 +81,58 @@ HEM_V1_SCHEMA: dict[str, object] = {
                 "parameters": {"type": "object"},
             },
         },
+        "scorer_refs": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["name"],
+                "properties": {
+                    "name": {"type": "string", "minLength": 1},
+                    "version": {"type": "string"},
+                    "kind": {"type": "string", "enum": ["custom", "builtin", "external"]},
+                    "uri": {"type": "string"},
+                },
+            },
+        },
+        "scorer_source_hashes": {
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        },
+        "measurement_policy": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "aggregation": {"type": "string"},
+                "thresholds": {"type": "object"},
+                "sampling": {"type": "object"},
+            },
+        },
+        "guardrail_results": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["name", "status"],
+                "properties": {
+                    "name": {"type": "string", "minLength": 1},
+                    "status": {"type": "string", "enum": ["pass", "fail", "skipped"]},
+                    "details": {"type": "object"},
+                },
+            },
+        },
+        "eval_spec_version": {"type": "string", "minLength": 1},
+        "input_dataset_hash": {"type": "string", "minLength": 1},
+        "label_snapshot_hash": {"type": "string", "minLength": 1},
+        "coverage": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "row_count": {"type": "integer"},
+                "label_coverage": {"type": "number"},
+                "notes": {"type": "string"},
+            },
+        },
     },
     "definitions": {
         "metric": {

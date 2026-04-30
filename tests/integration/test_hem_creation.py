@@ -109,3 +109,21 @@ def test_safe_primary_metric_name_has_equal_name_and_mlflow_name(
     assert manifest.primary_metric["name"] == "accuracy"
     assert manifest.primary_metric["mlflow_name"] == "accuracy"
     assert manifest.primary_metric["value"] == 0.95
+
+
+def test_create_hem_from_mlflow_run_with_provenance_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Provenance tags are extracted and surfaced in the resulting manifest."""
+    run = _fake_run()
+    run.data.tags["hokusai.eval_spec_version"] = "v2"
+    run.data.tags["hokusai.input_dataset_hash"] = "sha256:inputhash"
+    run.data.tags["hokusai.label_snapshot_hash"] = "sha256:labelshash"
+    fake_mlflow = SimpleNamespace(get_run=lambda _run_id: run)
+    monkeypatch.setitem(sys.modules, "mlflow", fake_mlflow)
+
+    manifest = create_hem_from_mlflow_run("run-123")
+
+    assert manifest.eval_spec_version == "v2"
+    assert manifest.input_dataset_hash == "sha256:inputhash"
+    assert manifest.label_snapshot_hash == "sha256:labelshash"
