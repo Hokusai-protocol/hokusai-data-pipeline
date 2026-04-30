@@ -14,7 +14,10 @@ from src.api.schemas.benchmark_spec import (
     BenchmarkSpecListResponse,
     BenchmarkSpecResponse,
     BenchmarkSpecUpdate,
+    EvalSpec,
+    GuardrailSpec,
     MetricDirection,
+    MetricSpec,
 )
 
 
@@ -243,7 +246,10 @@ class TestSchemaExports:
             BenchmarkSpecListResponse,
             BenchmarkSpecResponse,
             BenchmarkSpecUpdate,
+            EvalSpec,
+            GuardrailSpec,
             MetricDirection,
+            MetricSpec,
         )
 
         assert BenchmarkProvider is not None
@@ -252,3 +258,118 @@ class TestSchemaExports:
         assert BenchmarkSpecResponse is not None
         assert BenchmarkSpecUpdate is not None
         assert MetricDirection is not None
+        assert EvalSpec is not None
+        assert MetricSpec is not None
+        assert GuardrailSpec is not None
+
+
+# --- EvalSpec schemas ---
+
+
+def _full_eval_spec_payload() -> dict:
+    return {
+        "primary_metric": {"name": "accuracy", "direction": "higher_is_better"},
+        "secondary_metrics": [{"name": "f1", "direction": "higher_is_better", "unit": "macro"}],
+        "guardrails": [{"name": "latency_p99", "direction": "lower_is_better", "threshold": 200.0}],
+        "measurement_policy": {"window": "7d"},
+        "unit_of_analysis": "row",
+        "min_examples": 100,
+        "label_policy": {"strategy": "majority_vote"},
+        "coverage_policy": {"min_coverage": 0.95},
+    }
+
+
+class TestMetricSpec:
+    def test_valid_metric_spec(self):
+        ms = MetricSpec(name="accuracy", direction="higher_is_better")
+        assert ms.name == "accuracy"
+        assert ms.threshold is None
+        assert ms.unit is None
+
+    def test_metric_spec_with_optional_fields(self):
+        ms = MetricSpec(name="rmse", direction="lower_is_better", threshold=0.1, unit="mse")
+        assert ms.threshold == 0.1
+        assert ms.unit == "mse"
+
+    def test_metric_spec_invalid_direction(self):
+        with pytest.raises(ValidationError):
+            MetricSpec(name="accuracy", direction="maximize")
+
+
+class TestGuardrailSpec:
+    def test_valid_guardrail(self):
+        g = GuardrailSpec(name="latency", direction="lower_is_better", threshold=500.0)
+        assert g.blocking is True
+
+    def test_guardrail_non_blocking(self):
+        g = GuardrailSpec(
+            name="latency", direction="lower_is_better", threshold=500.0, blocking=False
+        )
+        assert g.blocking is False
+
+    def test_guardrail_missing_threshold_rejected(self):
+        with pytest.raises(ValidationError):
+            GuardrailSpec(name="latency", direction="lower_is_better")
+
+
+class TestEvalSpec:
+    def test_eval_spec_optional_on_create(self):
+        spec = BenchmarkSpecCreate(**_valid_create_payload())
+        assert spec.eval_spec is None
+
+    def test_eval_spec_full_payload(self):
+        payload = {**_valid_create_payload(), "eval_spec": _full_eval_spec_payload()}
+        spec = BenchmarkSpecCreate(**payload)
+        assert spec.eval_spec is not None
+        assert spec.eval_spec.primary_metric.name == "accuracy"
+        assert len(spec.eval_spec.secondary_metrics) == 1
+        assert len(spec.eval_spec.guardrails) == 1
+        assert spec.eval_spec.unit_of_analysis == "row"
+        assert spec.eval_spec.min_examples == 100
+
+    def test_eval_spec_requires_primary_metric_when_provided(self):
+        with pytest.raises(ValidationError):
+            EvalSpec(secondary_metrics=[])
+
+    def test_eval_spec_min_examples_must_be_positive(self):
+        with pytest.raises(ValidationError):
+            EvalSpec(
+                primary_metric={"name": "accuracy", "direction": "higher_is_better"},
+                min_examples=0,
+            )
+
+    def test_eval_spec_metric_direction_invalid_rejected(self):
+        with pytest.raises(ValidationError):
+            EvalSpec(
+                primary_metric={"name": "accuracy", "direction": "bad_direction"},
+            )
+
+    def test_eval_spec_response_round_trip(self):
+        uid = str(uuid4())
+        eval_spec_dict = {
+            "primary_metric": {"name": "accuracy", "direction": "higher_is_better"},
+            "secondary_metrics": [],
+            "guardrails": [],
+        }
+        payload = {
+            **_valid_response_payload(),
+            "spec_id": uid,
+            "eval_spec": eval_spec_dict,
+        }
+        resp = BenchmarkSpecResponse(**payload)
+        assert resp.eval_spec is not None
+        assert resp.eval_spec.primary_metric.name == "accuracy"
+
+    def test_eval_spec_none_on_response(self):
+        payload = _valid_response_payload()
+        resp = BenchmarkSpecResponse(**payload)
+        assert resp.eval_spec is None
+
+    def test_eval_spec_on_update_schema(self):
+        update = BenchmarkSpecUpdate(
+            eval_spec={
+                "primary_metric": {"name": "f1", "direction": "higher_is_better"},
+            }
+        )
+        assert update.eval_spec is not None
+        assert update.eval_spec.primary_metric.name == "f1"

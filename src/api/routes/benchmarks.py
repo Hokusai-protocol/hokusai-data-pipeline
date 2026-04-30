@@ -59,16 +59,35 @@ def _schema_to_model_fields(data: dict[str, Any]) -> dict[str, Any]:
         "metric_direction",
         "dataset_version",
         "baseline_value",
+        "eval_spec",
     ]:
         if field in data and data[field] is not None:
             mapped[field] = data[field]
     return mapped
 
 
+def _synthesize_legacy_eval_spec(data: dict[str, Any]) -> dict[str, Any]:
+    """Build a minimal eval spec from legacy scalar fields when eval_spec is absent."""
+    tiebreak_rules = data.get("tiebreak_rules") or {}
+    return {
+        "primary_metric": {
+            "name": data.get("metric_name", ""),
+            "direction": data.get("metric_direction", "higher_is_better"),
+            "threshold": data.get("baseline_value"),
+        },
+        "secondary_metrics": [],
+        "guardrails": [],
+        "min_examples": tiebreak_rules.get("min_examples"),
+    }
+
+
 def _model_to_response(data: dict[str, Any]) -> dict[str, Any]:
     """Map service dict (model field names) to response schema field names."""
     input_schema = data.get("input_schema") or {}
     output_schema = data.get("output_schema") or {}
+    eval_spec = data.get("eval_spec") or None
+    if eval_spec is None:
+        eval_spec = _synthesize_legacy_eval_spec(data)
     return {
         "spec_id": data["spec_id"],
         "model_id": data["model_id"],
@@ -82,6 +101,7 @@ def _model_to_response(data: dict[str, Any]) -> dict[str, Any]:
         "dataset_version": data.get("dataset_version"),
         "metadata": data.get("tiebreak_rules"),
         "baseline_value": data.get("baseline_value"),
+        "eval_spec": eval_spec,
         "created_at": data.get("created_at"),
         "updated_at": None,
         "is_active": data.get("is_active", True),

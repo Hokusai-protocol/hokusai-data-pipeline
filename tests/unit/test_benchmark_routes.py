@@ -33,8 +33,16 @@ SAMPLE_SPEC = {
     "output_schema": {"target_column": "label"},
     "eval_container_digest": None,
     "baseline_value": None,
+    "eval_spec": None,
     "created_at": "2024-01-01T00:00:00+00:00",
     "is_active": True,
+}
+
+EVAL_SPEC_PAYLOAD = {
+    "primary_metric": {"name": "accuracy", "direction": "higher_is_better"},
+    "secondary_metrics": [],
+    "guardrails": [],
+    "min_examples": 200,
 }
 
 CREATE_PAYLOAD = {
@@ -358,6 +366,100 @@ class TestBaselineValue:
                 metric_direction="higher_is_better",
                 baseline_value=math.inf,
             )
+
+
+class TestEvalSpecRoutes:
+    @patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+        _passthrough_middleware_dispatch,
+    )
+    def test_create_with_eval_spec_round_trip(self) -> None:
+        spec_with_eval = {**SAMPLE_SPEC, "eval_spec": EVAL_SPEC_PAYLOAD}
+        client, svc, _ = _make_authed_client()
+        try:
+            svc.register_spec.return_value = spec_with_eval
+            payload = {**CREATE_PAYLOAD, "eval_spec": EVAL_SPEC_PAYLOAD}
+            resp = client.post("/api/v1/benchmarks", json=payload)
+            assert resp.status_code == 201
+            body = resp.json()
+            assert body["eval_spec"]["primary_metric"]["name"] == "accuracy"
+            assert body["eval_spec"]["min_examples"] == 200
+        finally:
+            _cleanup_overrides()
+
+    @patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+        _passthrough_middleware_dispatch,
+    )
+    def test_create_without_eval_spec_synthesizes_legacy_response(self) -> None:
+        client, svc, _ = _make_authed_client()
+        try:
+            svc.register_spec.return_value = SAMPLE_SPEC
+            resp = client.post("/api/v1/benchmarks", json=CREATE_PAYLOAD)
+            assert resp.status_code == 201
+            body = resp.json()
+            assert body["eval_spec"] is not None
+            assert body["eval_spec"]["primary_metric"]["name"] == "accuracy"
+            assert body["eval_spec"]["secondary_metrics"] == []
+            assert body["eval_spec"]["guardrails"] == []
+        finally:
+            _cleanup_overrides()
+
+    @patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+        _passthrough_middleware_dispatch,
+    )
+    def test_legacy_row_get_synthesizes_eval_spec(self) -> None:
+        client, svc, _ = _make_authed_client()
+        try:
+            svc.get_spec.return_value = SAMPLE_SPEC
+            resp = client.get(f"/api/v1/benchmarks/{SAMPLE_SPEC['spec_id']}")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["eval_spec"] is not None
+            assert body["eval_spec"]["primary_metric"]["name"] == "accuracy"
+            assert body["eval_spec"]["primary_metric"]["direction"] == "higher_is_better"
+            assert body["eval_spec"]["primary_metric"]["threshold"] is None
+        finally:
+            _cleanup_overrides()
+
+    @patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+        _passthrough_middleware_dispatch,
+    )
+    def test_update_eval_spec_passes_through(self) -> None:
+        updated = {**SAMPLE_SPEC, "eval_spec": EVAL_SPEC_PAYLOAD}
+        client, svc, _ = _make_authed_client()
+        try:
+            svc.update_spec_fields.return_value = updated
+            resp = client.put(
+                f"/api/v1/benchmarks/{SAMPLE_SPEC['spec_id']}",
+                json={"eval_spec": EVAL_SPEC_PAYLOAD},
+            )
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["eval_spec"]["primary_metric"]["name"] == "accuracy"
+            call_kwargs = svc.update_spec_fields.call_args
+            changes = call_kwargs[0][1] if call_kwargs[0] else call_kwargs[1].get("changes", {})
+            assert "eval_spec" in changes
+        finally:
+            _cleanup_overrides()
+
+    @patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+        _passthrough_middleware_dispatch,
+    )
+    def test_legacy_row_with_baseline_synthesizes_threshold(self) -> None:
+        spec_with_baseline = {**SAMPLE_SPEC, "baseline_value": 0.75}
+        client, svc, _ = _make_authed_client()
+        try:
+            svc.get_spec.return_value = spec_with_baseline
+            resp = client.get(f"/api/v1/benchmarks/{SAMPLE_SPEC['spec_id']}")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["eval_spec"]["primary_metric"]["threshold"] == 0.75
+        finally:
+            _cleanup_overrides()
 
 
 class TestAuthEnforcement:

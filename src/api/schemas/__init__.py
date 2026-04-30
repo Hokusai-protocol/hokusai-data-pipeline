@@ -6,7 +6,10 @@ from .benchmark_spec import (
     BenchmarkSpecListResponse,
     BenchmarkSpecResponse,
     BenchmarkSpecUpdate,
+    EvalSpec,
+    GuardrailSpec,
     MetricDirection,
+    MetricSpec,
 )
 from .evaluation_schedule import (
     EvaluationScheduleCreate,
@@ -30,7 +33,10 @@ __all__ = [
     "BenchmarkSpecListResponse",
     "BenchmarkSpecResponse",
     "BenchmarkSpecUpdate",
+    "EvalSpec",
+    "GuardrailSpec",
     "MetricDirection",
+    "MetricSpec",
     "TokenMintRequest",
     "TokenMintResult",
     "InferenceLogCreate",
