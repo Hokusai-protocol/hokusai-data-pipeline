@@ -9,8 +9,8 @@ import mlflow
 
 # Add parent directory to path to import database modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from database import DatabaseConfig, DatabaseConnection, TokenOperations
-from errors import (
+from database import DatabaseConfig, DatabaseConnection, TokenOperations  # noqa: E402
+from errors import (  # noqa: E402
     DatabaseConnectionError,
     ErrorHandler,
     MetricValidationError,
@@ -18,8 +18,14 @@ from errors import (
     TokenNotFoundError,
     configure_logging,
 )
-from events import ConsoleHandler, EventPublisher, WebhookHandler
-from validation import BaselineComparator, MetricValidator
+from events import ConsoleHandler, EventPublisher, WebhookHandler  # noqa: E402
+from validation import BaselineComparator, MetricValidator  # noqa: E402
+
+from ._api import BenchmarkSpecLookupError, fetch_benchmark_spec  # noqa: E402
+
+
+def _floats_equal(a: float, b: float, *, tol: float = 1e-9) -> bool:
+    return abs(a - b) <= tol
 
 
 @click.group()
@@ -36,9 +42,26 @@ def model() -> None:
     type=click.Path(exists=True),
     help="Path to model checkpoint/artifacts",
 )
-@click.option("--metric", required=True, help="Performance metric name (e.g., auroc, accuracy, f1)")
 @click.option(
-    "--baseline", required=True, type=float, help="Baseline performance value to validate against"
+    "--metric",
+    default=None,
+    help="Performance metric name (e.g., auroc, accuracy, f1). Optional with --benchmark-spec-id.",
+)
+@click.option(
+    "--baseline",
+    default=None,
+    type=float,
+    help="Baseline performance value to validate against. Optional with --benchmark-spec-id.",
+)
+@click.option(
+    "--benchmark-spec-id",
+    default=None,
+    help="BenchmarkSpec ID from the Hokusai site (e.g., bs-abc123). Derives metric/baseline.",
+)
+@click.option(
+    "--api-url",
+    default=None,
+    help="Hokusai API URL (defaults to HOKUSAI_API_URL env var or http://localhost:8001)",
 )
 @click.option(
     "--mlflow-uri", default=None, help="MLflow tracking URI (defaults to environment variable)"
@@ -50,23 +73,32 @@ def model() -> None:
     help="Path to database configuration file",
 )
 @click.option("--webhook-url", default=None, help="Webhook URL for event notifications")
-def register(
+def register(  # noqa: C901
     token_id: str,
     model_path: str,
-    metric: str,
-    baseline: float,
+    metric: Optional[str],
+    baseline: Optional[float],
+    benchmark_spec_id: Optional[str],
+    api_url: Optional[str],
     mlflow_uri: Optional[str],
     db_config: Optional[str],
     webhook_url: Optional[str],
 ) -> None:
-    """Register a model created on the Hokusai site.
+    r"""Register a model created on the Hokusai site.
 
     This command uploads a model to MLflow, validates its performance against
     a baseline, and updates the model status in the database.
 
-    Example:
-    -------
-        hokusai model register --token-id XRAY --model-path ./checkpoints/final \\
+    You can supply benchmark metadata explicitly or derive it from a BenchmarkSpec.
+
+    Example (using a BenchmarkSpec)::
+
+        hokusai model register --token-id XRAY --benchmark-spec-id bs-abc123 \
+            --model-path ./checkpoints/final
+
+    Example (explicit metric and baseline)::
+
+        hokusai model register --token-id XRAY --model-path ./checkpoints/final \
             --metric auroc --baseline 0.82
 
     """
@@ -76,6 +108,62 @@ def register(
 
     try:
         click.echo(f"Registering model for token: {token_id}")
+
+        # Step 0: Resolve metric/baseline from BenchmarkSpec when provided
+        if benchmark_spec_id:
+            try:
+                spec = fetch_benchmark_spec(
+                    benchmark_spec_id,
+                    api_url=api_url,
+                    api_key=os.getenv("HOKUSAI_API_KEY"),
+                )
+            except BenchmarkSpecLookupError as e:
+                raise click.ClickException(str(e)) from e
+
+            if not spec.get("is_active", False):
+                raise click.ClickException(
+                    f"Benchmark spec '{benchmark_spec_id}' is inactive; "
+                    "activate it on the Hokusai site."
+                )
+
+            spec_model_id = str(spec.get("model_id", ""))
+            if spec_model_id.lower() != token_id.lower():
+                raise click.ClickException(
+                    f"Benchmark spec '{benchmark_spec_id}' is bound to model '{spec_model_id}', "
+                    f"not '{token_id}'."
+                )
+
+            spec_metric = spec.get("metric_name")
+            spec_baseline = spec.get("baseline_value")
+            if spec_baseline is None:
+                raise click.ClickException(
+                    f"Benchmark spec '{benchmark_spec_id}' has no baseline_value; "
+                    "set one on the Hokusai site or pass --baseline explicitly."
+                )
+
+            if metric is not None and metric != spec_metric:
+                click.echo(
+                    f"Warning: --metric ({metric}) overrides spec metric ({spec_metric})",
+                    err=True,
+                )
+            if baseline is not None and not _floats_equal(baseline, float(spec_baseline)):
+                click.echo(
+                    f"Warning: --baseline ({baseline}) overrides spec baseline ({spec_baseline})",
+                    err=True,
+                )
+
+            metric = metric if metric is not None else spec_metric
+            baseline = baseline if baseline is not None else float(spec_baseline)
+
+            click.echo(
+                f"Resolved benchmark spec {benchmark_spec_id}: "
+                f"metric={metric}, baseline={baseline}, model_id={spec_model_id}"
+            )
+        else:
+            if metric is None or baseline is None:
+                raise click.ClickException(
+                    "--metric and --baseline are required unless --benchmark-spec-id is provided."
+                )
 
         # Step 1: Validate inputs
         validator = MetricValidator()
@@ -89,6 +177,7 @@ def register(
             )
 
         # Step 2: Initialize MLflow
+        # MLflow auth: set MLFLOW_TRACKING_TOKEN env var to configure Authorization headers.
         if mlflow_uri:
             mlflow.set_tracking_uri(mlflow_uri)
         elif os.getenv("MLFLOW_TRACKING_URI"):
@@ -125,7 +214,11 @@ def register(
         click.echo(f"Uploading model from {model_path} to MLflow...")
         try:
             mlflow_run_id = _upload_model_to_mlflow(
-                token_id=token_id, model_path=model_path, metric=metric, baseline=baseline
+                token_id=token_id,
+                model_path=model_path,
+                metric=metric,
+                baseline=baseline,
+                benchmark_spec_id=benchmark_spec_id,
             )
             click.echo(f"Model uploaded successfully. MLflow run ID: {mlflow_run_id}")
         except Exception as e:
@@ -144,14 +237,14 @@ def register(
 
         if not validation_result["meets_baseline"]:
             raise click.ClickException(
-                f"Model performance ({actual_metric_value:.4f}) does not meet baseline requirement ({baseline:.4f})"
+                f"Model performance ({actual_metric_value:.4f}) does not meet baseline requirement ({baseline:.4f})"  # noqa: E501
             )
 
         click.echo("✓ Model performance validation:")
         click.echo(f"   Current: {actual_metric_value:.4f}")
         click.echo(f"   Baseline: {baseline:.4f}")
         click.echo(
-            f"   Improvement: {validation_result['improvement']:.4f} ({validation_result['improvement_percentage']:.2f}%)"
+            f"   Improvement: {validation_result['improvement']:.4f} ({validation_result['improvement_percentage']:.2f}%)"  # noqa: E501
         )
 
         # Step 6: Update model status in database
@@ -214,6 +307,7 @@ def register(
                 "model_path": model_path,
                 "metric": metric,
                 "baseline": baseline,
+                "benchmark_spec_id": benchmark_spec_id,
             },
             raise_error=False,
         )
@@ -234,7 +328,13 @@ def register(
         ) from e
 
 
-def _upload_model_to_mlflow(token_id: str, model_path: str, metric: str, baseline: float) -> str:
+def _upload_model_to_mlflow(
+    token_id: str,
+    model_path: str,
+    metric: str,
+    baseline: float,
+    benchmark_spec_id: Optional[str] = None,
+) -> str:
     """Upload model to MLflow and return the run ID."""
     with mlflow.start_run() as run:
         # Log model
@@ -244,23 +344,30 @@ def _upload_model_to_mlflow(token_id: str, model_path: str, metric: str, baselin
         mlflow.log_param("token_id", token_id)
         mlflow.log_param("metric_name", metric)
         mlflow.log_param("baseline_value", baseline)
+        if benchmark_spec_id:
+            mlflow.log_param("benchmark_spec_id", benchmark_spec_id)
 
         # Log tags
         mlflow.set_tag("hokusai_token_id", token_id)
         mlflow.set_tag("model_status", "registering")
         mlflow.set_tag("benchmark_metric", metric)
         mlflow.set_tag("benchmark_value", str(baseline))
+        if benchmark_spec_id:
+            mlflow.set_tag("benchmark_spec_id", benchmark_spec_id)
 
         # Register model in MLflow model registry
         model_name = f"hokusai-{token_id}"
+        registry_tags = {
+            "hokusai_token_id": token_id,
+            "benchmark_metric": metric,
+            "benchmark_value": str(baseline),
+        }
+        if benchmark_spec_id:
+            registry_tags["benchmark_spec_id"] = benchmark_spec_id
         mlflow.register_model(
             f"runs:/{run.info.run_id}/model",
             model_name,
-            tags={
-                "hokusai_token_id": token_id,
-                "benchmark_metric": metric,
-                "benchmark_value": str(baseline),
-            },
+            tags=registry_tags,
         )
 
         return run.info.run_id
@@ -291,7 +398,7 @@ def status(token_id: str, db_config: Optional[str]) -> None:
 
 
 @model.command()
-def list() -> None:
+def list() -> None:  # noqa: A001
     """List all registered models."""
     try:
         # TODO: Query MLflow model registry

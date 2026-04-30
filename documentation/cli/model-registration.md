@@ -33,9 +33,32 @@ pip install -e ./hokusai-ml-platform
 
 ## Basic Usage
 
-### Register a Model
+### Register a Model Using a BenchmarkSpec (Recommended)
 
-The primary command for model registration is:
+If you have created a BenchmarkSpec on the Hokusai site you can supply its ID and the CLI will automatically derive the metric name and baseline value:
+
+```bash
+hokusai model register \
+  --token-id XRAY \
+  --model-path ./checkpoints/final_model.pkl \
+  --benchmark-spec-id bs-abc123
+```
+
+The CLI will:
+1. Fetch the spec from the Hokusai API using `HOKUSAI_API_KEY`
+2. Validate that the spec is active and bound to the given token
+3. Derive `metric` and `baseline` from the spec
+4. Print a "Resolved benchmark spec …" line so you can confirm the values used
+
+You can override individual spec values with explicit `--metric` or `--baseline` flags. When the explicit value differs from the spec the CLI logs a warning:
+
+```
+Warning: --metric (auroc) overrides spec metric (accuracy)
+```
+
+### Register a Model Explicitly (Legacy)
+
+You can still supply metric and baseline directly:
 
 ```bash
 hokusai model register \
@@ -58,11 +81,22 @@ This command will:
 |--------|----------|-------------|---------|
 | `--token-id` | Yes | Token ID created on Hokusai site | `XRAY` |
 | `--model-path` | Yes | Path to model file/directory | `./model.pkl` |
-| `--metric` | Yes | Performance metric name | `auroc`, `accuracy`, `f1` |
-| `--baseline` | Yes | Baseline performance requirement | `0.82` |
+| `--benchmark-spec-id` | No | BenchmarkSpec ID — derives metric & baseline automatically | `bs-abc123` |
+| `--metric` | No* | Performance metric name | `auroc`, `accuracy`, `f1` |
+| `--baseline` | No* | Baseline performance requirement | `0.82` |
+| `--api-url` | No | Hokusai API URL (defaults to `HOKUSAI_API_URL` or `http://localhost:8001`) | `https://api.hokus.ai` |
 | `--mlflow-uri` | No | MLflow tracking server URI | `http://localhost:5000` |
 | `--db-config` | No | Path to database config file (for local dev) | `./db_config.json` |
 | `--webhook-url` | No | Webhook URL for events | `https://api.example.com/webhook` |
+
+*Required when `--benchmark-spec-id` is not provided.
+
+#### BenchmarkSpec validation rules
+
+- The spec must be **active** (`is_active=true` on the Hokusai site). Inactive specs are rejected with a clear error.
+- The spec's `model_id` must match `--token-id` (case-insensitive). A mismatch produces a clear error naming both IDs.
+- If the spec has no `baseline_value`, you must supply `--baseline` explicitly.
+- The `benchmark_spec_id` is recorded as an MLflow tag on both the run and the registered model version, making registration provenance queryable.
 
 ## Supported Metrics
 
@@ -213,7 +247,18 @@ The CLI provides detailed error messages for common issues:
 
 ## Examples
 
-### Basic Registration
+### Using a BenchmarkSpec
+
+```bash
+export HOKUSAI_API_KEY="your-api-key-here"
+
+hokusai model register \
+  --token-id CHEST-XRAY-V2 \
+  --model-path ./models/chest_xray_classifier.h5 \
+  --benchmark-spec-id bs-abc123
+```
+
+### Basic Registration (Explicit Metric)
 
 ```bash
 hokusai model register \
