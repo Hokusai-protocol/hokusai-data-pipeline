@@ -1,0 +1,10 @@
+{
+  "taskId": "HOK-1470",
+  "title": "Send api_schema in the model registration webhook to hokusai-site",
+  "description": "Coordination follow-up to HOK-1465 (hokusai-site).\n\nAfter HOK-1465 ships in hokusai-site, the model registration webhook handler at `POST /api/webhooks/model-registration` accepts an optional `model.api_schema` field and persists it to the new `Model.api_schema` column. Until the data pipeline starts emitting that field, the webhook ingestion path is dormant and only the manual `POST /api/models/create` route populates the column.\n\n## Scope\n\n* Update the MLflow webhook publisher in this repo to derive a `ModelApiSpec`-shaped object from the registered model's MLflow signature (`mlflow.models.signature`) when available, and include it as `model.api_schema` in the webhook payload sent to `hokusai-site`.\n* The site expects:\n  * `api_schema.inputSchema` — JSON Schema object (`type: 'object'`, `properties`, `required`).\n  * `api_schema.outputSchema` — JSON Schema object.\n  * Optional: `endpoint`, `method`, `exampleInput`, `exampleOutput`, `errorCodes` (the site fills sensible defaults if omitted).\n* Keep the field optional — payloads without it must still succeed (preserves backward compat with the existing webhook contract).\n\n## Blocked by\n\n* HOK-1465 in hokusai-site (the receiving end).\n\n## Acceptance\n\n* Registering a new model through the data pipeline triggers a webhook whose payload includes `model.api_schema` derived from the MLflow signature.\n* The site's API integration tab for that model renders the correct input fields without manual schema entry.",
+  "labels": [],
+  "workflowType": "feature",
+  "featureName": "send-api-schema-in-the-model-registration-webhook-to-hokusai-site",
+  "contextPath": "features/send-api-schema-in-the-model-registration-webhook-to-hokusai-site/selected-task.json",
+  "selectedAt": "2026-04-30T16:46:45Z"
+}

@@ -7,6 +7,11 @@ import pytest
 from src.events.publishers.base import PublisherException
 from src.services.model_registry_hooks import ModelRegistryHooks, get_registry_hooks
 
+_SAMPLE_API_SCHEMA = {
+    "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}}},
+    "outputSchema": {"type": "object", "properties": {"y": {"type": "number"}}},
+}
+
 
 class TestModelRegistryHooks:
     """Test cases for ModelRegistryHooks."""
@@ -65,6 +70,7 @@ class TestModelRegistryHooks:
             contributor_address="0x1234567890123456789012345678901234567890",
             experiment_name="test_experiment",
             tags={"tag1": "value1"},
+            api_schema=None,
         )
 
         # Verify validation was performed
@@ -230,3 +236,76 @@ class TestModelRegistryHooks:
         assert (
             mock_publisher.publish_model_ready.call_args.kwargs["proposal_identifier"] == "HOK-ABC"
         )
+
+    def test_api_schema_derived_from_model_uri(self, mock_publisher, mock_validator):
+        """When model_uri is set and api_schema is None, derive_api_schema_from_uri is called."""
+        hooks = ModelRegistryHooks()
+
+        with patch(
+            "src.services.model_registry_hooks.derive_api_schema_from_uri",
+            return_value=_SAMPLE_API_SCHEMA,
+        ) as mock_derive:
+            result = hooks.on_model_registered_with_baseline(
+                model_id="model-123",
+                model_name="test_model",
+                model_version="1",
+                mlflow_run_id="run123",
+                token_id="test-token",
+                metric_name="accuracy",
+                baseline_value=0.8,
+                current_value=0.85,
+                model_uri="models:/test_model/1",
+            )
+
+        assert result is True
+        mock_derive.assert_called_once_with("models:/test_model/1")
+        assert (
+            mock_publisher.publish_model_ready.call_args.kwargs["api_schema"] == _SAMPLE_API_SCHEMA
+        )
+
+    def test_api_schema_none_when_derive_fails(self, mock_publisher, mock_validator):
+        """When derive_api_schema_from_uri returns None the hook still succeeds."""
+        hooks = ModelRegistryHooks()
+
+        with patch(
+            "src.services.model_registry_hooks.derive_api_schema_from_uri",
+            return_value=None,
+        ):
+            result = hooks.on_model_registered_with_baseline(
+                model_id="model-123",
+                model_name="test_model",
+                model_version="1",
+                mlflow_run_id="run123",
+                token_id="test-token",
+                metric_name="accuracy",
+                baseline_value=0.8,
+                current_value=0.85,
+                model_uri="models:/test_model/1",
+            )
+
+        assert result is True
+        assert mock_publisher.publish_model_ready.call_args.kwargs["api_schema"] is None
+
+    def test_explicit_api_schema_takes_precedence_over_uri(self, mock_publisher, mock_validator):
+        """An explicit api_schema kwarg overrides URI-based derivation."""
+        hooks = ModelRegistryHooks()
+
+        explicit_schema = {"inputSchema": {"type": "object", "properties": {}}}
+
+        with patch("src.services.model_registry_hooks.derive_api_schema_from_uri") as mock_derive:
+            result = hooks.on_model_registered_with_baseline(
+                model_id="model-123",
+                model_name="test_model",
+                model_version="1",
+                mlflow_run_id="run123",
+                token_id="test-token",
+                metric_name="accuracy",
+                baseline_value=0.8,
+                current_value=0.85,
+                model_uri="models:/test_model/1",
+                api_schema=explicit_schema,
+            )
+
+        assert result is True
+        mock_derive.assert_not_called()
+        assert mock_publisher.publish_model_ready.call_args.kwargs["api_schema"] == explicit_schema

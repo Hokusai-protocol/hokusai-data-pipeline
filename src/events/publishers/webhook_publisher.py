@@ -10,7 +10,6 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
-from uuid import UUID
 
 import httpx
 
@@ -228,61 +227,60 @@ class WebhookPublisher(AbstractPublisher):
     def _create_webhook_payload(self, message: ModelReadyToDeployMessage) -> Dict[str, Any]:
         """Create webhook payload from ModelReadyToDeployMessage.
 
+        Sends the original MLflow event format so the site's original-format
+        Zod parser runs (the SDK parser is skipped because token_id is absent
+        at the top level). This is the only format that surfaces model.api_schema
+        to the site's registration handler.
+
         Args:
         ----
             message: The message to convert
 
         Returns:
         -------
-            Dictionary containing webhook payload
+            Dictionary containing the webhook payload plus _idempotency_key
+            (internal field, stripped from the JSON body in _send_webhook).
 
         """
-        # Generate deterministic idempotency key based on message content
-        content_for_key = f"{message.model_id}:{message.token_symbol}:{message.mlflow_run_id}:{message.model_version}"
+        # Deterministic idempotency key for retry tracing (sent as header only)
+        content_for_key = (
+            f"{message.model_id}:{message.token_symbol}:"
+            f"{message.mlflow_run_id}:{message.model_version}"
+        )
         idempotency_key = str(uuid.uuid5(uuid.NAMESPACE_DNS, content_for_key))
 
-        # Build payload in the SDK format accepted by the Hokusai site webhook
-        # (validateWebhookPayload in hokusai-site/packages/web/src/lib/webhook-utils.ts).
-        # The site requires event_type; without it the payload fails schema validation.
-        payload = {
-            "event_type": "model_registered",
-            "model_id": message.model_id,
-            "idempotency_key": idempotency_key,
+        # Build model sub-dict; omit None-valued optional fields
+        model_dict: Dict[str, Any] = {
+            "id": message.token_symbol.lower(),
+            "name": message.model_name,
             "status": message.status,
-            "token_id": message.token_symbol,
-            "token_identifier": message.token_symbol,
-            "proposal_identifier": message.proposal_identifier,
-            "model_name": message.model_name,
-            "model_version": message.model_version,
             "version": message.model_version,
-            "metric_name": message.metric_name,
-            "baseline_value": message.baseline_value,
-            "current_value": message.current_value,
-            "mlflow_run_id": message.mlflow_run_id,
-            "registered_version": message.model_version,
-            "timestamp": message.timestamp.isoformat(),
-            "token_symbol": message.token_symbol,
-            "baseline_metrics": {message.metric_name: message.baseline_value},
-            "metadata": {
-                "model_name": message.model_name,
-                "model_version": message.model_version,
-                "mlflow_run_id": message.mlflow_run_id,
-                "metric_name": message.metric_name,
-                "baseline_value": message.baseline_value,
-                "current_value": message.current_value,
-                "status": message.status,
-                "proposal_identifier": message.proposal_identifier,
-                "improvement_percentage": message.improvement_percentage,
-                "contributor_address": message.contributor_address,
-                "experiment_name": message.experiment_name,
-                "tags": message.tags,
-            },
+        }
+        if message.mlflow_run_id is not None:
+            model_dict["run_id"] = message.mlflow_run_id
+
+        # Extract user_id from tags if present
+        tags = message.tags or {}
+        user_id = tags.get("user_id") or tags.get("fulfilled_by_user_id")
+        if user_id:
+            model_dict["user_id"] = user_id
+
+        if message.api_schema is not None:
+            model_dict["api_schema"] = message.api_schema
+
+        payload: Dict[str, Any] = {
+            "event_type": "model_registered",
+            "model": model_dict,
+            "timestamp": message.timestamp.isoformat() + "Z",
+            "source": "mlflow",
+            # Internal key: used for X-Hokusai-Idempotency-Key header, not in JSON body
+            "_idempotency_key": idempotency_key,
         }
 
         return payload
 
     def _validate_payload(self, payload: Dict[str, Any]) -> bool:
-        """Validate webhook payload structure.
+        """Validate webhook payload structure (original MLflow event format).
 
         Args:
         ----
@@ -297,38 +295,24 @@ class WebhookPublisher(AbstractPublisher):
             ValueError: If payload is invalid
 
         """
-        required_fields = [
-            "model_id",
-            "idempotency_key",
-            "status",
-            "token_id",
-            "proposal_identifier",
-            "model_name",
-            "version",
-            "metric_name",
-            "baseline_value",
-            "registered_version",
-            "timestamp",
-            "token_symbol",
-            "baseline_metrics",
-            "metadata",
-        ]
-
-        for field in required_fields:
+        for field in ("event_type", "model", "timestamp", "source"):
             if field not in payload:
                 raise ValueError(f"Missing required field: {field}")
 
-        # Validate timestamp format
-        try:
-            datetime.fromisoformat(payload["timestamp"])
-        except ValueError:
-            raise ValueError("Invalid timestamp format")
+        model = payload["model"]
+        if not isinstance(model, dict):
+            raise ValueError("model must be an object")
 
-        # Validate UUID format for idempotency key
+        for field in ("id", "name", "status"):
+            if field not in model:
+                raise ValueError(f"Missing required field: model.{field}")
+
+        # Validate timestamp format; strip trailing Z for Python < 3.11 compatibility
         try:
-            UUID(payload["idempotency_key"])
-        except ValueError:
-            raise ValueError("Invalid idempotency key format")
+            ts = payload["timestamp"]
+            datetime.fromisoformat(ts.rstrip("Z"))
+        except (ValueError, AttributeError):
+            raise ValueError("Invalid timestamp format")
 
         return True
 
@@ -431,16 +415,21 @@ class WebhookPublisher(AbstractPublisher):
             # Validate payload
             self._validate_payload(payload)
 
-            # Serialize payload
-            payload_json = json.dumps(payload, separators=(",", ":"))
+            # Extract idempotency key (header-only; not included in the JSON body)
+            idempotency_key = payload.get("_idempotency_key", "")
+
+            # Serialize payload, excluding internal underscore-prefixed fields
+            body_payload = {k: v for k, v in payload.items() if not k.startswith("_")}
+            payload_json = json.dumps(body_payload, separators=(",", ":"))
             payload_bytes = payload_json.encode("utf-8")
 
             # Generate signature
             signature = self._generate_signature(payload_bytes)
 
             # Build headers
-            headers = {"X-Hokusai-Idempotency-Key": payload["idempotency_key"]}
-
+            headers: Dict[str, str] = {}
+            if idempotency_key:
+                headers["X-Hokusai-Idempotency-Key"] = idempotency_key
             if signature:
                 headers["X-Hokusai-Signature"] = signature
 

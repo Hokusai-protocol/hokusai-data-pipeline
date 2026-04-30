@@ -1,8 +1,9 @@
 """Hooks for model registry events."""
 
 import logging
-from typing import Dict, Optional
+from typing import Any, Optional
 
+from ..events.api_schema import derive_api_schema_from_uri
 from ..events.publishers.base import PublisherException
 from ..events.publishers.factory import get_publisher
 from ..validation.metrics import MetricValidator
@@ -19,7 +20,7 @@ class ModelRegistryHooks:
         self.validator = MetricValidator()
 
     @staticmethod
-    def _resolve_proposal_identifier(token_id: str, tags: Optional[Dict[str, str]] = None) -> str:
+    def _resolve_proposal_identifier(token_id: str, tags: Optional[dict[str, str]] = None) -> str:
         """Resolve the canonical proposal identifier for webhook consumers."""
         if tags:
             for key in ("proposal_identifier", "proposal_ticker", "canonical_identifier", "ticker"):
@@ -38,9 +39,11 @@ class ModelRegistryHooks:
         metric_name: str,
         baseline_value: float,
         current_value: float,
-        tags: Optional[Dict[str, str]] = None,
+        tags: Optional[dict[str, str]] = None,
         contributor_address: Optional[str] = None,
         experiment_name: Optional[str] = None,
+        model_uri: Optional[str] = None,
+        api_schema: Optional[dict[str, Any]] = None,
     ) -> bool:
         """Hook called after a model is registered and passes baseline validation.
 
@@ -59,6 +62,8 @@ class ModelRegistryHooks:
             tags: Optional model tags
             contributor_address: Optional contributor Ethereum address
             experiment_name: Optional experiment name
+            model_uri: Optional MLflow model URI used to derive api_schema when api_schema is None
+            api_schema: Optional pre-computed api_schema dict; takes precedence over model_uri
 
         Returns:
         -------
@@ -66,6 +71,11 @@ class ModelRegistryHooks:
 
         """
         try:
+            # Derive api_schema from model_uri when not explicitly provided
+            resolved_api_schema = api_schema
+            if resolved_api_schema is None and model_uri:
+                resolved_api_schema = derive_api_schema_from_uri(model_uri)
+
             # Validate baseline and current values
             if not self.validator.validate_baseline(metric_name, baseline_value):
                 logger.error(f"Invalid baseline value for {metric_name}: {baseline_value}")
@@ -99,6 +109,7 @@ class ModelRegistryHooks:
                 contributor_address=contributor_address,
                 experiment_name=experiment_name,
                 tags=tags,
+                api_schema=resolved_api_schema,
             )
 
             if success:

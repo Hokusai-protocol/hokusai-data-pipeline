@@ -3,7 +3,7 @@
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 try:
     from src.utils.schema_validator import validate_json_schema
@@ -40,7 +40,8 @@ class ModelReadyToDeployMessage:
     improvement_percentage: Optional[float] = None
     contributor_address: Optional[str] = None
     experiment_name: Optional[str] = None
-    tags: Optional[Dict[str, str]] = None
+    tags: Optional[dict[str, str]] = None
+    api_schema: Optional[dict[str, Any]] = None
 
     # System fields (auto-populated)
     timestamp: Optional[datetime] = None
@@ -70,7 +71,7 @@ class ModelReadyToDeployMessage:
         if self.proposal_identifier is None:
             self.proposal_identifier = self.token_symbol
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         data = asdict(self)
         # Convert datetime to ISO format
@@ -83,7 +84,7 @@ class ModelReadyToDeployMessage:
         return json.dumps(self.to_dict())
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ModelReadyToDeployMessage":
+    def from_dict(cls, data: dict[str, Any]) -> "ModelReadyToDeployMessage":
         """Create instance from dictionary."""
         # Convert timestamp string back to datetime if present
         if isinstance(data.get("timestamp"), str):
@@ -127,6 +128,7 @@ class ModelReadyToDeployMessage:
                 },
                 "experiment_name": {"type": ["string", "null"]},
                 "tags": {"type": ["object", "null"], "additionalProperties": {"type": "string"}},
+                "api_schema": {"type": ["object", "null"]},
                 "timestamp": {"type": "string", "format": "date-time"},
                 "message_version": {"type": "string"},
             },
@@ -145,7 +147,7 @@ class MessageEnvelope:
 
     message_id: str
     message_type: str
-    payload: Dict[str, Any]
+    payload: dict[str, Any]
     timestamp: datetime
     retry_count: int = 0
     max_retries: int = 3
