@@ -1,8 +1,10 @@
 """MLflow proxy router to forward requests to MLflow server with improved routing."""
 
+import datetime
 import json
 import logging
 import os
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -19,6 +21,76 @@ MLFLOW_SERVER_URL = os.getenv(
 )  # Use service discovery DNS
 PROXY_TIMEOUT = 30.0  # seconds
 ENABLE_DEBUG_LOGGING = os.getenv("MLFLOW_PROXY_DEBUG", "false").lower() == "true"
+
+
+def _translate_path(path: str, mlflow_base_url: str) -> str:
+    """Translate incoming API path to the correct MLflow server path."""
+    if path.startswith("api/2.0/mlflow/") and "registry.hokus.ai" in mlflow_base_url:
+        return path.replace("api/2.0/mlflow/", "ajax-api/2.0/mlflow/")
+    if path.startswith("api/2.0/mlflow-artifacts/") and "registry.hokus.ai" in mlflow_base_url:
+        return path.replace("api/2.0/mlflow-artifacts/", "ajax-api/2.0/mlflow-artifacts/")
+    return path
+
+
+def _check_artifact_serving(path: str) -> None:
+    """Raise HTTPException 503 if artifact path is requested but serving is disabled."""
+    artifact_prefixes = ("api/2.0/mlflow-artifacts/", "ajax-api/2.0/mlflow-artifacts/")
+    if not path.startswith(artifact_prefixes):
+        return
+    logger.info(f"Proxying artifact request: {path}")
+    if os.getenv("MLFLOW_SERVE_ARTIFACTS", "true").lower() != "true":
+        logger.warning("Artifact storage is disabled by configuration")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "ARTIFACTS_DISABLED",
+                "message": (
+                    "Artifact storage is not configured. " "Please contact your administrator."
+                ),
+            },
+        )
+
+
+def _prepare_headers(request: Request) -> dict[str, str]:
+    """Build forwarding headers from the incoming request."""
+    headers = dict(request.headers)
+    if hasattr(request.state, "user_id"):
+        headers["X-Hokusai-User-Id"] = str(request.state.user_id)
+        headers["X-Hokusai-API-Key-Id"] = str(request.state.api_key_id)
+        logger.info(f"Adding user context: user_id={request.state.user_id}")
+    # CRITICAL: Authorization (Bearer / MLFLOW_TRACKING_TOKEN) and X-API-Key
+    # must be forwarded unchanged; only host/content-length are dropped.
+    headers.pop("host", None)
+    headers.pop("content-length", None)
+    return headers
+
+
+def _build_mlflow_response(response: httpx.Response, original_path: str) -> Response:
+    """Convert an httpx response from MLflow into a FastAPI Response."""
+    response_headers = dict(response.headers)
+    response_headers.pop("transfer-encoding", None)
+    response_headers.pop("content-encoding", None)
+
+    if response.status_code >= 400:
+        logger.warning(
+            f"MLflow error response: status={response.status_code}, "
+            f"path={original_path}, response_text={response.text[:500]}"
+        )
+        content_type = response.headers.get("Content-Type", "")
+        if "text/html" in content_type and response.status_code == 404:
+            json_error = {
+                "error_code": "RESOURCE_NOT_FOUND",
+                "message": f"The requested resource was not found: {original_path}",
+            }
+            return Response(
+                content=json.dumps(json_error),
+                status_code=404,
+                headers={"Content-Type": "application/json"},
+            )
+
+    return Response(
+        content=response.content, status_code=response.status_code, headers=response_headers
+    )
 
 
 async def proxy_request(
@@ -39,76 +111,26 @@ async def proxy_request(
     """
     original_path = path
 
-    # Enhanced logging for debugging
     if ENABLE_DEBUG_LOGGING:
         logger.debug(f"Incoming proxy request: method={request.method}, path={path}")
         logger.debug(f"MLflow base URL: {mlflow_base_url}")
 
-    # Path translation for MLflow API compatibility
-    # MLflow expects either 'api/2.0' or 'ajax-api/2.0' depending on the deployment
-    if path.startswith("api/2.0/mlflow/"):
-        # For internal MLflow server, use standard API path
-        if "registry.hokus.ai" in mlflow_base_url:
-            # External MLflow uses ajax-api
-            path = path.replace("api/2.0/mlflow/", "ajax-api/2.0/mlflow/")
-            logger.info(f"Converted path for external MLflow: {original_path} -> {path}")
-        else:
-            # Internal MLflow uses standard api path
-            logger.info(f"Using standard API path for internal MLflow: {path}")
+    translated = _translate_path(path, mlflow_base_url)
+    logger.info(
+        f"Converted path for external MLflow: {original_path} -> {translated}"
+        if translated != path
+        else f"Using standard API path for internal MLflow: {path}"
+    )
+    path = translated
+    _check_artifact_serving(path)
 
-    # Handle artifact endpoints with proper path translation
-    if path.startswith("api/2.0/mlflow-artifacts/"):
-        logger.info(f"Proxying artifact request: {path}")
-
-        # Apply the same ajax-api conversion for external MLflow
-        if "registry.hokus.ai" in mlflow_base_url:
-            path = path.replace("api/2.0/mlflow-artifacts/", "ajax-api/2.0/mlflow-artifacts/")
-            logger.info(f"Converted artifact path for external MLflow: {original_path} -> {path}")
-
-        # Check if artifact serving is enabled
-        if not os.getenv("MLFLOW_SERVE_ARTIFACTS", "true").lower() == "true":
-            logger.warning("Artifact storage is disabled by configuration")
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "error": "ARTIFACTS_DISABLED",
-                    "message": "Artifact storage is not configured. Please contact your administrator.",
-                },
-            )
-
-    # Construct the target URL
     target_url = f"{mlflow_base_url}/{path}"
-
-    # Log the final target URL for debugging
     logger.info(f"Proxying request: {request.method} {original_path} -> {target_url}")
 
-    # Get the HTTP method
     method = request.method.lower()
-
-    # Prepare headers, keeping track of the authenticated user
-    headers = dict(request.headers)
-
-    # Add user context headers for MLflow tracking
-    if hasattr(request.state, "user_id"):
-        headers["X-Hokusai-User-Id"] = str(request.state.user_id)
-        headers["X-Hokusai-API-Key-Id"] = str(request.state.api_key_id)
-        logger.info(f"Adding user context: user_id={request.state.user_id}")
-
-    # Remove only headers that shouldn't be forwarded.
-    # CRITICAL: the Authorization (Bearer token — MLFLOW_TRACKING_TOKEN) and
-    # X-API-Key headers MUST be forwarded unchanged; MLflow auth depends on
-    # them. Only host/content-length are dropped.
-    headers_to_remove = [
-        "host",  # We'll use MLflow's host
-        "content-length",  # Will be recalculated
-    ]
-    for header in headers_to_remove:
-        headers.pop(header, None)
-
-    # Get query parameters
+    headers = _prepare_headers(request)
     query_params = dict(request.query_params)
 
-    # Get request body if applicable
     body = None
     if method in ["post", "put", "patch"]:
         body = await request.body()
@@ -116,11 +138,7 @@ async def proxy_request(
             logger.debug(f"Request body size: {len(body)} bytes")
 
     try:
-        # Create async HTTP client with retry capability
-        async with httpx.AsyncClient(
-            timeout=PROXY_TIMEOUT, **mlflow_mtls_httpx_kwargs()
-        ) as client:
-            # Make the request to MLflow
+        async with httpx.AsyncClient(timeout=PROXY_TIMEOUT, **mlflow_mtls_httpx_kwargs()) as client:
             response = await client.request(
                 method=method,
                 url=target_url,
@@ -129,66 +147,33 @@ async def proxy_request(
                 content=body,
                 follow_redirects=False,
             )
-
-            # Log response status
             logger.info(
                 f"MLflow response: status={response.status_code}, "
                 f"path={original_path}, target={target_url}"
             )
-
-            # Create response headers
-            response_headers = dict(response.headers)
-            # Remove transfer encoding header as FastAPI handles it
-            response_headers.pop("transfer-encoding", None)
-            response_headers.pop("content-encoding", None)
-
-            # Log detailed info for debugging failed requests
-            if response.status_code >= 400:
-                logger.warning(
-                    f"MLflow error response: status={response.status_code}, "
-                    f"path={original_path}, response_text={response.text[:500]}"
-                )
-
-                # Check if response is HTML error page and convert to JSON
-                content_type = response.headers.get("Content-Type", "")
-                if "text/html" in content_type and response.status_code == 404:
-                    # Convert HTML 404 to JSON response for API consistency
-                    json_error = {
-                        "error_code": "RESOURCE_NOT_FOUND",
-                        "message": f"The requested resource was not found: {original_path}",
-                    }
-                    return Response(
-                        content=json.dumps(json_error),
-                        status_code=404,
-                        headers={"Content-Type": "application/json"},
-                    )
-
-            # Return the response
-            return Response(
-                content=response.content, status_code=response.status_code, headers=response_headers
-            )
+            return _build_mlflow_response(response, original_path)
 
     except httpx.TimeoutException:
         logger.error(f"Timeout connecting to MLflow server at {target_url}")
         raise HTTPException(
             status_code=504, detail=f"MLflow server request timeout after {PROXY_TIMEOUT}s"
-        )
+        ) from None
     except httpx.ConnectError as e:
         logger.error(f"Failed to connect to MLflow server at {target_url}: {e}")
         raise HTTPException(
             status_code=502, detail=f"Failed to connect to MLflow server at {mlflow_base_url}"
-        )
+        ) from e
     except Exception as e:
         logger.error(f"Unexpected error proxying request to MLflow: {e}", exc_info=True)
         raise HTTPException(
             status_code=500, detail="Internal server error while proxying to MLflow"
-        )
+        ) from e
 
 
 @router.api_route(
     "/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 )
-async def mlflow_proxy(request: Request, path: str):
+async def mlflow_proxy(request: Request, path: str) -> Response:
     """Proxy all requests to MLflow server.
 
     This endpoint forwards all requests under /mlflow/* or /api/mlflow/* to the MLflow
@@ -209,7 +194,7 @@ async def mlflow_proxy(request: Request, path: str):
 
 # Enhanced health check endpoints
 @router.get("/health/mlflow")
-async def mlflow_health_check():
+async def mlflow_health_check() -> dict[str, Any]:
     """Check if MLflow server is accessible with detailed diagnostics."""
     health_status = {
         "mlflow_server": MLFLOW_SERVER_URL,
@@ -308,11 +293,11 @@ async def mlflow_health_check():
 
 
 @router.get("/health/mlflow/detailed")
-async def mlflow_detailed_health_check():
+async def mlflow_detailed_health_check() -> dict[str, Any]:
     """Perform comprehensive MLflow health checks including all API endpoints."""
     results = {
         "mlflow_server": MLFLOW_SERVER_URL,
-        "timestamp": os.popen("date").read().strip(),
+        "timestamp": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
         "environment": {
             "MLFLOW_SERVER_URL": MLFLOW_SERVER_URL,
             "MLFLOW_SERVE_ARTIFACTS": os.getenv("MLFLOW_SERVE_ARTIFACTS", "true"),
