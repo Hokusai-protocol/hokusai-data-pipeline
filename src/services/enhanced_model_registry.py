@@ -1,7 +1,7 @@
 """Enhanced model registry with event emission capabilities."""
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from hokusai.core.registry import ModelRegistry, ModelRegistryEntry
 
@@ -26,10 +26,10 @@ class EnhancedModelRegistry(ModelRegistry):
         metric_name: str,
         baseline_value: float,
         current_value: float,
-        additional_tags: Optional[Dict[str, str]] = None,
+        additional_tags: Optional[dict[str, str]] = None,
         contributor_address: Optional[str] = None,
         experiment_name: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Register a tokenized model and emit ready_to_deploy event if it meets baseline.
 
         This extends the base register_tokenized_model method to:
@@ -88,7 +88,7 @@ class EnhancedModelRegistry(ModelRegistry):
         # Generate a unique model ID
         model_id = f"{model_name}/{model_version}/{token_id}"
 
-        # Emit model_ready_to_deploy event
+        # Emit model_ready_to_deploy event; pass model_uri so the hook can derive api_schema
         try:
             event_success = self.hooks.on_model_registered_with_baseline(
                 model_id=model_id,
@@ -102,6 +102,7 @@ class EnhancedModelRegistry(ModelRegistry):
                 tags=additional_tags,
                 contributor_address=contributor_address,
                 experiment_name=experiment_name,
+                model_uri=model_uri,
             )
 
             if event_success:
@@ -122,7 +123,7 @@ class EnhancedModelRegistry(ModelRegistry):
         self,
         model: Any,
         model_type: str,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         token_id: Optional[str] = None,
         metric_name: Optional[str] = None,
         baseline_value: Optional[float] = None,
@@ -156,6 +157,11 @@ class EnhancedModelRegistry(ModelRegistry):
         # If token information is provided, emit event
         if all([token_id, metric_name, baseline_value is not None]):
             try:
+                # Build model URI for api_schema derivation when mlflow_version is available
+                baseline_model_uri = (
+                    f"models:/{model_type}/{entry.mlflow_version}" if entry.mlflow_version else None
+                )
+
                 # For baseline models, current_value equals baseline_value
                 event_success = self.hooks.on_model_registered_with_baseline(
                     model_id=entry.model_id,
@@ -167,6 +173,7 @@ class EnhancedModelRegistry(ModelRegistry):
                     baseline_value=baseline_value,
                     current_value=baseline_value,  # Baseline meets its own baseline
                     tags=metadata,
+                    model_uri=baseline_model_uri,
                 )
 
                 if event_success:

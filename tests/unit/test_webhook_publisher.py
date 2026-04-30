@@ -8,7 +8,6 @@ import os
 import sys
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch
-from uuid import UUID
 
 import httpx
 import pytest
@@ -74,38 +73,19 @@ class TestWebhookPublisher:
 
     @pytest.fixture
     def sample_payload(self, sample_message):
-        """Sample webhook payload."""
+        """Sample webhook payload in original MLflow event format."""
         return {
-            "model_id": sample_message.model_id,
-            "idempotency_key": str(UUID("12345678-1234-5678-1234-567812345678")),
-            "status": "registered",
-            "token_id": sample_message.token_symbol,
-            "token_identifier": sample_message.token_symbol,
-            "proposal_identifier": sample_message.token_symbol,
-            "model_name": sample_message.model_name,
-            "version": sample_message.model_version,
-            "metric_name": sample_message.metric_name,
-            "baseline_value": sample_message.baseline_value,
-            "current_value": sample_message.current_value,
-            "mlflow_run_id": sample_message.mlflow_run_id,
-            "registered_version": sample_message.model_version,
-            "timestamp": sample_message.timestamp.isoformat(),
-            "token_symbol": sample_message.token_symbol,
-            "baseline_metrics": {sample_message.metric_name: sample_message.baseline_value},
-            "metadata": {
-                "model_name": sample_message.model_name,
-                "model_version": sample_message.model_version,
-                "mlflow_run_id": sample_message.mlflow_run_id,
-                "metric_name": sample_message.metric_name,
-                "baseline_value": sample_message.baseline_value,
-                "current_value": sample_message.current_value,
+            "event_type": "model_registered",
+            "model": {
+                "id": sample_message.token_symbol.lower(),
+                "name": sample_message.model_name,
                 "status": "registered",
-                "proposal_identifier": sample_message.token_symbol,
-                "improvement_percentage": sample_message.improvement_percentage,
-                "contributor_address": sample_message.contributor_address,
-                "experiment_name": sample_message.experiment_name,
-                "tags": sample_message.tags,
+                "version": sample_message.model_version,
+                "run_id": sample_message.mlflow_run_id,
             },
+            "timestamp": sample_message.timestamp.isoformat() + "Z",
+            "source": "mlflow",
+            "_idempotency_key": "12345678-1234-5678-1234-567812345678",
         }
 
     def test_init_with_defaults(self, webhook_url):
@@ -167,9 +147,21 @@ class TestWebhookPublisher:
 
     def test_validate_payload_missing_fields(self, publisher):
         """Test payload validation with missing required fields."""
-        invalid_payload = {"model_id": "test"}
+        # Missing model, timestamp, source
+        invalid_payload = {"event_type": "model_registered"}
 
         with pytest.raises(ValueError, match="Missing required field"):
+            publisher._validate_payload(invalid_payload)
+
+    def test_validate_payload_missing_model_subfields(self, publisher):
+        """Payload with model dict missing id raises ValueError."""
+        invalid_payload = {
+            "event_type": "model_registered",
+            "model": {"name": "test", "status": "registered"},  # missing id
+            "timestamp": "2024-01-01T00:00:00Z",
+            "source": "mlflow",
+        }
+        with pytest.raises(ValueError, match="Missing required field: model.id"):
             publisher._validate_payload(invalid_payload)
 
     def test_validate_payload_invalid_types(self, publisher, sample_payload):
@@ -219,10 +211,10 @@ class TestWebhookPublisher:
             signature = headers["X-Hokusai-Signature"]
             assert signature.startswith("sha256=")
 
-            # Verify idempotency key
+            # Verify idempotency key (sourced from the _idempotency_key internal field)
             assert "X-Hokusai-Idempotency-Key" in headers
             idem_key = headers["X-Hokusai-Idempotency-Key"]
-            assert idem_key == sample_payload["idempotency_key"]
+            assert idem_key == sample_payload["_idempotency_key"]
 
     @pytest.mark.asyncio
     async def test_publish_http_error(self, publisher, sample_payload):
@@ -446,15 +438,14 @@ class TestWebhookPublisher:
             assert mock_post.call_count == 5
 
     def test_idempotency_key_generation(self, publisher, sample_message):
-        """Test idempotency key is generated consistently."""
+        """Same message always produces the same _idempotency_key."""
         payload1 = publisher._create_webhook_payload(sample_message)
         payload2 = publisher._create_webhook_payload(sample_message)
 
-        # Same message should generate same idempotency key
-        assert payload1["idempotency_key"] == payload2["idempotency_key"]
+        assert payload1["_idempotency_key"] == payload2["_idempotency_key"]
 
     def test_different_messages_different_keys(self, publisher):
-        """Test different messages generate different idempotency keys."""
+        """Different messages produce different _idempotency_key values."""
         message1 = ModelReadyToDeployMessage(
             model_id="model-1",
             token_symbol="TOKEN1",
@@ -480,68 +471,108 @@ class TestWebhookPublisher:
         payload1 = publisher._create_webhook_payload(message1)
         payload2 = publisher._create_webhook_payload(message2)
 
-        assert payload1["idempotency_key"] != payload2["idempotency_key"]
+        assert payload1["_idempotency_key"] != payload2["_idempotency_key"]
 
-    def test_payload_serialization(self, publisher, sample_message):
-        """Test webhook payload is properly serialized."""
+    def test_payload_original_mlflow_shape(self, publisher, sample_message):
+        """Payload uses the original MLflow event format, not the SDK flat format."""
         payload = publisher._create_webhook_payload(sample_message)
 
-        # Verify all required fields are present
-        required_fields = [
-            "model_id",
-            "idempotency_key",
-            "status",
-            "token_id",
-            "proposal_identifier",
-            "model_name",
-            "version",
-            "metric_name",
-            "baseline_value",
-            "registered_version",
-            "timestamp",
-            "token_symbol",
-            "baseline_metrics",
-            "metadata",
-        ]
-        for field in required_fields:
-            assert field in payload
+        assert payload["event_type"] == "model_registered"
+        assert payload["source"] == "mlflow"
+        assert "timestamp" in payload
+        assert "model" in payload
 
-        # Verify types
-        assert isinstance(payload["model_id"], str)
-        assert isinstance(payload["idempotency_key"], str)
-        assert isinstance(payload["status"], str)
-        assert isinstance(payload["token_id"], str)
-        assert isinstance(payload["proposal_identifier"], str)
-        assert isinstance(payload["model_name"], str)
-        assert isinstance(payload["version"], str)
-        assert isinstance(payload["metric_name"], str)
-        assert isinstance(payload["baseline_value"], float)
-        assert isinstance(payload["registered_version"], str)
-        assert isinstance(payload["timestamp"], str)
-        assert isinstance(payload["token_symbol"], str)
-        assert isinstance(payload["baseline_metrics"], dict)
-        assert isinstance(payload["metadata"], dict)
+        model = payload["model"]
+        assert model["id"] == sample_message.token_symbol.lower()
+        assert model["name"] == sample_message.model_name
+        assert model["status"] == "registered"
+        assert model["version"] == sample_message.model_version
+        assert model["run_id"] == sample_message.mlflow_run_id
 
-        # Verify UUID format for idempotency key
-        UUID(payload["idempotency_key"])  # Should not raise exception
+    def test_payload_no_top_level_token_id(self, publisher, sample_message):
+        """token_id must NOT appear at the top level so the site's SDK parser is skipped.
 
-    def test_payload_includes_event_type_for_site_compatibility(self, publisher, sample_message):
-        """Payload must include event_type so the Hokusai site webhook accepts it.
-
-        The site's validateWebhookPayload (webhook-utils.ts) requires event_type as the
-        first field in the SDK schema; without it, every POST returns 400.
+        The site runs the SDK parser first; if token_id is present it matches and
+        api_schema is never surfaced. Omitting token_id forces the original-format path.
         """
         payload = publisher._create_webhook_payload(sample_message)
+        assert "token_id" not in payload, "token_id must not be at the top level"
+        # Also ensure model and token_id are not both present
+        assert not ("token_id" in payload and "model" in payload)
 
-        assert "event_type" in payload, "event_type missing from webhook payload"
-        assert payload["event_type"] == "model_registered"
-
-    def test_payload_includes_model_version_for_site_compatibility(self, publisher, sample_message):
-        """Payload must include model_version (in addition to version) for the SDK schema."""
+    def test_payload_includes_event_type_for_site_compatibility(self, publisher, sample_message):
+        """Payload must include event_type so the Hokusai site webhook accepts it."""
         payload = publisher._create_webhook_payload(sample_message)
 
-        assert "model_version" in payload
-        assert payload["model_version"] == sample_message.model_version
+        assert "event_type" in payload
+        assert payload["event_type"] == "model_registered"
+
+    def test_payload_api_schema_propagates(self, publisher):
+        """api_schema in ModelReadyToDeployMessage ends up at model.api_schema in payload."""
+        api_schema = {
+            "inputSchema": {"type": "object", "properties": {"x": {"type": "number"}}},
+            "outputSchema": {"type": "object", "properties": {"y": {"type": "number"}}},
+        }
+        message = ModelReadyToDeployMessage(
+            model_id="model-with-schema",
+            token_symbol="TEST",
+            metric_name="accuracy",
+            baseline_value=0.8,
+            current_value=0.9,
+            model_name="test_model",
+            model_version="v1.0",
+            mlflow_run_id="run-123",
+            api_schema=api_schema,
+        )
+
+        payload = publisher._create_webhook_payload(message)
+
+        assert payload["model"]["api_schema"] == api_schema
+
+    def test_payload_api_schema_absent_when_none(self, publisher):
+        """api_schema key must be absent from model dict when message.api_schema is None."""
+        message = ModelReadyToDeployMessage(
+            model_id="model-no-schema",
+            token_symbol="TEST",
+            metric_name="accuracy",
+            baseline_value=0.8,
+            current_value=0.9,
+            model_name="test_model",
+            model_version="v1.0",
+            mlflow_run_id="run-123",
+        )
+
+        payload = publisher._create_webhook_payload(message)
+
+        assert "api_schema" not in payload["model"]
+
+    def test_payload_user_id_extracted_from_tags(self, publisher):
+        """user_id tag surfaces as model.user_id in the payload."""
+        message = ModelReadyToDeployMessage(
+            model_id="model-with-user",
+            token_symbol="TEST",
+            metric_name="accuracy",
+            baseline_value=0.8,
+            current_value=0.9,
+            model_name="test_model",
+            model_version="v1.0",
+            mlflow_run_id="run-123",
+            tags={"user_id": "user-abc"},
+        )
+
+        payload = publisher._create_webhook_payload(message)
+
+        assert payload["model"]["user_id"] == "user-abc"
+
+    def test_payload_idempotency_key_not_in_json_body(self, publisher, sample_message):
+        """_idempotency_key must be stripped before the payload is JSON-serialized."""
+        payload = publisher._create_webhook_payload(sample_message)
+        body_payload = {k: v for k, v in payload.items() if not k.startswith("_")}
+        body_json = json.dumps(body_payload)
+        parsed = json.loads(body_json)
+
+        assert "_idempotency_key" not in parsed
+        assert "idempotency_key" not in parsed
 
     def test_error_logging_on_failure(self, publisher, sample_payload, caplog):
         """Test error logging on webhook failure."""

@@ -196,21 +196,21 @@ class TestWebhookIntegration:
         body = received["body"]
         headers = received["headers"]
 
-        # Verify payload structure
-        assert body["model_id"] == sample_message.model_id
-        assert body["status"] == "registered"
-        assert body["token_id"] == sample_message.token_symbol
-        assert body["proposal_identifier"] == sample_message.token_symbol
-        assert body["model_name"] == sample_message.model_name
-        assert body["version"] == sample_message.model_version
-        assert body["metric_name"] == sample_message.metric_name
-        assert body["baseline_value"] == sample_message.baseline_value
-        assert body["mlflow_run_id"] == sample_message.mlflow_run_id
-        assert body["token_symbol"] == sample_message.token_symbol
-        assert "idempotency_key" in body
+        # Verify payload uses original MLflow event format
+        assert body["event_type"] == "model_registered"
+        assert body["source"] == "mlflow"
         assert "timestamp" in body
-        assert "baseline_metrics" in body
-        assert "metadata" in body
+        assert "model" in body
+
+        model = body["model"]
+        assert model["id"] == sample_message.token_symbol.lower()
+        assert model["name"] == sample_message.model_name
+        assert model["status"] == "registered"
+        assert model["version"] == sample_message.model_version
+        assert model["run_id"] == sample_message.mlflow_run_id
+
+        # token_id must NOT be at the top level (forces original-format Zod parser on site)
+        assert "token_id" not in body
 
         # Verify headers
         assert "x-hokusai-signature" in headers
@@ -313,10 +313,12 @@ class TestWebhookIntegration:
         assert all(results)
         assert len(webhook_server.received_webhooks) == 5
 
-        # Verify all different model IDs were received
-        received_ids = {webhook["body"]["model_id"] for webhook in webhook_server.received_webhooks}
-        expected_ids = {f"concurrent-model-{i}" for i in range(5)}
-        assert received_ids == expected_ids
+        # Verify all received webhooks have the correct format
+        for webhook in webhook_server.received_webhooks:
+            body = webhook["body"]
+            assert body["event_type"] == "model_registered"
+            assert body["source"] == "mlflow"
+            assert "model" in body
 
     def test_idempotency_key_uniqueness(self, webhook_server, publisher, sample_message):
         """Test that idempotency keys are unique for different messages."""
@@ -337,11 +339,12 @@ class TestWebhookIntegration:
         assert len(webhook_server.received_webhooks) >= 2
 
         # Both should have same idempotency key (same message)
-        # Get the first two webhooks with the right model_id
+        # Get the first two webhooks with the right model token (model.id = token_symbol.lower())
+        expected_model_id = sample_message.token_symbol.lower()
         same_msg_webhooks = [
             w
             for w in webhook_server.received_webhooks
-            if w["body"]["model_id"] == sample_message.model_id
+            if w["body"].get("model", {}).get("id") == expected_model_id
         ][:2]
 
         key1 = same_msg_webhooks[0]["headers"]["x-hokusai-idempotency-key"]
@@ -410,17 +413,51 @@ class TestWebhookIntegration:
         assert len(webhook_server.received_webhooks) == 1
 
         received = webhook_server.received_webhooks[0]["body"]
-        assert received["model_id"] == "convenience-test-model"
-        assert received["status"] == "registered"
-        assert received["token_id"] == "CONV-TOKEN"
-        assert received["token_symbol"] == "CONV-TOKEN"
-        assert received["proposal_identifier"] == "CONV-TOKEN"
-        assert received["model_name"] == "convenience_test_model"
-        assert received["version"] == "v2.0.0"
-        assert received["metric_name"] == "f1_score"
-        assert received["baseline_value"] == 0.75
-        assert received["baseline_metrics"]["f1_score"] == 0.75
-        assert received["metadata"]["improvement_percentage"] == 10.7
+        assert received["event_type"] == "model_registered"
+        assert received["source"] == "mlflow"
+        model = received["model"]
+        assert model["id"] == "conv-token"  # token_symbol.lower()
+        assert model["name"] == "convenience_test_model"
+        assert model["status"] == "registered"
+        assert model["version"] == "v2.0.0"
+        assert model["run_id"] == "convenience-run-456"
+
+    def test_api_schema_delivered_in_payload(self, webhook_server, publisher):
+        """Payload with api_schema has model.api_schema intact at the server."""
+        webhook_server.clear_webhooks()
+        webhook_server.configure_response(status_code=200)
+
+        api_schema = {
+            "inputSchema": {
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"],
+            },
+            "outputSchema": {
+                "type": "object",
+                "properties": {"label": {"type": "string"}},
+            },
+        }
+
+        message = ModelReadyToDeployMessage(
+            model_id="schema-test-model",
+            token_symbol="SCHEMA-TOKEN",
+            metric_name="accuracy",
+            baseline_value=0.8,
+            current_value=0.9,
+            model_name="schema_test_model",
+            model_version="v1.0.0",
+            mlflow_run_id="schema-run-1",
+            api_schema=api_schema,
+        )
+
+        result = publisher.publish(message.to_dict(), "schema-queue")
+
+        assert result is True
+        assert len(webhook_server.received_webhooks) == 1
+
+        body = webhook_server.received_webhooks[0]["body"]
+        assert body["model"]["api_schema"] == api_schema
 
     def test_malformed_response_handling(self, webhook_server, publisher, sample_message):
         """Test handling of malformed server responses."""
@@ -463,7 +500,8 @@ class TestWebhookIntegration:
         assert result is True
         assert len(webhook_server.received_webhooks) == 1
 
-        # Verify large tags were transmitted
-        received_tags = webhook_server.received_webhooks[0]["body"]["metadata"]["tags"]
-        assert len(received_tags) == 100
-        assert "tag_50" in received_tags
+        # Verify payload was transmitted in the new format
+        body = webhook_server.received_webhooks[0]["body"]
+        assert body["event_type"] == "model_registered"
+        assert body["source"] == "mlflow"
+        assert body["model"]["id"] == "large-token"
