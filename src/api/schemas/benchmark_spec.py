@@ -20,6 +20,15 @@ class BenchmarkProvider(str, Enum):
     kaggle = "kaggle"
 
 
+class StatisticalFamily(str, Enum):
+    """Statistical family for DeltaOne comparator dispatch."""
+
+    proportion = "proportion"
+    continuous = "continuous"
+    zero_inflated_continuous = "zero_inflated_continuous"
+    rank_or_ordinal = "rank_or_ordinal"
+
+
 class MetricDirection(str, Enum):
     """Whether a higher or lower metric value is better."""
 
@@ -77,6 +86,7 @@ class EvalSpec(BaseModel):
     min_examples: int | None = Field(default=None, ge=1)
     label_policy: dict[str, Any] | None = None
     coverage_policy: dict[str, Any] | None = None
+    metric_family: StatisticalFamily = StatisticalFamily.proportion
 
 
 class BenchmarkSpecCreate(BaseModel):

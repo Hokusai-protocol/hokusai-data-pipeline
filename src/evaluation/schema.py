@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 
 class MetricFamily(str, Enum):
@@ -12,6 +14,48 @@ class MetricFamily(str, Enum):
     QUALITY = "QUALITY"
     COST = "COST"
     LATENCY = "LATENCY"
+
+
+@dataclass(frozen=True)
+class ComparatorResult:
+    """Result of a statistical comparison between treatment and control."""
+
+    passed: bool
+    p_value: float | None
+    effect_size: float | None
+    ci_low: float | None
+    ci_high: float | None
+    details: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class GuardrailBreach:
+    """A single guardrail that was violated."""
+
+    metric_name: str
+    observed: float
+    threshold: float
+    direction: str
+    policy: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class GuardrailResult:
+    """Aggregated result of evaluating all guardrails."""
+
+    passed: bool
+    breaches: tuple[GuardrailBreach, ...]
+
+
+@dataclass(frozen=True)
+class AcceptanceDecision:
+    """Combined primary + guardrail evaluation outcome."""
+
+    primary: ComparatorResult
+    guardrail: GuardrailResult
+    mint_allowed: bool
+    blocked_reason: str | None
 
 
 HEM_V1_SCHEMA: dict[str, object] = {

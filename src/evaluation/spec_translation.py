@@ -62,6 +62,7 @@ class RuntimeAdapterSpec:
     eval_container_digest: str | None = None
     baseline_value: float | None = None
     is_active: bool = True
+    metric_family: str = "proportion"
 
 
 def _resolve_scorer_for_translation(ref: str | None) -> object:
@@ -247,6 +248,10 @@ def _translate_v1(eval_spec: Any, row: dict[str, Any]) -> RuntimeAdapterSpec:
     if min_examples is not None and not isinstance(min_examples, int):
         raise SpecTranslationError("eval_spec.min_examples", "must be an int or null")
 
+    metric_family = eval_spec.get("metric_family", "proportion")
+    if not isinstance(metric_family, str):
+        raise SpecTranslationError("eval_spec.metric_family", "must be a string or null")
+
     return RuntimeAdapterSpec(
         **_common_fields(row),
         primary_metric=primary,
@@ -257,4 +262,5 @@ def _translate_v1(eval_spec: Any, row: dict[str, Any]) -> RuntimeAdapterSpec:
         coverage_policy=coverage_policy,
         unit_of_analysis=unit_of_analysis,
         min_examples=min_examples,
+        metric_family=metric_family,
     )

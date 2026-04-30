@@ -1,5 +1,4 @@
-"""Custom exceptions for Hokusai ML Platform.
-"""
+"""Custom exceptions for Hokusai ML Platform."""
 
 
 class HokusaiError(Exception):
@@ -11,7 +10,7 @@ class HokusaiError(Exception):
 class TokenNotFoundError(HokusaiError):
     """Raised when a token is not found in the database."""
 
-    def __init__(self, token_id: str) -> None:
+    def __init__(self: "TokenNotFoundError", token_id: str) -> None:
         self.token_id = token_id
         super().__init__(f"Token '{token_id}' not found in database")
 
@@ -19,7 +18,12 @@ class TokenNotFoundError(HokusaiError):
 class TokenInvalidStatusError(HokusaiError):
     """Raised when a token is not in a valid status for the operation."""
 
-    def __init__(self, token_id: str, current_status: str, required_status: str) -> None:
+    def __init__(
+        self: "TokenInvalidStatusError",
+        token_id: str,
+        current_status: str,
+        required_status: str,
+    ) -> None:
         self.token_id = token_id
         self.current_status = current_status
         self.required_status = required_status
@@ -32,7 +36,7 @@ class TokenInvalidStatusError(HokusaiError):
 class ModelValidationError(HokusaiError):
     """Raised when model validation fails."""
 
-    def __init__(self, message: str, model_path: str = None) -> None:
+    def __init__(self: "ModelValidationError", message: str, model_path: str = None) -> None:
         self.model_path = model_path
         super().__init__(message)
 
@@ -40,7 +44,12 @@ class ModelValidationError(HokusaiError):
 class MetricValidationError(HokusaiError):
     """Raised when metric validation fails."""
 
-    def __init__(self, metric_name: str, value: float = None, reason: str = None) -> None:
+    def __init__(
+        self: "MetricValidationError",
+        metric_name: str,
+        value: float = None,
+        reason: str = None,
+    ) -> None:
         self.metric_name = metric_name
         self.value = value
         message = f"Invalid metric '{metric_name}'"
@@ -54,7 +63,12 @@ class MetricValidationError(HokusaiError):
 class DatabaseConnectionError(HokusaiError):
     """Raised when database connection fails."""
 
-    def __init__(self, message: str, db_host: str = None, db_name: str = None) -> None:
+    def __init__(
+        self: "DatabaseConnectionError",
+        message: str,
+        db_host: str = None,
+        db_name: str = None,
+    ) -> None:
         self.db_host = db_host
         self.db_name = db_name
         super().__init__(message)
@@ -63,7 +77,7 @@ class DatabaseConnectionError(HokusaiError):
 class MLflowError(HokusaiError):
     """Raised when MLflow operations fail."""
 
-    def __init__(self, operation: str, message: str) -> None:
+    def __init__(self: "MLflowError", operation: str, message: str) -> None:
         self.operation = operation
         super().__init__(f"MLflow {operation} failed: {message}")
 
@@ -71,6 +85,22 @@ class MLflowError(HokusaiError):
 class EventPublishError(HokusaiError):
     """Raised when event publishing fails."""
 
-    def __init__(self, event_type: str, reason: str) -> None:
+    def __init__(self: "EventPublishError", event_type: str, reason: str) -> None:
         self.event_type = event_type
         super().__init__(f"Failed to publish event '{event_type}': {reason}")
+
+
+class UnsupportedMetricFamilyError(HokusaiError):
+    """Raised when a metric_family string has no registered comparator."""
+
+    def __init__(self: "UnsupportedMetricFamilyError", metric_family: str) -> None:
+        self.metric_family = metric_family
+        super().__init__(f"No comparator registered for metric_family '{metric_family}'")
+
+
+class UnsupportedGuardrailPolicyError(HokusaiError):
+    """Raised when an on_breach policy is not recognised."""
+
+    def __init__(self: "UnsupportedGuardrailPolicyError", policy: str) -> None:
+        self.policy = policy
+        super().__init__(f"Unsupported guardrail policy '{policy}'")

@@ -5,6 +5,7 @@ from __future__ import annotations
 # Auth-hook note: this orchestrator relies on the evaluator/client passed in and
 # does not open direct remote sessions itself.
 # Production MLflow auth relies on Authorization / MLFLOW_TRACKING_TOKEN env wiring.
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
@@ -13,7 +14,12 @@ from src.api.schemas.token_mint import TokenMintResult
 from src.api.services.token_mint_hook import TokenMintHook
 from src.cli.attestation import create_attestation
 from src.evaluation.deltaone_evaluator import DeltaOneDecision, DeltaOneEvaluator
+from src.evaluation.guardrails import evaluate_guardrails
+from src.evaluation.schema import AcceptanceDecision, ComparatorResult, GuardrailResult
+from src.evaluation.spec_translation import RuntimeGuardrailSpec
 from src.evaluation.webhook_delivery import dispatch_deltaone_webhook_event
+
+logger = logging.getLogger(__name__)
 
 DELTAONE_ACHIEVED_EVENT = "deltaone.achieved"
 DELTAONE_MINTED_EVENT = "deltaone.minted"
@@ -62,7 +68,55 @@ class DeltaOneMintOrchestrator:
         decision = self.evaluator.evaluate(run_id, baseline_run_id)
         if not decision.accepted:
             return MintOutcome(status="not_eligible", decision=decision)
+        return self._execute_mint(decision)
 
+    def process_evaluation_with_spec(
+        self: DeltaOneMintOrchestrator,
+        run_id: str,
+        baseline_run_id: str,
+        spec: dict[str, Any],
+    ) -> MintOutcome:
+        """Evaluate with benchmark spec — runs primary evaluation then guardrail gating."""
+        model_id = str(spec.get("model_id", ""))
+        decision = self.evaluator.evaluate_for_model(model_id, run_id, baseline_run_id)
+
+        guardrail_specs = _extract_guardrail_specs(spec)
+        candidate_run = self._client.get_run(run_id)
+        guardrail_observations = _extract_guardrail_observations(candidate_run, guardrail_specs)
+        guardrail_result = evaluate_guardrails(guardrail_observations, guardrail_specs)
+
+        primary_result = _decision_to_comparator_result(decision)
+        mint_allowed = decision.accepted and guardrail_result.passed
+        blocked_reason = (
+            _build_blocked_reason(decision, guardrail_result) if not mint_allowed else None
+        )
+
+        acceptance = AcceptanceDecision(
+            primary=primary_result,
+            guardrail=guardrail_result,
+            mint_allowed=mint_allowed,
+            blocked_reason=blocked_reason,
+        )
+
+        self._persist_guardrail_results(run_id, guardrail_result)
+        logger.info(
+            "deltaone_acceptance_decision run_id=%s mint_allowed=%s blocked_reason=%s",
+            run_id,
+            mint_allowed,
+            blocked_reason,
+        )
+
+        if not mint_allowed:
+            status = "guardrail_breach" if not guardrail_result.passed else "not_eligible"
+            return MintOutcome(status=status, decision=decision)
+
+        return self._execute_mint(decision, acceptance.blocked_reason)
+
+    def _execute_mint(
+        self: DeltaOneMintOrchestrator,
+        decision: DeltaOneDecision,
+        blocked_reason: str | None = None,
+    ) -> MintOutcome:
         attestation_hash, attestation_payload = self._create_signed_attestation(decision)
         dispatch_deltaone_webhook_event(
             event_type=DELTAONE_ACHIEVED_EVENT,
@@ -240,3 +294,82 @@ class DeltaOneMintOrchestrator:
             "mint_error": mint_result.error,
             "minted_at": mint_result.timestamp.isoformat(),
         }
+
+    def _persist_guardrail_results(
+        self: DeltaOneMintOrchestrator,
+        run_id: str,
+        guardrail_result: GuardrailResult,
+    ) -> None:
+        for breach in guardrail_result.breaches:
+            tag_key = f"hokusai.guardrail.{breach.metric_name}.status"
+            self._client.set_tag(run_id, tag_key, "fail")
+            reason_key = f"hokusai.guardrail.{breach.metric_name}.reason"
+            self._client.set_tag(run_id, reason_key, breach.reason[:500])
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers for process_evaluation_with_spec
+# ---------------------------------------------------------------------------
+
+
+def _extract_guardrail_specs(spec: dict[str, Any]) -> list[RuntimeGuardrailSpec]:
+    """Parse RuntimeGuardrailSpec objects from a raw benchmark spec dict."""
+    eval_spec = spec.get("eval_spec") or {}
+    raw_guardrails = eval_spec.get("guardrails") or []
+    result: list[RuntimeGuardrailSpec] = []
+    for g in raw_guardrails:
+        if not isinstance(g, dict):
+            continue
+        name = g.get("name", "")
+        direction = g.get("direction", "higher_is_better")
+        threshold = g.get("threshold")
+        blocking = bool(g.get("blocking", True))
+        if not name or threshold is None:
+            continue
+        result.append(
+            RuntimeGuardrailSpec(
+                name=name,
+                direction=direction,
+                threshold=float(threshold),
+                blocking=blocking,
+            )
+        )
+    return result
+
+
+def _extract_guardrail_observations(
+    candidate_run: Any,
+    guardrail_specs: list[RuntimeGuardrailSpec],
+) -> dict[str, float]:
+    """Extract observed metric values for each guardrail from a candidate MLflow run."""
+    metrics = getattr(getattr(candidate_run, "data", None), "metrics", None) or {}
+    observations: dict[str, float] = {}
+    for spec in guardrail_specs:
+        if spec.name in metrics:
+            observations[spec.name] = float(metrics[spec.name])
+    return observations
+
+
+def _decision_to_comparator_result(decision: DeltaOneDecision) -> ComparatorResult:
+    """Build a ComparatorResult from the fields in a DeltaOneDecision."""
+    return ComparatorResult(
+        passed=decision.accepted,
+        p_value=None,
+        effect_size=decision.delta_percentage_points,
+        ci_low=decision.ci95_low_percentage_points,
+        ci_high=decision.ci95_high_percentage_points,
+        details={"source": "deltaone_decision", "reason": decision.reason},
+    )
+
+
+def _build_blocked_reason(
+    decision: DeltaOneDecision,
+    guardrail_result: GuardrailResult,
+) -> str:
+    """Build a human-readable blocked_reason string."""
+    parts: list[str] = []
+    if not decision.accepted:
+        parts.append(f"primary_rejected:{decision.reason}")
+    for breach in guardrail_result.breaches:
+        parts.append(f"guardrail_breach:{breach.metric_name}:{breach.reason}")
+    return "; ".join(parts) if parts else "unknown"
