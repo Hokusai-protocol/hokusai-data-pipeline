@@ -67,8 +67,8 @@ def compute_source_hash(
         "version": version,
         "input_schema": input_schema,
         "output_metric_keys": list(output_metric_keys),
-        "metric_family": str(metric_family),
-        "aggregation": str(aggregation),
+        "metric_family": metric_family.value,
+        "aggregation": aggregation.value,
         "source": source,
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))

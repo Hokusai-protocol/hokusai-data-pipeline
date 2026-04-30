@@ -225,6 +225,21 @@ def test_builtin_metric_keys_are_mlflow_safe():
 
 
 # ---------------------------------------------------------------------------
+# 10b. metric_family values are valid MetricFamily enum members
+# ---------------------------------------------------------------------------
+
+
+def test_builtin_metric_families_are_valid():
+    """Verify every built-in scorer's metric_family is a valid MetricFamily enum value."""
+    valid_families = set(MetricFamily)
+    for meta in list_scorers():
+        assert meta.metric_family in valid_families, (
+            f"Scorer {meta.scorer_ref!r} has invalid metric_family {meta.metric_family!r}; "
+            f"must be one of {valid_families}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # 11. _resolve_scorer_for_translation
 # ---------------------------------------------------------------------------
 
