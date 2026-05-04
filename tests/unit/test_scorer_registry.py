@@ -210,6 +210,9 @@ def test_list_scorers_includes_builtins():
     assert "pass_rate" in refs
     assert "min" in refs
     assert "max" in refs
+    assert "mean_per_hundred" in refs
+    assert "mean_per_thousand" in refs
+    assert "mean_per_ten_thousand" in refs
     assert refs == sorted(refs)
 
 
@@ -258,3 +261,48 @@ def test_resolve_scorer_for_translation_valid_ref():
 def test_resolve_scorer_for_translation_unknown_ref():
     with pytest.raises(UnknownScorerError):
         _resolve_scorer_for_translation("no_such_scorer")
+
+
+# ---------------------------------------------------------------------------
+# 12. mean_per_n family: metadata
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("ref", ["mean_per_hundred", "mean_per_thousand", "mean_per_ten_thousand"])
+def test_mean_per_n_metadata(ref):
+    scorer = resolve_scorer(ref)
+    meta = scorer.metadata
+    assert meta.scorer_ref == ref
+    assert meta.output_metric_keys == (ref,)
+    assert meta.metric_family == MetricFamily.OUTCOME
+    assert meta.aggregation == Aggregation.MEAN_PER_N
+    assert len(meta.source_hash) == 64
+    assert all(c in "0123456789abcdef" for c in meta.source_hash)
+
+
+# ---------------------------------------------------------------------------
+# 13. mean_per_n family: value correctness
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "ref,values,expected",
+    [
+        # empty input → 0.0
+        ("mean_per_hundred", [], 0.0),
+        ("mean_per_thousand", [], 0.0),
+        ("mean_per_ten_thousand", [], 0.0),
+        # all-zero input → 0.0
+        ("mean_per_hundred", [0.0, 0.0, 0.0], 0.0),
+        ("mean_per_thousand", [0.0, 0.0, 0.0], 0.0),
+        ("mean_per_ten_thousand", [0.0, 0.0, 0.0], 0.0),
+        # known example: mean([0.01, 0.02, 0.03]) = 0.02
+        ("mean_per_hundred", [0.01, 0.02, 0.03], 2.0),
+        ("mean_per_thousand", [0.01, 0.02, 0.03], 20.0),
+        ("mean_per_ten_thousand", [0.01, 0.02, 0.03], 200.0),
+    ],
+)
+def test_mean_per_n_values(ref, values, expected):
+    scorer = resolve_scorer(ref)
+    result = scorer.callable_(values)
+    assert result == pytest.approx(expected)
