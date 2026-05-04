@@ -107,7 +107,66 @@ class DeltaOneMintOrchestrator:
         decision = self.evaluator.evaluate(run_id, baseline_run_id)
         if not decision.accepted:
             return MintOutcome(status="not_eligible", decision=decision)
-        return self._execute_mint(decision)
+        ctx = self._build_minimal_event_context(decision)
+        return self._execute_mint(decision, event_context=ctx)
+
+    def _build_minimal_event_context(
+        self: DeltaOneMintOrchestrator,
+        decision: DeltaOneDecision,
+    ) -> _EventContext:
+        """Build minimal _EventContext for the legacy process_evaluation path from MLflow tags."""
+        candidate_run = self._client.get_run(decision.run_id)
+        candidate_tags = getattr(getattr(candidate_run, "data", None), "tags", None) or {}
+        baseline_run = self._client.get_run(decision.baseline_run_id)
+        baseline_metrics = getattr(getattr(baseline_run, "data", None), "metrics", None) or {}
+        candidate_metrics = getattr(getattr(candidate_run, "data", None), "metrics", None) or {}
+
+        model_id_uint_raw = _first_tag(candidate_tags, _MODEL_ID_UINT_TAG_KEYS)
+        model_id_uint: int | None = None
+        if model_id_uint_raw is not None:
+            try:
+                model_id_uint = int(str(model_id_uint_raw))
+            except (ValueError, TypeError):
+                logger.warning(
+                    "event=invalid_model_id_uint run_id=%s value=%r",
+                    decision.run_id,
+                    model_id_uint_raw,
+                )
+
+        eval_id = candidate_tags.get("hokusai.eval_id") or ""
+        benchmark_spec_id = candidate_tags.get(EVAL_SPEC_ID_TAG) or ""
+        mlflow_name = derive_mlflow_name(decision.metric_name)
+        candidate_score = _resolve_metric_value(
+            decision.metric_name, mlflow_name, candidate_metrics
+        )
+        baseline_score = _resolve_metric_value(decision.metric_name, mlflow_name, baseline_metrics)
+        delta_threshold_pp = getattr(self.evaluator, "delta_threshold_pp", 1.0)
+
+        actual_cost_usd: float | None = None
+        actual_cost_raw = candidate_tags.get(ACTUAL_COST_TAG) or candidate_tags.get(
+            PROJECTED_COST_TAG
+        )
+        if actual_cost_raw is not None:
+            try:
+                actual_cost_usd = float(actual_cost_raw)
+            except (ValueError, TypeError):
+                pass
+
+        return _EventContext(
+            decision=decision,
+            baseline_score=baseline_score if baseline_score is not None else 0.0,
+            candidate_score=candidate_score if candidate_score is not None else 0.0,
+            metric_family="proportion",
+            primary_metric_mlflow_name=mlflow_name,
+            benchmark_spec_id=benchmark_spec_id,
+            eval_id=eval_id,
+            model_id_uint=model_id_uint,
+            delta_threshold_pp=float(delta_threshold_pp),
+            guardrail_result=None,
+            guardrail_specs=[],
+            max_cost_usd=None,
+            actual_cost_usd=actual_cost_usd,
+        )
 
     def process_evaluation_with_spec(
         self: DeltaOneMintOrchestrator,
@@ -264,12 +323,9 @@ class DeltaOneMintOrchestrator:
         event_context: _EventContext | None = None,
     ) -> MintOutcome:
         attestation_hash, attestation_payload = self._create_signed_attestation(decision)
-        dispatch_deltaone_webhook_event(
-            event_type=DELTAONE_ACHIEVED_EVENT,
-            payload=self._build_achieved_payload(decision, attestation_hash),
-        )
 
-        # Build acceptance event before mint side-effects so malformed payloads fail early
+        # Build acceptance event before any mint side-effects so malformed payloads fail early
+        # and before the webhook fires to avoid notifying consumers of a mint that won't happen.
         acceptance_event: DeltaOneAcceptanceEvent | None = None
         if event_context is not None:
             try:
@@ -287,6 +343,11 @@ class DeltaOneMintOrchestrator:
                     "acceptance_event",
                     f"failed to build event for run {decision.run_id}: {exc}",
                 ) from exc
+
+        dispatch_deltaone_webhook_event(
+            event_type=DELTAONE_ACHIEVED_EVENT,
+            payload=self._build_achieved_payload(decision, attestation_hash),
+        )
 
         if self._already_finalized_mint(decision.run_id, attestation_hash):
             synthetic_result = TokenMintResult(
@@ -598,7 +659,12 @@ def _build_guardrail_summary(
         try:
             observed_bps = to_basis_points(breach.observed, metric_family)
             threshold_bps = to_basis_points(breach.threshold, metric_family)
-        except (EventPayloadError, ValueError):
+        except (EventPayloadError, ValueError) as exc:
+            logger.warning(
+                "event=guardrail_bps_conversion_failed metric=%s error=%s; defaulting to 0",
+                breach.metric_name,
+                exc,
+            )
             observed_bps = 0
             threshold_bps = 0
         breach_models.append(
@@ -653,6 +719,15 @@ def _build_acceptance_event(
     baseline_bps = to_basis_points(ctx.baseline_score, metric_family)
     candidate_bps = to_basis_points(ctx.candidate_score, metric_family)
     delta_bps = candidate_bps - baseline_bps
+    if delta_bps < 0:
+        logger.warning(
+            "event=negative_delta_bps run_id=%s candidate_bps=%d baseline_bps=%d delta_bps=%d"
+            " — likely metric resolution mismatch; Pydantic will reject this event",
+            decision.run_id,
+            candidate_bps,
+            baseline_bps,
+            delta_bps,
+        )
 
     # delta_threshold_bps derived from pp threshold (proportion only for v1)
     delta_threshold_bps = to_basis_points(min(ctx.delta_threshold_pp / 100.0, 1.0), metric_family)

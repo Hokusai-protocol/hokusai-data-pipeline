@@ -231,7 +231,7 @@ class DeltaOneAcceptanceEvent(BaseModel):
     micro-units (6 decimals).  All SHA-256 hashes are lowercase, 0x-prefixed.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     # Event identity
     event_version: Literal["deltaone.acceptance/v1"] = DELTAONE_ACCEPTANCE_EVENT_VERSION
