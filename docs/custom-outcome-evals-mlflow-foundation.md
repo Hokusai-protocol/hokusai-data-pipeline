@@ -249,8 +249,9 @@ For `genai:` and `judge:` prefixed scorer refs the per-row columns are preserved
   `null`.
 - The run tag is set **only after** a successful artifact upload, so a missing tag always
   means no artifact was written.
-- SHA-256 is computed from the exact bytes of the Parquet file before upload and stored in
-  the HEM block for integrity verification.
+- SHA-256 stored in the HEM block is computed from the artifact bytes at read time (when
+  `create_hem_from_mlflow_run` downloads the artifact to populate metadata). This allows
+  integrity verification of the stored artifact.
 
 ### Out of scope
 
