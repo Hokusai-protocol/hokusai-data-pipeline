@@ -28,12 +28,31 @@ def _max(values: list[float]) -> float:
     return max(values) if values else 0.0
 
 
+def _mean_per_n(values: list[float], n: float) -> float:
+    return (sum(values) / len(values) * n) if values else 0.0
+
+
+def _mean_per_hundred(values: list[float]) -> float:
+    return _mean_per_n(values, 100)
+
+
+def _mean_per_thousand(values: list[float]) -> float:
+    return _mean_per_n(values, 1000)
+
+
+def _mean_per_ten_thousand(values: list[float]) -> float:
+    return _mean_per_n(values, 10000)
+
+
 _BUILTIN_SCORERS = [
     ("mean", _mean, Aggregation.MEAN),
     ("sum", _sum, Aggregation.SUM),
     ("pass_rate", _pass_rate, Aggregation.PASS_RATE),
     ("min", _min, Aggregation.MIN),
     ("max", _max, Aggregation.MAX),
+    ("mean_per_hundred", _mean_per_hundred, Aggregation.MEAN_PER_N),
+    ("mean_per_thousand", _mean_per_thousand, Aggregation.MEAN_PER_N),
+    ("mean_per_ten_thousand", _mean_per_ten_thousand, Aggregation.MEAN_PER_N),
 ]
 
 for _ref, _fn, _agg in _BUILTIN_SCORERS:

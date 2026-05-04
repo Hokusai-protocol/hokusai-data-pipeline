@@ -18,6 +18,7 @@ class Aggregation(str, Enum):
     WEIGHTED_MEAN = "WEIGHTED_MEAN"
     MIN = "MIN"
     MAX = "MAX"
+    MEAN_PER_N = "MEAN_PER_N"
 
 
 @dataclass(frozen=True)
