@@ -1,0 +1,209 @@
+{
+  "$defs": {
+    "DeltaOneGuardrailBreach": {
+      "additionalProperties": false,
+      "description": "A single guardrail violation in the acceptance event.",
+      "properties": {
+        "direction": {
+          "pattern": "^(higher_is_better|lower_is_better)$",
+          "title": "Direction",
+          "type": "string"
+        },
+        "metric_name": {
+          "minLength": 1,
+          "title": "Metric Name",
+          "type": "string"
+        },
+        "observed": {
+          "title": "Observed",
+          "type": "number"
+        },
+        "observed_bps": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Observed Bps",
+          "type": "integer"
+        },
+        "policy": {
+          "minLength": 1,
+          "title": "Policy",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "threshold": {
+          "title": "Threshold",
+          "type": "number"
+        },
+        "threshold_bps": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Threshold Bps",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "metric_name",
+        "observed_bps",
+        "threshold_bps",
+        "observed",
+        "threshold",
+        "direction",
+        "policy",
+        "reason"
+      ],
+      "title": "DeltaOneGuardrailBreach",
+      "type": "object"
+    },
+    "DeltaOneGuardrailSummary": {
+      "additionalProperties": false,
+      "description": "Aggregated guardrail evaluation result embedded in the acceptance event.",
+      "properties": {
+        "breaches": {
+          "items": {
+            "$ref": "#/$defs/DeltaOneGuardrailBreach"
+          },
+          "title": "Breaches",
+          "type": "array"
+        },
+        "guardrails_passed": {
+          "minimum": 0,
+          "title": "Guardrails Passed",
+          "type": "integer"
+        },
+        "total_guardrails": {
+          "minimum": 0,
+          "title": "Total Guardrails",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "total_guardrails",
+        "guardrails_passed"
+      ],
+      "title": "DeltaOneGuardrailSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Versioned acceptance event emitted before DeltaOne mint for on-chain DeltaVerifier.\n\nAll numeric scores are in basis points (0-10000).  Cost fields are in USDC\nmicro-units (6 decimals).  All SHA-256 hashes are lowercase, 0x-prefixed.",
+  "properties": {
+    "actual_cost_usd_micro": {
+      "minimum": 0,
+      "title": "Actual Cost Usd Micro",
+      "type": "integer"
+    },
+    "attestation_hash": {
+      "description": "SHA-256 of canonical HEM payload, 0x-prefixed",
+      "title": "Attestation Hash",
+      "type": "string"
+    },
+    "baseline_score_bps": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Baseline Score Bps",
+      "type": "integer"
+    },
+    "benchmark_spec_id": {
+      "minLength": 1,
+      "title": "Benchmark Spec Id",
+      "type": "string"
+    },
+    "candidate_score_bps": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Candidate Score Bps",
+      "type": "integer"
+    },
+    "delta_bps": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Delta Bps",
+      "type": "integer"
+    },
+    "delta_threshold_bps": {
+      "maximum": 10000,
+      "minimum": 0,
+      "title": "Delta Threshold Bps",
+      "type": "integer"
+    },
+    "eval_id": {
+      "minLength": 1,
+      "title": "Eval Id",
+      "type": "string"
+    },
+    "event_version": {
+      "const": "deltaone.acceptance/v1",
+      "default": "deltaone.acceptance/v1",
+      "title": "Event Version",
+      "type": "string"
+    },
+    "guardrail_summary": {
+      "$ref": "#/$defs/DeltaOneGuardrailSummary"
+    },
+    "idempotency_key": {
+      "description": "SHA-256 of model_id_uint:eval_id:attestation_hash, 0x-prefixed",
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "max_cost_usd_micro": {
+      "minimum": 0,
+      "title": "Max Cost Usd Micro",
+      "type": "integer"
+    },
+    "metric_family": {
+      "minLength": 1,
+      "title": "Metric Family",
+      "type": "string"
+    },
+    "mlflow_run_id": {
+      "minLength": 1,
+      "title": "Mlflow Run Id",
+      "type": "string"
+    },
+    "model_id": {
+      "minLength": 1,
+      "title": "Model Id",
+      "type": "string"
+    },
+    "model_id_uint": {
+      "description": "uint256 as decimal string for on-chain consumption",
+      "title": "Model Id Uint",
+      "type": "string"
+    },
+    "primary_metric_mlflow_name": {
+      "minLength": 1,
+      "title": "Primary Metric Mlflow Name",
+      "type": "string"
+    },
+    "primary_metric_name": {
+      "minLength": 1,
+      "title": "Primary Metric Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "model_id",
+    "model_id_uint",
+    "eval_id",
+    "mlflow_run_id",
+    "benchmark_spec_id",
+    "primary_metric_name",
+    "primary_metric_mlflow_name",
+    "metric_family",
+    "baseline_score_bps",
+    "candidate_score_bps",
+    "delta_bps",
+    "delta_threshold_bps",
+    "attestation_hash",
+    "idempotency_key",
+    "guardrail_summary",
+    "max_cost_usd_micro",
+    "actual_cost_usd_micro"
+  ],
+  "title": "DeltaOneAcceptanceEvent",
+  "type": "object"
+}

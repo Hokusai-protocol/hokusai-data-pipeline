@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
 from src.api.schemas.token_mint import TokenMintResult
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import (
@@ -24,6 +26,11 @@ from src.evaluation.spec_translation import RuntimeGuardrailSpec
 
 HASH_A = "sha256:" + "a" * 64
 HASH_B = "sha256:" + "b" * 64
+
+# Required fields for DeltaOneAcceptanceEvent construction
+_MODEL_ID_UINT = "99001"
+_EVAL_ID = "eval-test-001"
+_SPEC_ID = "spec-test-v1"
 
 
 class _FakeMlflowClient:
@@ -68,6 +75,8 @@ def _make_decision(accepted: bool = True, reason: str = "accepted") -> DeltaOneD
 def _make_spec_with_guardrails(guardrails: list[dict]) -> dict:
     return {
         "model_id": "model-x",
+        "model_id_uint": _MODEL_ID_UINT,
+        "spec_id": _SPEC_ID,
         "eval_spec": {
             "primary_metric": {
                 "name": "workflow_success_rate_under_budget",
@@ -76,6 +85,13 @@ def _make_spec_with_guardrails(guardrails: list[dict]) -> dict:
             "guardrails": guardrails,
         },
     }
+
+
+def _make_client_with_eval_id(run_metrics=None, extra_tags=None):
+    tags = {"hokusai.eval_id": _EVAL_ID}
+    if extra_tags:
+        tags.update(extra_tags)
+    return _FakeMlflowClient(run_metrics=run_metrics or {}, initial_tags=tags)
 
 
 # ---------------------------------------------------------------------------
@@ -87,13 +103,14 @@ class TestProcessEvaluationWithSpec:
     def _make_orchestrator(self, decision, run_metrics=None, monkeypatch=None):
         evaluator = Mock()
         evaluator.evaluate_for_model.return_value = decision
+        evaluator.delta_threshold_pp = 1.0
         mint_hook = Mock()
         mint_hook.mint.return_value = TokenMintResult(
             status="success",
             audit_ref="audit-ok",
             timestamp=datetime.now(timezone.utc),
         )
-        client = _FakeMlflowClient(run_metrics=run_metrics or {})
+        client = _make_client_with_eval_id(run_metrics=run_metrics or {})
         orch = DeltaOneMintOrchestrator(
             evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
         )
@@ -207,11 +224,12 @@ class TestWavemillProportionRegression:
         run_metrics = {"workflow_success_rate_under_budget": 0.87, "budget_utilization": 0.85}
         evaluator = Mock()
         evaluator.evaluate_for_model.return_value = decision
+        evaluator.delta_threshold_pp = 1.0
         mint_hook = Mock()
         mint_hook.mint.return_value = TokenMintResult(
             status="success", audit_ref="ok", timestamp=datetime.now(timezone.utc)
         )
-        client = _FakeMlflowClient(run_metrics=run_metrics)
+        client = _make_client_with_eval_id(run_metrics=run_metrics)
         orch = DeltaOneMintOrchestrator(
             evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
         )
@@ -229,8 +247,9 @@ class TestWavemillProportionRegression:
         run_metrics = {"workflow_success_rate_under_budget": 0.87, "budget_utilization": 1.20}
         evaluator = Mock()
         evaluator.evaluate_for_model.return_value = decision
+        evaluator.delta_threshold_pp = 1.0
         mint_hook = Mock()
-        client = _FakeMlflowClient(run_metrics=run_metrics)
+        client = _make_client_with_eval_id(run_metrics=run_metrics)
         orch = DeltaOneMintOrchestrator(
             evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
         )
@@ -310,3 +329,231 @@ class TestHelpers:
         reason = _build_blocked_reason(decision, guardrail_result)
         assert "not_statistically_significant" in reason
         assert "cost" in reason
+
+
+# ---------------------------------------------------------------------------
+# DeltaOneAcceptanceEvent construction regression tests
+# ---------------------------------------------------------------------------
+
+
+class TestAcceptanceEventConstruction:
+    """Verify that process_evaluation_with_spec produces a valid DeltaOneAcceptanceEvent."""
+
+    def _make_orch_with_event_fields(self, run_metrics, monkeypatch):
+        """Build an orchestrator with all required event fields set."""
+        decision = _make_decision(accepted=True)
+        evaluator = Mock()
+        evaluator.evaluate_for_model.return_value = decision
+        evaluator.delta_threshold_pp = 1.0
+        mint_hook = Mock()
+        mint_hook.mint.return_value = TokenMintResult(
+            status="success", audit_ref="ok", timestamp=datetime.now(timezone.utc)
+        )
+        client = _make_client_with_eval_id(run_metrics=run_metrics)
+        orch = DeltaOneMintOrchestrator(
+            evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
+        )
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(return_value=[]),
+        )
+        return orch, mint_hook, decision
+
+    def test_accepted_spec_mint_produces_acceptance_event(self, monkeypatch):
+        run_metrics = {"workflow_success_rate_under_budget": 0.87}
+        orch, _, _ = self._make_orch_with_event_fields(run_metrics, monkeypatch)
+        spec = _make_spec_with_guardrails([])
+        outcome = orch.process_evaluation_with_spec("run-cand", "run-base", spec)
+        assert outcome.status == "success"
+        assert outcome.acceptance_event is not None
+
+    def test_acceptance_event_field_names_and_types(self, monkeypatch):
+        from src.evaluation.event_payload import DeltaOneAcceptanceEvent, DeltaOneGuardrailSummary
+
+        run_metrics = {"workflow_success_rate_under_budget": 0.87}
+        orch, _, _ = self._make_orch_with_event_fields(run_metrics, monkeypatch)
+        spec = _make_spec_with_guardrails([])
+        outcome = orch.process_evaluation_with_spec("run-cand", "run-base", spec)
+
+        event = outcome.acceptance_event
+        assert isinstance(event, DeltaOneAcceptanceEvent)
+        assert event.event_version == "deltaone.acceptance/v1"
+        assert isinstance(event.model_id, str)
+        assert isinstance(event.model_id_uint, str)
+        assert isinstance(event.eval_id, str)
+        assert isinstance(event.mlflow_run_id, str)
+        assert isinstance(event.benchmark_spec_id, str)
+        assert isinstance(event.primary_metric_name, str)
+        assert isinstance(event.primary_metric_mlflow_name, str)
+        assert isinstance(event.metric_family, str)
+        assert 0 <= event.baseline_score_bps <= 10000
+        assert 0 <= event.candidate_score_bps <= 10000
+        assert event.delta_bps == event.candidate_score_bps - event.baseline_score_bps
+        assert 0 <= event.delta_threshold_bps <= 10000
+        assert event.attestation_hash.startswith("0x")
+        assert event.idempotency_key.startswith("0x")
+        assert isinstance(event.guardrail_summary, DeltaOneGuardrailSummary)
+        assert event.max_cost_usd_micro >= 0
+        assert event.actual_cost_usd_micro >= 0
+
+    def test_baseline_candidate_bps_derived_from_metrics(self, monkeypatch):
+        from src.evaluation.event_payload import to_basis_points
+
+        run_metrics = {"workflow_success_rate_under_budget": 0.87}
+        orch, _, _ = self._make_orch_with_event_fields(run_metrics, monkeypatch)
+        spec = _make_spec_with_guardrails([])
+        outcome = orch.process_evaluation_with_spec("run-cand", "run-base", spec)
+
+        event = outcome.acceptance_event
+        assert event is not None
+        expected_bps = to_basis_points(0.87, "proportion")
+        # Both candidate and baseline use same fake run data -> same score
+        assert event.baseline_score_bps == expected_bps
+        assert event.candidate_score_bps == expected_bps
+        assert event.delta_bps == 0
+
+    def test_primary_metric_mlflow_name_colon_normalized(self, monkeypatch):
+        """colon in metric name is normalized to underscore for MLflow key."""
+        decision = DeltaOneDecision(
+            accepted=True,
+            reason="accepted",
+            run_id="run-cand",
+            baseline_run_id="run-base",
+            model_id="model-x",
+            dataset_hash=HASH_A,
+            metric_name="custom:accuracy",
+            delta_percentage_points=2.0,
+            ci95_low_percentage_points=0.5,
+            ci95_high_percentage_points=3.5,
+            n_current=1000,
+            n_baseline=1000,
+            evaluated_at=datetime.now(timezone.utc),
+        )
+        evaluator = Mock()
+        evaluator.evaluate_for_model.return_value = decision
+        evaluator.delta_threshold_pp = 1.0
+        mint_hook = Mock()
+        mint_hook.mint.return_value = TokenMintResult(
+            status="success", audit_ref="ok", timestamp=datetime.now(timezone.utc)
+        )
+        # MLflow key uses underscore normalization: custom:accuracy -> custom_accuracy
+        run_metrics = {"custom_accuracy": 0.90}
+        client = _make_client_with_eval_id(run_metrics=run_metrics)
+        orch = DeltaOneMintOrchestrator(
+            evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
+        )
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(return_value=[]),
+        )
+        spec = _make_spec_with_guardrails([])
+        spec["eval_spec"]["primary_metric"]["name"] = "custom:accuracy"
+        outcome = orch.process_evaluation_with_spec("run-cand", "run-base", spec)
+
+        event = outcome.acceptance_event
+        assert event is not None
+        assert event.primary_metric_name == "custom:accuracy"
+        assert event.primary_metric_mlflow_name == "custom_accuracy"
+
+    def test_guardrail_breach_summary_in_event(self, monkeypatch):
+        """Guardrail breach details appear in the event guardrail_summary."""
+        decision = _make_decision(accepted=True)
+        evaluator = Mock()
+        evaluator.evaluate_for_model.return_value = decision
+        evaluator.delta_threshold_pp = 1.0
+        mint_hook = Mock()
+        mint_hook.mint.return_value = TokenMintResult(
+            status="success", audit_ref="ok", timestamp=datetime.now(timezone.utc)
+        )
+        run_metrics = {"workflow_success_rate_under_budget": 0.87, "cost_per_call": 0.05}
+        client = _make_client_with_eval_id(run_metrics=run_metrics)
+        orch = DeltaOneMintOrchestrator(
+            evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
+        )
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(return_value=[]),
+        )
+        spec = _make_spec_with_guardrails(
+            [{"name": "cost_per_call", "direction": "lower_is_better", "threshold": 0.10}]
+        )
+        outcome = orch.process_evaluation_with_spec("run-cand", "run-base", spec)
+        assert outcome.acceptance_event is not None
+        summary = outcome.acceptance_event.guardrail_summary
+        assert summary.total_guardrails == 1
+        assert summary.guardrails_passed == 1
+        assert len(summary.breaches) == 0
+
+    def test_missing_model_id_uint_prevents_mint(self, monkeypatch):
+        """Missing model_id_uint raises EventPayloadError before mint."""
+        from src.evaluation.event_payload import EventPayloadError
+
+        decision = _make_decision(accepted=True)
+        evaluator = Mock()
+        evaluator.evaluate_for_model.return_value = decision
+        evaluator.delta_threshold_pp = 1.0
+        mint_hook = Mock()
+        client = _make_client_with_eval_id(run_metrics={"workflow_success_rate_under_budget": 0.87})
+        orch = DeltaOneMintOrchestrator(
+            evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
+        )
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(return_value=[]),
+        )
+        # Spec without model_id_uint
+        spec = {
+            "model_id": "model-x",
+            "spec_id": _SPEC_ID,
+            "eval_spec": {
+                "primary_metric": {
+                    "name": "workflow_success_rate_under_budget",
+                    "direction": "higher_is_better",
+                },
+                "guardrails": [],
+            },
+        }
+        with pytest.raises(EventPayloadError, match="model_id_uint"):
+            orch.process_evaluation_with_spec("run-cand", "run-base", spec)
+
+        mint_hook.mint.assert_not_called()
+
+    def test_missing_eval_id_prevents_mint(self, monkeypatch):
+        """Missing eval_id raises EventPayloadError before mint."""
+        from src.evaluation.event_payload import EventPayloadError
+
+        decision = _make_decision(accepted=True)
+        evaluator = Mock()
+        evaluator.evaluate_for_model.return_value = decision
+        evaluator.delta_threshold_pp = 1.0
+        mint_hook = Mock()
+        # Client without hokusai.eval_id tag
+        client = _FakeMlflowClient(
+            run_metrics={"workflow_success_rate_under_budget": 0.87},
+            initial_tags={},  # No eval_id
+        )
+        orch = DeltaOneMintOrchestrator(
+            evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
+        )
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(return_value=[]),
+        )
+        spec = _make_spec_with_guardrails([])
+        with pytest.raises(EventPayloadError, match="eval_id"):
+            orch.process_evaluation_with_spec("run-cand", "run-base", spec)
+
+        mint_hook.mint.assert_not_called()
+
+    def test_acceptance_event_in_mint_metadata(self, monkeypatch):
+        """The acceptance event dict appears in mint_hook.mint metadata."""
+        run_metrics = {"workflow_success_rate_under_budget": 0.87}
+        orch, mint_hook, _ = self._make_orch_with_event_fields(run_metrics, monkeypatch)
+        spec = _make_spec_with_guardrails([])
+        orch.process_evaluation_with_spec("run-cand", "run-base", spec)
+
+        call_kwargs = mint_hook.mint.call_args.kwargs
+        assert "metadata" in call_kwargs
+        assert "deltaone_acceptance_event" in call_kwargs["metadata"]
+        event_data = call_kwargs["metadata"]["deltaone_acceptance_event"]
+        assert event_data["event_version"] == "deltaone.acceptance/v1"

@@ -1,0 +1,24 @@
+{
+  "event_version": "deltaone.acceptance/v1",
+  "model_id": "model-a",
+  "model_id_uint": "12345678901234567890",
+  "eval_id": "eval-2026-abc123",
+  "mlflow_run_id": "abc123def456abc1",
+  "benchmark_spec_id": "spec-v1-model-a",
+  "primary_metric_name": "accuracy",
+  "primary_metric_mlflow_name": "accuracy",
+  "metric_family": "proportion",
+  "baseline_score_bps": 7800,
+  "candidate_score_bps": 8100,
+  "delta_bps": 300,
+  "delta_threshold_bps": 100,
+  "attestation_hash": "0xd12b65d6be0c2170d427589cc027d4988031dc23356a7f83ecf476fc712bb543",
+  "idempotency_key": "0xfd742fa5dea6034d1be32ea5be01a73f931ef061869509afc3585fda659909e7",
+  "guardrail_summary": {
+    "total_guardrails": 2,
+    "guardrails_passed": 2,
+    "breaches": []
+  },
+  "max_cost_usd_micro": 5000000,
+  "actual_cost_usd_micro": 2340000
+}

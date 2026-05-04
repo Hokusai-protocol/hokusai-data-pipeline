@@ -6,23 +6,42 @@ from __future__ import annotations
 # does not open direct remote sessions itself.
 # Production MLflow auth relies on Authorization / MLFLOW_TRACKING_TOKEN env wiring.
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Protocol
 
 from src.api.schemas.token_mint import TokenMintResult
 from src.api.services.token_mint_hook import TokenMintHook
 from src.cli.attestation import create_attestation
 from src.evaluation.deltaone_evaluator import DeltaOneDecision, DeltaOneEvaluator
+from src.evaluation.event_payload import (
+    DELTAONE_ACCEPTANCE_EVENT_VERSION,
+    DeltaOneAcceptanceEvent,
+    DeltaOneGuardrailBreach,
+    DeltaOneGuardrailSummary,
+    EventPayloadError,
+    make_idempotency_key,
+    to_basis_points,
+    to_micro_usdc,
+)
 from src.evaluation.guardrails import evaluate_guardrails
 from src.evaluation.schema import AcceptanceDecision, ComparatorResult, GuardrailResult
 from src.evaluation.spec_translation import RuntimeGuardrailSpec
+from src.evaluation.tags import ACTUAL_COST_TAG, EVAL_SPEC_ID_TAG, PROJECTED_COST_TAG
 from src.evaluation.webhook_delivery import dispatch_deltaone_webhook_event
+from src.utils.metric_naming import derive_mlflow_name
 
 logger = logging.getLogger(__name__)
 
 DELTAONE_ACHIEVED_EVENT = "deltaone.achieved"
 DELTAONE_MINTED_EVENT = "deltaone.minted"
+
+# Tag keys used to resolve model_id_uint from MLflow run tags
+_MODEL_ID_UINT_TAG_KEYS = (
+    "hokusai.model_id_uint",
+    "model_id_uint",
+)
 
 
 class MlflowClientProtocol(Protocol):
@@ -42,6 +61,26 @@ class MintOutcome:
     mint_result: TokenMintResult | None = None
     attestation_hash: str | None = None
     canonical_score_advanced: bool = False
+    acceptance_event: DeltaOneAcceptanceEvent | None = None
+
+
+@dataclass
+class _EventContext:
+    """Internal context carrying all data needed to build a DeltaOneAcceptanceEvent."""
+
+    decision: DeltaOneDecision
+    baseline_score: float
+    candidate_score: float
+    metric_family: str = "proportion"
+    primary_metric_mlflow_name: str | None = None
+    benchmark_spec_id: str | None = None
+    eval_id: str | None = None
+    model_id_uint: int | None = None
+    delta_threshold_pp: float = 1.0
+    guardrail_result: GuardrailResult | None = None
+    guardrail_specs: list[RuntimeGuardrailSpec] = field(default_factory=list)
+    max_cost_usd: float | None = None
+    actual_cost_usd: float | None = None
 
 
 class DeltaOneMintOrchestrator:
@@ -68,7 +107,66 @@ class DeltaOneMintOrchestrator:
         decision = self.evaluator.evaluate(run_id, baseline_run_id)
         if not decision.accepted:
             return MintOutcome(status="not_eligible", decision=decision)
-        return self._execute_mint(decision)
+        ctx = self._build_minimal_event_context(decision)
+        return self._execute_mint(decision, event_context=ctx)
+
+    def _build_minimal_event_context(
+        self: DeltaOneMintOrchestrator,
+        decision: DeltaOneDecision,
+    ) -> _EventContext:
+        """Build minimal _EventContext for the legacy process_evaluation path from MLflow tags."""
+        candidate_run = self._client.get_run(decision.run_id)
+        candidate_tags = getattr(getattr(candidate_run, "data", None), "tags", None) or {}
+        baseline_run = self._client.get_run(decision.baseline_run_id)
+        baseline_metrics = getattr(getattr(baseline_run, "data", None), "metrics", None) or {}
+        candidate_metrics = getattr(getattr(candidate_run, "data", None), "metrics", None) or {}
+
+        model_id_uint_raw = _first_tag(candidate_tags, _MODEL_ID_UINT_TAG_KEYS)
+        model_id_uint: int | None = None
+        if model_id_uint_raw is not None:
+            try:
+                model_id_uint = int(str(model_id_uint_raw))
+            except (ValueError, TypeError):
+                logger.warning(
+                    "event=invalid_model_id_uint run_id=%s value=%r",
+                    decision.run_id,
+                    model_id_uint_raw,
+                )
+
+        eval_id = candidate_tags.get("hokusai.eval_id") or ""
+        benchmark_spec_id = candidate_tags.get(EVAL_SPEC_ID_TAG) or ""
+        mlflow_name = derive_mlflow_name(decision.metric_name)
+        candidate_score = _resolve_metric_value(
+            decision.metric_name, mlflow_name, candidate_metrics
+        )
+        baseline_score = _resolve_metric_value(decision.metric_name, mlflow_name, baseline_metrics)
+        delta_threshold_pp = getattr(self.evaluator, "delta_threshold_pp", 1.0)
+
+        actual_cost_usd: float | None = None
+        actual_cost_raw = candidate_tags.get(ACTUAL_COST_TAG) or candidate_tags.get(
+            PROJECTED_COST_TAG
+        )
+        if actual_cost_raw is not None:
+            try:
+                actual_cost_usd = float(actual_cost_raw)
+            except (ValueError, TypeError):
+                pass
+
+        return _EventContext(
+            decision=decision,
+            baseline_score=baseline_score if baseline_score is not None else 0.0,
+            candidate_score=candidate_score if candidate_score is not None else 0.0,
+            metric_family="proportion",
+            primary_metric_mlflow_name=mlflow_name,
+            benchmark_spec_id=benchmark_spec_id,
+            eval_id=eval_id,
+            model_id_uint=model_id_uint,
+            delta_threshold_pp=float(delta_threshold_pp),
+            guardrail_result=None,
+            guardrail_specs=[],
+            max_cost_usd=None,
+            actual_cost_usd=actual_cost_usd,
+        )
 
     def process_evaluation_with_spec(
         self: DeltaOneMintOrchestrator,
@@ -110,14 +208,142 @@ class DeltaOneMintOrchestrator:
             status = "guardrail_breach" if not guardrail_result.passed else "not_eligible"
             return MintOutcome(status=status, decision=decision)
 
-        return self._execute_mint(decision, acceptance.blocked_reason)
+        # Build event context from spec and run data for spec-backed path
+        ctx = self._build_event_context_from_spec(
+            decision=decision,
+            spec=spec,
+            candidate_run=candidate_run,
+            guardrail_result=guardrail_result,
+            guardrail_specs=guardrail_specs,
+        )
+
+        return self._execute_mint(decision, acceptance.blocked_reason, event_context=ctx)
+
+    def _build_event_context_from_spec(
+        self: DeltaOneMintOrchestrator,
+        decision: DeltaOneDecision,
+        spec: dict[str, Any],
+        candidate_run: Any,
+        guardrail_result: GuardrailResult,
+        guardrail_specs: list[RuntimeGuardrailSpec],
+    ) -> _EventContext:
+        """Build an _EventContext from spec and run data for spec-backed evaluation path."""
+        eval_spec = spec.get("eval_spec") or {}
+        primary_metric = eval_spec.get("primary_metric") or {}
+        metric_family = str(eval_spec.get("metric_family") or "proportion")
+
+        # Resolve primary metric mlflow name
+        primary_metric_name = decision.metric_name
+        explicit_mlflow_name = primary_metric.get("mlflow_name")
+        primary_metric_mlflow_name = derive_mlflow_name(primary_metric_name, explicit_mlflow_name)
+
+        # Resolve benchmark_spec_id
+        candidate_tags = getattr(getattr(candidate_run, "data", None), "tags", None) or {}
+        benchmark_spec_id = (
+            str(spec.get("spec_id") or "")
+            or str(spec.get("id") or "")
+            or candidate_tags.get(EVAL_SPEC_ID_TAG)
+            or ""
+        )
+
+        # Resolve eval_id from candidate run tags
+        eval_id = candidate_tags.get("hokusai.eval_id") or ""
+
+        # Resolve model_id_uint from spec or candidate tags
+        model_id_uint_raw = (
+            spec.get("model_id_uint")
+            or spec.get("model_id_numeric")
+            or _first_tag(candidate_tags, _MODEL_ID_UINT_TAG_KEYS)
+        )
+        model_id_uint: int | None = None
+        if model_id_uint_raw is not None:
+            try:
+                model_id_uint = int(str(model_id_uint_raw))
+            except (ValueError, TypeError):
+                logger.warning(
+                    "event=invalid_model_id_uint run_id=%s value=%r",
+                    decision.run_id,
+                    model_id_uint_raw,
+                )
+
+        # Resolve baseline and candidate scores
+        candidate_metrics = getattr(getattr(candidate_run, "data", None), "metrics", None) or {}
+        baseline_run = self._client.get_run(decision.baseline_run_id)
+        baseline_metrics = getattr(getattr(baseline_run, "data", None), "metrics", None) or {}
+        candidate_score = _resolve_metric_value(
+            primary_metric_name, primary_metric_mlflow_name, candidate_metrics
+        )
+        baseline_score = _resolve_metric_value(
+            primary_metric_name, primary_metric_mlflow_name, baseline_metrics
+        )
+
+        # Resolve delta threshold from evaluator
+        delta_threshold_pp = getattr(self.evaluator, "delta_threshold_pp", 1.0)
+
+        # Resolve cost fields from spec measurement_policy and candidate tags
+        measurement_policy = eval_spec.get("measurement_policy") or {}
+        max_cost_usd: float | None = None
+        max_cost_raw = measurement_policy.get("max_cost_usd")
+        if max_cost_raw is not None:
+            try:
+                max_cost_usd = float(max_cost_raw)
+            except (ValueError, TypeError):
+                pass
+
+        actual_cost_usd: float | None = None
+        actual_cost_raw = candidate_tags.get(ACTUAL_COST_TAG) or candidate_tags.get(
+            PROJECTED_COST_TAG
+        )
+        if actual_cost_raw is not None:
+            try:
+                actual_cost_usd = float(actual_cost_raw)
+            except (ValueError, TypeError):
+                pass
+
+        return _EventContext(
+            decision=decision,
+            baseline_score=baseline_score if baseline_score is not None else 0.0,
+            candidate_score=candidate_score if candidate_score is not None else 0.0,
+            metric_family=metric_family,
+            primary_metric_mlflow_name=primary_metric_mlflow_name,
+            benchmark_spec_id=benchmark_spec_id,
+            eval_id=eval_id,
+            model_id_uint=model_id_uint,
+            delta_threshold_pp=float(delta_threshold_pp),
+            guardrail_result=guardrail_result,
+            guardrail_specs=guardrail_specs,
+            max_cost_usd=max_cost_usd,
+            actual_cost_usd=actual_cost_usd,
+        )
 
     def _execute_mint(
         self: DeltaOneMintOrchestrator,
         decision: DeltaOneDecision,
         blocked_reason: str | None = None,
+        event_context: _EventContext | None = None,
     ) -> MintOutcome:
         attestation_hash, attestation_payload = self._create_signed_attestation(decision)
+
+        # Build acceptance event before any mint side-effects so malformed payloads fail early
+        # and before the webhook fires to avoid notifying consumers of a mint that won't happen.
+        acceptance_event: DeltaOneAcceptanceEvent | None = None
+        if event_context is not None:
+            try:
+                acceptance_event = _build_acceptance_event(
+                    ctx=event_context,
+                    attestation_hash=attestation_hash,
+                )
+            except (EventPayloadError, ValueError) as exc:
+                logger.error(
+                    "event=acceptance_event_build_failed run_id=%s error=%s",
+                    decision.run_id,
+                    exc,
+                )
+                raise EventPayloadError(
+                    "acceptance_event",
+                    f"failed to build event for run {decision.run_id}: {exc}",
+                ) from exc
+
         dispatch_deltaone_webhook_event(
             event_type=DELTAONE_ACHIEVED_EVENT,
             payload=self._build_achieved_payload(decision, attestation_hash),
@@ -139,31 +365,45 @@ class DeltaOneMintOrchestrator:
                 mint_result=synthetic_result,
                 attestation_hash=attestation_hash,
                 canonical_score_advanced=False,
+                acceptance_event=acceptance_event,
             )
 
         self._set_mint_tags(
             run_id=decision.run_id,
             status="requested",
             attestation_hash=attestation_hash,
+            idempotency_key=(
+                acceptance_event.idempotency_key if acceptance_event else attestation_hash
+            ),
             audit_ref=None,
             error=None,
         )
+
+        # Build metadata for HOK-1276 handoff; include the serialized acceptance event if available
+        mint_metadata: dict[str, Any] = {
+            "attestation": attestation_payload,
+            "deltaone_decision": self._decision_to_dict(decision),
+        }
+        if acceptance_event is not None:
+            mint_metadata["deltaone_acceptance_event"] = acceptance_event.model_dump()
 
         mint_result = self.mint_hook.mint(
             model_id=decision.model_id,
             token_id=self._resolve_token_id(decision.model_id),
             delta_value=decision.delta_percentage_points,
-            idempotency_key=attestation_hash,
-            metadata={
-                "attestation": attestation_payload,
-                "deltaone_decision": self._decision_to_dict(decision),
-            },
+            idempotency_key=(
+                acceptance_event.idempotency_key if acceptance_event else attestation_hash
+            ),
+            metadata=mint_metadata,
         )
 
         self._set_mint_tags(
             run_id=decision.run_id,
             status=mint_result.status,
             attestation_hash=attestation_hash,
+            idempotency_key=(
+                acceptance_event.idempotency_key if acceptance_event else attestation_hash
+            ),
             audit_ref=mint_result.audit_ref,
             error=mint_result.error,
         )
@@ -184,6 +424,7 @@ class DeltaOneMintOrchestrator:
             mint_result=mint_result,
             attestation_hash=attestation_hash,
             canonical_score_advanced=canonical_score_advanced,
+            acceptance_event=acceptance_event,
         )
 
     def _create_signed_attestation(
@@ -225,12 +466,13 @@ class DeltaOneMintOrchestrator:
         run_id: str,
         status: str,
         attestation_hash: str,
+        idempotency_key: str,
         audit_ref: str | None,
         error: str | None,
     ) -> None:
         self._client.set_tag(run_id, "hokusai.mint.status", status)
         self._client.set_tag(run_id, "hokusai.mint.attestation_hash", attestation_hash)
-        self._client.set_tag(run_id, "hokusai.mint.idempotency_key", attestation_hash)
+        self._client.set_tag(run_id, "hokusai.mint.idempotency_key", idempotency_key)
         self._client.set_tag(
             run_id,
             "hokusai.mint.updated_at",
@@ -373,3 +615,166 @@ def _build_blocked_reason(
     for breach in guardrail_result.breaches:
         parts.append(f"guardrail_breach:{breach.metric_name}:{breach.reason}")
     return "; ".join(parts) if parts else "unknown"
+
+
+def _first_tag(tags: dict[str, str], keys: tuple[str, ...]) -> str | None:
+    """Return the first non-empty value from tags matching any of keys."""
+    for key in keys:
+        value = tags.get(key)
+        if value is not None and str(value).strip():
+            return str(value)
+    return None
+
+
+def _resolve_metric_value(
+    metric_name: str,
+    mlflow_name: str,
+    metrics: dict[str, float],
+) -> float | None:
+    """Resolve a metric value from run metrics using the same three-tier lookup as DeltaOne."""
+    from src.utils.metric_naming import derive_mlflow_name as _derive  # noqa: PLC0415
+
+    normalized = _derive(metric_name)
+    if mlflow_name and mlflow_name in metrics:
+        return float(metrics[mlflow_name])
+    if normalized in metrics:
+        return float(metrics[normalized])
+    if metric_name in metrics:
+        return float(metrics[metric_name])
+    return None
+
+
+def _build_guardrail_summary(
+    guardrail_result: GuardrailResult,
+    guardrail_specs: list[RuntimeGuardrailSpec],
+    metric_family: str,
+) -> DeltaOneGuardrailSummary:
+    """Convert a GuardrailResult into a DeltaOneGuardrailSummary for the acceptance event."""
+    blocking_total = sum(1 for s in guardrail_specs if s.blocking)
+    blocking_breaches = list(guardrail_result.breaches)
+    guardrails_passed = blocking_total - len(blocking_breaches)
+
+    breach_models: list[DeltaOneGuardrailBreach] = []
+    for breach in blocking_breaches:
+        try:
+            observed_bps = to_basis_points(breach.observed, metric_family)
+            threshold_bps = to_basis_points(breach.threshold, metric_family)
+        except (EventPayloadError, ValueError) as exc:
+            logger.warning(
+                "event=guardrail_bps_conversion_failed metric=%s error=%s; defaulting to 0",
+                breach.metric_name,
+                exc,
+            )
+            observed_bps = 0
+            threshold_bps = 0
+        breach_models.append(
+            DeltaOneGuardrailBreach(
+                metric_name=breach.metric_name,
+                observed_bps=observed_bps,
+                threshold_bps=threshold_bps,
+                observed=breach.observed,
+                threshold=breach.threshold,
+                direction=breach.direction,
+                policy=breach.policy,
+                reason=breach.reason,
+            )
+        )
+
+    return DeltaOneGuardrailSummary(
+        total_guardrails=blocking_total,
+        guardrails_passed=max(0, guardrails_passed),
+        breaches=breach_models,
+    )
+
+
+def _build_acceptance_event(
+    ctx: _EventContext,
+    attestation_hash: str,
+) -> DeltaOneAcceptanceEvent:
+    """Construct and validate a DeltaOneAcceptanceEvent from context and attestation hash."""
+    decision = ctx.decision
+
+    if ctx.model_id_uint is None:
+        raise EventPayloadError(
+            "model_id_uint",
+            f"model_id_uint is required for DeltaOneAcceptanceEvent but was not found "
+            f"in spec or candidate run tags for model={decision.model_id} run={decision.run_id}",
+        )
+
+    if not ctx.eval_id:
+        raise EventPayloadError(
+            "eval_id",
+            f"eval_id is required for DeltaOneAcceptanceEvent but tag 'hokusai.eval_id' "
+            f"was absent from run {decision.run_id}",
+        )
+
+    if not ctx.benchmark_spec_id:
+        raise EventPayloadError(
+            "benchmark_spec_id",
+            f"benchmark_spec_id is required but was absent from spec and run tags "
+            f"for run {decision.run_id}",
+        )
+
+    metric_family = ctx.metric_family
+    baseline_bps = to_basis_points(ctx.baseline_score, metric_family)
+    candidate_bps = to_basis_points(ctx.candidate_score, metric_family)
+    delta_bps = candidate_bps - baseline_bps
+    if delta_bps < 0:
+        logger.warning(
+            "event=negative_delta_bps run_id=%s candidate_bps=%d baseline_bps=%d delta_bps=%d"
+            " — likely metric resolution mismatch; Pydantic will reject this event",
+            decision.run_id,
+            candidate_bps,
+            baseline_bps,
+            delta_bps,
+        )
+
+    # delta_threshold_bps derived from pp threshold (proportion only for v1)
+    delta_threshold_bps = to_basis_points(min(ctx.delta_threshold_pp / 100.0, 1.0), metric_family)
+
+    # Normalize attestation hash to 0x-prefixed form
+    norm_att_hash = (
+        attestation_hash if attestation_hash.startswith("0x") else f"0x{attestation_hash}"
+    )
+
+    idempotency_key = make_idempotency_key(ctx.model_id_uint, ctx.eval_id, norm_att_hash)
+
+    mlflow_name = ctx.primary_metric_mlflow_name or derive_mlflow_name(decision.metric_name)
+
+    guardrail_summary: DeltaOneGuardrailSummary
+    if ctx.guardrail_result is not None:
+        guardrail_summary = _build_guardrail_summary(
+            ctx.guardrail_result, ctx.guardrail_specs, metric_family
+        )
+    else:
+        guardrail_summary = DeltaOneGuardrailSummary(
+            total_guardrails=0, guardrails_passed=0, breaches=[]
+        )
+
+    max_cost_micro = to_micro_usdc(
+        Decimal(str(ctx.max_cost_usd)) if ctx.max_cost_usd is not None else None
+    )
+    actual_cost_micro = to_micro_usdc(
+        Decimal(str(ctx.actual_cost_usd)) if ctx.actual_cost_usd is not None else None
+    )
+
+    return DeltaOneAcceptanceEvent(
+        event_version=DELTAONE_ACCEPTANCE_EVENT_VERSION,
+        model_id=decision.model_id,
+        model_id_uint=str(ctx.model_id_uint),
+        eval_id=ctx.eval_id,
+        mlflow_run_id=decision.run_id,
+        benchmark_spec_id=ctx.benchmark_spec_id,
+        primary_metric_name=decision.metric_name,
+        primary_metric_mlflow_name=mlflow_name,
+        metric_family=metric_family,
+        baseline_score_bps=baseline_bps,
+        candidate_score_bps=candidate_bps,
+        delta_bps=delta_bps,
+        delta_threshold_bps=delta_threshold_bps,
+        attestation_hash=norm_att_hash,
+        idempotency_key=idempotency_key,
+        guardrail_summary=guardrail_summary,
+        max_cost_usd_micro=max_cost_micro,
+        actual_cost_usd_micro=actual_cost_micro,
+    )
