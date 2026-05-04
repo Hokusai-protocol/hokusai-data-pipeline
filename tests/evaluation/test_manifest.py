@@ -88,3 +88,54 @@ def test_to_json_is_valid_json() -> None:
     payload = manifest.to_json(indent=2)
     parsed = json.loads(payload)
     assert parsed["model_id"] == "model-a"
+
+
+# ---------------------------------------------------------------------------
+# per_row_artifact
+# ---------------------------------------------------------------------------
+
+_VALID_PER_ROW_ARTIFACT = {
+    "uri": "runs:/run-123/eval_results/per_row.parquet",
+    "schema": {"row_id": "object", "accuracy": "bool"},
+    "row_count": 42,
+    "sha256": "a" * 64,
+}
+
+
+def test_manifest_accepts_per_row_artifact() -> None:
+    manifest = HokusaiEvaluationManifest(
+        **_base_manifest_kwargs(), per_row_artifact=_VALID_PER_ROW_ARTIFACT
+    )
+    payload = manifest.to_dict()
+    assert payload["per_row_artifact"]["row_count"] == 42
+    assert payload["per_row_artifact"]["sha256"] == "a" * 64
+
+
+def test_manifest_per_row_artifact_roundtrip() -> None:
+    manifest = HokusaiEvaluationManifest(
+        **_base_manifest_kwargs(), per_row_artifact=_VALID_PER_ROW_ARTIFACT
+    )
+    payload = manifest.to_dict()
+    restored = HokusaiEvaluationManifest.from_dict(payload)
+    assert restored.per_row_artifact == _VALID_PER_ROW_ARTIFACT
+    assert restored.to_dict() == payload
+
+
+def test_manifest_per_row_artifact_absent_when_none() -> None:
+    manifest = HokusaiEvaluationManifest(**_base_manifest_kwargs(), per_row_artifact=None)
+    payload = manifest.to_dict()
+    assert "per_row_artifact" not in payload
+
+
+def test_manifest_without_per_row_artifact_still_validates() -> None:
+    manifest = HokusaiEvaluationManifest(**_base_manifest_kwargs())
+    payload = manifest.to_dict()
+    restored = HokusaiEvaluationManifest.from_dict(payload)
+    assert restored.per_row_artifact is None
+
+
+def test_manifest_from_dict_loads_per_row_artifact_none_when_field_absent() -> None:
+    payload = HokusaiEvaluationManifest(**_base_manifest_kwargs()).to_dict()
+    assert "per_row_artifact" not in payload
+    restored = HokusaiEvaluationManifest.from_dict(payload)
+    assert restored.per_row_artifact is None

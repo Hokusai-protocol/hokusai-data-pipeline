@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import logging
 import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,12 +24,19 @@ from src.evaluation.tags import (
     FAILURE_REASON_TAG,
     MEASUREMENT_POLICY_TAG,
     MLFLOW_NAME_TAG,
+    PER_ROW_ARTIFACT_URI_TAG,
     PRIMARY_METRIC_TAG,
     PROJECTED_COST_TAG,
     SCORER_REF_TAG,
     STATUS_TAG,
 )
 from src.utils.metric_naming import derive_mlflow_name
+
+logger = logging.getLogger(__name__)
+
+_PER_ROW_ARTIFACT_DIR = "eval_results"
+_PER_ROW_ARTIFACT_FILE = "per_row.parquet"
+_PER_ROW_ARTIFACT_PATH = "eval_results/per_row.parquet"
 
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _REMOTE_PREFIXES = ("s3://", "gs://", "az://", "kaggle://", "http://", "https://")
@@ -278,6 +287,7 @@ def run_custom_eval(
                     model_id=model_id,
                     dataset_reference=dataset_reference,
                     runtime_spec=runtime_spec,
+                    run_id=run_id,
                 )
             else:
                 result = _dispatch_deterministic(
@@ -285,6 +295,7 @@ def run_custom_eval(
                     model_id=model_id,
                     dataset_reference=dataset_reference,
                     runtime_spec=runtime_spec,
+                    run_id=run_id,
                 )
         except (CostGateExceeded, CustomEvalError):
             raise
@@ -365,12 +376,114 @@ def _count_rows(local_path: str | None) -> int | None:
     return None
 
 
+def _coerce_metric_column(df: Any, col: str, family: MetricFamily) -> Any:
+    """Cast a single metric column to the expected dtype for the given family."""
+    import pandas as pd
+
+    try:
+        if family == MetricFamily.OUTCOME:
+            df[col] = df[col].astype(bool)
+        elif family in (MetricFamily.QUALITY, MetricFamily.LATENCY, MetricFamily.COST):
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    except Exception as cast_exc:  # noqa: BLE001
+        logger.warning("Could not cast per-row column %r: %s", col, cast_exc)
+    return df
+
+
+def _apply_scorer_dtypes(df: Any, runtime_spec: RuntimeAdapterSpec) -> Any:
+    """Apply dtype coercions for each registered scorer ref's output columns."""
+    from src.evaluation.scorers.registry import UnknownScorerError, resolve_scorer
+
+    for ref in _all_scorer_refs(runtime_spec):
+        if ref.startswith("genai:") or ref.startswith("judge:"):
+            continue
+        try:
+            registered = resolve_scorer(ref)
+            for key in registered.metadata.output_metric_keys:
+                col = derive_mlflow_name(key)
+                if col in df.columns:
+                    df = _coerce_metric_column(df, col, registered.metadata.metric_family)
+        except (UnknownScorerError, Exception) as exc:  # noqa: BLE001
+            logger.debug("Skipping dtype coercion for scorer ref %r: %s", ref, exc)
+    return df
+
+
+def _prepare_per_row_dataframe(result_df: Any, runtime_spec: RuntimeAdapterSpec) -> Any:
+    """Normalize result_df for Parquet storage.
+
+    Returns a copy with guaranteed string row_id, optional string unit_id, and
+    dtype-coerced metric columns where metadata is available.
+    """
+    df = result_df.copy()
+
+    if "row_id" not in df.columns:
+        df["row_id"] = [str(i) for i in range(len(df))]
+    else:
+        df["row_id"] = df["row_id"].astype(str)
+
+    if df["row_id"].duplicated().any():
+        logger.warning(
+            "Per-row result_df has duplicate row_id values; synthesizing positional row IDs."
+        )
+        df["row_id"] = [str(i) for i in range(len(df))]
+
+    if "unit_id" in df.columns:
+        df["unit_id"] = df["unit_id"].astype(str)
+
+    return _apply_scorer_dtypes(df, runtime_spec)
+
+
+def _persist_per_row_artifact(
+    *,
+    mlflow_module: Any,
+    result: Any,
+    runtime_spec: RuntimeAdapterSpec,
+    run_id: str,
+) -> str | None:
+    """Persist result_df as eval_results/per_row.parquet and tag the run.
+
+    Returns the artifact URI on success, None on any failure (best-effort).
+    The eval result is never affected by failures in this function.
+    """
+    try:
+        import pandas as pd
+
+        result_df = getattr(result, "result_df", None)
+        if result_df is None:
+            return None
+        if not isinstance(result_df, pd.DataFrame):
+            return None
+        if result_df.empty:
+            return None
+
+        df = _prepare_per_row_dataframe(result_df, runtime_spec)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            parquet_path = Path(tmpdir) / _PER_ROW_ARTIFACT_FILE
+            df.to_parquet(str(parquet_path), index=False)
+
+            raw_bytes = parquet_path.read_bytes()
+            sha256_hex = hashlib.sha256(raw_bytes).hexdigest()
+            logger.debug("Per-row artifact sha256=%s row_count=%d", sha256_hex, len(df))
+
+            mlflow_module.log_artifact(str(parquet_path), artifact_path=_PER_ROW_ARTIFACT_DIR)
+
+        uri = f"runs:/{run_id}/{_PER_ROW_ARTIFACT_PATH}"
+        mlflow_module.set_tag(PER_ROW_ARTIFACT_URI_TAG, uri)
+        return uri
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not persist per-row eval artifact: %s", exc)
+        return None
+
+
 def _dispatch_genai(
     *,
     mlflow_module: Any,
     model_id: str,
     dataset_reference: str,
     runtime_spec: RuntimeAdapterSpec,
+    run_id: str,
 ) -> Any:
     """Route to mlflow.genai.evaluate for LLM-judge specs."""
     from src.evaluation.scorers.registry import UnknownScorerError, resolve_scorer
@@ -390,11 +503,18 @@ def _dispatch_genai(
         except UnknownScorerError:
             pass
 
-    return mlflow_genai.evaluate(
+    result = mlflow_genai.evaluate(
         data=dataset_reference,
         scorers=scorer_callables,
         model_id=model_id,
     )
+    _persist_per_row_artifact(
+        mlflow_module=mlflow_module,
+        result=result,
+        runtime_spec=runtime_spec,
+        run_id=run_id,
+    )
+    return result
 
 
 def _dispatch_deterministic(
@@ -403,17 +523,25 @@ def _dispatch_deterministic(
     model_id: str,
     dataset_reference: str,
     runtime_spec: RuntimeAdapterSpec,
+    run_id: str,
 ) -> Any:
     """Route to mlflow.evaluate for deterministic specs."""
     policy = runtime_spec.measurement_policy or {}
     model_type = (
         runtime_spec.unit_of_analysis or policy.get("mlflow_evaluate_model_type") or "classifier"
     )
-    return mlflow_module.evaluate(
+    result = mlflow_module.evaluate(
         model=f"models:/{model_id}",
         data=dataset_reference,
         model_type=model_type,
     )
+    _persist_per_row_artifact(
+        mlflow_module=mlflow_module,
+        result=result,
+        runtime_spec=runtime_spec,
+        run_id=run_id,
+    )
+    return result
 
 
 def _extract_metrics(result: Any) -> dict[str, Any]:
