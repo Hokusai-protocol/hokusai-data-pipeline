@@ -14,15 +14,49 @@ from src.api.schemas.token_mint import TokenMintResult
 from src.api.services.token_mint_hook import TokenMintHook
 from src.cli.attestation import create_attestation
 from src.evaluation.deltaone_evaluator import DeltaOneDecision, DeltaOneEvaluator
+from src.evaluation.event_payload import (
+    DELTAONE_ACCEPTANCE_EVENT_VERSION,
+    DeltaOneEventInputs,
+    build_deltaone_acceptance_event,
+    normalize_attestation_hash,
+)
 from src.evaluation.guardrails import evaluate_guardrails
-from src.evaluation.schema import AcceptanceDecision, ComparatorResult, GuardrailResult
+from src.evaluation.schema import (
+    AcceptanceDecision,
+    ComparatorResult,
+    GuardrailResult,
+)
 from src.evaluation.spec_translation import RuntimeGuardrailSpec
 from src.evaluation.webhook_delivery import dispatch_deltaone_webhook_event
+from src.utils.metric_naming import derive_mlflow_name
 
 logger = logging.getLogger(__name__)
 
 DELTAONE_ACHIEVED_EVENT = "deltaone.achieved"
 DELTAONE_MINTED_EVENT = "deltaone.minted"
+
+# Tag/param key fallbacks used to resolve on-chain event fields when the caller
+# does not pass an explicit benchmark spec.
+_MODEL_ID_UINT_KEYS = (
+    "hokusai.model_id_uint",
+    "model_id_uint",
+)
+_EVAL_ID_KEYS = (
+    "hokusai.eval_id",
+    "eval_id",
+)
+_BENCHMARK_SPEC_ID_KEYS = (
+    "hokusai.benchmark_spec_id",
+    "benchmark_spec_id",
+)
+_MAX_COST_KEYS = (
+    "hokusai.cost.max_usd",
+    "max_cost_usd",
+)
+_ACTUAL_COST_KEYS = (
+    "hokusai.cost.actual_usd",
+    "actual_cost_usd",
+)
 
 
 class MlflowClientProtocol(Protocol):
@@ -42,6 +76,18 @@ class MintOutcome:
     mint_result: TokenMintResult | None = None
     attestation_hash: str | None = None
     canonical_score_advanced: bool = False
+    idempotency_key: str | None = None
+
+
+@dataclass(slots=True)
+class _DeltaOneEventContext:
+    """Bundle of resolved facts the orchestrator threads into the event builder."""
+
+    spec: dict[str, Any] | None
+    guardrail_result: GuardrailResult
+    guardrail_total: int
+    candidate_run: Any
+    baseline_run: Any
 
 
 class DeltaOneMintOrchestrator:
@@ -68,7 +114,16 @@ class DeltaOneMintOrchestrator:
         decision = self.evaluator.evaluate(run_id, baseline_run_id)
         if not decision.accepted:
             return MintOutcome(status="not_eligible", decision=decision)
-        return self._execute_mint(decision)
+        candidate_run = self._client.get_run(decision.run_id)
+        baseline_run = self._client.get_run(decision.baseline_run_id)
+        context = _DeltaOneEventContext(
+            spec=None,
+            guardrail_result=GuardrailResult(passed=True, breaches=()),
+            guardrail_total=0,
+            candidate_run=candidate_run,
+            baseline_run=baseline_run,
+        )
+        return self._execute_mint(decision, event_context=context)
 
     def process_evaluation_with_spec(
         self: DeltaOneMintOrchestrator,
@@ -110,20 +165,38 @@ class DeltaOneMintOrchestrator:
             status = "guardrail_breach" if not guardrail_result.passed else "not_eligible"
             return MintOutcome(status=status, decision=decision)
 
-        return self._execute_mint(decision, acceptance.blocked_reason)
+        baseline_run = self._client.get_run(baseline_run_id)
+        context = _DeltaOneEventContext(
+            spec=spec,
+            guardrail_result=guardrail_result,
+            guardrail_total=len(guardrail_specs),
+            candidate_run=candidate_run,
+            baseline_run=baseline_run,
+        )
+        return self._execute_mint(decision, acceptance.blocked_reason, event_context=context)
 
     def _execute_mint(
         self: DeltaOneMintOrchestrator,
         decision: DeltaOneDecision,
         blocked_reason: str | None = None,
+        event_context: _DeltaOneEventContext | None = None,
     ) -> MintOutcome:
         attestation_hash, attestation_payload = self._create_signed_attestation(decision)
+        canonical_hash = normalize_attestation_hash(attestation_hash)
+
+        event = self._build_acceptance_event(
+            decision=decision,
+            attestation_hash=canonical_hash,
+            event_context=event_context,
+        )
+        idempotency_key = event.idempotency_key
+
         dispatch_deltaone_webhook_event(
             event_type=DELTAONE_ACHIEVED_EVENT,
-            payload=self._build_achieved_payload(decision, attestation_hash),
+            payload=event.model_dump(mode="json"),
         )
 
-        if self._already_finalized_mint(decision.run_id, attestation_hash):
+        if self._already_finalized_mint(decision.run_id, canonical_hash):
             synthetic_result = TokenMintResult(
                 status="success",
                 audit_ref="existing_mint",
@@ -131,20 +204,24 @@ class DeltaOneMintOrchestrator:
             )
             dispatch_deltaone_webhook_event(
                 event_type=DELTAONE_MINTED_EVENT,
-                payload=self._build_minted_payload(decision, attestation_hash, synthetic_result),
+                payload=self._build_minted_payload(
+                    decision, canonical_hash, idempotency_key, synthetic_result
+                ),
             )
             return MintOutcome(
                 status="success",
                 decision=decision,
                 mint_result=synthetic_result,
-                attestation_hash=attestation_hash,
+                attestation_hash=canonical_hash,
                 canonical_score_advanced=False,
+                idempotency_key=idempotency_key,
             )
 
         self._set_mint_tags(
             run_id=decision.run_id,
             status="requested",
-            attestation_hash=attestation_hash,
+            attestation_hash=canonical_hash,
+            idempotency_key=idempotency_key,
             audit_ref=None,
             error=None,
         )
@@ -153,17 +230,19 @@ class DeltaOneMintOrchestrator:
             model_id=decision.model_id,
             token_id=self._resolve_token_id(decision.model_id),
             delta_value=decision.delta_percentage_points,
-            idempotency_key=attestation_hash,
+            idempotency_key=idempotency_key,
             metadata={
                 "attestation": attestation_payload,
                 "deltaone_decision": self._decision_to_dict(decision),
+                "deltaone_event": event.model_dump(mode="json"),
             },
         )
 
         self._set_mint_tags(
             run_id=decision.run_id,
             status=mint_result.status,
-            attestation_hash=attestation_hash,
+            attestation_hash=canonical_hash,
+            idempotency_key=idempotency_key,
             audit_ref=mint_result.audit_ref,
             error=mint_result.error,
         )
@@ -175,16 +254,159 @@ class DeltaOneMintOrchestrator:
 
         dispatch_deltaone_webhook_event(
             event_type=DELTAONE_MINTED_EVENT,
-            payload=self._build_minted_payload(decision, attestation_hash, mint_result),
+            payload=self._build_minted_payload(
+                decision, canonical_hash, idempotency_key, mint_result
+            ),
         )
 
         return MintOutcome(
             status=mint_result.status,
             decision=decision,
             mint_result=mint_result,
-            attestation_hash=attestation_hash,
+            attestation_hash=canonical_hash,
             canonical_score_advanced=canonical_score_advanced,
+            idempotency_key=idempotency_key,
         )
+
+    def _build_acceptance_event(
+        self: DeltaOneMintOrchestrator,
+        decision: DeltaOneDecision,
+        attestation_hash: str,
+        event_context: _DeltaOneEventContext | None,
+    ) -> Any:
+        """Resolve on-chain fields and produce a ``DeltaOneAcceptanceEvent``."""
+        candidate_run = (
+            event_context.candidate_run
+            if event_context is not None
+            else self._client.get_run(decision.run_id)
+        )
+        baseline_run = (
+            event_context.baseline_run
+            if event_context is not None
+            else self._client.get_run(decision.baseline_run_id)
+        )
+        spec = event_context.spec if event_context is not None else None
+        guardrail_result = (
+            event_context.guardrail_result
+            if event_context is not None
+            else GuardrailResult(passed=True, breaches=())
+        )
+        guardrail_total = event_context.guardrail_total if event_context is not None else 0
+
+        candidate_tags = _run_tags(candidate_run)
+        candidate_params = _run_params(candidate_run)
+        candidate_metrics = _run_metrics(candidate_run)
+        baseline_metrics = _run_metrics(baseline_run)
+
+        eval_spec = (spec or {}).get("eval_spec") or {}
+        spec_metadata = (spec or {}).get("metadata") or {}
+        primary_metric_spec = eval_spec.get("primary_metric") or {}
+
+        # ----- model_id_uint -----
+        model_id_uint = _resolve_field(
+            spec_paths=[("model_id_uint",)],
+            spec=spec,
+            metadata=spec_metadata,
+            run_sources=(candidate_tags, candidate_params),
+            keys=_MODEL_ID_UINT_KEYS,
+        )
+        if model_id_uint is None:
+            raise ValueError(
+                "DeltaOne acceptance event requires model_id_uint. "
+                "Provide spec['model_id_uint'] or set tag/param "
+                "'hokusai.model_id_uint' on the candidate run."
+            )
+
+        # ----- eval_id -----
+        eval_id = _first_present(candidate_tags, _EVAL_ID_KEYS) or _first_present(
+            candidate_params, _EVAL_ID_KEYS
+        )
+        if eval_id is None:
+            raise ValueError(
+                "DeltaOne acceptance event requires eval_id. Set tag/param "
+                "'hokusai.eval_id' on the candidate run."
+            )
+
+        # ----- benchmark_spec_id -----
+        spec_id = _resolve_field(
+            spec_paths=[("spec_id",)],
+            spec=spec,
+            metadata=spec_metadata,
+            run_sources=(candidate_tags, candidate_params),
+            keys=_BENCHMARK_SPEC_ID_KEYS,
+        )
+        if spec_id is None:
+            raise ValueError(
+                "DeltaOne acceptance event requires benchmark_spec_id. Provide "
+                "spec['spec_id'] or set tag/param 'hokusai.benchmark_spec_id'."
+            )
+
+        # ----- primary metric names -----
+        primary_metric_name = (
+            primary_metric_spec.get("name") if primary_metric_spec else None
+        ) or decision.metric_name
+        primary_metric_mlflow_name = (
+            primary_metric_spec.get("mlflow_name") if primary_metric_spec else None
+        ) or derive_mlflow_name(primary_metric_name)
+
+        # ----- metric family -----
+        family_value = eval_spec.get("metric_family")
+        if hasattr(family_value, "value"):  # StatisticalFamily enum
+            metric_family = family_value.value
+        else:
+            metric_family = family_value or "proportion"
+
+        # ----- scores -----
+        candidate_score = _lookup_metric(
+            candidate_metrics, primary_metric_mlflow_name, primary_metric_name
+        )
+        baseline_score = _lookup_metric(
+            baseline_metrics, primary_metric_mlflow_name, primary_metric_name
+        )
+
+        # ----- delta threshold -----
+        threshold = primary_metric_spec.get("threshold")
+        if threshold is None:
+            # DeltaOneEvaluator stores threshold in percentage points; convert
+            # to the [0,1] proportional band the bps helper expects.
+            threshold = float(getattr(self.evaluator, "delta_threshold_pp", 0.0)) / 100.0
+
+        # ----- costs -----
+        max_cost = _resolve_field(
+            spec_paths=[("eval_spec", "cost_policy", "max_cost_usd"), ("max_cost_usd",)],
+            spec=spec,
+            metadata=spec_metadata,
+            run_sources=(candidate_tags, candidate_params),
+            keys=_MAX_COST_KEYS,
+        )
+        actual_cost = _resolve_field(
+            spec_paths=[("actual_cost_usd",)],
+            spec=spec,
+            metadata=spec_metadata,
+            run_sources=(candidate_metrics, candidate_tags, candidate_params),
+            keys=_ACTUAL_COST_KEYS,
+        )
+
+        inputs = DeltaOneEventInputs(
+            model_id=decision.model_id,
+            model_id_uint=model_id_uint,
+            eval_id=str(eval_id),
+            mlflow_run_id=decision.run_id,
+            benchmark_spec_id=str(spec_id),
+            primary_metric_name=str(primary_metric_name),
+            primary_metric_mlflow_name=str(primary_metric_mlflow_name),
+            metric_family=str(metric_family),
+            baseline_score=float(baseline_score),
+            candidate_score=float(candidate_score),
+            delta_threshold=float(threshold),
+            attestation_hash=attestation_hash,
+            guardrail_total=int(guardrail_total),
+            guardrail_result=guardrail_result,
+            max_cost_usd=max_cost if max_cost is not None else 0,
+            actual_cost_usd=actual_cost if actual_cost is not None else 0,
+            evaluated_at=decision.evaluated_at.isoformat(),
+        )
+        return build_deltaone_acceptance_event(inputs)
 
     def _create_signed_attestation(
         self: DeltaOneMintOrchestrator, decision: DeltaOneDecision
@@ -225,12 +447,13 @@ class DeltaOneMintOrchestrator:
         run_id: str,
         status: str,
         attestation_hash: str,
+        idempotency_key: str,
         audit_ref: str | None,
         error: str | None,
     ) -> None:
         self._client.set_tag(run_id, "hokusai.mint.status", status)
         self._client.set_tag(run_id, "hokusai.mint.attestation_hash", attestation_hash)
-        self._client.set_tag(run_id, "hokusai.mint.idempotency_key", attestation_hash)
+        self._client.set_tag(run_id, "hokusai.mint.idempotency_key", idempotency_key)
         self._client.set_tag(
             run_id,
             "hokusai.mint.updated_at",
@@ -260,35 +483,22 @@ class DeltaOneMintOrchestrator:
         }
 
     @staticmethod
-    def _build_achieved_payload(
-        decision: DeltaOneDecision, attestation_hash: str
-    ) -> dict[str, Any]:
-        return {
-            "event_type": DELTAONE_ACHIEVED_EVENT,
-            "run_id": decision.run_id,
-            "baseline_run_id": decision.baseline_run_id,
-            "model_id": decision.model_id,
-            "dataset_hash": decision.dataset_hash,
-            "metric_name": decision.metric_name,
-            "delta_percentage_points": decision.delta_percentage_points,
-            "attestation_hash": attestation_hash,
-            "evaluated_at": decision.evaluated_at.isoformat(),
-        }
-
-    @staticmethod
     def _build_minted_payload(
         decision: DeltaOneDecision,
         attestation_hash: str,
+        idempotency_key: str,
         mint_result: TokenMintResult,
     ) -> dict[str, Any]:
         return {
             "event_type": DELTAONE_MINTED_EVENT,
+            "event_version": DELTAONE_ACCEPTANCE_EVENT_VERSION,
             "run_id": decision.run_id,
             "baseline_run_id": decision.baseline_run_id,
             "model_id": decision.model_id,
             "dataset_hash": decision.dataset_hash,
             "metric_name": decision.metric_name,
             "attestation_hash": attestation_hash,
+            "idempotency_key": idempotency_key,
             "mint_status": mint_result.status,
             "mint_audit_ref": mint_result.audit_ref,
             "mint_error": mint_result.error,
@@ -373,3 +583,87 @@ def _build_blocked_reason(
     for breach in guardrail_result.breaches:
         parts.append(f"guardrail_breach:{breach.metric_name}:{breach.reason}")
     return "; ".join(parts) if parts else "unknown"
+
+
+def _run_tags(run: Any) -> dict[str, Any]:
+    return getattr(getattr(run, "data", None), "tags", None) or {}
+
+
+def _run_params(run: Any) -> dict[str, Any]:
+    return getattr(getattr(run, "data", None), "params", None) or {}
+
+
+def _run_metrics(run: Any) -> dict[str, float]:
+    return getattr(getattr(run, "data", None), "metrics", None) or {}
+
+
+def _first_present(source: dict[str, Any], keys: tuple[str, ...]) -> Any | None:
+    for key in keys:
+        value = source.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        return value
+    return None
+
+
+def _is_present(value: Any) -> bool:
+    """Treat ``None`` and whitespace-only strings as absent."""
+    if value is None:
+        return False
+    if isinstance(value, str) and not value.strip():
+        return False
+    return True
+
+
+def _resolve_spec_path(spec: dict[str, Any], path: tuple[str, ...]) -> Any | None:
+    cursor: Any = spec
+    for part in path:
+        if not isinstance(cursor, dict):
+            return None
+        cursor = cursor.get(part)
+        if cursor is None:
+            return None
+    return cursor if _is_present(cursor) else None
+
+
+def _resolve_field(
+    *,
+    spec_paths: list[tuple[str, ...]],
+    spec: dict[str, Any] | None,
+    metadata: dict[str, Any],
+    run_sources: tuple[dict[str, Any], ...],
+    keys: tuple[str, ...],
+) -> Any | None:
+    """Resolve a field from spec dict-paths, then spec metadata, then run sources."""
+    if spec:
+        for path in spec_paths:
+            value = _resolve_spec_path(spec, path)
+            if value is not None:
+                return value
+    if metadata:
+        for key in keys:
+            value = metadata.get(key)
+            if _is_present(value):
+                return value
+    for source in run_sources:
+        value = _first_present(source, keys)
+        if value is not None:
+            return value
+    return None
+
+
+def _lookup_metric(
+    metrics: dict[str, float],
+    mlflow_name: str,
+    canonical_name: str,
+) -> float:
+    if mlflow_name and mlflow_name in metrics:
+        return float(metrics[mlflow_name])
+    if canonical_name in metrics:
+        return float(metrics[canonical_name])
+    raise ValueError(
+        f"Primary metric not found in run. Tried mlflow_name={mlflow_name!r}, "
+        f"canonical={canonical_name!r}; available={sorted(metrics.keys())}"
+    )

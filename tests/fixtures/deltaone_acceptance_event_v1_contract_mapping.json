@@ -1,0 +1,58 @@
+{
+  "_comment": "Mapping fixture for the on-chain DeltaVerifier struct. See docs/deltaone_acceptance_event.md and hokusai-token DeltaVerifier.sol. Drift here should fail CI on either side.",
+  "event": {
+    "event_version": "deltaone.acceptance/v1",
+    "model_id": "model-x",
+    "model_id_uint": "42",
+    "eval_id": "eval-1",
+    "mlflow_run_id": "run-cand",
+    "benchmark_spec_id": "spec-1",
+    "primary_metric_name": "accuracy",
+    "primary_metric_mlflow_name": "accuracy",
+    "metric_family": "proportion",
+    "baseline_score_bps": 8000,
+    "candidate_score_bps": 8500,
+    "delta_bps": 500,
+    "delta_threshold_bps": 100,
+    "attestation_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "idempotency_key": "ada2c208381a18a6cb477b13e86722113b35a81edde383cc5a0bec296c35d4f8",
+    "guardrails": {
+      "total_guardrails": 1,
+      "guardrails_passed": 1,
+      "breaches": []
+    },
+    "max_cost_usd_micro": 1000000,
+    "actual_cost_usd_micro": 800000,
+    "evaluated_at": "2026-05-04T00:00:00Z"
+  },
+  "expected_contract_struct": {
+    "pipelineRunId": "eval-1",
+    "modelId": "42",
+    "baselineMetrics": {
+      "accuracy": 8000,
+      "latencyP50Ms": 0,
+      "latencyP99Ms": 0,
+      "samplesProcessed": 0
+    },
+    "newMetrics": {
+      "accuracy": 8500,
+      "latencyP50Ms": 0,
+      "latencyP99Ms": 0,
+      "samplesProcessed": 0
+    },
+    "maxCostUsd": 1000000,
+    "actualCostUsd": 800000,
+    "attestationHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "idempotencyKey": "0xada2c208381a18a6cb477b13e86722113b35a81edde383cc5a0bec296c35d4f8"
+  },
+  "field_mapping": {
+    "pipelineRunId": "eval_id",
+    "modelId": "model_id_uint",
+    "baselineMetrics.accuracy": "baseline_score_bps",
+    "newMetrics.accuracy": "candidate_score_bps",
+    "maxCostUsd": "max_cost_usd_micro",
+    "actualCostUsd": "actual_cost_usd_micro",
+    "attestationHash": "0x + attestation_hash",
+    "idempotencyKey": "0x + idempotency_key"
+  }
+}

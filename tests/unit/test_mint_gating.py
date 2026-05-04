@@ -27,24 +27,61 @@ HASH_B = "sha256:" + "b" * 64
 
 
 class _FakeMlflowClient:
+    """Per-run fake MLflow client.
+
+    When constructed with ``run_metrics`` (legacy form), the same metrics dict
+    is returned for every run id and ``initial_tags`` is shared across runs.
+    The ``runs`` form lets callers register distinct candidate/baseline runs.
+    """
+
     def __init__(
         self,
         run_metrics: dict[str, float] | None = None,
         initial_tags: dict[str, str] | None = None,
+        runs: dict[str, dict[str, dict]] | None = None,
     ) -> None:
-        self._run_metrics = run_metrics or {}
-        self.tags = dict(initial_tags or {})
+        if runs is not None:
+            self._runs = {
+                run_id: {
+                    "metrics": dict(payload.get("metrics", {})),
+                    "tags": dict(payload.get("tags", {})),
+                    "params": dict(payload.get("params", {})),
+                }
+                for run_id, payload in runs.items()
+            }
+            self._default = None
+            self.tags = self._runs[next(iter(self._runs))]["tags"]
+        else:
+            self._runs = {}
+            self._default = {
+                "metrics": dict(run_metrics or {}),
+                "tags": dict(initial_tags or {}),
+                "params": {},
+            }
+            self.tags = self._default["tags"]
 
-    def get_run(self, _run_id: str):
+    def _bucket(self, run_id: str) -> dict:
+        if self._runs:
+            if run_id not in self._runs:
+                self._runs[run_id] = {"metrics": {}, "tags": {}, "params": {}}
+            return self._runs[run_id]
+        return self._default
+
+    def get_run(self, run_id: str):
+        bucket = self._bucket(run_id)
         return SimpleNamespace(
             data=SimpleNamespace(
-                metrics=self._run_metrics,
-                tags=self.tags,
+                metrics=bucket["metrics"],
+                tags=bucket["tags"],
+                params=bucket["params"],
             )
         )
 
-    def set_tag(self, _run_id: str, key: str, value: str) -> None:
-        self.tags[key] = value
+    def set_tag(self, run_id: str, key: str, value: str) -> None:
+        bucket = self._bucket(run_id)
+        bucket["tags"][key] = value
+        if not self._runs:
+            self.tags = bucket["tags"]
 
 
 def _make_decision(accepted: bool = True, reason: str = "accepted") -> DeltaOneDecision:
@@ -68,14 +105,26 @@ def _make_decision(accepted: bool = True, reason: str = "accepted") -> DeltaOneD
 def _make_spec_with_guardrails(guardrails: list[dict]) -> dict:
     return {
         "model_id": "model-x",
+        "model_id_uint": "42",
+        "spec_id": "spec-1",
         "eval_spec": {
+            "metric_family": "proportion",
             "primary_metric": {
                 "name": "workflow_success_rate_under_budget",
+                "mlflow_name": "workflow_success_rate_under_budget",
                 "direction": "higher_is_better",
+                "threshold": 0.01,
             },
             "guardrails": guardrails,
         },
     }
+
+
+_CANDIDATE_TAGS = {
+    "hokusai.model_id_uint": "42",
+    "hokusai.eval_id": "eval-1",
+    "hokusai.benchmark_spec_id": "spec-1",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -87,13 +136,16 @@ class TestProcessEvaluationWithSpec:
     def _make_orchestrator(self, decision, run_metrics=None, monkeypatch=None):
         evaluator = Mock()
         evaluator.evaluate_for_model.return_value = decision
+        evaluator.delta_threshold_pp = 1.0
         mint_hook = Mock()
         mint_hook.mint.return_value = TokenMintResult(
             status="success",
             audit_ref="audit-ok",
             timestamp=datetime.now(timezone.utc),
         )
-        client = _FakeMlflowClient(run_metrics=run_metrics or {})
+        client = _FakeMlflowClient(
+            run_metrics=run_metrics or {}, initial_tags=dict(_CANDIDATE_TAGS)
+        )
         orch = DeltaOneMintOrchestrator(
             evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
         )
@@ -184,6 +236,30 @@ class TestProcessEvaluationWithSpec:
         assert "hokusai.guardrail.cost_per_call.status" in client.tags
         assert client.tags["hokusai.guardrail.cost_per_call.status"] == "fail"
 
+    def test_guardrail_summary_propagated_to_event(self, monkeypatch):
+        dispatch_mock = Mock(return_value=[])
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            dispatch_mock,
+        )
+        decision = _make_decision(accepted=True)
+        spec = _make_spec_with_guardrails(
+            [{"name": "cost_per_call", "direction": "lower_is_better", "threshold": 0.10}]
+        )
+        run_metrics = {"workflow_success_rate_under_budget": 0.87, "cost_per_call": 0.05}
+        orch, mint_hook, client = self._make_orchestrator(decision, run_metrics)
+
+        outcome = orch.process_evaluation_with_spec("run-cand", "run-base", spec)
+
+        assert outcome.status == "success"
+        achieved = dispatch_mock.call_args_list[0].kwargs["payload"]
+        assert achieved["event_version"] == "deltaone.acceptance/v1"
+        assert achieved["guardrails"] == {
+            "total_guardrails": 1,
+            "guardrails_passed": 1,
+            "breaches": [],
+        }
+
 
 # ---------------------------------------------------------------------------
 # Wavemill workflow_success_rate_under_budget regression
@@ -207,11 +283,12 @@ class TestWavemillProportionRegression:
         run_metrics = {"workflow_success_rate_under_budget": 0.87, "budget_utilization": 0.85}
         evaluator = Mock()
         evaluator.evaluate_for_model.return_value = decision
+        evaluator.delta_threshold_pp = 1.0
         mint_hook = Mock()
         mint_hook.mint.return_value = TokenMintResult(
             status="success", audit_ref="ok", timestamp=datetime.now(timezone.utc)
         )
-        client = _FakeMlflowClient(run_metrics=run_metrics)
+        client = _FakeMlflowClient(run_metrics=run_metrics, initial_tags=dict(_CANDIDATE_TAGS))
         orch = DeltaOneMintOrchestrator(
             evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
         )
@@ -229,8 +306,9 @@ class TestWavemillProportionRegression:
         run_metrics = {"workflow_success_rate_under_budget": 0.87, "budget_utilization": 1.20}
         evaluator = Mock()
         evaluator.evaluate_for_model.return_value = decision
+        evaluator.delta_threshold_pp = 1.0
         mint_hook = Mock()
-        client = _FakeMlflowClient(run_metrics=run_metrics)
+        client = _FakeMlflowClient(run_metrics=run_metrics, initial_tags=dict(_CANDIDATE_TAGS))
         orch = DeltaOneMintOrchestrator(
             evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
         )
