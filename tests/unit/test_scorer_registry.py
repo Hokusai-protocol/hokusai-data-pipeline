@@ -274,7 +274,7 @@ def test_mean_per_n_metadata(ref):
     meta = scorer.metadata
     assert meta.scorer_ref == ref
     assert meta.output_metric_keys == (ref,)
-    assert meta.metric_family == MetricFamily.OUTCOME
+    assert meta.metric_family == MetricFamily.QUALITY
     assert meta.aggregation == Aggregation.MEAN_PER_N
     assert len(meta.source_hash) == 64
     assert all(c in "0123456789abcdef" for c in meta.source_hash)

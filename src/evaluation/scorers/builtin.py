@@ -44,18 +44,21 @@ def _mean_per_ten_thousand(values: list[float]) -> float:
     return _mean_per_n(values, 10000)
 
 
-_BUILTIN_SCORERS = [
+_OUTCOME_SCORERS = [
     ("mean", _mean, Aggregation.MEAN),
     ("sum", _sum, Aggregation.SUM),
     ("pass_rate", _pass_rate, Aggregation.PASS_RATE),
     ("min", _min, Aggregation.MIN),
     ("max", _max, Aggregation.MAX),
+]
+
+_CONTINUOUS_SCORERS = [
     ("mean_per_hundred", _mean_per_hundred, Aggregation.MEAN_PER_N),
     ("mean_per_thousand", _mean_per_thousand, Aggregation.MEAN_PER_N),
     ("mean_per_ten_thousand", _mean_per_ten_thousand, Aggregation.MEAN_PER_N),
 ]
 
-for _ref, _fn, _agg in _BUILTIN_SCORERS:
+for _ref, _fn, _agg in _OUTCOME_SCORERS:
     register_scorer(
         _ref,
         callable_=_fn,
@@ -63,6 +66,18 @@ for _ref, _fn, _agg in _BUILTIN_SCORERS:
         input_schema=_INPUT_SCHEMA,
         output_metric_keys=(_ref,),
         metric_family=MetricFamily.OUTCOME,
+        aggregation=_agg,
+        description=f"Built-in {_ref} scorer over a list of numeric values.",
+    )
+
+for _ref, _fn, _agg in _CONTINUOUS_SCORERS:
+    register_scorer(
+        _ref,
+        callable_=_fn,
+        version="1.0.0",
+        input_schema=_INPUT_SCHEMA,
+        output_metric_keys=(_ref,),
+        metric_family=MetricFamily.QUALITY,
         aggregation=_agg,
         description=f"Built-in {_ref} scorer over a list of numeric values.",
     )
