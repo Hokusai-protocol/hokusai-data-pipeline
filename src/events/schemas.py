@@ -1,9 +1,12 @@
 """Event schemas for Hokusai ML Platform."""
 
 import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 try:
     from src.utils.schema_validator import validate_json_schema
@@ -178,3 +181,123 @@ class MessageEnvelope:
     def increment_retry(self) -> None:
         """Increment retry count."""
         self.retry_count += 1
+
+
+# ---------------------------------------------------------------------------
+# MintRequest schemas (HOK-1276)
+# Published to hokusai:mint_requests on DeltaOne acceptance.
+# ---------------------------------------------------------------------------
+
+MINT_REQUEST_SCHEMA_VERSION = "1.0"
+MINT_REQUEST_MESSAGE_TYPE = "mint_request"
+_UINT256_MAX = 2**256 - 1
+_ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
+_SHA256_HEX_RE = re.compile(r"^0x[0-9a-f]{64}$")
+
+
+class MintRequestContributor(BaseModel):
+    """A single contributor's wallet address and allocation weight for a MintRequest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    wallet_address: str = Field(
+        ..., description="EIP-55 checksummed or lowercase 0x-prefixed Ethereum address"
+    )
+    weight_bps: int = Field(..., ge=0, le=10000, description="Allocation weight in basis points")
+
+    @field_validator("wallet_address")
+    @classmethod
+    def _validate_wallet(cls, v: str) -> str:
+        if not _ETH_ADDRESS_RE.match(v):
+            raise ValueError(f"wallet_address must match 0x[a-fA-F0-9]{{40}}, got {v!r}")
+        return v.lower()
+
+
+class MintRequestEvaluation(BaseModel):
+    """Evaluation scores and metadata embedded in a MintRequest."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    metric_name: str = Field(..., min_length=1)
+    metric_family: str = Field(..., min_length=1)
+
+    # Scores in basis points
+    baseline_score_bps: int = Field(..., ge=0, le=10000)
+    new_score_bps: int = Field(..., ge=0, le=10000)
+
+    # Cost fields in USDC micro-units (6 decimals)
+    max_cost_usd_micro: int = Field(..., ge=0)
+    actual_cost_usd_micro: int = Field(..., ge=0)
+
+    # Statistical metadata (optional but recommended)
+    sample_size_baseline: Optional[int] = Field(None, ge=0)
+    sample_size_candidate: Optional[int] = Field(None, ge=0)
+    ci_low_bps: Optional[int] = Field(None, ge=0, le=10000)
+    ci_high_bps: Optional[int] = Field(None, ge=0, le=10000)
+    p_value: Optional[float] = Field(None, ge=0.0, le=1.0)
+    effect_size_bps: Optional[int] = Field(None, ge=0, le=10000)
+    statistical_method: Optional[str] = None
+    statistical_reason: Optional[str] = None
+
+
+class MintRequest(BaseModel):
+    """MintRequest message published to hokusai:mint_requests on DeltaOne acceptance.
+
+    All score and delta fields are in basis points (0-10000).
+    Cost fields are in USDC micro-units (6 decimals).
+    All SHA-256 hashes are lowercase 0x-prefixed.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    # Envelope fields
+    message_type: Literal["mint_request"] = MINT_REQUEST_MESSAGE_TYPE
+    schema_version: Literal["1.0"] = MINT_REQUEST_SCHEMA_VERSION
+
+    # Message identity
+    message_id: str = Field(..., min_length=1, description="UUID or unique message identifier")
+    timestamp: str = Field(..., min_length=1, description="ISO-8601 UTC timestamp")
+
+    # Model and eval references
+    model_id: str = Field(..., min_length=1)
+    model_id_uint: str = Field(..., description="uint256 as decimal string")
+    eval_id: str = Field(..., min_length=1)
+
+    # Cryptographic anchors
+    attestation_hash: str = Field(..., description="SHA-256 of HEM payload, 0x-prefixed 64-hex")
+    idempotency_key: str = Field(
+        ..., description="sha256(model_id_uint:eval_id:attestation_hash), 0x-prefixed"
+    )
+
+    # Evaluation payload
+    evaluation: MintRequestEvaluation
+
+    # Contributors — must sum to 10000 bps
+    contributors: list[MintRequestContributor] = Field(..., min_length=1)
+
+    @field_validator("model_id_uint")
+    @classmethod
+    def _validate_model_id_uint(cls, v: str) -> str:
+        try:
+            n = int(v)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"model_id_uint must be a decimal integer string, got {v!r}") from exc
+        if n < 0 or n > _UINT256_MAX:
+            raise ValueError(f"model_id_uint {v!r} is outside uint256 range")
+        return v
+
+    @field_validator("attestation_hash", "idempotency_key")
+    @classmethod
+    def _validate_0x_sha256(cls, v: str) -> str:
+        if not _SHA256_HEX_RE.match(v):
+            raise ValueError(f"hash field must be 0x-prefixed lowercase 64-hex SHA-256, got {v!r}")
+        return v
+
+    @model_validator(mode="after")
+    def _validate_contributors_sum(self) -> "MintRequest":
+        total = sum(c.weight_bps for c in self.contributors)
+        if total != 10000:
+            raise ValueError(f"contributors weight_bps must sum to 10000; got {total}")
+        if len(self.contributors) > 100:
+            raise ValueError("contributors list exceeds maximum of 100 entries")
+        return self
