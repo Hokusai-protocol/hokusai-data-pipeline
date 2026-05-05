@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
+import pandas as pd
 import pytest
 
 # Auth-hook note: fake MLflow clients here intentionally avoid live
@@ -10,7 +14,11 @@ import pytest
 from src.evaluation.deltaone_evaluator import (
     DeltaOneEvaluator,
     _calculate_percentage_point_difference,
+    _hem_to_array,
+    _reconstruct_array,
 )
+from src.evaluation.hem import HEM, PerRowArtifact
+from src.evaluation.tags import PER_ROW_ARTIFACT_URI_TAG
 
 
 def _make_run(
@@ -438,3 +446,259 @@ def test_evaluate_for_model_rejects_dataset_not_in_spec() -> None:
 
     assert decision.accepted is False
     assert decision.reason == "dataset_hash_not_in_active_spec"
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_HASH = "sha256:" + "a" * 64
+
+
+def _make_hem(
+    *,
+    metric_name: str = "accuracy",
+    metric_value: float = 0.75,
+    sample_size: int = 4,
+    per_row_artifact: PerRowArtifact | None = None,
+    unit_of_analysis: str | None = None,
+) -> HEM:
+    return HEM(
+        metric_name=metric_name,
+        metric_value=metric_value,
+        sample_size=sample_size,
+        dataset_hash=_HASH,
+        timestamp=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        source_mlflow_run_id="run-1",
+        model_id="model-1",
+        experiment_id="1",
+        per_row_artifact=per_row_artifact,
+        unit_of_analysis=unit_of_analysis,
+    )
+
+
+def _write_parquet(path: Path, df: pd.DataFrame) -> str:
+    parquet_path = str(path / "per_row.parquet")
+    df.to_parquet(parquet_path, index=False)
+    return parquet_path
+
+
+# ---------------------------------------------------------------------------
+# _hem_to_array tests
+# ---------------------------------------------------------------------------
+
+
+class TestHemToArrayPerRowPath:
+    def test_projects_mlflow_name_column_exactly(self, tmp_path: Path) -> None:
+        df = pd.DataFrame({"row_id": ["0", "1", "2", "3"], "accuracy": [1.0, 0.0, 1.0, 1.0]})
+        parquet_path = _write_parquet(tmp_path, df)
+
+        hem = _make_hem(per_row_artifact=PerRowArtifact(uri=parquet_path))
+        values, unit_ids = _hem_to_array(hem, "proportion", "accuracy")
+
+        assert np.allclose(values, [1.0, 0.0, 1.0, 1.0])
+        assert unit_ids is None
+
+    def test_drops_nans_and_preserves_unit_id_alignment(self, tmp_path: Path) -> None:
+        df = pd.DataFrame(
+            {
+                "accuracy": [1.0, float("nan"), 0.0, 1.0],
+                "unit_id": ["a", "b", "a", "b"],
+            }
+        )
+        parquet_path = _write_parquet(tmp_path, df)
+
+        hem = _make_hem(
+            per_row_artifact=PerRowArtifact(uri=parquet_path), unit_of_analysis="account_id"
+        )
+        values, unit_ids = _hem_to_array(hem, "proportion", "accuracy")
+
+        assert len(values) == 3
+        assert np.allclose(values, [1.0, 0.0, 1.0])
+        assert unit_ids is not None
+        assert list(unit_ids) == ["a", "a", "b"]
+
+    def test_runs_uri_downloads_via_mlflow_artifacts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        df = pd.DataFrame({"accuracy": [1.0, 0.0, 1.0]})
+        parquet_path = _write_parquet(tmp_path, df)
+
+        fake_mlflow = SimpleNamespace(
+            artifacts=SimpleNamespace(download_artifacts=lambda artifact_uri: parquet_path)
+        )
+        monkeypatch.setitem(sys.modules, "mlflow", fake_mlflow)
+
+        hem = _make_hem(
+            per_row_artifact=PerRowArtifact(uri="runs:/run-abc123/eval_results/per_row.parquet")
+        )
+        values, unit_ids = _hem_to_array(hem, "proportion", "accuracy")
+
+        assert len(values) == 3
+        assert unit_ids is None
+
+    def test_fallback_when_metric_column_absent(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        df = pd.DataFrame({"row_id": ["0", "1"], "other_metric": [1.0, 0.0]})
+        parquet_path = _write_parquet(tmp_path, df)
+
+        hem = _make_hem(
+            metric_value=0.5, sample_size=2, per_row_artifact=PerRowArtifact(uri=parquet_path)
+        )
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="src.evaluation.deltaone_evaluator"):
+            values, unit_ids = _hem_to_array(hem, "proportion", "accuracy")
+
+        assert len(values) == 2
+        assert unit_ids is None
+        assert any("absent" in r.message or "column" in r.message.lower() for r in caplog.records)
+
+    def test_fallback_on_artifact_read_failure(self, caplog: pytest.LogCaptureFixture) -> None:
+        hem = _make_hem(
+            metric_value=0.5,
+            sample_size=10,
+            per_row_artifact=PerRowArtifact(uri="/nonexistent/path/per_row.parquet"),
+        )
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="src.evaluation.deltaone_evaluator"):
+            values, unit_ids = _hem_to_array(hem, "proportion", "accuracy")
+
+        assert len(values) == 10
+        assert unit_ids is None
+        assert any("failed to load" in r.message.lower() for r in caplog.records)
+
+    def test_fallback_when_all_values_null(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        df = pd.DataFrame({"accuracy": [float("nan"), float("nan")]})
+        parquet_path = _write_parquet(tmp_path, df)
+
+        hem = _make_hem(
+            metric_value=0.5, sample_size=5, per_row_artifact=PerRowArtifact(uri=parquet_path)
+        )
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="src.evaluation.deltaone_evaluator"):
+            values, unit_ids = _hem_to_array(hem, "proportion", "accuracy")
+
+        assert len(values) == 5
+        assert unit_ids is None
+
+
+class TestHemToArrayFallbackPath:
+    def test_proportion_reconstruction_matches_legacy_exactly(self) -> None:
+        hem = _make_hem(metric_value=0.75, sample_size=1000)
+        legacy_arr, _ = _hem_to_array(hem, "proportion")
+        reconstructed = _reconstruct_array(hem, "proportion")
+        assert np.allclose(legacy_arr, reconstructed)
+
+    def test_proportion_fallback_bitfor_bit_no_per_row(self) -> None:
+        hem = _make_hem(metric_value=0.6, sample_size=100)
+        values, unit_ids = _hem_to_array(hem, "proportion")
+        assert len(values) == 100
+        assert float(np.mean(values)) == pytest.approx(0.6)
+        assert unit_ids is None
+
+    def test_continuous_fallback_is_constant_array(self) -> None:
+        hem = _make_hem(metric_value=3.14, sample_size=50)
+        values, unit_ids = _hem_to_array(hem, "continuous")
+        assert len(values) == 50
+        assert np.all(values == 3.14)
+        assert unit_ids is None
+
+    def test_zero_inflated_fallback_is_constant_array(self) -> None:
+        hem = _make_hem(metric_value=2.5, sample_size=20)
+        values, unit_ids = _hem_to_array(hem, "zero_inflated_continuous")
+        assert len(values) == 20
+        assert np.all(values == 2.5)
+
+
+class TestHemToArrayUnitIds:
+    def test_declared_column_name_used_for_unit_ids(self, tmp_path: Path) -> None:
+        df = pd.DataFrame({"accuracy": [1.0, 0.0, 1.0], "account_id": ["a1", "a2", "a1"]})
+        parquet_path = _write_parquet(tmp_path, df)
+
+        hem = _make_hem(
+            per_row_artifact=PerRowArtifact(uri=parquet_path), unit_of_analysis="account_id"
+        )
+        _, unit_ids = _hem_to_array(hem, "proportion", "accuracy")
+
+        assert unit_ids is not None
+        assert list(unit_ids) == ["a1", "a2", "a1"]
+
+    def test_falls_back_to_unit_id_column_when_declared_name_absent(self, tmp_path: Path) -> None:
+        df = pd.DataFrame({"accuracy": [1.0, 0.0], "unit_id": ["u1", "u2"]})
+        parquet_path = _write_parquet(tmp_path, df)
+
+        hem = _make_hem(
+            per_row_artifact=PerRowArtifact(uri=parquet_path), unit_of_analysis="account_id"
+        )
+        _, unit_ids = _hem_to_array(hem, "proportion", "accuracy")
+
+        assert unit_ids is not None
+        assert list(unit_ids) == ["u1", "u2"]
+
+    def test_returns_none_unit_ids_when_column_missing(self, tmp_path: Path) -> None:
+        df = pd.DataFrame({"accuracy": [1.0, 0.0, 1.0]})
+        parquet_path = _write_parquet(tmp_path, df)
+
+        hem = _make_hem(
+            per_row_artifact=PerRowArtifact(uri=parquet_path), unit_of_analysis="account_id"
+        )
+        values, unit_ids = _hem_to_array(hem, "proportion", "accuracy")
+
+        assert len(values) == 3
+        assert unit_ids is None
+
+
+# ---------------------------------------------------------------------------
+# _extract_metrics_from_run: per_row_artifact population
+# ---------------------------------------------------------------------------
+
+
+class TestExtractMetricsPerRowArtifact:
+    def _make_run(self, *, per_row_uri: str | None = None) -> SimpleNamespace:
+        tags: dict[str, str] = {
+            "hokusai.primary_metric": "accuracy",
+            "hokusai.dataset.num_samples": "100",
+            "hokusai.dataset.hash": _HASH,
+            "hokusai.model_id": "model-x",
+        }
+        if per_row_uri is not None:
+            tags[PER_ROW_ARTIFACT_URI_TAG] = per_row_uri
+        return SimpleNamespace(
+            info=SimpleNamespace(run_id="run-1", start_time=None, experiment_id="1"),
+            data=SimpleNamespace(metrics={"accuracy": 0.8}, tags=tags, params={}),
+        )
+
+    def test_populates_per_row_artifact_from_tag(self) -> None:
+        uri = "runs:/run-abc123/eval_results/per_row.parquet"
+        run = self._make_run(per_row_uri=uri)
+        client = _FakeMlflowClient({"run-1": run})
+        evaluator = DeltaOneEvaluator(mlflow_client=client)
+
+        hem = evaluator._extract_metrics_from_run("run-1")
+
+        assert hem.per_row_artifact is not None
+        assert hem.per_row_artifact.uri == uri
+
+    def test_per_row_artifact_is_none_when_tag_absent(self) -> None:
+        run = self._make_run(per_row_uri=None)
+        client = _FakeMlflowClient({"run-1": run})
+        evaluator = DeltaOneEvaluator(mlflow_client=client)
+
+        hem = evaluator._extract_metrics_from_run("run-1")
+
+        assert hem.per_row_artifact is None
+
+    def test_unit_of_analysis_propagated(self) -> None:
+        run = self._make_run()
+        client = _FakeMlflowClient({"run-1": run})
+        evaluator = DeltaOneEvaluator(mlflow_client=client)
+
+        hem = evaluator._extract_metrics_from_run("run-1", unit_of_analysis="account_id")
+
+        assert hem.unit_of_analysis == "account_id"

@@ -13,7 +13,8 @@ from typing import Any, Protocol
 import numpy as np
 
 from src.evaluation import comparators as _comparators
-from src.evaluation.hem import HEM
+from src.evaluation.hem import HEM, PerRowArtifact
+from src.evaluation.tags import PER_ROW_ARTIFACT_URI_TAG
 from src.evaluation.webhook_config import DELTAONE_EVENT_TYPE, load_deltaone_webhook_endpoints
 from src.evaluation.webhook_delivery import send_webhook_with_retry
 from src.utils.metric_naming import derive_mlflow_name
@@ -311,17 +312,20 @@ class DeltaOneEvaluator:
         expected_dataset_hash = _normalize_dataset_hash(str(spec["dataset_version"]))
         min_examples = _derive_min_examples_from_spec(spec, default=self.min_examples)
         expected_mlflow_name = _derive_expected_mlflow_name(spec)
+        unit_of_analysis = (spec.get("eval_spec") or {}).get("unit_of_analysis")
 
         evaluated_at = datetime.now(timezone.utc)
         candidate = self._extract_metrics_from_run(
             mlflow_run_id,
             expected_metric_name=metric_name,
             expected_mlflow_name=expected_mlflow_name,
+            unit_of_analysis=unit_of_analysis,
         )
         baseline = self._extract_metrics_from_run(
             baseline_mlflow_run_id,
             expected_metric_name=metric_name,
             expected_mlflow_name=expected_mlflow_name,
+            unit_of_analysis=unit_of_analysis,
         )
 
         self._log_audit_event(
@@ -401,15 +405,28 @@ class DeltaOneEvaluator:
             return decision
 
         metric_family = (spec.get("eval_spec") or {}).get("metric_family", "proportion")
-        treatment_arr = _hem_to_array(candidate, metric_family)
-        control_arr = _hem_to_array(baseline, metric_family)
+        treatment_arr, treatment_unit_ids = _hem_to_array(
+            candidate, metric_family, expected_mlflow_name
+        )
+        control_arr, control_unit_ids = _hem_to_array(baseline, metric_family, expected_mlflow_name)
+
+        dispatch_kwargs: dict[str, Any] = {
+            "alpha": 0.05,
+            "min_effect": self.delta_threshold_pp / 100.0,
+        }
+        if (
+            metric_family == "zero_inflated_continuous"
+            and treatment_unit_ids is not None
+            and control_unit_ids is not None
+        ):
+            dispatch_kwargs["treatment_unit_ids"] = treatment_unit_ids
+            dispatch_kwargs["control_unit_ids"] = control_unit_ids
 
         comparator_result = _comparators.dispatch(
             metric_family,
             treatment_arr,
             control_arr,
-            alpha=0.05,
-            min_effect=self.delta_threshold_pp / 100.0,
+            **dispatch_kwargs,
         )
 
         delta_pp = _calculate_percentage_point_difference(
@@ -462,6 +479,7 @@ class DeltaOneEvaluator:
         mlflow_run_id: str,
         expected_metric_name: str | None = None,
         expected_mlflow_name: str | None = None,
+        unit_of_analysis: str | None = None,
     ) -> HEM:
         """Extract HEM fields from a single MLflow run via one client call."""
         run = self._client.get_run(mlflow_run_id)
@@ -508,6 +526,11 @@ class DeltaOneEvaluator:
         else:
             timestamp = datetime.fromtimestamp(start_time_ms / 1000, tz=timezone.utc)
 
+        per_row_artifact: PerRowArtifact | None = None
+        per_row_uri = tags.get(PER_ROW_ARTIFACT_URI_TAG)
+        if per_row_uri:
+            per_row_artifact = PerRowArtifact(uri=per_row_uri)
+
         return HEM(
             metric_name=metric_name,
             metric_value=float(metrics[resolved_key]),
@@ -517,6 +540,8 @@ class DeltaOneEvaluator:
             source_mlflow_run_id=run.info.run_id,
             model_id=model_id,
             experiment_id=run.info.experiment_id,
+            per_row_artifact=per_row_artifact,
+            unit_of_analysis=unit_of_analysis,
         )
 
     def _is_statistically_significant(
@@ -818,13 +843,117 @@ def _calculate_percentage_point_difference(baseline: float, current: float) -> f
     return (current - baseline) * 100.0
 
 
-def _hem_to_array(hem: HEM, metric_family: str = "proportion") -> np.ndarray:
-    """Reconstruct a per-observation array from HEM aggregate fields.
+def _hem_to_array(
+    hem: HEM,
+    metric_family: str = "proportion",
+    metric_mlflow_name: str | None = None,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Load per-observation array from HEM, preferring the real per-row artifact.
 
-    For proportion: binary 0/1 array of length n.
-    For other families: constant array of length n (v1 limitation — real
-    per-observation data would require loading MLflow artifacts).
+    Returns a 2-tuple ``(values, unit_ids)``. ``unit_ids`` is ``None`` when
+    clustering is unavailable (no ``unit_of_analysis`` or missing column).
+
+    Primary path: reads ``hem.per_row_artifact.uri`` as Parquet and projects
+    the column matching ``metric_mlflow_name`` or ``derive_mlflow_name(hem.metric_name)``.
+
+    Legacy fallback: reconstructs from aggregate fields when ``per_row_artifact``
+    is absent (legacy HEMs) or when the artifact cannot be loaded.
+    - proportion: binary 0/1 array from ``metric_value × n``.
+    - other families: constant array of length ``n`` (statistically degraded).
     """
+    col = metric_mlflow_name or derive_mlflow_name(hem.metric_name)
+
+    if hem.per_row_artifact and hem.per_row_artifact.uri:
+        try:
+            df = _read_per_row_parquet(hem.per_row_artifact.uri)
+            if col not in df.columns:
+                logger.warning(
+                    "per_row metric column %r absent from artifact %s;"
+                    " using aggregate reconstruction",
+                    col,
+                    hem.per_row_artifact.uri,
+                )
+            else:
+                mask = df[col].notna()
+                values = df.loc[mask, col].to_numpy(dtype=np.float64)
+                if len(values) == 0:
+                    logger.warning(
+                        "all values null in per_row artifact %s col=%r;"
+                        " using aggregate reconstruction",
+                        hem.per_row_artifact.uri,
+                        col,
+                    )
+                else:
+                    unit_ids = _extract_unit_ids(df, mask, hem.unit_of_analysis)
+                    logger.debug(
+                        "path=per_row family=%s col=%r n=%d clustered=%s",
+                        metric_family,
+                        col,
+                        len(values),
+                        unit_ids is not None,
+                    )
+                    return values, unit_ids
+        except Exception as exc:
+            logger.warning(
+                "failed to load per_row artifact %s: %s; using aggregate reconstruction",
+                hem.per_row_artifact.uri,
+                exc,
+            )
+
+    values = _reconstruct_array(hem, metric_family)
+    logger.debug(
+        "path=reconstructed family=%s col=%r n=%d",
+        metric_family,
+        col,
+        len(values),
+    )
+    return values, None
+
+
+def _read_per_row_parquet(uri: str) -> Any:
+    """Download and read a per-row Parquet artifact by URI.
+
+    Handles ``runs:/<run_id>/...`` URIs via MLflow artifact download.
+    Reads local or S3 paths directly.
+    """
+    try:
+        import pandas as pd  # type: ignore
+    except ImportError as exc:
+        raise ImportError("pandas is required to read per-row artifacts.") from exc
+
+    if uri.startswith("runs:/"):
+        mlflow = _load_mlflow()
+        local_path = mlflow.artifacts.download_artifacts(artifact_uri=uri)
+        return pd.read_parquet(local_path)
+    return pd.read_parquet(uri)
+
+
+def _extract_unit_ids(
+    df: Any,
+    mask: Any,
+    unit_of_analysis: str | None,
+) -> np.ndarray | None:
+    """Extract cluster unit IDs from a per-row DataFrame.
+
+    Tries the column named by ``unit_of_analysis``, then falls back to the
+    PR-160 convention column ``unit_id``. Returns ``None`` when unavailable.
+    """
+    if unit_of_analysis is None:
+        return None
+    if unit_of_analysis in df.columns:
+        return df.loc[mask, unit_of_analysis].to_numpy()
+    if "unit_id" in df.columns:
+        logger.debug("unit_of_analysis=%r not a column; falling back to unit_id", unit_of_analysis)
+        return df.loc[mask, "unit_id"].to_numpy()
+    logger.debug(
+        "unit_of_analysis=%r not found in per_row artifact; clustering disabled",
+        unit_of_analysis,
+    )
+    return None
+
+
+def _reconstruct_array(hem: HEM, metric_family: str) -> np.ndarray:
+    """Reconstruct per-observation array from aggregate HEM fields (legacy fallback)."""
     n = hem.sample_size
     if metric_family == "proportion":
         successes = round(hem.metric_value * n)
