@@ -5,7 +5,10 @@ from __future__ import annotations
 # Auth-hook note: this orchestrator relies on the evaluator/client passed in and
 # does not open direct remote sessions itself.
 # Production MLflow auth relies on Authorization / MLFLOW_TRACKING_TOKEN env wiring.
+import json
 import logging
+import re
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -30,6 +33,7 @@ from src.evaluation.schema import AcceptanceDecision, ComparatorResult, Guardrai
 from src.evaluation.spec_translation import RuntimeGuardrailSpec
 from src.evaluation.tags import ACTUAL_COST_TAG, EVAL_SPEC_ID_TAG, PROJECTED_COST_TAG
 from src.evaluation.webhook_delivery import dispatch_deltaone_webhook_event
+from src.events.schemas import MintRequest, MintRequestContributor, MintRequestEvaluation
 from src.utils.metric_naming import derive_mlflow_name
 
 logger = logging.getLogger(__name__)
@@ -43,6 +47,8 @@ _MODEL_ID_UINT_TAG_KEYS = (
     "model_id_uint",
 )
 
+_ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
+
 
 class MlflowClientProtocol(Protocol):
     """Subset of MLflow client operations required for mint orchestration."""
@@ -50,6 +56,12 @@ class MlflowClientProtocol(Protocol):
     def get_run(self: MlflowClientProtocol, run_id: str) -> Any: ...
 
     def set_tag(self: MlflowClientProtocol, run_id: str, key: str, value: str) -> None: ...
+
+
+class MintRequestPublisherProtocol(Protocol):
+    """Minimal protocol for publishing MintRequest messages."""
+
+    def publish(self: MintRequestPublisherProtocol, message: MintRequest) -> None: ...
 
 
 @dataclass(slots=True)
@@ -81,6 +93,8 @@ class _EventContext:
     guardrail_specs: list[RuntimeGuardrailSpec] = field(default_factory=list)
     max_cost_usd: float | None = None
     actual_cost_usd: float | None = None
+    # Contributor allocations extracted from spec or run tags (HOK-1276)
+    contributors: list[dict[str, Any]] = field(default_factory=list)
 
 
 class DeltaOneMintOrchestrator:
@@ -93,10 +107,12 @@ class DeltaOneMintOrchestrator:
         evaluator: DeltaOneEvaluator,
         mint_hook: TokenMintHook,
         mlflow_client: MlflowClientProtocol | None = None,
+        mint_request_publisher: MintRequestPublisherProtocol | None = None,
     ) -> None:
         self.evaluator = evaluator
         self.mint_hook = mint_hook
         self._client = mlflow_client or evaluator._client  # noqa: SLF001
+        self._mint_request_publisher = mint_request_publisher
 
     def process_evaluation(
         self: DeltaOneMintOrchestrator,
@@ -152,6 +168,8 @@ class DeltaOneMintOrchestrator:
             except (ValueError, TypeError):
                 pass
 
+        contributors = _extract_contributors_from_tags(candidate_tags)
+
         return _EventContext(
             decision=decision,
             baseline_score=baseline_score if baseline_score is not None else 0.0,
@@ -166,6 +184,7 @@ class DeltaOneMintOrchestrator:
             guardrail_specs=[],
             max_cost_usd=None,
             actual_cost_usd=actual_cost_usd,
+            contributors=contributors,
         )
 
     def process_evaluation_with_spec(
@@ -300,6 +319,11 @@ class DeltaOneMintOrchestrator:
             except (ValueError, TypeError):
                 pass
 
+        # Prefer contributors from spec, fall back to candidate run tags
+        contributors = _extract_contributors_from_spec(spec)
+        if not contributors:
+            contributors = _extract_contributors_from_tags(candidate_tags)
+
         return _EventContext(
             decision=decision,
             baseline_score=baseline_score if baseline_score is not None else 0.0,
@@ -314,6 +338,7 @@ class DeltaOneMintOrchestrator:
             guardrail_specs=guardrail_specs,
             max_cost_usd=max_cost_usd,
             actual_cost_usd=actual_cost_usd,
+            contributors=contributors,
         )
 
     def _execute_mint(
@@ -410,6 +435,12 @@ class DeltaOneMintOrchestrator:
 
         canonical_score_advanced = False
         if mint_result.status == "success":
+            if self._mint_request_publisher is not None and acceptance_event is not None:
+                mint_request = _build_mint_request(
+                    acceptance_event=acceptance_event,
+                    event_context=event_context,
+                )
+                self._mint_request_publisher.publish(mint_request)
             self._advance_canonical_score(decision)
             canonical_score_advanced = True
 
@@ -778,3 +809,200 @@ def _build_acceptance_event(
         max_cost_usd_micro=max_cost_micro,
         actual_cost_usd_micro=actual_cost_micro,
     )
+
+
+# ---------------------------------------------------------------------------
+# MintRequest helpers (HOK-1276)
+# ---------------------------------------------------------------------------
+
+
+def _extract_contributors_from_spec(spec: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract contributor wallet+weight records from a benchmark spec dict.
+
+    Looks for spec['contributors'] as a list of dicts with 'wallet_address' and
+    optional 'weight' (fractional) or 'weight_bps' (integer bps).  Returns an
+    empty list if no valid contributors are found.
+    """
+    raw = spec.get("contributors")
+    if not isinstance(raw, list) or not raw:
+        return []
+    return _normalize_contributor_list(raw)
+
+
+def _extract_contributors_from_tags(tags: dict[str, str]) -> list[dict[str, Any]]:
+    """Extract contributor wallet+weight records from MLflow run tags.
+
+    Checks the 'hokusai.contributors' tag (JSON array) for wallet_address entries.
+    Returns an empty list if the tag is absent or malformed.
+    """
+    raw_json = tags.get("hokusai.contributors")
+    if not raw_json:
+        return []
+    try:
+        raw = json.loads(raw_json)
+    except (json.JSONDecodeError, ValueError):
+        logger.warning("event=invalid_contributors_tag value=%r; skipping", raw_json[:200])
+        return []
+    if not isinstance(raw, list):
+        return []
+    return _normalize_contributor_list(raw)
+
+
+def _normalize_contributor_list(raw: list[Any]) -> list[dict[str, Any]]:
+    """Normalize a list of raw contributor dicts into validated wallet+weight_bps records.
+
+    Accepts:
+      - weight_bps (int, 0-10000) directly
+      - weight (float 0-1) converted deterministically to bps
+
+    Returns only entries with valid Ethereum addresses.  Does NOT enforce that
+    the total equals 10000 — callers must do that or let MintRequest validation catch it.
+    """
+    result: list[dict[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        wallet = entry.get("wallet_address") or entry.get("wallet")
+        if not wallet or not isinstance(wallet, str):
+            continue
+        if not _ETH_ADDRESS_RE.match(wallet):
+            continue
+
+        weight_bps: int | None = None
+        if "weight_bps" in entry:
+            try:
+                weight_bps = int(entry["weight_bps"])
+            except (TypeError, ValueError):
+                pass
+        elif "weight" in entry:
+            try:
+                weight_f = float(entry["weight"])
+                # Deterministic bps from fractional weight using ROUND_HALF_EVEN
+                from decimal import ROUND_HALF_EVEN, Decimal  # noqa: PLC0415
+
+                weight_bps = int(
+                    (Decimal(str(weight_f)) * Decimal("10000")).to_integral_value(
+                        rounding=ROUND_HALF_EVEN
+                    )
+                )
+            except (TypeError, ValueError):
+                pass
+
+        if weight_bps is not None and 0 <= weight_bps <= 10000:
+            result.append({"wallet_address": wallet.lower(), "weight_bps": weight_bps})
+
+    return result
+
+
+def _build_mint_request(
+    acceptance_event: DeltaOneAcceptanceEvent,
+    event_context: _EventContext | None,
+) -> MintRequest:
+    """Build a MintRequest from a validated DeltaOneAcceptanceEvent and optional EventContext.
+
+    Raises EventPayloadError if no valid contributors are available — the schema
+    requires at least one contributor and weights must sum to 10000.
+    """
+    # Extract statistical metadata from event_context.decision if available
+    ctx_decision = event_context.decision if event_context is not None else None
+    sample_size_baseline: int | None = None
+    sample_size_candidate: int | None = None
+    ci_low_bps: int | None = None
+    ci_high_bps: int | None = None
+    statistical_reason: str | None = None
+
+    if ctx_decision is not None:
+        sample_size_baseline = ctx_decision.n_baseline if ctx_decision.n_baseline else None
+        sample_size_candidate = ctx_decision.n_current if ctx_decision.n_current else None
+        statistical_reason = ctx_decision.reason
+
+        metric_family = acceptance_event.metric_family
+        if ctx_decision.ci95_low_percentage_points is not None:
+            try:
+                ci_low_raw = ctx_decision.ci95_low_percentage_points / 100.0
+                ci_low_bps = to_basis_points(min(max(ci_low_raw, 0.0), 1.0), metric_family)
+            except (EventPayloadError, ValueError):
+                ci_low_bps = None
+        if ctx_decision.ci95_high_percentage_points is not None:
+            try:
+                ci_high_raw = ctx_decision.ci95_high_percentage_points / 100.0
+                ci_high_bps = to_basis_points(min(max(ci_high_raw, 0.0), 1.0), metric_family)
+            except (EventPayloadError, ValueError):
+                ci_high_bps = None
+
+    evaluation = MintRequestEvaluation(
+        metric_name=acceptance_event.primary_metric_name,
+        metric_family=acceptance_event.metric_family,
+        baseline_score_bps=acceptance_event.baseline_score_bps,
+        new_score_bps=acceptance_event.candidate_score_bps,
+        max_cost_usd_micro=acceptance_event.max_cost_usd_micro,
+        actual_cost_usd_micro=acceptance_event.actual_cost_usd_micro,
+        sample_size_baseline=sample_size_baseline,
+        sample_size_candidate=sample_size_candidate,
+        ci_low_bps=ci_low_bps,
+        ci_high_bps=ci_high_bps,
+        statistical_method="bootstrap_ci",
+        statistical_reason=statistical_reason,
+    )
+
+    # Resolve contributors
+    raw_contributors: list[dict[str, Any]] = []
+    if event_context is not None:
+        raw_contributors = event_context.contributors
+
+    if not raw_contributors:
+        raise EventPayloadError(
+            "contributors",
+            f"no valid contributor wallet allocations found for model={acceptance_event.model_id} "
+            f"eval_id={acceptance_event.eval_id}; "
+            "populate spec['contributors'] or the 'hokusai.contributors' run tag",
+        )
+
+    # Normalize total to exactly 10000 bps (adjust largest weight for rounding remainder)
+    contributors_bps = _normalize_weights_to_10000(raw_contributors)
+
+    contributor_models = [
+        MintRequestContributor(
+            wallet_address=c["wallet_address"],
+            weight_bps=c["weight_bps"],
+        )
+        for c in contributors_bps
+    ]
+
+    return MintRequest(
+        message_id=str(uuid.uuid4()),
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        model_id=acceptance_event.model_id,
+        model_id_uint=acceptance_event.model_id_uint,
+        eval_id=acceptance_event.eval_id,
+        attestation_hash=acceptance_event.attestation_hash,
+        idempotency_key=acceptance_event.idempotency_key,
+        evaluation=evaluation,
+        contributors=contributor_models,
+    )
+
+
+def _normalize_weights_to_10000(
+    contributors: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Adjust contributor weight_bps so they sum to exactly 10000.
+
+    Uses a deterministic remainder adjustment: the largest contributor absorbs
+    any rounding shortfall/excess (at most ±N-1 bps for N contributors).
+    """
+    if not contributors:
+        return contributors
+
+    total = sum(c["weight_bps"] for c in contributors)
+    if total == 10000:
+        return contributors
+
+    result = [dict(c) for c in contributors]
+    # Find index of contributor with largest weight for remainder adjustment
+    max_idx = max(range(len(result)), key=lambda i: result[i]["weight_bps"])
+    adjustment = 10000 - total
+    adjusted = result[max_idx]["weight_bps"] + adjustment
+    if 0 <= adjusted <= 10000:
+        result[max_idx]["weight_bps"] = adjusted
+    # If still invalid after adjustment, leave as-is and let MintRequest validation reject it
+    return result

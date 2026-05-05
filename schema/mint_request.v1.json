@@ -1,0 +1,259 @@
+{
+  "$defs": {
+    "MintRequestContributor": {
+      "additionalProperties": false,
+      "description": "A single contributor's wallet address and allocation weight for a MintRequest.",
+      "properties": {
+        "wallet_address": {
+          "description": "EIP-55 checksummed or lowercase 0x-prefixed Ethereum address",
+          "title": "Wallet Address",
+          "type": "string"
+        },
+        "weight_bps": {
+          "description": "Allocation weight in basis points",
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Weight Bps",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "wallet_address",
+        "weight_bps"
+      ],
+      "title": "MintRequestContributor",
+      "type": "object"
+    },
+    "MintRequestEvaluation": {
+      "additionalProperties": false,
+      "description": "Evaluation scores and metadata embedded in a MintRequest.",
+      "properties": {
+        "metric_name": {
+          "minLength": 1,
+          "title": "Metric Name",
+          "type": "string"
+        },
+        "metric_family": {
+          "minLength": 1,
+          "title": "Metric Family",
+          "type": "string"
+        },
+        "baseline_score_bps": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Baseline Score Bps",
+          "type": "integer"
+        },
+        "new_score_bps": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "New Score Bps",
+          "type": "integer"
+        },
+        "max_cost_usd_micro": {
+          "minimum": 0,
+          "title": "Max Cost Usd Micro",
+          "type": "integer"
+        },
+        "actual_cost_usd_micro": {
+          "minimum": 0,
+          "title": "Actual Cost Usd Micro",
+          "type": "integer"
+        },
+        "sample_size_baseline": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sample Size Baseline"
+        },
+        "sample_size_candidate": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sample Size Candidate"
+        },
+        "ci_low_bps": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci Low Bps"
+        },
+        "ci_high_bps": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci High Bps"
+        },
+        "p_value": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "P Value"
+        },
+        "effect_size_bps": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effect Size Bps"
+        },
+        "statistical_method": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Statistical Method"
+        },
+        "statistical_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Statistical Reason"
+        }
+      },
+      "required": [
+        "metric_name",
+        "metric_family",
+        "baseline_score_bps",
+        "new_score_bps",
+        "max_cost_usd_micro",
+        "actual_cost_usd_micro"
+      ],
+      "title": "MintRequestEvaluation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "MintRequest message published to hokusai:mint_requests on DeltaOne acceptance.\n\nAll score and delta fields are in basis points (0-10000).\nCost fields are in USDC micro-units (6 decimals).\nAll SHA-256 hashes are lowercase 0x-prefixed.",
+  "properties": {
+    "message_type": {
+      "const": "mint_request",
+      "default": "mint_request",
+      "title": "Message Type",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "message_id": {
+      "description": "UUID or unique message identifier",
+      "minLength": 1,
+      "title": "Message Id",
+      "type": "string"
+    },
+    "timestamp": {
+      "description": "ISO-8601 UTC timestamp",
+      "minLength": 1,
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "model_id": {
+      "minLength": 1,
+      "title": "Model Id",
+      "type": "string"
+    },
+    "model_id_uint": {
+      "description": "uint256 as decimal string",
+      "title": "Model Id Uint",
+      "type": "string"
+    },
+    "eval_id": {
+      "minLength": 1,
+      "title": "Eval Id",
+      "type": "string"
+    },
+    "attestation_hash": {
+      "description": "SHA-256 of HEM payload, 0x-prefixed 64-hex",
+      "title": "Attestation Hash",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "sha256(model_id_uint:eval_id:attestation_hash), 0x-prefixed",
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "evaluation": {
+      "$ref": "#/$defs/MintRequestEvaluation"
+    },
+    "contributors": {
+      "items": {
+        "$ref": "#/$defs/MintRequestContributor"
+      },
+      "minItems": 1,
+      "title": "Contributors",
+      "type": "array"
+    }
+  },
+  "required": [
+    "message_id",
+    "timestamp",
+    "model_id",
+    "model_id_uint",
+    "eval_id",
+    "attestation_hash",
+    "idempotency_key",
+    "evaluation",
+    "contributors"
+  ],
+  "title": "MintRequest",
+  "type": "object"
+}
