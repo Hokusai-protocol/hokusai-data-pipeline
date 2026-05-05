@@ -189,6 +189,23 @@ HEM_V1_SCHEMA: dict[str, object] = {
                 "notes": {"type": "string"},
             },
         },
+        "per_row_artifact": {
+            "type": ["object", "null"],
+            "additionalProperties": False,
+            "required": ["uri", "schema", "row_count", "sha256"],
+            "properties": {
+                "uri": {"type": "string", "minLength": 1},
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                },
+                "row_count": {"type": "integer", "minimum": 0},
+                "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$",
+                },
+            },
+        },
     },
     "definitions": {
         "metric": {

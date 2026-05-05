@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Any
 
+from src.evaluation.tags import PER_ROW_ARTIFACT_URI_TAG
 from src.evaluation.validation import validate_manifest
 from src.utils.metric_naming import derive_mlflow_name
+
+_manifest_logger = logging.getLogger(__name__)
 
 HEM_SCHEMA_VERSION = "hokusai.eval.manifest/v1"
 
@@ -24,6 +28,7 @@ _NULLABLE_FIELDS = (
     "input_dataset_hash",
     "label_snapshot_hash",
     "coverage",
+    "per_row_artifact",
 )
 _NONEMPTY_FIELDS = ("scorer_refs", "scorer_source_hashes", "guardrail_results")
 
@@ -54,6 +59,7 @@ class HokusaiEvaluationManifest:
     input_dataset_hash: str | None = None
     label_snapshot_hash: str | None = None
     coverage: dict[str, Any] | None = None
+    per_row_artifact: dict[str, Any] | None = None
 
     def to_dict(self: HokusaiEvaluationManifest) -> dict[str, Any]:
         """Serialize the manifest to a JSON-serializable dictionary."""
@@ -103,6 +109,7 @@ class HokusaiEvaluationManifest:
             input_dataset_hash=data.get("input_dataset_hash"),
             label_snapshot_hash=data.get("label_snapshot_hash"),
             coverage=data.get("coverage"),
+            per_row_artifact=data.get("per_row_artifact"),
         )
 
     def compute_hash(self: HokusaiEvaluationManifest) -> str:
@@ -128,6 +135,36 @@ class HokusaiEvaluationManifest:
     def to_json(self: HokusaiEvaluationManifest, indent: int = 2) -> str:
         """Serialize manifest as pretty-printed JSON."""
         return json.dumps(self.to_dict(), indent=indent, sort_keys=True)
+
+
+def _load_per_row_artifact_metadata(mlflow: Any, uri: str) -> dict[str, Any] | None:
+    """Download the per-row Parquet artifact and return its metadata dict.
+
+    Returns None on any failure so old or partially-written runs remain loadable.
+    """
+    try:
+        import hashlib as _hashlib
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+
+        import pandas as _pd
+
+        with _tempfile.TemporaryDirectory() as tmpdir:
+            local_path = mlflow.artifacts.download_artifacts(artifact_uri=uri, dst_path=tmpdir)
+            raw_bytes = _Path(local_path).read_bytes()
+            sha256_hex = _hashlib.sha256(raw_bytes).hexdigest()
+            df = _pd.read_parquet(local_path)
+            schema = df.dtypes.astype(str).to_dict()
+
+        return {
+            "uri": uri,
+            "schema": schema,
+            "row_count": len(df),
+            "sha256": sha256_hex,
+        }
+    except Exception as exc:  # noqa: BLE001
+        _manifest_logger.warning("Could not load per-row artifact metadata from %r: %s", uri, exc)
+        return None
 
 
 def _load_mlflow() -> Any:
@@ -246,6 +283,9 @@ def create_hem_from_mlflow_run(
         eval_spec_version=tags.get("hokusai.eval_spec_version"),
         input_dataset_hash=tags.get("hokusai.input_dataset_hash"),
         label_snapshot_hash=tags.get("hokusai.label_snapshot_hash"),
+        per_row_artifact=_load_per_row_artifact_metadata(mlflow, tags.get(PER_ROW_ARTIFACT_URI_TAG))
+        if tags.get(PER_ROW_ARTIFACT_URI_TAG)
+        else None,
     )
     errors = validate_manifest(manifest.to_dict())
     if errors:

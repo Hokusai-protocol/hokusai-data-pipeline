@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 from src.evaluation.manifest import create_hem_from_mlflow_run
+from src.evaluation.tags import PER_ROW_ARTIFACT_URI_TAG
 
 
 def _fake_run() -> SimpleNamespace:
@@ -127,3 +131,85 @@ def test_create_hem_from_mlflow_run_with_provenance_fields(
     assert manifest.eval_spec_version == "v2"
     assert manifest.input_dataset_hash == "sha256:inputhash"
     assert manifest.label_snapshot_hash == "sha256:labelshash"
+
+
+# ---------------------------------------------------------------------------
+# per_row_artifact round-trip
+# ---------------------------------------------------------------------------
+
+
+def _make_parquet_in(directory: str, n_rows: int = 5) -> tuple[str, str]:
+    """Write a test Parquet file and return (local_path, sha256_hex)."""
+    df = pd.DataFrame(
+        {
+            "row_id": [str(i) for i in range(n_rows)],
+            "accuracy": [True, False, True, True, False][:n_rows],
+        }
+    )
+    path = Path(directory) / "per_row.parquet"
+    df.to_parquet(str(path), index=False)
+    sha256_hex = hashlib.sha256(path.read_bytes()).hexdigest()
+    return str(path), sha256_hex
+
+
+def test_create_hem_populates_per_row_artifact_when_tag_present(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    local_path, expected_sha = _make_parquet_in(str(tmp_path), n_rows=5)
+
+    run = _fake_run()
+    uri = "runs:/run-123/eval_results/per_row.parquet"
+    run.data.tags[PER_ROW_ARTIFACT_URI_TAG] = uri
+
+    def _download_artifacts(artifact_uri: str, dst_path: str) -> str:
+        return local_path
+
+    fake_artifacts = SimpleNamespace(download_artifacts=_download_artifacts)
+    fake_mlflow = SimpleNamespace(
+        get_run=lambda _run_id: run,
+        artifacts=fake_artifacts,
+    )
+    monkeypatch.setitem(sys.modules, "mlflow", fake_mlflow)
+
+    manifest = create_hem_from_mlflow_run("run-123")
+
+    assert manifest.per_row_artifact is not None
+    assert manifest.per_row_artifact["row_count"] == 5
+    assert manifest.per_row_artifact["sha256"] == expected_sha
+    assert manifest.per_row_artifact["uri"] == uri
+    assert "row_id" in manifest.per_row_artifact["schema"]
+
+
+def test_create_hem_per_row_artifact_is_none_when_tag_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = _fake_run()
+    assert PER_ROW_ARTIFACT_URI_TAG not in run.data.tags
+    fake_mlflow = SimpleNamespace(get_run=lambda _run_id: run)
+    monkeypatch.setitem(sys.modules, "mlflow", fake_mlflow)
+
+    manifest = create_hem_from_mlflow_run("run-123")
+
+    assert manifest.per_row_artifact is None
+
+
+def test_create_hem_per_row_artifact_is_none_when_download_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = _fake_run()
+    run.data.tags[PER_ROW_ARTIFACT_URI_TAG] = "runs:/run-123/eval_results/per_row.parquet"
+
+    def _download_fails(artifact_uri: str, dst_path: str) -> str:
+        raise RuntimeError("simulated download failure")
+
+    fake_artifacts = SimpleNamespace(download_artifacts=_download_fails)
+    fake_mlflow = SimpleNamespace(
+        get_run=lambda _run_id: run,
+        artifacts=fake_artifacts,
+    )
+    monkeypatch.setitem(sys.modules, "mlflow", fake_mlflow)
+
+    manifest = create_hem_from_mlflow_run("run-123")
+
+    assert manifest.per_row_artifact is None

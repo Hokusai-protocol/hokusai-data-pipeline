@@ -193,6 +193,70 @@ Pre-existing eval_spec rows without `mlflow_name` continue to load correctly; th
 validator computes it on read.  Pre-existing HEMs without `mlflow_name` in `primary_metric`
 resolve via tier-2 or tier-3 fallback.  No database backfill is required.
 
+## Per-Row Artifact (HOK-1323)
+
+Every `mlflow.genai.evaluate` (and `mlflow.evaluate` when the result exposes a `result_df`)
+persists a structured per-row result table as a Parquet artifact attached to the MLflow run.
+
+### Artifact path
+
+```
+eval_results/per_row.parquet
+```
+
+### Run tag
+
+```
+hokusai.per_row_artifact_uri = "runs:/<run_id>/eval_results/per_row.parquet"
+```
+
+### HEM block
+
+`create_hem_from_mlflow_run` reads `hokusai.per_row_artifact_uri` from the run tags and
+downloads the artifact to populate the `per_row_artifact` block:
+
+```json
+{
+  "uri": "runs:/<run_id>/eval_results/per_row.parquet",
+  "schema": {
+    "row_id": "object",
+    "accuracy": "bool",
+    "quality_score": "float64"
+  },
+  "row_count": 100,
+  "sha256": "<64 hex chars>"
+}
+```
+
+The field is **nullable** — runs without the tag produce `per_row_artifact: null`, and old
+HEMs that pre-date this field continue to validate and load without changes.
+
+### Column convention
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `row_id` | `str` | Required; synthesized from positional index if absent or if duplicates are detected |
+| `<mlflow_name>` | `bool` (OUTCOME) or `float` (QUALITY / LATENCY / COST) | One column per `output_metric_keys` entry of each registered scorer ref, named by `derive_mlflow_name(key)` |
+| `unit_id` | `str` | Optional; present when `RuntimeAdapterSpec.unit_of_analysis` groups rows into clusters |
+
+For `genai:` and `judge:` prefixed scorer refs the per-row columns are preserved as-is from
+`result.result_df` — no type coercion is applied because `mlflow.genai` controls the schema.
+
+### Persistence behavior
+
+- Written best-effort: if persisting fails for any reason (e.g. no `result_df`, empty
+  DataFrame, serialization error) the evaluation still succeeds and `per_row_artifact` is
+  `null`.
+- The run tag is set **only after** a successful artifact upload, so a missing tag always
+  means no artifact was written.
+- SHA-256 stored in the HEM block is computed from the artifact bytes at read time (when
+  `create_hem_from_mlflow_run` downloads the artifact to populate metadata). This allows
+  integrity verification of the stored artifact.
+
+### Out of scope
+
+Loading the per-row artifact in DeltaOne / comparators is tracked separately (HOK-1325).
+
 ## Scope Boundaries
 
 This task covers:
