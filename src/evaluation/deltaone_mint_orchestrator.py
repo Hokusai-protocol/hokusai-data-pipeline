@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Protocol
 
+from pydantic import ValidationError
+
 from src.api.schemas.token_mint import TokenMintResult
 from src.api.services.token_mint_hook import TokenMintHook
 from src.cli.attestation import create_attestation
@@ -358,7 +360,7 @@ class DeltaOneMintOrchestrator:
                     ctx=event_context,
                     attestation_hash=attestation_hash,
                 )
-            except (EventPayloadError, ValueError) as exc:
+            except (EventPayloadError, ValidationError, ValueError) as exc:
                 logger.error(
                     "event=acceptance_event_build_failed run_id=%s error=%s",
                     decision.run_id,
@@ -905,6 +907,7 @@ def _build_mint_request(
     """
     # Extract statistical metadata from event_context.decision if available
     ctx_decision = event_context.decision if event_context is not None else None
+    metric_family = acceptance_event.metric_family
     sample_size_baseline: int | None = None
     sample_size_candidate: int | None = None
     ci_low_bps: int | None = None
@@ -916,7 +919,6 @@ def _build_mint_request(
         sample_size_candidate = ctx_decision.n_current if ctx_decision.n_current else None
         statistical_reason = ctx_decision.reason
 
-        metric_family = acceptance_event.metric_family
         if ctx_decision.ci95_low_percentage_points is not None:
             try:
                 ci_low_raw = ctx_decision.ci95_low_percentage_points / 100.0
@@ -930,9 +932,27 @@ def _build_mint_request(
             except (EventPayloadError, ValueError):
                 ci_high_bps = None
 
+    _FAMILY_TO_STAT_METHOD: dict[str, str] = {
+        "proportion": "two_proportion_z",
+        "zero_inflated_continuous": "two_part_zero_inflated",
+        "rank_or_ordinal": "mann_whitney_u",
+        "continuous": "welch_t",
+    }
+    resolved_statistical_method = _FAMILY_TO_STAT_METHOD.get(metric_family, "bootstrap_ci")
+
+    effect_size_bps: int | None = None
+    if ctx_decision is not None and ctx_decision.delta_percentage_points is not None:
+        try:
+            effect_size_bps = to_basis_points(
+                min(max(ctx_decision.delta_percentage_points / 100.0, 0.0), 1.0),
+                metric_family,
+            )
+        except (EventPayloadError, ValueError):
+            effect_size_bps = None
+
     evaluation = MintRequestEvaluation(
         metric_name=acceptance_event.primary_metric_name,
-        metric_family=acceptance_event.metric_family,
+        metric_family=metric_family,
         baseline_score_bps=acceptance_event.baseline_score_bps,
         new_score_bps=acceptance_event.candidate_score_bps,
         max_cost_usd_micro=acceptance_event.max_cost_usd_micro,
@@ -941,7 +961,8 @@ def _build_mint_request(
         sample_size_candidate=sample_size_candidate,
         ci_low_bps=ci_low_bps,
         ci_high_bps=ci_high_bps,
-        statistical_method="bootstrap_ci",
+        effect_size_bps=effect_size_bps,
+        statistical_method=resolved_statistical_method,
         statistical_reason=statistical_reason,
     )
 
