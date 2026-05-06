@@ -18,8 +18,8 @@ _SALES_ROW_SCHEMA: dict = {
             "qualified_meeting": {"type": ["integer", "boolean", "null"]},
             "revenue": {"type": ["number", "null"]},
             "delivered": {"type": ["integer", "boolean"]},
-            "spam_complaint": {"type": ["integer", "boolean"]},
-            "unsubscribe": {"type": ["integer", "boolean"]},
+            "spam_complaint": {"type": ["integer", "boolean", "null"]},
+            "unsubscribe": {"type": ["integer", "boolean", "null"]},
         },
     },
 }
@@ -113,16 +113,21 @@ def _sales_revenue_per_1000_messages(rows: list[dict]) -> float:
 def _sales_spam_complaint_rate(rows: list[dict]) -> float:
     """Fraction of delivered messages that generated a spam complaint.
 
-    Denominator is the count of rows where ``delivered`` is truthy.
-    Non-delivered rows are excluded.  Zero delivered denominator returns 0.0.
+    Denominator is the count of delivered rows with an observed (non-None)
+    spam_complaint flag.  Rows where the flag is None are excluded from both
+    numerator and denominator per the missing-label contract rule.
+    Zero denominator returns 0.0.
     """
     numerator = 0
     denominator = 0
     for row in rows:
         if not row.get("delivered"):
             continue
+        spam_complaint = row.get("spam_complaint")
+        if spam_complaint is None:
+            continue
         denominator += 1
-        if row.get("spam_complaint"):
+        if spam_complaint:
             numerator += 1
     return numerator / denominator if denominator else 0.0
 
@@ -130,16 +135,21 @@ def _sales_spam_complaint_rate(rows: list[dict]) -> float:
 def _sales_unsubscribe_rate(rows: list[dict]) -> float:
     """Fraction of delivered messages that resulted in an unsubscribe event.
 
-    Denominator is the count of rows where ``delivered`` is truthy.
-    Non-delivered rows are excluded.  Zero delivered denominator returns 0.0.
+    Denominator is the count of delivered rows with an observed (non-None)
+    unsubscribe flag.  Rows where the flag is None are excluded from both
+    numerator and denominator per the missing-label contract rule.
+    Zero denominator returns 0.0.
     """
     numerator = 0
     denominator = 0
     for row in rows:
         if not row.get("delivered"):
             continue
+        unsubscribe = row.get("unsubscribe")
+        if unsubscribe is None:
+            continue
         denominator += 1
-        if row.get("unsubscribe"):
+        if unsubscribe:
             numerator += 1
     return numerator / denominator if denominator else 0.0
 
@@ -209,8 +219,10 @@ _SALES_SCORERS = [
         Aggregation.MEAN,
         (
             "Fraction of delivered messages that generated a spam complaint. "
-            "Denominator is delivered message count; undelivered rows are excluded. "
-            "Zero delivered denominator returns 0.0. Use as a lower_is_better guardrail metric."
+            "Denominator is the count of delivered rows with an observed (non-null) spam_complaint "
+            "flag; rows with null flags are excluded from both numerator and denominator per the "
+            "missing-label contract rule. Zero denominator returns 0.0. "
+            "Use as a lower_is_better guardrail metric."
         ),
     ),
     (
@@ -219,8 +231,10 @@ _SALES_SCORERS = [
         Aggregation.MEAN,
         (
             "Fraction of delivered messages that resulted in an unsubscribe event. "
-            "Denominator is delivered message count; undelivered rows are excluded. "
-            "Zero delivered denominator returns 0.0. Use as a lower_is_better guardrail metric."
+            "Denominator is the count of delivered rows with an observed (non-null) unsubscribe "
+            "flag; rows with null flags are excluded from both numerator and denominator per the "
+            "missing-label contract rule. Zero denominator returns 0.0. "
+            "Use as a lower_is_better guardrail metric."
         ),
     ),
 ]

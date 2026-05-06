@@ -51,7 +51,7 @@
     "min_coverage_fraction": 0.50,
     "note": "Coverage requirements relaxed for diagnostic-only logging; no mint gate enforced"
   },
-  "unit_of_analysis": "message",
+  "unit_of_analysis": "prospect_message",
   "min_examples": 100,
   "metric_family": "continuous"
 }

@@ -1,0 +1,19 @@
+{
+  "schema_version": "sales_outcome_row/v1",
+  "row_id": "invalid-row-001",
+  "benchmark_spec_id": "bspec-sales-qm-2024-q4",
+  "eval_id": "eval-invalid-001",
+  "model_id": "model-outreach-v3",
+  "campaign_id": "campaign-enterprise-q4-2024",
+  "unit_id": "prospect-conv-00000001",
+  "unit_of_analysis": "prospect_conversation",
+  "measurement_policy": "online_ab",
+  "metric_name": "sales:qualified_meeting_rate",
+  "scorer_ref": "sales:qualified_meeting_rate",
+  "message_count": 1,
+  "delivered_count": 1,
+  "numerator": -1,
+  "denominator": 1,
+  "observed_at": "2024-11-15T14:30:00Z",
+  "label_status": "observed"
+}
