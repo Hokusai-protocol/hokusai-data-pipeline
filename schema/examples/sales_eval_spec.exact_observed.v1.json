@@ -1,6 +1,7 @@
 {
   "primary_metric": {
-    "name": "revenue_per_1000_messages",
+    "name": "sales:revenue_per_1000_messages",
+    "scorer_ref": "sales:revenue_per_1000_messages",
     "direction": "higher_is_better",
     "unit": "usd_per_1000_messages",
     "threshold": 10.0
@@ -24,13 +25,15 @@
   ],
   "guardrails": [
     {
-      "name": "unsubscribe_rate",
+      "name": "sales:unsubscribe_rate",
+      "scorer_ref": "sales:unsubscribe_rate",
       "direction": "lower_is_better",
       "threshold": 0.03,
       "blocking": true
     },
     {
-      "name": "spam_complaint_rate",
+      "name": "sales:spam_complaint_rate",
+      "scorer_ref": "sales:spam_complaint_rate",
       "direction": "lower_is_better",
       "threshold": 0.005,
       "blocking": true

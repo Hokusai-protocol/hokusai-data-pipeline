@@ -242,6 +242,62 @@ def test_v1_scorer_refs_preserved() -> None:
     assert spec.primary_metric.source_hash == "abc123"
 
 
+def test_v1_secondary_scorer_ref_preserved() -> None:
+    secondary = [
+        {"name": "f1_macro", "direction": "higher_is_better"},
+        {
+            "name": "sales:qualified_meeting_rate",
+            "direction": "higher_is_better",
+            "scorer_ref": "sales:qualified_meeting_rate",
+        },
+    ]
+    row = _legacy(eval_spec={"primary_metric": _V1_PRIMARY, "secondary_metrics": secondary})
+    spec = translate_benchmark_spec(row)
+
+    assert spec.secondary_metrics[0].scorer_ref is None
+    assert spec.secondary_metrics[1].scorer_ref == "sales:qualified_meeting_rate"
+
+
+def test_v1_guardrail_scorer_ref_preserved() -> None:
+    guardrails = [
+        {
+            "name": "toxicity",
+            "direction": "lower_is_better",
+            "threshold": 0.1,
+            "blocking": True,
+        },
+        {
+            "name": "sales:unsubscribe_rate",
+            "direction": "lower_is_better",
+            "threshold": 0.03,
+            "blocking": True,
+            "scorer_ref": "sales:unsubscribe_rate",
+        },
+        {
+            "name": "sales:spam_complaint_rate",
+            "direction": "lower_is_better",
+            "threshold": 0.005,
+            "blocking": True,
+            "scorer_ref": "sales:spam_complaint_rate",
+        },
+    ]
+    row = _legacy(eval_spec={"primary_metric": _V1_PRIMARY, "guardrails": guardrails})
+    spec = translate_benchmark_spec(row)
+
+    assert spec.guardrails[0].scorer_ref is None
+    assert spec.guardrails[1].scorer_ref == "sales:unsubscribe_rate"
+    assert spec.guardrails[2].scorer_ref == "sales:spam_complaint_rate"
+
+
+def test_v1_omitted_scorer_ref_is_none_not_string() -> None:
+    primary = {"name": "accuracy", "direction": "higher_is_better"}
+    row = _legacy(eval_spec={"primary_metric": primary})
+    spec = translate_benchmark_spec(row)
+
+    assert spec.primary_metric.scorer_ref is None
+    assert spec.primary_metric.scorer_ref != "none"
+
+
 # ---------------------------------------------------------------------------
 # Public exports
 # ---------------------------------------------------------------------------

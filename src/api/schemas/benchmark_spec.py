@@ -12,6 +12,26 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from src.utils.metric_naming import derive_mlflow_name
 
+_SCORER_REF_SKIP_PREFIXES = ("genai:", "judge:")
+
+
+def _validate_scorer_ref_value(v: object) -> str | None:
+    """Shared scorer_ref validation: None allowed, empty string rejected, unknown ref rejected."""
+    if v is None:
+        return None
+    if not isinstance(v, str) or v == "":
+        raise ValueError("scorer_ref must be a non-empty string or null")
+    if any(v.startswith(p) for p in _SCORER_REF_SKIP_PREFIXES):
+        return v
+    # Lazy import ensures built-in scorers are registered before resolution.
+    from src.evaluation.scorers import UnknownScorerError, resolve_scorer  # noqa: PLC0415
+
+    try:
+        resolve_scorer(v)
+    except UnknownScorerError as exc:
+        raise ValueError(f"unknown scorer_ref: {v!r}") from exc
+    return v
+
 
 class BenchmarkProvider(str, Enum):
     """Supported benchmark data providers."""
@@ -49,6 +69,12 @@ class MetricSpec(BaseModel):
     threshold: float | None = None
     unit: str | None = None
     mlflow_name: str | None = None
+    scorer_ref: str | None = None
+
+    @field_validator("scorer_ref", mode="before")
+    @classmethod
+    def _validate_scorer_ref(cls: type, v: object) -> str | None:
+        return _validate_scorer_ref_value(v)
 
     @model_validator(mode="after")
     def _populate_and_validate_mlflow_name(self: MetricSpec) -> MetricSpec:
@@ -68,6 +94,12 @@ class GuardrailSpec(BaseModel):
     threshold: float
     blocking: bool = True
     mlflow_name: str | None = None
+    scorer_ref: str | None = None
+
+    @field_validator("scorer_ref", mode="before")
+    @classmethod
+    def _validate_scorer_ref(cls: type, v: object) -> str | None:
+        return _validate_scorer_ref_value(v)
 
     @model_validator(mode="after")
     def _populate_and_validate_mlflow_name(self: GuardrailSpec) -> GuardrailSpec:

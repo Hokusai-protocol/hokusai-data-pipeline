@@ -336,6 +336,9 @@ def _all_scorer_refs(spec: RuntimeAdapterSpec) -> list[str]:
     for m in spec.secondary_metrics:
         if m.scorer_ref:
             refs.append(m.scorer_ref)
+    for g in spec.guardrails:
+        if g.scorer_ref:
+            refs.append(g.scorer_ref)
     return refs
 
 

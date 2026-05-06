@@ -321,6 +321,53 @@ class TestMetricSpec:
         dumped = ms.model_dump()
         assert dumped["mlflow_name"] == "workflow_sr"
 
+    def test_scorer_ref_none_by_default(self):
+        ms = MetricSpec(name="accuracy", direction="higher_is_better")
+        assert ms.scorer_ref is None
+
+    def test_scorer_ref_valid_known_ref_accepted(self):
+        ms = MetricSpec(
+            name="sales:revenue_per_1000_messages",
+            direction="higher_is_better",
+            scorer_ref="sales:revenue_per_1000_messages",
+        )
+        assert ms.scorer_ref == "sales:revenue_per_1000_messages"
+
+    def test_scorer_ref_null_accepted(self):
+        ms = MetricSpec(name="accuracy", direction="higher_is_better", scorer_ref=None)
+        assert ms.scorer_ref is None
+
+    def test_scorer_ref_empty_string_rejected(self):
+        with pytest.raises(ValidationError) as exc_info:
+            MetricSpec(name="accuracy", direction="higher_is_better", scorer_ref="")
+        err = str(exc_info.value).lower()
+        assert "scorer_ref" in err or "string" in err
+
+    def test_scorer_ref_unknown_ref_rejected(self):
+        with pytest.raises(ValidationError) as exc_info:
+            MetricSpec(
+                name="accuracy",
+                direction="higher_is_better",
+                scorer_ref="nonexistent_scorer_xyz",
+            )
+        err = str(exc_info.value).lower()
+        assert "scorer_ref" in err or "unknown" in err
+
+    def test_scorer_ref_included_in_model_dump(self):
+        ms = MetricSpec(
+            name="sales:qualified_meeting_rate",
+            direction="higher_is_better",
+            scorer_ref="sales:qualified_meeting_rate",
+        )
+        dumped = ms.model_dump()
+        assert dumped["scorer_ref"] == "sales:qualified_meeting_rate"
+
+    def test_scorer_ref_none_included_in_model_dump(self):
+        ms = MetricSpec(name="accuracy", direction="higher_is_better")
+        dumped = ms.model_dump()
+        assert "scorer_ref" in dumped
+        assert dumped["scorer_ref"] is None
+
 
 class TestGuardrailSpec:
     def test_valid_guardrail(self):
@@ -346,6 +393,50 @@ class TestGuardrailSpec:
             GuardrailSpec(
                 name="x", direction="lower_is_better", threshold=1.0, mlflow_name="bad:key"
             )
+
+    def test_guardrail_scorer_ref_none_by_default(self):
+        g = GuardrailSpec(name="latency", direction="lower_is_better", threshold=500.0)
+        assert g.scorer_ref is None
+
+    def test_guardrail_scorer_ref_valid_known_ref_accepted(self):
+        g = GuardrailSpec(
+            name="sales:spam_complaint_rate",
+            direction="lower_is_better",
+            threshold=0.005,
+            scorer_ref="sales:spam_complaint_rate",
+        )
+        assert g.scorer_ref == "sales:spam_complaint_rate"
+
+    def test_guardrail_scorer_ref_null_accepted(self):
+        g = GuardrailSpec(
+            name="latency", direction="lower_is_better", threshold=500.0, scorer_ref=None
+        )
+        assert g.scorer_ref is None
+
+    def test_guardrail_scorer_ref_empty_string_rejected(self):
+        with pytest.raises(ValidationError):
+            GuardrailSpec(
+                name="latency", direction="lower_is_better", threshold=500.0, scorer_ref=""
+            )
+
+    def test_guardrail_scorer_ref_unknown_ref_rejected(self):
+        with pytest.raises(ValidationError):
+            GuardrailSpec(
+                name="latency",
+                direction="lower_is_better",
+                threshold=500.0,
+                scorer_ref="nonexistent_scorer_xyz",
+            )
+
+    def test_guardrail_scorer_ref_included_in_model_dump(self):
+        g = GuardrailSpec(
+            name="sales:unsubscribe_rate",
+            direction="lower_is_better",
+            threshold=0.03,
+            scorer_ref="sales:unsubscribe_rate",
+        )
+        dumped = g.model_dump()
+        assert dumped["scorer_ref"] == "sales:unsubscribe_rate"
 
 
 class TestEvalSpec:
@@ -422,3 +513,131 @@ class TestEvalSpec:
         assert dumped["primary_metric"]["mlflow_name"] == "workflow_sr"
         assert dumped["secondary_metrics"][0]["mlflow_name"] == "a_b"
         assert dumped["guardrails"][0]["mlflow_name"] == "latency_p99"
+
+    def test_eval_spec_round_trips_scorer_ref_primary(self):
+        es = EvalSpec(
+            primary_metric={
+                "name": "sales:revenue_per_1000_messages",
+                "direction": "higher_is_better",
+                "scorer_ref": "sales:revenue_per_1000_messages",
+            }
+        )
+        dumped = es.model_dump()
+        assert dumped["primary_metric"]["scorer_ref"] == "sales:revenue_per_1000_messages"
+
+    def test_eval_spec_round_trips_scorer_ref_secondary(self):
+        es = EvalSpec(
+            primary_metric={"name": "accuracy", "direction": "higher_is_better"},
+            secondary_metrics=[
+                {
+                    "name": "sales:qualified_meeting_rate",
+                    "direction": "higher_is_better",
+                    "scorer_ref": "sales:qualified_meeting_rate",
+                }
+            ],
+        )
+        dumped = es.model_dump()
+        assert dumped["secondary_metrics"][0]["scorer_ref"] == "sales:qualified_meeting_rate"
+
+    def test_eval_spec_round_trips_scorer_ref_guardrail(self):
+        es = EvalSpec(
+            primary_metric={"name": "accuracy", "direction": "higher_is_better"},
+            guardrails=[
+                {
+                    "name": "sales:spam_complaint_rate",
+                    "direction": "lower_is_better",
+                    "threshold": 0.005,
+                    "scorer_ref": "sales:spam_complaint_rate",
+                }
+            ],
+        )
+        dumped = es.model_dump()
+        assert dumped["guardrails"][0]["scorer_ref"] == "sales:spam_complaint_rate"
+
+    def test_eval_spec_round_trips_scorer_refs_all_levels(self):
+        es = EvalSpec(
+            primary_metric={
+                "name": "sales:revenue_per_1000_messages",
+                "direction": "higher_is_better",
+                "scorer_ref": "sales:revenue_per_1000_messages",
+            },
+            secondary_metrics=[
+                {
+                    "name": "sales:qualified_meeting_rate",
+                    "direction": "higher_is_better",
+                    "scorer_ref": "sales:qualified_meeting_rate",
+                }
+            ],
+            guardrails=[
+                {
+                    "name": "sales:unsubscribe_rate",
+                    "direction": "lower_is_better",
+                    "threshold": 0.03,
+                    "scorer_ref": "sales:unsubscribe_rate",
+                },
+                {
+                    "name": "sales:spam_complaint_rate",
+                    "direction": "lower_is_better",
+                    "threshold": 0.005,
+                    "scorer_ref": "sales:spam_complaint_rate",
+                },
+            ],
+        )
+        dumped = es.model_dump()
+        assert dumped["primary_metric"]["scorer_ref"] == "sales:revenue_per_1000_messages"
+        assert dumped["secondary_metrics"][0]["scorer_ref"] == "sales:qualified_meeting_rate"
+        assert dumped["guardrails"][0]["scorer_ref"] == "sales:unsubscribe_rate"
+        assert dumped["guardrails"][1]["scorer_ref"] == "sales:spam_complaint_rate"
+
+    def test_eval_spec_scorer_ref_none_stays_none(self):
+        es = EvalSpec(
+            primary_metric={"name": "accuracy", "direction": "higher_is_better", "scorer_ref": None}
+        )
+        dumped = es.model_dump()
+        assert dumped["primary_metric"]["scorer_ref"] is None
+
+    def test_eval_spec_unknown_scorer_ref_rejected(self):
+        with pytest.raises(ValidationError) as exc_info:
+            EvalSpec(
+                primary_metric={
+                    "name": "accuracy",
+                    "direction": "higher_is_better",
+                    "scorer_ref": "unknown_scorer_xyz_999",
+                }
+            )
+        err = str(exc_info.value).lower()
+        assert "scorer_ref" in err or "unknown" in err
+
+    def test_eval_spec_empty_scorer_ref_rejected(self):
+        with pytest.raises(ValidationError):
+            EvalSpec(
+                primary_metric={
+                    "name": "accuracy",
+                    "direction": "higher_is_better",
+                    "scorer_ref": "",
+                }
+            )
+
+    def test_eval_spec_scorer_ref_on_benchmark_create_round_trips(self):
+        payload = {
+            **_valid_create_payload(),
+            "eval_spec": {
+                "primary_metric": {
+                    "name": "sales:revenue_per_1000_messages",
+                    "direction": "higher_is_better",
+                    "scorer_ref": "sales:revenue_per_1000_messages",
+                },
+                "guardrails": [
+                    {
+                        "name": "sales:spam_complaint_rate",
+                        "direction": "lower_is_better",
+                        "threshold": 0.005,
+                        "scorer_ref": "sales:spam_complaint_rate",
+                    }
+                ],
+            },
+        }
+        spec = BenchmarkSpecCreate(**payload)
+        assert spec.eval_spec is not None
+        assert spec.eval_spec.primary_metric.scorer_ref == "sales:revenue_per_1000_messages"
+        assert spec.eval_spec.guardrails[0].scorer_ref == "sales:spam_complaint_rate"
