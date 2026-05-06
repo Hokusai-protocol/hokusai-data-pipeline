@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from src.evaluation.guardrails import evaluate_guardrails
 from src.evaluation.schema import MetricFamily as SchemaMetricFamily
 from src.evaluation.scorers import (
     Aggregation,
@@ -15,8 +16,8 @@ from src.evaluation.scorers import (
     resolve_scorer,
 )
 from src.evaluation.scorers.registry import compute_source_hash
-from src.evaluation.spec_translation import _resolve_scorer_for_translation
-from src.utils.metric_naming import validate_mlflow_metric_key
+from src.evaluation.spec_translation import RuntimeGuardrailSpec, _resolve_scorer_for_translation
+from src.utils.metric_naming import derive_mlflow_name, validate_mlflow_metric_key
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -217,15 +218,18 @@ def test_list_scorers_includes_builtins():
 
 
 # ---------------------------------------------------------------------------
-# 10. output_metric_keys pass validate_mlflow_metric_key
+# 10. output_metric_keys produce valid MLflow keys after derivation
 # ---------------------------------------------------------------------------
 
 
 def test_builtin_metric_keys_are_mlflow_safe():
+    # Canonical output keys may contain ':' (e.g. 'sales:spam_complaint_rate').
+    # The registry contract guarantees that derive_mlflow_name(key) is a valid
+    # MLflow metric key; direct key validation is intentionally not required.
     for meta in list_scorers():
         for key in meta.output_metric_keys:
-            # Should not raise
-            validate_mlflow_metric_key(key)
+            derived = derive_mlflow_name(key)
+            validate_mlflow_metric_key(derived)
 
 
 # ---------------------------------------------------------------------------
@@ -306,3 +310,331 @@ def test_mean_per_n_values(ref, values, expected):
     scorer = resolve_scorer(ref)
     result = scorer.callable_(values)
     assert result == pytest.approx(expected)
+
+
+# ---------------------------------------------------------------------------
+# Sales scorer constants
+# ---------------------------------------------------------------------------
+
+_SALES_REFS = [
+    "sales:qualified_meeting_rate",
+    "sales:revenue_per_1000_messages",
+    "sales:spam_complaint_rate",
+    "sales:unsubscribe_rate",
+]
+
+# ---------------------------------------------------------------------------
+# 14. Sales scorer registry availability
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("ref", _SALES_REFS)
+def test_sales_scorers_resolve(ref):
+    scorer = resolve_scorer(ref)
+    assert scorer.metadata.scorer_ref == ref
+
+
+def test_list_scorers_includes_sales_refs():
+    refs = [s.scorer_ref for s in list_scorers()]
+    for ref in _SALES_REFS:
+        assert ref in refs
+    assert refs == sorted(refs)
+
+
+# ---------------------------------------------------------------------------
+# 15. Sales scorer metadata completeness
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("ref", _SALES_REFS)
+def test_sales_scorer_metadata_fields(ref):
+    meta = resolve_scorer(ref).metadata
+    assert meta.version == "1.0.0"
+    assert meta.metric_family == MetricFamily.OUTCOME
+    assert meta.input_schema is not None
+    assert len(meta.output_metric_keys) > 0
+    assert meta.aggregation is not None
+    assert len(meta.source_hash) == 64
+    assert all(c in "0123456789abcdef" for c in meta.source_hash)
+    assert meta.description is not None and len(meta.description) > 0
+
+
+@pytest.mark.parametrize("ref", _SALES_REFS)
+def test_sales_scorer_output_keys_are_canonical(ref):
+    meta = resolve_scorer(ref).metadata
+    for key in meta.output_metric_keys:
+        assert ":" in key, f"Expected canonical colon name, got {key!r}"
+        derived = derive_mlflow_name(key)
+        validate_mlflow_metric_key(derived)
+
+
+def test_sales_scorer_derived_mlflow_names_unique():
+    derived_names = []
+    for ref in _SALES_REFS:
+        meta = resolve_scorer(ref).metadata
+        for key in meta.output_metric_keys:
+            derived_names.append(derive_mlflow_name(key))
+    assert len(derived_names) == len(set(derived_names)), "Derived MLflow names must be unique"
+
+
+@pytest.mark.parametrize("ref", _SALES_REFS)
+def test_sales_scorer_aggregation(ref):
+    meta = resolve_scorer(ref).metadata
+    if ref == "sales:revenue_per_1000_messages":
+        assert meta.aggregation == Aggregation.MEAN_PER_N
+    else:
+        assert meta.aggregation == Aggregation.MEAN
+
+
+# ---------------------------------------------------------------------------
+# 16. Unknown sales ref still raises UnknownScorerError
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_sales_ref_raises():
+    with pytest.raises(UnknownScorerError):
+        resolve_scorer("sales:does_not_exist")
+
+
+# ---------------------------------------------------------------------------
+# 17. qualified_meeting_rate formula
+# ---------------------------------------------------------------------------
+
+
+def test_qualified_meeting_rate_normal():
+    scorer = resolve_scorer("sales:qualified_meeting_rate")
+    rows = [
+        {"qualified_meeting": 1},
+        {"qualified_meeting": 0},
+        {"qualified_meeting": 1},
+    ]
+    assert scorer.callable_(rows) == pytest.approx(2 / 3)
+
+
+def test_qualified_meeting_rate_all_meetings():
+    scorer = resolve_scorer("sales:qualified_meeting_rate")
+    rows = [{"qualified_meeting": 1}, {"qualified_meeting": 1}]
+    assert scorer.callable_(rows) == pytest.approx(1.0)
+
+
+def test_qualified_meeting_rate_zero_denominator_all_null():
+    scorer = resolve_scorer("sales:qualified_meeting_rate")
+    rows = [{"qualified_meeting": None}, {"other_field": 1}]
+    assert scorer.callable_(rows) == 0.0
+
+
+def test_qualified_meeting_rate_empty_rows():
+    scorer = resolve_scorer("sales:qualified_meeting_rate")
+    assert scorer.callable_([]) == 0.0
+
+
+def test_qualified_meeting_rate_missing_labels_excluded():
+    scorer = resolve_scorer("sales:qualified_meeting_rate")
+    # Two rows with label, one without; only labeled rows count
+    rows = [
+        {"qualified_meeting": 1},
+        {"qualified_meeting": None},  # excluded
+        {"qualified_meeting": 0},
+    ]
+    assert scorer.callable_(rows) == pytest.approx(0.5)
+
+
+def test_qualified_meeting_rate_bool_labels():
+    scorer = resolve_scorer("sales:qualified_meeting_rate")
+    rows = [{"qualified_meeting": True}, {"qualified_meeting": False}]
+    assert scorer.callable_(rows) == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
+# 18. revenue_per_1000_messages formula
+# ---------------------------------------------------------------------------
+
+
+def test_revenue_per_1000_normal():
+    scorer = resolve_scorer("sales:revenue_per_1000_messages")
+    rows = [
+        {"delivered": 1, "revenue": 10.0},
+        {"delivered": 1, "revenue": 20.0},
+        {"delivered": 1, "revenue": 30.0},
+    ]
+    # mean revenue per message = 20.0; * 1000 = 20000.0
+    assert scorer.callable_(rows) == pytest.approx(20000.0)
+
+
+def test_revenue_per_1000_zero_denominator_no_delivered():
+    scorer = resolve_scorer("sales:revenue_per_1000_messages")
+    rows = [{"delivered": 0, "revenue": 100.0}]
+    assert scorer.callable_(rows) == 0.0
+
+
+def test_revenue_per_1000_empty_rows():
+    scorer = resolve_scorer("sales:revenue_per_1000_messages")
+    assert scorer.callable_([]) == 0.0
+
+
+def test_revenue_per_1000_null_revenue_treated_as_zero():
+    scorer = resolve_scorer("sales:revenue_per_1000_messages")
+    rows = [
+        {"delivered": 1, "revenue": None},
+        {"delivered": 1, "revenue": 10.0},
+    ]
+    # total_revenue=10, delivered=2 → (10/2)*1000 = 5000
+    assert scorer.callable_(rows) == pytest.approx(5000.0)
+
+
+def test_revenue_per_1000_undelivered_excluded():
+    scorer = resolve_scorer("sales:revenue_per_1000_messages")
+    rows = [
+        {"delivered": 1, "revenue": 10.0},
+        {"delivered": 0, "revenue": 9999.0},  # must not affect result
+    ]
+    assert scorer.callable_(rows) == pytest.approx(10000.0)
+
+
+def test_revenue_per_1000_negative_revenue_raises():
+    scorer = resolve_scorer("sales:revenue_per_1000_messages")
+    rows = [{"delivered": 1, "revenue": -5.0}]
+    with pytest.raises(ValueError, match="[Nn]egative"):
+        scorer.callable_(rows)
+
+
+# ---------------------------------------------------------------------------
+# 19. spam_complaint_rate formula
+# ---------------------------------------------------------------------------
+
+
+def test_spam_complaint_rate_normal():
+    scorer = resolve_scorer("sales:spam_complaint_rate")
+    rows = [
+        {"delivered": 1, "spam_complaint": 1},
+        {"delivered": 1, "spam_complaint": 0},
+        {"delivered": 1, "spam_complaint": 0},
+        {"delivered": 1, "spam_complaint": 0},
+    ]
+    assert scorer.callable_(rows) == pytest.approx(0.25)
+
+
+def test_spam_complaint_rate_zero_denominator_no_delivered():
+    scorer = resolve_scorer("sales:spam_complaint_rate")
+    rows = [{"delivered": 0, "spam_complaint": 1}]
+    assert scorer.callable_(rows) == 0.0
+
+
+def test_spam_complaint_rate_empty_rows():
+    scorer = resolve_scorer("sales:spam_complaint_rate")
+    assert scorer.callable_([]) == 0.0
+
+
+def test_spam_complaint_rate_non_delivered_excluded():
+    scorer = resolve_scorer("sales:spam_complaint_rate")
+    rows = [
+        {"delivered": 1, "spam_complaint": 0},
+        {"delivered": 0, "spam_complaint": 1},  # must not inflate denominator
+    ]
+    assert scorer.callable_(rows) == pytest.approx(0.0)
+
+
+def test_spam_complaint_rate_no_complaints():
+    scorer = resolve_scorer("sales:spam_complaint_rate")
+    rows = [{"delivered": 1, "spam_complaint": 0}, {"delivered": 1, "spam_complaint": 0}]
+    assert scorer.callable_(rows) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# 20. unsubscribe_rate formula
+# ---------------------------------------------------------------------------
+
+
+def test_unsubscribe_rate_normal():
+    scorer = resolve_scorer("sales:unsubscribe_rate")
+    rows = [
+        {"delivered": 1, "unsubscribe": 1},
+        {"delivered": 1, "unsubscribe": 0},
+        {"delivered": 1, "unsubscribe": 1},
+        {"delivered": 1, "unsubscribe": 0},
+    ]
+    assert scorer.callable_(rows) == pytest.approx(0.5)
+
+
+def test_unsubscribe_rate_zero_denominator_no_delivered():
+    scorer = resolve_scorer("sales:unsubscribe_rate")
+    rows = [{"delivered": 0, "unsubscribe": 1}]
+    assert scorer.callable_(rows) == 0.0
+
+
+def test_unsubscribe_rate_empty_rows():
+    scorer = resolve_scorer("sales:unsubscribe_rate")
+    assert scorer.callable_([]) == 0.0
+
+
+def test_unsubscribe_rate_non_delivered_excluded():
+    scorer = resolve_scorer("sales:unsubscribe_rate")
+    rows = [
+        {"delivered": 1, "unsubscribe": 0},
+        {"delivered": 0, "unsubscribe": 1},  # must not inflate denominator
+    ]
+    assert scorer.callable_(rows) == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# 21. Guardrail compatibility for spam_complaint_rate and unsubscribe_rate
+# ---------------------------------------------------------------------------
+
+
+def _guardrail(name: str, threshold: float) -> RuntimeGuardrailSpec:
+    return RuntimeGuardrailSpec(name=name, direction="lower_is_better", threshold=threshold)
+
+
+def test_spam_complaint_rate_below_threshold_passes():
+    rows = [{"delivered": 1, "spam_complaint": 0}] * 99 + [{"delivered": 1, "spam_complaint": 1}]
+    scorer = resolve_scorer("sales:spam_complaint_rate")
+    rate = scorer.callable_(rows)
+    guardrail = _guardrail("spam_complaint_rate", 0.02)
+    result = evaluate_guardrails({"spam_complaint_rate": rate}, [guardrail])
+    assert result.passed is True
+
+
+def test_spam_complaint_rate_above_threshold_breaches():
+    rows = [{"delivered": 1, "spam_complaint": 1}] * 5 + [{"delivered": 1, "spam_complaint": 0}] * 5
+    scorer = resolve_scorer("sales:spam_complaint_rate")
+    rate = scorer.callable_(rows)
+    guardrail = _guardrail("spam_complaint_rate", 0.02)
+    result = evaluate_guardrails({"spam_complaint_rate": rate}, [guardrail])
+    assert result.passed is False
+    assert len(result.breaches) == 1
+
+
+def test_spam_complaint_rate_zero_delivered_does_not_breach():
+    rows = [{"delivered": 0, "spam_complaint": 1}]
+    scorer = resolve_scorer("sales:spam_complaint_rate")
+    rate = scorer.callable_(rows)
+    assert rate == 0.0
+    guardrail = _guardrail("spam_complaint_rate", 0.02)
+    result = evaluate_guardrails({"spam_complaint_rate": rate}, [guardrail])
+    assert result.passed is True
+
+
+def test_unsubscribe_rate_below_threshold_passes():
+    rows = [{"delivered": 1, "unsubscribe": 0}] * 99 + [{"delivered": 1, "unsubscribe": 1}]
+    scorer = resolve_scorer("sales:unsubscribe_rate")
+    rate = scorer.callable_(rows)
+    result = evaluate_guardrails({"unsubscribe_rate": rate}, [_guardrail("unsubscribe_rate", 0.05)])
+    assert result.passed is True
+
+
+def test_unsubscribe_rate_above_threshold_breaches():
+    rows = [{"delivered": 1, "unsubscribe": 1}] * 3 + [{"delivered": 1, "unsubscribe": 0}] * 7
+    scorer = resolve_scorer("sales:unsubscribe_rate")
+    rate = scorer.callable_(rows)
+    result = evaluate_guardrails({"unsubscribe_rate": rate}, [_guardrail("unsubscribe_rate", 0.05)])
+    assert result.passed is False
+    assert len(result.breaches) == 1
+
+
+def test_unsubscribe_rate_zero_delivered_does_not_breach():
+    rows = [{"delivered": 0, "unsubscribe": 1}]
+    scorer = resolve_scorer("sales:unsubscribe_rate")
+    rate = scorer.callable_(rows)
+    assert rate == 0.0
+    result = evaluate_guardrails({"unsubscribe_rate": rate}, [_guardrail("unsubscribe_rate", 0.05)])
+    assert result.passed is True

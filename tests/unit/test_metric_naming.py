@@ -63,3 +63,32 @@ class TestValidateMlflowMetricKey:
 
     def test_key_with_space_allowed(self) -> None:
         validate_mlflow_metric_key("my metric")
+
+
+class TestSalesMetricNaming:
+    """Verify canonical sales:* metric names derive to valid, collision-free MLflow keys."""
+
+    _CANONICAL_TO_DERIVED = {
+        "sales:qualified_meeting_rate": "sales_qualified_meeting_rate",
+        "sales:revenue_per_1000_messages": "sales_revenue_per_1000_messages",
+        "sales:spam_complaint_rate": "sales_spam_complaint_rate",
+        "sales:unsubscribe_rate": "sales_unsubscribe_rate",
+    }
+
+    def test_canonical_names_derive_to_expected_mlflow_keys(self) -> None:
+        for canonical, expected in self._CANONICAL_TO_DERIVED.items():
+            assert derive_mlflow_name(canonical) == expected
+
+    def test_derived_names_are_valid_mlflow_keys(self) -> None:
+        for canonical in self._CANONICAL_TO_DERIVED:
+            derived = derive_mlflow_name(canonical)
+            validate_mlflow_metric_key(derived)
+
+    def test_derived_names_are_unique(self) -> None:
+        derived = [derive_mlflow_name(k) for k in self._CANONICAL_TO_DERIVED]
+        assert len(derived) == len(set(derived))
+
+    def test_canonical_names_rejected_directly_by_validate(self) -> None:
+        for canonical in self._CANONICAL_TO_DERIVED:
+            with pytest.raises(ValueError):
+                validate_mlflow_metric_key(canonical)

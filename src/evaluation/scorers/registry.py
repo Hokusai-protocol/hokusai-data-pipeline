@@ -9,7 +9,7 @@ from hashlib import sha256
 from typing import Any, Callable
 
 from src.evaluation.scorers.metadata import Aggregation, MetricFamily, ScorerMetadata
-from src.utils.metric_naming import validate_mlflow_metric_key
+from src.utils.metric_naming import derive_mlflow_name, validate_mlflow_metric_key
 
 
 class UnknownScorerError(KeyError):
@@ -88,7 +88,9 @@ def register_scorer(
 ) -> None:
     """Register a scorer. Idempotent if metadata is identical; raises on conflict."""
     for key in output_metric_keys:
-        validate_mlflow_metric_key(key)
+        # Canonical keys may contain ':' (e.g. 'sales:spam_complaint_rate'); validate
+        # the derived MLflow-safe name rather than the canonical key directly.
+        validate_mlflow_metric_key(derive_mlflow_name(key))
 
     source_hash = compute_source_hash(
         scorer_ref,
