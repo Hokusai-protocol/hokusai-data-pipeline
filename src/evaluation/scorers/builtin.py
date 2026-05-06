@@ -18,8 +18,8 @@ _SALES_ROW_SCHEMA: dict = {
             "qualified_meeting": {"type": ["integer", "boolean", "null"]},
             "revenue": {"type": ["number", "null"]},
             "delivered": {"type": ["integer", "boolean"]},
-            "spam_complaint": {"type": ["integer", "boolean"]},
-            "unsubscribe": {"type": ["integer", "boolean"]},
+            "spam_complaint": {"type": ["integer", "boolean", "null"]},
+            "unsubscribe": {"type": ["integer", "boolean", "null"]},
         },
     },
 }
@@ -219,8 +219,10 @@ _SALES_SCORERS = [
         Aggregation.MEAN,
         (
             "Fraction of delivered messages that generated a spam complaint. "
-            "Denominator is delivered message count; undelivered rows are excluded. "
-            "Zero delivered denominator returns 0.0. Use as a lower_is_better guardrail metric."
+            "Denominator is the count of delivered rows with an observed (non-null) spam_complaint "
+            "flag; rows with null flags are excluded from both numerator and denominator per the "
+            "missing-label contract rule. Zero denominator returns 0.0. "
+            "Use as a lower_is_better guardrail metric."
         ),
     ),
     (
@@ -229,8 +231,10 @@ _SALES_SCORERS = [
         Aggregation.MEAN,
         (
             "Fraction of delivered messages that resulted in an unsubscribe event. "
-            "Denominator is delivered message count; undelivered rows are excluded. "
-            "Zero delivered denominator returns 0.0. Use as a lower_is_better guardrail metric."
+            "Denominator is the count of delivered rows with an observed (non-null) unsubscribe "
+            "flag; rows with null flags are excluded from both numerator and denominator per the "
+            "missing-label contract rule. Zero denominator returns 0.0. "
+            "Use as a lower_is_better guardrail metric."
         ),
     ),
 ]
