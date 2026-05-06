@@ -1,0 +1,57 @@
+{
+  "primary_metric": {
+    "name": "message_quality_score",
+    "direction": "higher_is_better",
+    "unit": "score_0_to_1"
+  },
+  "secondary_metrics": [
+    {
+      "name": "reply_rate",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    },
+    {
+      "name": "personalization_score",
+      "direction": "higher_is_better",
+      "unit": "score_0_to_1"
+    },
+    {
+      "name": "tone_appropriateness_score",
+      "direction": "higher_is_better",
+      "unit": "score_0_to_1"
+    }
+  ],
+  "guardrails": [
+    {
+      "name": "unsubscribe_rate",
+      "direction": "lower_is_better",
+      "threshold": 0.03,
+      "blocking": false
+    },
+    {
+      "name": "spam_complaint_rate",
+      "direction": "lower_is_better",
+      "threshold": 0.005,
+      "blocking": false
+    }
+  ],
+  "measurement_policy": {
+    "type": "diagnostic_only",
+    "mint_eligible": false,
+    "logging_only": true,
+    "reason": "No eligible measurement policy available; revenue cannot be attributed to arbitrary generated messages without online_ab, reward_model, off_policy, or exact_observed_output evidence"
+  },
+  "label_policy": {
+    "source": "internal_quality_rubric",
+    "strategy": "heuristic_scorer",
+    "rubric_version": "v1",
+    "note": "Diagnostic labels are not used for DeltaOne mint decisions"
+  },
+  "coverage_policy": {
+    "min_coverage_fraction": 0.50,
+    "note": "Coverage requirements relaxed for diagnostic-only logging; no mint gate enforced"
+  },
+  "unit_of_analysis": "message",
+  "min_examples": 100,
+  "metric_family": "continuous"
+}
