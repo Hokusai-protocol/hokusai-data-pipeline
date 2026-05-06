@@ -15,6 +15,7 @@ from src.evaluation.custom_eval import (
     CustomEvalRuntimeError,
     DatasetHashUnresolvableError,
     ScorerLoadError,
+    _all_scorer_refs,
     compute_dataset_hash,
     is_genai_spec,
     run_custom_eval,
@@ -24,7 +25,11 @@ from src.evaluation.scorers import (
     Aggregation,
     register_scorer,
 )
-from src.evaluation.spec_translation import RuntimeAdapterSpec, RuntimeMetricSpec
+from src.evaluation.spec_translation import (
+    RuntimeAdapterSpec,
+    RuntimeGuardrailSpec,
+    RuntimeMetricSpec,
+)
 from src.evaluation.tags import (
     DATASET_HASH_TAG,
     FAILURE_REASON_TAG,
@@ -43,8 +48,20 @@ from src.evaluation.tags import (
 def _make_spec(
     scorer_ref: str | None = None,
     metric_family: MetricFamily = MetricFamily.OUTCOME,
+    guardrail_scorer_refs: list[str | None] | None = None,
 ) -> RuntimeAdapterSpec:
     """Build a minimal RuntimeAdapterSpec for testing."""
+    guardrails: tuple[RuntimeGuardrailSpec, ...] = ()
+    if guardrail_scorer_refs:
+        guardrails = tuple(
+            RuntimeGuardrailSpec(
+                name=f"guardrail_{i}",
+                direction="lower_is_better",
+                threshold=0.1,
+                scorer_ref=ref,
+            )
+            for i, ref in enumerate(guardrail_scorer_refs)
+        )
     return RuntimeAdapterSpec(
         spec_id="spec-001",
         model_id="model-a",
@@ -58,6 +75,7 @@ def _make_spec(
             direction="higher_is_better",
             scorer_ref=scorer_ref,
         ),
+        guardrails=guardrails,
     )
 
 
@@ -66,6 +84,7 @@ def _make_benchmark_spec(
     scorer_ref: str | None = "pass_rate",
     is_active: bool = True,
     measurement_policy: dict | None = None,
+    guardrails: list[dict] | None = None,
 ) -> dict[str, Any]:
     return {
         "spec_id": "spec-001",
@@ -84,7 +103,7 @@ def _make_benchmark_spec(
                 "scorer_ref": scorer_ref,
             },
             "secondary_metrics": [],
-            "guardrails": [],
+            "guardrails": guardrails or [],
             "measurement_policy": measurement_policy,
         },
     }
@@ -396,6 +415,95 @@ def test_run_custom_eval_unknown_scorer_raises() -> None:
 
     # Pre-run abort: no tags written
     assert not fake_mlflow.tags
+
+
+def test_all_scorer_refs_includes_guardrail_refs() -> None:
+    """_all_scorer_refs must include scorer refs from guardrails."""
+    spec = _make_spec(
+        scorer_ref="pass_rate",
+        guardrail_scorer_refs=["sales:unsubscribe_rate", None, "sales:spam_complaint_rate"],
+    )
+    refs = _all_scorer_refs(spec)
+    assert "pass_rate" in refs
+    assert "sales:unsubscribe_rate" in refs
+    assert "sales:spam_complaint_rate" in refs
+    assert None not in refs
+    assert len(refs) == 3
+
+
+def test_all_scorer_refs_guardrail_only() -> None:
+    """_all_scorer_refs collects guardrail refs when primary has no scorer_ref."""
+    spec = _make_spec(
+        scorer_ref=None,
+        guardrail_scorer_refs=["sales:spam_complaint_rate"],
+    )
+    refs = _all_scorer_refs(spec)
+    assert refs == ["sales:spam_complaint_rate"]
+
+
+def test_run_custom_eval_guardrail_scorer_ref_validated(tmp_path) -> None:
+    """An unknown guardrail scorer_ref raises ScorerLoadError before starting an MLflow run."""
+    spec = _make_benchmark_spec(
+        scorer_ref=None,
+        guardrails=[
+            {
+                "name": "my_guardrail",
+                "direction": "lower_is_better",
+                "threshold": 0.1,
+                "scorer_ref": "nonexistent_guardrail_scorer_xyz",
+            }
+        ],
+    )
+    fake_mlflow = _FakeMlflow()
+    with pytest.raises(ScorerLoadError, match="scorer_load_failed"):
+        run_custom_eval(
+            model_id="model-a",
+            benchmark_spec=spec,
+            benchmark_spec_id="spec-001",
+            mlflow_module=fake_mlflow,
+            mlflow_client=None,
+            cli_max_cost=None,
+            seed=None,
+            temperature=None,
+        )
+    assert not fake_mlflow.tags
+
+
+def test_run_custom_eval_guardrail_scorer_ref_in_tag(tmp_path) -> None:
+    """Guardrail scorer_refs are included in the hokusai.scorer_ref MLflow tag."""
+    rows = [{"input": "x"}]
+    dataset_file = tmp_path / "data.json"
+    dataset_file.write_text(json.dumps(rows), encoding="utf-8")
+
+    spec = _make_benchmark_spec(
+        scorer_ref=None,
+        guardrails=[
+            {
+                "name": "sales:unsubscribe_rate",
+                "direction": "lower_is_better",
+                "threshold": 0.03,
+                "scorer_ref": "sales:unsubscribe_rate",
+            }
+        ],
+    )
+    spec["dataset_reference"] = str(dataset_file)
+    spec["dataset_version"] = None
+
+    fake_mlflow = _FakeMlflow(metrics={"accuracy": 0.9})
+
+    run_custom_eval(
+        model_id="model-a",
+        benchmark_spec=spec,
+        benchmark_spec_id="spec-001",
+        mlflow_module=fake_mlflow,
+        mlflow_client=None,
+        cli_max_cost=None,
+        seed=None,
+        temperature=None,
+    )
+
+    scorer_ref_tag = fake_mlflow.tags.get(SCORER_REF_TAG, "")
+    assert "sales:unsubscribe_rate" in scorer_ref_tag
 
 
 def test_run_custom_eval_mlflow_failure_tags(tmp_path) -> None:

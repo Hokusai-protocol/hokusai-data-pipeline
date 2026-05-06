@@ -3,7 +3,8 @@
 Validates that all five policy-backed fixtures:
 - Parse against the EvalSpec schema without errors.
 - Encode the expected measurement_policy.type and mint_eligible values.
-- Use revenue_per_1000_messages only with eligible measurement policies.
+- Use canonical sales:* names for all sales metrics.
+- Carry explicit scorer_ref on every canonical sales metric entry.
 - Distinguish diagnostic-only logging from mint-eligible revenue metrics.
 """
 
@@ -15,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from src.api.schemas.benchmark_spec import EvalSpec
+from src.evaluation.scorers import resolve_scorer
 
 EXAMPLES_DIR = Path(__file__).resolve().parents[2] / "schema" / "examples"
 
@@ -51,6 +53,26 @@ REQUIRED_EVAL_SPEC_FIELDS = {
     "metric_family",
 }
 
+# Canonical sales metric names (with sales: prefix).
+SALES_METRIC_NAMES = frozenset(
+    {
+        "sales:revenue_per_1000_messages",
+        "sales:unsubscribe_rate",
+        "sales:spam_complaint_rate",
+        "sales:qualified_meeting_rate",
+    }
+)
+
+# Bare names that must NOT appear in fixtures (replaced by canonical names above).
+BARE_SALES_METRIC_NAMES = frozenset(
+    {
+        "revenue_per_1000_messages",
+        "unsubscribe_rate",
+        "spam_complaint_rate",
+        "qualified_meeting_rate",
+    }
+)
+
 
 def _load_fixture(filename: str) -> dict:
     path = EXAMPLES_DIR / filename
@@ -60,6 +82,21 @@ def _load_fixture(filename: str) -> dict:
 
 def _policy_type(data: dict) -> str:
     return data["measurement_policy"]["type"]
+
+
+def _all_metric_entries(data: dict) -> list[dict]:
+    """Return every metric/guardrail entry in the fixture as a flat list."""
+    entries: list[dict] = []
+    pm = data.get("primary_metric")
+    if isinstance(pm, dict):
+        entries.append(pm)
+    for m in data.get("secondary_metrics", []):
+        if isinstance(m, dict):
+            entries.append(m)
+    for g in data.get("guardrails", []):
+        if isinstance(g, dict):
+            entries.append(g)
+    return entries
 
 
 @pytest.mark.parametrize("filename", ALL_FIXTURE_FILENAMES)
@@ -108,6 +145,38 @@ class TestAllFixturesValidateSchema:
         assert "name" in pm
         assert pm["direction"] in ("higher_is_better", "lower_is_better")
 
+    def test_no_bare_sales_metric_names(self, filename: str) -> None:
+        """Regression: bare sales names must not appear in any fixture entry."""
+        data = _load_fixture(filename)
+        for entry in _all_metric_entries(data):
+            name = entry.get("name", "")
+            assert name not in BARE_SALES_METRIC_NAMES, (
+                f"{filename}: metric entry uses bare sales name {name!r}; "
+                f"use canonical 'sales:{name}' with a scorer_ref instead"
+            )
+
+    def test_canonical_sales_metrics_carry_scorer_ref(self, filename: str) -> None:
+        """Every canonical sales:* metric entry must have scorer_ref == name."""
+        data = _load_fixture(filename)
+        for entry in _all_metric_entries(data):
+            name = entry.get("name", "")
+            if name in SALES_METRIC_NAMES:
+                assert entry.get("scorer_ref") == name, (
+                    f"{filename}: canonical sales metric {name!r} is missing "
+                    f"scorer_ref or scorer_ref != name"
+                )
+
+    def test_canonical_sales_scorer_refs_are_resolvable(self, filename: str) -> None:
+        """Every canonical sales:* scorer_ref must be present in the scorer registry."""
+        data = _load_fixture(filename)
+        for entry in _all_metric_entries(data):
+            name = entry.get("name", "")
+            if name in SALES_METRIC_NAMES:
+                ref = entry.get("scorer_ref")
+                assert ref is not None, f"{filename}: {name!r} missing scorer_ref"
+                resolved = resolve_scorer(ref)
+                assert resolved is not None, f"{filename}: scorer_ref {ref!r} not found in registry"
+
 
 class TestDiagnosticOnlyFixture:
     def test_is_not_mint_eligible(self) -> None:
@@ -120,7 +189,9 @@ class TestDiagnosticOnlyFixture:
 
     def test_primary_metric_is_not_revenue(self) -> None:
         data = _load_fixture("sales_eval_spec.diagnostic_only.v1.json")
-        assert data["primary_metric"]["name"] != "revenue_per_1000_messages"
+        name = data["primary_metric"]["name"]
+        assert name != "sales:revenue_per_1000_messages"
+        assert name != "revenue_per_1000_messages"
 
     def test_has_secondary_metrics_for_logging(self) -> None:
         data = _load_fixture("sales_eval_spec.diagnostic_only.v1.json")
@@ -137,16 +208,33 @@ class TestDiagnosticOnlyFixture:
     def test_validates_against_eval_spec(self) -> None:
         data = _load_fixture("sales_eval_spec.diagnostic_only.v1.json")
         spec = EvalSpec.model_validate(data)
+        assert spec.primary_metric.name != "sales:revenue_per_1000_messages"
         assert spec.primary_metric.name != "revenue_per_1000_messages"
         assert spec.measurement_policy is not None
         assert spec.measurement_policy["mint_eligible"] is False
 
+    def test_guardrails_use_canonical_sales_names(self) -> None:
+        data = _load_fixture("sales_eval_spec.diagnostic_only.v1.json")
+        guardrail_names = {g["name"] for g in data["guardrails"]}
+        assert "sales:unsubscribe_rate" in guardrail_names
+        assert "sales:spam_complaint_rate" in guardrail_names
+
+    def test_guardrails_carry_scorer_refs(self) -> None:
+        data = _load_fixture("sales_eval_spec.diagnostic_only.v1.json")
+        for g in data["guardrails"]:
+            if g["name"] in SALES_METRIC_NAMES:
+                assert g.get("scorer_ref") == g["name"]
+
 
 @pytest.mark.parametrize("filename", MINT_ELIGIBLE_FIXTURE_FILENAMES)
 class TestRevenueMetricRequiresEligiblePolicy:
-    def test_primary_metric_is_revenue_per_1000(self, filename: str) -> None:
+    def test_primary_metric_is_canonical_revenue(self, filename: str) -> None:
         data = _load_fixture(filename)
-        assert data["primary_metric"]["name"] == "revenue_per_1000_messages"
+        assert data["primary_metric"]["name"] == "sales:revenue_per_1000_messages"
+
+    def test_primary_metric_carries_scorer_ref(self, filename: str) -> None:
+        data = _load_fixture(filename)
+        assert data["primary_metric"].get("scorer_ref") == "sales:revenue_per_1000_messages"
 
     def test_policy_type_is_mint_eligible(self, filename: str) -> None:
         data = _load_fixture(filename)
@@ -171,6 +259,20 @@ class TestRevenueMetricRequiresEligiblePolicy:
     def test_min_examples_meets_floor(self, filename: str) -> None:
         data = _load_fixture(filename)
         assert data["min_examples"] >= 1000
+
+    def test_guardrails_use_canonical_unsubscribe_and_spam_names(self, filename: str) -> None:
+        data = _load_fixture(filename)
+        guardrail_names = {g["name"] for g in data["guardrails"]}
+        assert "sales:unsubscribe_rate" in guardrail_names
+        assert "sales:spam_complaint_rate" in guardrail_names
+
+    def test_guardrails_carry_scorer_refs(self, filename: str) -> None:
+        data = _load_fixture(filename)
+        for g in data["guardrails"]:
+            if g["name"] in SALES_METRIC_NAMES:
+                assert (
+                    g.get("scorer_ref") == g["name"]
+                ), f"{filename}: guardrail {g['name']!r} is missing scorer_ref"
 
 
 class TestFixtureInventory:
@@ -202,3 +304,14 @@ class TestFixtureInventory:
             if _policy_type(data) == "diagnostic_only":
                 diagnostic_count += 1
         assert diagnostic_count == 1
+
+    def test_no_bare_names_across_all_fixtures(self) -> None:
+        """Global regression: bare sales metric names must not appear anywhere."""
+        for filename in ALL_FIXTURE_FILENAMES:
+            data = _load_fixture(filename)
+            for entry in _all_metric_entries(data):
+                name = entry.get("name", "")
+                assert name not in BARE_SALES_METRIC_NAMES, (
+                    f"{filename}: bare sales name {name!r} found; "
+                    f"use canonical 'sales:{name}' with scorer_ref"
+                )
