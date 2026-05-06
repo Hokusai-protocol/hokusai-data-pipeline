@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sales_outcome_row/v1",
+  "title": "SalesOutcomeRow",
+  "description": "A single benchmark observation row for a sales custom outcome metric. Emitted by gtm-backend and consumed by the Hokusai evaluation pipeline.\n\nSchema version sentinel: schema_version must equal \"sales_outcome_row/v1\".\n\nMetric name enum covers the four canonical sales:* Hokusai names.\nMeasurement policy enum covers all five recognized policy values; only four are mint-eligible (see docs/sales-custom-outcome-eval-contract.md).\nThe alias 'exact_observed' is NOT accepted; use 'exact_observed_output'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "row_id",
+    "benchmark_spec_id",
+    "eval_id",
+    "model_id",
+    "campaign_id",
+    "unit_id",
+    "unit_of_analysis",
+    "measurement_policy",
+    "metric_name",
+    "scorer_ref",
+    "message_count",
+    "delivered_count",
+    "numerator",
+    "denominator",
+    "observed_at",
+    "label_status"
+  ],
+  "properties": {
+    "schema_version": {
+      "title": "Schema Version",
+      "description": "Version sentinel for this row schema. Must be exactly \"sales_outcome_row/v1\".",
+      "type": "string",
+      "const": "sales_outcome_row/v1"
+    },
+    "row_id": {
+      "title": "Row ID",
+      "description": "Unique identifier for this observation row (UUID or stable opaque string).",
+      "type": "string",
+      "minLength": 1
+    },
+    "benchmark_spec_id": {
+      "title": "Benchmark Spec ID",
+      "description": "ID of the BenchmarkSpec this row belongs to.",
+      "type": "string",
+      "minLength": 1
+    },
+    "eval_id": {
+      "title": "Eval ID",
+      "description": "Evaluation run identifier.",
+      "type": "string",
+      "minLength": 1
+    },
+    "model_id": {
+      "title": "Model ID",
+      "description": "Hokusai model identifier.",
+      "type": "string",
+      "minLength": 1
+    },
+    "campaign_id": {
+      "title": "Campaign ID",
+      "description": "Sales campaign identifier.",
+      "type": "string",
+      "minLength": 1
+    },
+    "unit_id": {
+      "title": "Unit ID",
+      "description": "Identifier of the unit of analysis (prospect ID or message ID depending on unit_of_analysis).",
+      "type": "string",
+      "minLength": 1
+    },
+    "unit_of_analysis": {
+      "title": "Unit of Analysis",
+      "description": "Observational unit for this row. Use 'prospect_conversation' for meeting-rate rows; 'prospect_message' for revenue, spam, and unsubscribe rows.",
+      "type": "string",
+      "enum": ["prospect_conversation", "prospect_message"]
+    },
+    "measurement_policy": {
+      "title": "Measurement Policy",
+      "description": "Measurement policy governing mint eligibility for this row. 'exact_observed' is NOT a valid value; use 'exact_observed_output'.",
+      "type": "string",
+      "enum": [
+        "online_ab",
+        "reward_model",
+        "off_policy",
+        "exact_observed_output",
+        "diagnostic_only"
+      ]
+    },
+    "metric_name": {
+      "title": "Metric Name",
+      "description": "Canonical Hokusai sales metric name. One of the four sales:* names.",
+      "type": "string",
+      "enum": [
+        "sales:qualified_meeting_rate",
+        "sales:revenue_per_1000_messages",
+        "sales:spam_complaint_rate",
+        "sales:unsubscribe_rate"
+      ]
+    },
+    "scorer_ref": {
+      "title": "Scorer Ref",
+      "description": "Scorer registry ref. Must match the registered scorer for the given metric_name (typically equal to metric_name).",
+      "type": "string",
+      "minLength": 1
+    },
+    "message_count": {
+      "title": "Message Count",
+      "description": "Total messages sent for this unit.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "delivered_count": {
+      "title": "Delivered Count",
+      "description": "Messages confirmed delivered for this unit.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "numerator": {
+      "title": "Numerator",
+      "description": "Numerator contribution (e.g., events observed: meetings booked, revenue in USD, complaint flags, unsubscribe flags).",
+      "type": "number",
+      "minimum": 0
+    },
+    "denominator": {
+      "title": "Denominator",
+      "description": "Denominator contribution (eligible observations for this row: conversations with observed labels, delivered messages, etc.).",
+      "type": "number",
+      "minimum": 0
+    },
+    "observed_at": {
+      "title": "Observed At",
+      "description": "ISO 8601 UTC timestamp when this row was observed or computed.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "label_status": {
+      "title": "Label Status",
+      "description": "Label availability status. 'observed': outcome label is available and confirmed. 'missing': no label and outcome window closed without an event. 'delayed': label not yet available (outcome window still open). 'partial': some but not all labels are available.",
+      "type": "string",
+      "enum": ["observed", "missing", "delayed", "partial"]
+    },
+    "prospect_id": {
+      "title": "Prospect ID",
+      "description": "Prospect (contact) identifier. Optional; required for prospect_conversation unit_of_analysis in some pipelines.",
+      "type": "string",
+      "minLength": 1
+    },
+    "conversation_id": {
+      "title": "Conversation ID",
+      "description": "Conversation thread identifier.",
+      "type": "string",
+      "minLength": 1
+    },
+    "message_id": {
+      "title": "Message ID",
+      "description": "Individual message identifier. Required for exact_observed_output policy to enable SHA-256 hash join.",
+      "type": "string",
+      "minLength": 1
+    },
+    "arm": {
+      "title": "Arm",
+      "description": "A/B arm assignment. Expected values: 'treatment' or 'control'. Required for online_ab policy.",
+      "type": "string",
+      "minLength": 1
+    },
+    "output_sha256": {
+      "title": "Output SHA-256",
+      "description": "SHA-256 hash of the generated message output, lowercase 0x-prefixed 64-hex. Required for exact_observed_output policy hash join.",
+      "type": "string",
+      "pattern": "^0x[0-9a-f]{64}$"
+    },
+    "label_observed_at": {
+      "title": "Label Observed At",
+      "description": "ISO 8601 UTC timestamp when the outcome label was observed (e.g., when the CRM event was recorded).",
+      "type": "string",
+      "format": "date-time"
+    },
+    "label_available_at": {
+      "title": "Label Available At",
+      "description": "ISO 8601 UTC timestamp after which the outcome label is considered finalized (end of outcome window).",
+      "type": "string",
+      "format": "date-time"
+    },
+    "outcome_window_days": {
+      "title": "Outcome Window Days",
+      "description": "Number of days after message send during which outcome events are collected.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "coverage_fraction": {
+      "title": "Coverage Fraction",
+      "description": "Fraction of expected labels that are available for this unit, in [0.0, 1.0]. Mint-eligible policies require coverage guardrails from eval_spec to pass.",
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "qualified_meeting": {
+      "title": "Qualified Meeting",
+      "description": "Whether a qualified meeting was booked for this prospect conversation. null means the label is unobserved and the row should be excluded from numerator and denominator.",
+      "type": ["boolean", "null"]
+    },
+    "revenue_amount_cents": {
+      "title": "Revenue Amount Cents",
+      "description": "Revenue attributed to this row in cents (integer). Currency is USD unless revenue_currency specifies otherwise.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "revenue_currency": {
+      "title": "Revenue Currency",
+      "description": "ISO 4217 three-letter currency code. Defaults to USD when omitted.",
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "spam_complaint": {
+      "title": "Spam Complaint",
+      "description": "Whether a spam complaint was received for this delivered message. null means the event was not observed and the row's label status should be checked before inclusion.",
+      "type": ["boolean", "null"]
+    },
+    "unsubscribe": {
+      "title": "Unsubscribe",
+      "description": "Whether an unsubscribe event was received for this delivered message. null means the event was not observed and the row's label status should be checked before inclusion.",
+      "type": ["boolean", "null"]
+    },
+    "source_system": {
+      "title": "Source System",
+      "description": "Identifier of the source system that produced this row (e.g., 'salesforce', 'hubspot', 'outreach').",
+      "type": "string",
+      "minLength": 1
+    },
+    "metadata": {
+      "title": "Metadata",
+      "description": "Arbitrary additional metadata for extensibility. Does not affect metric computation.",
+      "type": "object"
+    }
+  }
+}
