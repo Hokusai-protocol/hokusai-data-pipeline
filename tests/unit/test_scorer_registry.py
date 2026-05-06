@@ -540,6 +540,18 @@ def test_spam_complaint_rate_no_complaints():
     assert scorer.callable_(rows) == 0.0
 
 
+def test_spam_complaint_rate_null_flag_excluded_from_denominator():
+    # Rows with None spam_complaint must be excluded from both numerator and denominator.
+    scorer = resolve_scorer("sales:spam_complaint_rate")
+    rows = [
+        {"delivered": 1, "spam_complaint": 1},
+        {"delivered": 1, "spam_complaint": None},  # missing label — excluded entirely
+        {"delivered": 1, "spam_complaint": 0},
+    ]
+    # denominator is 2 (the None row is dropped), numerator is 1
+    assert scorer.callable_(rows) == pytest.approx(0.5)
+
+
 # ---------------------------------------------------------------------------
 # 20. unsubscribe_rate formula
 # ---------------------------------------------------------------------------
@@ -574,6 +586,18 @@ def test_unsubscribe_rate_non_delivered_excluded():
         {"delivered": 0, "unsubscribe": 1},  # must not inflate denominator
     ]
     assert scorer.callable_(rows) == pytest.approx(0.0)
+
+
+def test_unsubscribe_rate_null_flag_excluded_from_denominator():
+    # Rows with None unsubscribe must be excluded from both numerator and denominator.
+    scorer = resolve_scorer("sales:unsubscribe_rate")
+    rows = [
+        {"delivered": 1, "unsubscribe": 1},
+        {"delivered": 1, "unsubscribe": None},  # missing label — excluded entirely
+        {"delivered": 1, "unsubscribe": 0},
+    ]
+    # denominator is 2 (the None row is dropped), numerator is 1
+    assert scorer.callable_(rows) == pytest.approx(0.5)
 
 
 # ---------------------------------------------------------------------------

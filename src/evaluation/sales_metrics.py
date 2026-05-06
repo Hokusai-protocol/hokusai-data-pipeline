@@ -132,7 +132,7 @@ _REVENUE_DENOMINATOR_RULES: Mapping[DenominatorCase, str] = {
     ),
 }
 
-_UNSUBSCRIBE_DENOMINATOR_RULES: Mapping[DenominatorCase, str] = {
+_BINARY_EVENT_DENOMINATOR_RULES: Mapping[DenominatorCase, str] = {
     "zero_messages": (
         "When delivered_count is zero the metric value is 0.0. "
         "The row must carry label_status and coverage_fraction reflecting the zero denominator. "
@@ -307,7 +307,7 @@ _SPAM_COMPLAINT_RATE = _build_contract(
     ),
     unit_of_analysis="prospect_message",
     unit="proportion",
-    denominator_rules=_UNSUBSCRIBE_DENOMINATOR_RULES,
+    denominator_rules=_BINARY_EVENT_DENOMINATOR_RULES,
 )
 
 _UNSUBSCRIBE_RATE = _build_contract(
@@ -323,7 +323,7 @@ _UNSUBSCRIBE_RATE = _build_contract(
     ),
     unit_of_analysis="prospect_message",
     unit="proportion",
-    denominator_rules=_UNSUBSCRIBE_DENOMINATOR_RULES,
+    denominator_rules=_BINARY_EVENT_DENOMINATOR_RULES,
 )
 
 # ---------------------------------------------------------------------------
