@@ -134,6 +134,7 @@ def _sales_spam_complaint_rate(rows: list[dict]) -> float:
     flag regardless of ``delivered_count`` (one event per row).  Rows with a
     None flag or zero ``delivered_count`` are excluded from both numerator and
     denominator per the missing-label contract rule.  Zero denominator returns 0.0.
+    Negative ``delivered_count`` raises ``ValueError``.
     """
     numerator = 0
     denominator = 0
@@ -142,6 +143,8 @@ def _sales_spam_complaint_rate(rows: list[dict]) -> float:
         if spam_complaint is None:
             continue
         dc = row.get("delivered_count") or 0
+        if dc < 0:
+            raise ValueError(f"Negative delivered_count is not allowed: {dc!r}")
         if dc == 0:
             continue
         denominator += dc
@@ -158,6 +161,7 @@ def _sales_unsubscribe_rate(rows: list[dict]) -> float:
     regardless of ``delivered_count`` (one event per row).  Rows with a None
     flag or zero ``delivered_count`` are excluded from both numerator and
     denominator per the missing-label contract rule.  Zero denominator returns 0.0.
+    Negative ``delivered_count`` raises ``ValueError``.
     """
     numerator = 0
     denominator = 0
@@ -166,6 +170,8 @@ def _sales_unsubscribe_rate(rows: list[dict]) -> float:
         if unsubscribe is None:
             continue
         dc = row.get("delivered_count") or 0
+        if dc < 0:
+            raise ValueError(f"Negative delivered_count is not allowed: {dc!r}")
         if dc == 0:
             continue
         denominator += dc
