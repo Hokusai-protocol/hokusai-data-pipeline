@@ -7,6 +7,23 @@ from src.evaluation.scorers.registry import register_scorer
 
 _INPUT_SCHEMA = {"type": "array", "items": {"type": "number"}}
 
+# Input schema for sales scorers: list of row dicts with observed outcome labels.
+# All fields except 'delivered' are optional/nullable; missing labels are excluded
+# from numerators and denominators rather than treated as zero.
+_SALES_ROW_SCHEMA: dict = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "qualified_meeting": {"type": ["integer", "boolean", "null"]},
+            "revenue": {"type": ["number", "null"]},
+            "delivered": {"type": ["integer", "boolean"]},
+            "spam_complaint": {"type": ["integer", "boolean"]},
+            "unsubscribe": {"type": ["integer", "boolean"]},
+        },
+    },
+}
+
 
 def _mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
@@ -42,6 +59,89 @@ def _mean_per_thousand(values: list[float]) -> float:
 
 def _mean_per_ten_thousand(values: list[float]) -> float:
     return _mean_per_n(values, 10000)
+
+
+# ---------------------------------------------------------------------------
+# Sales outcome scorers — operate on list[dict] row observations, not list[float]
+# ---------------------------------------------------------------------------
+
+
+def _sales_qualified_meeting_rate(rows: list[dict]) -> float:
+    """Fraction of observed conversations resulting in a qualified meeting.
+
+    Denominator is the count of rows with a non-null ``qualified_meeting`` label.
+    Rows where the label is absent or None are excluded from both numerator and
+    denominator (unobserved outcomes).  Zero denominator returns 0.0.
+    """
+    numerator = 0
+    denominator = 0
+    for row in rows:
+        label = row.get("qualified_meeting")
+        if label is None:
+            continue
+        denominator += 1
+        if label:
+            numerator += 1
+    return numerator / denominator if denominator else 0.0
+
+
+def _sales_revenue_per_1000_messages(rows: list[dict]) -> float:
+    """Observed revenue per 1,000 delivered messages.
+
+    Sums ``revenue`` for rows where ``delivered`` is truthy; ``None`` revenue
+    contributes 0.0 for those rows.  Negative revenue raises ``ValueError``.
+    Undelivered rows are excluded entirely from both numerator and denominator.
+    Zero delivered denominator returns 0.0.
+    """
+    total_revenue = 0.0
+    delivered_count = 0
+    for row in rows:
+        if not row.get("delivered"):
+            continue
+        delivered_count += 1
+        rev = row.get("revenue")
+        if rev is None:
+            continue
+        if rev < 0:
+            raise ValueError(f"Negative revenue is not allowed: {rev!r}")
+        total_revenue += rev
+    if delivered_count == 0:
+        return 0.0
+    return (total_revenue / delivered_count) * 1000.0
+
+
+def _sales_spam_complaint_rate(rows: list[dict]) -> float:
+    """Fraction of delivered messages that generated a spam complaint.
+
+    Denominator is the count of rows where ``delivered`` is truthy.
+    Non-delivered rows are excluded.  Zero delivered denominator returns 0.0.
+    """
+    numerator = 0
+    denominator = 0
+    for row in rows:
+        if not row.get("delivered"):
+            continue
+        denominator += 1
+        if row.get("spam_complaint"):
+            numerator += 1
+    return numerator / denominator if denominator else 0.0
+
+
+def _sales_unsubscribe_rate(rows: list[dict]) -> float:
+    """Fraction of delivered messages that resulted in an unsubscribe event.
+
+    Denominator is the count of rows where ``delivered`` is truthy.
+    Non-delivered rows are excluded.  Zero delivered denominator returns 0.0.
+    """
+    numerator = 0
+    denominator = 0
+    for row in rows:
+        if not row.get("delivered"):
+            continue
+        denominator += 1
+        if row.get("unsubscribe"):
+            numerator += 1
+    return numerator / denominator if denominator else 0.0
 
 
 _OUTCOME_SCORERS = [
@@ -80,4 +180,59 @@ for _ref, _fn, _agg in _CONTINUOUS_SCORERS:
         metric_family=MetricFamily.QUALITY,
         aggregation=_agg,
         description=f"Built-in {_ref} scorer over a list of numeric values.",
+    )
+
+_SALES_SCORERS = [
+    (
+        "sales:qualified_meeting_rate",
+        _sales_qualified_meeting_rate,
+        Aggregation.MEAN,
+        (
+            "Fraction of observed sales conversations where a qualified meeting was booked. "
+            "Rows with null or missing qualified_meeting labels are excluded from both "
+            "numerator and denominator (unobserved outcomes). Zero denominator returns 0.0."
+        ),
+    ),
+    (
+        "sales:revenue_per_1000_messages",
+        _sales_revenue_per_1000_messages,
+        Aggregation.MEAN_PER_N,
+        (
+            "Observed revenue per 1,000 delivered messages. Sums non-null revenue over delivered "
+            "rows (null revenue contributes 0.0 for delivered rows); raises ValueError on negative "
+            "revenue. Undelivered rows excluded entirely. Zero delivered denominator returns 0.0."
+        ),
+    ),
+    (
+        "sales:spam_complaint_rate",
+        _sales_spam_complaint_rate,
+        Aggregation.MEAN,
+        (
+            "Fraction of delivered messages that generated a spam complaint. "
+            "Denominator is delivered message count; undelivered rows are excluded. "
+            "Zero delivered denominator returns 0.0. Use as a lower_is_better guardrail metric."
+        ),
+    ),
+    (
+        "sales:unsubscribe_rate",
+        _sales_unsubscribe_rate,
+        Aggregation.MEAN,
+        (
+            "Fraction of delivered messages that resulted in an unsubscribe event. "
+            "Denominator is delivered message count; undelivered rows are excluded. "
+            "Zero delivered denominator returns 0.0. Use as a lower_is_better guardrail metric."
+        ),
+    ),
+]
+
+for _ref, _fn, _agg, _desc in _SALES_SCORERS:
+    register_scorer(
+        _ref,
+        callable_=_fn,
+        version="1.0.0",
+        input_schema=_SALES_ROW_SCHEMA,
+        output_metric_keys=(_ref,),
+        metric_family=MetricFamily.OUTCOME,
+        aggregation=_agg,
+        description=_desc,
     )
