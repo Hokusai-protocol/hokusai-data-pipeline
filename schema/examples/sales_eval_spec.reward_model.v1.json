@@ -1,0 +1,71 @@
+{
+  "primary_metric": {
+    "name": "revenue_per_1000_messages",
+    "direction": "higher_is_better",
+    "unit": "usd_per_1000_messages",
+    "threshold": 10.0
+  },
+  "secondary_metrics": [
+    {
+      "name": "reply_rate",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    },
+    {
+      "name": "predicted_quality_score",
+      "direction": "higher_is_better",
+      "unit": "score_0_to_1"
+    },
+    {
+      "name": "conversion_rate",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    }
+  ],
+  "guardrails": [
+    {
+      "name": "unsubscribe_rate",
+      "direction": "lower_is_better",
+      "threshold": 0.03,
+      "blocking": true
+    },
+    {
+      "name": "spam_complaint_rate",
+      "direction": "lower_is_better",
+      "threshold": 0.005,
+      "blocking": true
+    },
+    {
+      "name": "reward_model_calibration_error",
+      "direction": "lower_is_better",
+      "threshold": 0.1,
+      "blocking": true
+    }
+  ],
+  "measurement_policy": {
+    "type": "reward_model",
+    "mint_eligible": true,
+    "reward_model_artifact": "models:/sales_revenue_reward_model/production",
+    "reward_model_version": "3",
+    "reward_model_hash": "sha256:placeholder_hash_replace_with_real_hash",
+    "validation_benchmark": "sales_outreach_holdout_v2",
+    "calibration_required": true,
+    "calibration_approval": "ml_platform_team",
+    "outcome_window_days": 14
+  },
+  "label_policy": {
+    "source": "reward_model_scores",
+    "reward_model_artifact": "models:/sales_revenue_reward_model/production",
+    "fallback": "crm_revenue_events",
+    "outcome_event": "opportunity_closed_won"
+  },
+  "coverage_policy": {
+    "min_coverage_fraction": 0.90,
+    "required_artifacts": ["reward_model_scores"],
+    "max_missing_score_fraction": 0.10,
+    "reward_model_must_be_registered": true
+  },
+  "unit_of_analysis": "prospect_message",
+  "min_examples": 1000,
+  "metric_family": "zero_inflated_continuous"
+}

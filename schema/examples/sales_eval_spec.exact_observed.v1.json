@@ -1,0 +1,71 @@
+{
+  "primary_metric": {
+    "name": "revenue_per_1000_messages",
+    "direction": "higher_is_better",
+    "unit": "usd_per_1000_messages",
+    "threshold": 10.0
+  },
+  "secondary_metrics": [
+    {
+      "name": "reply_rate",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    },
+    {
+      "name": "conversion_rate",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    },
+    {
+      "name": "exact_match_coverage",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    }
+  ],
+  "guardrails": [
+    {
+      "name": "unsubscribe_rate",
+      "direction": "lower_is_better",
+      "threshold": 0.03,
+      "blocking": true
+    },
+    {
+      "name": "spam_complaint_rate",
+      "direction": "lower_is_better",
+      "threshold": 0.005,
+      "blocking": true
+    },
+    {
+      "name": "fuzzy_match_rate",
+      "direction": "lower_is_better",
+      "threshold": 0.0,
+      "blocking": true
+    }
+  ],
+  "measurement_policy": {
+    "type": "exact_observed_output",
+    "mint_eligible": true,
+    "match_strategy": "sha256_hash",
+    "canonicalization": "normalize_whitespace_and_lowercase",
+    "fuzzy_matching_allowed": false,
+    "outcome_window_days": 14,
+    "output_log_source": "sent_messages_log"
+  },
+  "label_policy": {
+    "source": "crm_revenue_events",
+    "attribution": "exact_output_join",
+    "join_key": "output_hash_sha256",
+    "outcome_event": "opportunity_closed_won",
+    "revenue_field": "amount_usd",
+    "no_fuzzy_matching": true
+  },
+  "coverage_policy": {
+    "min_coverage_fraction": 0.95,
+    "required_joins": ["sent_messages_log", "crm_revenue_events"],
+    "max_unmatched_output_fraction": 0.05,
+    "exact_match_only": true
+  },
+  "unit_of_analysis": "prospect_message",
+  "min_examples": 1000,
+  "metric_family": "zero_inflated_continuous"
+}

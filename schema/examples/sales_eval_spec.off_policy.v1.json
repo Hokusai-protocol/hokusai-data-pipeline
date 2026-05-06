@@ -1,0 +1,71 @@
+{
+  "primary_metric": {
+    "name": "revenue_per_1000_messages",
+    "direction": "higher_is_better",
+    "unit": "usd_per_1000_messages",
+    "threshold": 10.0
+  },
+  "secondary_metrics": [
+    {
+      "name": "reply_rate",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    },
+    {
+      "name": "conversion_rate",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    },
+    {
+      "name": "effective_sample_size",
+      "direction": "higher_is_better",
+      "unit": "count"
+    }
+  ],
+  "guardrails": [
+    {
+      "name": "unsubscribe_rate",
+      "direction": "lower_is_better",
+      "threshold": 0.03,
+      "blocking": true
+    },
+    {
+      "name": "spam_complaint_rate",
+      "direction": "lower_is_better",
+      "threshold": 0.005,
+      "blocking": true
+    },
+    {
+      "name": "propensity_overlap_fraction",
+      "direction": "higher_is_better",
+      "threshold": 0.80,
+      "blocking": true
+    }
+  ],
+  "measurement_policy": {
+    "type": "off_policy",
+    "mint_eligible": true,
+    "propensity_source": "logging_policy_scores",
+    "importance_weighting": "inverse_propensity_score",
+    "clipping_percentile": 99,
+    "min_action_support_fraction": 0.80,
+    "outcome_window_days": 14,
+    "overlap_check_required": true
+  },
+  "label_policy": {
+    "source": "crm_revenue_events",
+    "attribution": "first_touch",
+    "outcome_event": "opportunity_closed_won",
+    "revenue_field": "amount_usd",
+    "propensity_join_key": "prospect_id"
+  },
+  "coverage_policy": {
+    "min_coverage_fraction": 0.80,
+    "required_joins": ["logging_policy_scores", "crm_revenue_events"],
+    "min_propensity_support": 0.80,
+    "max_missing_propensity_fraction": 0.10
+  },
+  "unit_of_analysis": "prospect_message",
+  "min_examples": 1000,
+  "metric_family": "zero_inflated_continuous"
+}

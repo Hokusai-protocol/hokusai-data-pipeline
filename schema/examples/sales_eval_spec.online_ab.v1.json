@@ -1,0 +1,63 @@
+{
+  "primary_metric": {
+    "name": "revenue_per_1000_messages",
+    "direction": "higher_is_better",
+    "unit": "usd_per_1000_messages",
+    "threshold": 10.0
+  },
+  "secondary_metrics": [
+    {
+      "name": "reply_rate",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    },
+    {
+      "name": "conversion_rate",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    },
+    {
+      "name": "meeting_booked_rate",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    }
+  ],
+  "guardrails": [
+    {
+      "name": "unsubscribe_rate",
+      "direction": "lower_is_better",
+      "threshold": 0.03,
+      "blocking": true
+    },
+    {
+      "name": "spam_complaint_rate",
+      "direction": "lower_is_better",
+      "threshold": 0.005,
+      "blocking": true
+    }
+  ],
+  "measurement_policy": {
+    "type": "online_ab",
+    "mint_eligible": true,
+    "assignment_unit": "prospect",
+    "randomization": "50_50",
+    "outcome_window_days": 14,
+    "holdout_required": true,
+    "min_treatment_size": 500,
+    "min_control_size": 500
+  },
+  "label_policy": {
+    "source": "crm_revenue_events",
+    "attribution": "first_touch",
+    "outcome_event": "opportunity_closed_won",
+    "revenue_field": "amount_usd"
+  },
+  "coverage_policy": {
+    "min_coverage_fraction": 0.95,
+    "required_joins": ["prospect_assignments", "crm_revenue_events"],
+    "max_missing_outcome_fraction": 0.05
+  },
+  "unit_of_analysis": "prospect_message",
+  "min_examples": 1000,
+  "metric_family": "zero_inflated_continuous"
+}
