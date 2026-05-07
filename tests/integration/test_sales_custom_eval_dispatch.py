@@ -147,7 +147,7 @@ def test_sales_benchmark_spec_drives_canonical_metrics_and_artifact_end_to_end(
     benchmark_spec = _build_sales_benchmark_spec(dataset_path, eval_spec)
 
     primary_metric_name = eval_spec["primary_metric"]["name"]
-    guardrail_specs = eval_spec["guardrails"][:2]
+    guardrail_specs = [g for g in eval_spec["guardrails"] if g.get("scorer_ref")]
     primary_mlflow_name = derive_mlflow_name(primary_metric_name)
     guardrail_mlflow_names = [derive_mlflow_name(spec["name"]) for spec in guardrail_specs]
     metric_values = {
@@ -180,7 +180,12 @@ def test_sales_benchmark_spec_drives_canonical_metrics_and_artifact_end_to_end(
     expected_scorer_refs = sorted(
         {
             eval_spec["primary_metric"]["scorer_ref"],
-            *(spec["scorer_ref"] for spec in guardrail_specs),
+            *(spec["scorer_ref"] for spec in eval_spec["guardrails"] if spec.get("scorer_ref")),
+            *(
+                spec["scorer_ref"]
+                for spec in eval_spec.get("secondary_metrics", [])
+                if spec.get("scorer_ref")
+            ),
         }
     )
     parquet_path = tmp_path / "per_row.parquet"
@@ -208,8 +213,12 @@ def test_sales_benchmark_spec_drives_canonical_metrics_and_artifact_end_to_end(
 
     unsubscribe_mlflow_name = derive_mlflow_name("sales:unsubscribe_rate")
     assert unsubscribe_mlflow_name in guardrail_mlflow_names
-    assert fake_mlflow.metrics_logged[unsubscribe_mlflow_name] == pytest.approx(1.0)
-    assert result["metrics"][unsubscribe_mlflow_name] == pytest.approx(1.0)
+    assert fake_mlflow.metrics_logged[unsubscribe_mlflow_name] == pytest.approx(
+        metric_values[unsubscribe_mlflow_name]
+    )
+    assert result["metrics"][unsubscribe_mlflow_name] == pytest.approx(
+        metric_values[unsubscribe_mlflow_name]
+    )
 
     for metric_name in [primary_mlflow_name, *guardrail_mlflow_names]:
         assert metric_name in result["metrics"]
