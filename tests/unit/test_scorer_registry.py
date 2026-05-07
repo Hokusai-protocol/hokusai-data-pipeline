@@ -445,6 +445,12 @@ def test_qualified_meeting_rate_bool_labels():
     assert scorer.callable_(rows) == pytest.approx(0.5)
 
 
+def test_qualified_meeting_rate_missing_label_key_returns_zero():
+    scorer = resolve_scorer("sales:qualified_meeting_rate")
+    rows = [{"delivered_count": 1}]  # qualified_meeting key absent → None → excluded
+    assert scorer.callable_(rows) == 0.0
+
+
 # ---------------------------------------------------------------------------
 # 18. revenue_per_1000_messages formula
 # ---------------------------------------------------------------------------
@@ -453,17 +459,17 @@ def test_qualified_meeting_rate_bool_labels():
 def test_revenue_per_1000_normal():
     scorer = resolve_scorer("sales:revenue_per_1000_messages")
     rows = [
-        {"delivered": 1, "revenue": 10.0},
-        {"delivered": 1, "revenue": 20.0},
-        {"delivered": 1, "revenue": 30.0},
+        {"delivered_count": 1, "revenue_amount_cents": 1000},  # $10.00
+        {"delivered_count": 1, "revenue_amount_cents": 2000},  # $20.00
+        {"delivered_count": 1, "revenue_amount_cents": 3000},  # $30.00
     ]
-    # mean revenue per message = 20.0; * 1000 = 20000.0
+    # total_cents=6000, total_delivered=3 → (6000/100/3)*1000 = 20000.0
     assert scorer.callable_(rows) == pytest.approx(20000.0)
 
 
 def test_revenue_per_1000_zero_denominator_no_delivered():
     scorer = resolve_scorer("sales:revenue_per_1000_messages")
-    rows = [{"delivered": 0, "revenue": 100.0}]
+    rows = [{"delivered_count": 0, "revenue_amount_cents": 10000}]
     assert scorer.callable_(rows) == 0.0
 
 
@@ -475,27 +481,46 @@ def test_revenue_per_1000_empty_rows():
 def test_revenue_per_1000_null_revenue_treated_as_zero():
     scorer = resolve_scorer("sales:revenue_per_1000_messages")
     rows = [
-        {"delivered": 1, "revenue": None},
-        {"delivered": 1, "revenue": 10.0},
+        {"delivered_count": 1, "revenue_amount_cents": None},
+        {"delivered_count": 1, "revenue_amount_cents": 1000},  # $10.00
     ]
-    # total_revenue=10, delivered=2 → (10/2)*1000 = 5000
+    # total_cents=0+1000=1000, total_delivered=2 → (1000/100/2)*1000 = 5000.0
     assert scorer.callable_(rows) == pytest.approx(5000.0)
 
 
 def test_revenue_per_1000_undelivered_excluded():
     scorer = resolve_scorer("sales:revenue_per_1000_messages")
     rows = [
-        {"delivered": 1, "revenue": 10.0},
-        {"delivered": 0, "revenue": 9999.0},  # must not affect result
+        {"delivered_count": 1, "revenue_amount_cents": 1000},  # $10.00
+        {"delivered_count": 0, "revenue_amount_cents": 999900},  # must not affect result
     ]
+    # total_cents=1000, total_delivered=1 → (1000/100/1)*1000 = 10000.0
     assert scorer.callable_(rows) == pytest.approx(10000.0)
 
 
 def test_revenue_per_1000_negative_revenue_raises():
     scorer = resolve_scorer("sales:revenue_per_1000_messages")
-    rows = [{"delivered": 1, "revenue": -5.0}]
+    rows = [{"delivered_count": 1, "revenue_amount_cents": -500}]
     with pytest.raises(ValueError, match="[Nn]egative"):
         scorer.callable_(rows)
+
+
+def test_revenue_per_1000_zero_delivered_count_returns_zero():
+    scorer = resolve_scorer("sales:revenue_per_1000_messages")
+    rows = [{"delivered_count": 0}, {"delivered_count": 0, "revenue_amount_cents": 5000}]
+    assert scorer.callable_(rows) == 0.0
+
+
+def test_revenue_per_1000_missing_delivered_count_returns_zero():
+    scorer = resolve_scorer("sales:revenue_per_1000_messages")
+    rows = [{"revenue_amount_cents": 1000}]  # no delivered_count key
+    assert scorer.callable_(rows) == 0.0
+
+
+def test_revenue_per_1000_missing_revenue_amount_cents_contributes_zero():
+    scorer = resolve_scorer("sales:revenue_per_1000_messages")
+    rows = [{"delivered_count": 1}]  # revenue_amount_cents absent → 0 cents
+    assert scorer.callable_(rows) == pytest.approx(0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -506,17 +531,18 @@ def test_revenue_per_1000_negative_revenue_raises():
 def test_spam_complaint_rate_normal():
     scorer = resolve_scorer("sales:spam_complaint_rate")
     rows = [
-        {"delivered": 1, "spam_complaint": 1},
-        {"delivered": 1, "spam_complaint": 0},
-        {"delivered": 1, "spam_complaint": 0},
-        {"delivered": 1, "spam_complaint": 0},
+        {"delivered_count": 1, "spam_complaint": True},
+        {"delivered_count": 1, "spam_complaint": False},
+        {"delivered_count": 1, "spam_complaint": False},
+        {"delivered_count": 1, "spam_complaint": False},
     ]
+    # numerator=1, denominator=4 → 0.25
     assert scorer.callable_(rows) == pytest.approx(0.25)
 
 
 def test_spam_complaint_rate_zero_denominator_no_delivered():
     scorer = resolve_scorer("sales:spam_complaint_rate")
-    rows = [{"delivered": 0, "spam_complaint": 1}]
+    rows = [{"delivered_count": 0, "spam_complaint": True}]
     assert scorer.callable_(rows) == 0.0
 
 
@@ -528,28 +554,49 @@ def test_spam_complaint_rate_empty_rows():
 def test_spam_complaint_rate_non_delivered_excluded():
     scorer = resolve_scorer("sales:spam_complaint_rate")
     rows = [
-        {"delivered": 1, "spam_complaint": 0},
-        {"delivered": 0, "spam_complaint": 1},  # must not inflate denominator
+        {"delivered_count": 1, "spam_complaint": False},
+        {"delivered_count": 0, "spam_complaint": True},  # must not inflate denominator
     ]
+    # Row 2 has delivered_count=0 → excluded; denominator=1, numerator=0
     assert scorer.callable_(rows) == pytest.approx(0.0)
 
 
 def test_spam_complaint_rate_no_complaints():
     scorer = resolve_scorer("sales:spam_complaint_rate")
-    rows = [{"delivered": 1, "spam_complaint": 0}, {"delivered": 1, "spam_complaint": 0}]
+    rows = [
+        {"delivered_count": 1, "spam_complaint": False},
+        {"delivered_count": 1, "spam_complaint": False},
+    ]
     assert scorer.callable_(rows) == 0.0
 
 
 def test_spam_complaint_rate_null_flag_excluded_from_denominator():
-    # Rows with None spam_complaint must be excluded from both numerator and denominator.
     scorer = resolve_scorer("sales:spam_complaint_rate")
     rows = [
-        {"delivered": 1, "spam_complaint": 1},
-        {"delivered": 1, "spam_complaint": None},  # missing label — excluded entirely
-        {"delivered": 1, "spam_complaint": 0},
+        {"delivered_count": 1, "spam_complaint": True},
+        {"delivered_count": 1, "spam_complaint": None},  # missing label — excluded entirely
+        {"delivered_count": 1, "spam_complaint": False},
     ]
-    # denominator is 2 (the None row is dropped), numerator is 1
+    # denominator=2 (None row dropped), numerator=1
     assert scorer.callable_(rows) == pytest.approx(0.5)
+
+
+def test_spam_complaint_rate_zero_delivered_count_returns_zero():
+    scorer = resolve_scorer("sales:spam_complaint_rate")
+    rows = [{"delivered_count": 0, "spam_complaint": True}]
+    assert scorer.callable_(rows) == 0.0
+
+
+def test_spam_complaint_rate_missing_delivered_count_returns_zero():
+    scorer = resolve_scorer("sales:spam_complaint_rate")
+    rows = [{"spam_complaint": True}]  # no delivered_count key → treated as 0
+    assert scorer.callable_(rows) == 0.0
+
+
+def test_spam_complaint_rate_missing_label_key_returns_zero():
+    scorer = resolve_scorer("sales:spam_complaint_rate")
+    rows = [{"delivered_count": 1}]  # spam_complaint key absent → None → excluded
+    assert scorer.callable_(rows) == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -560,17 +607,18 @@ def test_spam_complaint_rate_null_flag_excluded_from_denominator():
 def test_unsubscribe_rate_normal():
     scorer = resolve_scorer("sales:unsubscribe_rate")
     rows = [
-        {"delivered": 1, "unsubscribe": 1},
-        {"delivered": 1, "unsubscribe": 0},
-        {"delivered": 1, "unsubscribe": 1},
-        {"delivered": 1, "unsubscribe": 0},
+        {"delivered_count": 1, "unsubscribe": True},
+        {"delivered_count": 1, "unsubscribe": False},
+        {"delivered_count": 1, "unsubscribe": True},
+        {"delivered_count": 1, "unsubscribe": False},
     ]
+    # numerator=2, denominator=4 → 0.5
     assert scorer.callable_(rows) == pytest.approx(0.5)
 
 
 def test_unsubscribe_rate_zero_denominator_no_delivered():
     scorer = resolve_scorer("sales:unsubscribe_rate")
-    rows = [{"delivered": 0, "unsubscribe": 1}]
+    rows = [{"delivered_count": 0, "unsubscribe": True}]
     assert scorer.callable_(rows) == 0.0
 
 
@@ -582,22 +630,40 @@ def test_unsubscribe_rate_empty_rows():
 def test_unsubscribe_rate_non_delivered_excluded():
     scorer = resolve_scorer("sales:unsubscribe_rate")
     rows = [
-        {"delivered": 1, "unsubscribe": 0},
-        {"delivered": 0, "unsubscribe": 1},  # must not inflate denominator
+        {"delivered_count": 1, "unsubscribe": False},
+        {"delivered_count": 0, "unsubscribe": True},  # must not inflate denominator
     ]
+    # Row 2 has delivered_count=0 → excluded; denominator=1, numerator=0
     assert scorer.callable_(rows) == pytest.approx(0.0)
 
 
 def test_unsubscribe_rate_null_flag_excluded_from_denominator():
-    # Rows with None unsubscribe must be excluded from both numerator and denominator.
     scorer = resolve_scorer("sales:unsubscribe_rate")
     rows = [
-        {"delivered": 1, "unsubscribe": 1},
-        {"delivered": 1, "unsubscribe": None},  # missing label — excluded entirely
-        {"delivered": 1, "unsubscribe": 0},
+        {"delivered_count": 1, "unsubscribe": True},
+        {"delivered_count": 1, "unsubscribe": None},  # missing label — excluded entirely
+        {"delivered_count": 1, "unsubscribe": False},
     ]
-    # denominator is 2 (the None row is dropped), numerator is 1
+    # denominator=2 (None row dropped), numerator=1
     assert scorer.callable_(rows) == pytest.approx(0.5)
+
+
+def test_unsubscribe_rate_zero_delivered_count_returns_zero():
+    scorer = resolve_scorer("sales:unsubscribe_rate")
+    rows = [{"delivered_count": 0, "unsubscribe": True}]
+    assert scorer.callable_(rows) == 0.0
+
+
+def test_unsubscribe_rate_missing_delivered_count_returns_zero():
+    scorer = resolve_scorer("sales:unsubscribe_rate")
+    rows = [{"unsubscribe": True}]  # no delivered_count key → treated as 0
+    assert scorer.callable_(rows) == 0.0
+
+
+def test_unsubscribe_rate_missing_label_key_returns_zero():
+    scorer = resolve_scorer("sales:unsubscribe_rate")
+    rows = [{"delivered_count": 1}]  # unsubscribe key absent → None → excluded
+    assert scorer.callable_(rows) == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -610,7 +676,9 @@ def _guardrail(name: str, threshold: float) -> RuntimeGuardrailSpec:
 
 
 def test_spam_complaint_rate_below_threshold_passes():
-    rows = [{"delivered": 1, "spam_complaint": 0}] * 99 + [{"delivered": 1, "spam_complaint": 1}]
+    rows = [{"delivered_count": 1, "spam_complaint": False}] * 99 + [
+        {"delivered_count": 1, "spam_complaint": True}
+    ]
     scorer = resolve_scorer("sales:spam_complaint_rate")
     rate = scorer.callable_(rows)
     guardrail = _guardrail("spam_complaint_rate", 0.02)
@@ -619,7 +687,9 @@ def test_spam_complaint_rate_below_threshold_passes():
 
 
 def test_spam_complaint_rate_above_threshold_breaches():
-    rows = [{"delivered": 1, "spam_complaint": 1}] * 5 + [{"delivered": 1, "spam_complaint": 0}] * 5
+    rows = [{"delivered_count": 1, "spam_complaint": True}] * 5 + [
+        {"delivered_count": 1, "spam_complaint": False}
+    ] * 5
     scorer = resolve_scorer("sales:spam_complaint_rate")
     rate = scorer.callable_(rows)
     guardrail = _guardrail("spam_complaint_rate", 0.02)
@@ -629,7 +699,7 @@ def test_spam_complaint_rate_above_threshold_breaches():
 
 
 def test_spam_complaint_rate_zero_delivered_does_not_breach():
-    rows = [{"delivered": 0, "spam_complaint": 1}]
+    rows = [{"delivered_count": 0, "spam_complaint": True}]
     scorer = resolve_scorer("sales:spam_complaint_rate")
     rate = scorer.callable_(rows)
     assert rate == 0.0
@@ -639,7 +709,9 @@ def test_spam_complaint_rate_zero_delivered_does_not_breach():
 
 
 def test_unsubscribe_rate_below_threshold_passes():
-    rows = [{"delivered": 1, "unsubscribe": 0}] * 99 + [{"delivered": 1, "unsubscribe": 1}]
+    rows = [{"delivered_count": 1, "unsubscribe": False}] * 99 + [
+        {"delivered_count": 1, "unsubscribe": True}
+    ]
     scorer = resolve_scorer("sales:unsubscribe_rate")
     rate = scorer.callable_(rows)
     result = evaluate_guardrails({"unsubscribe_rate": rate}, [_guardrail("unsubscribe_rate", 0.05)])
@@ -647,7 +719,9 @@ def test_unsubscribe_rate_below_threshold_passes():
 
 
 def test_unsubscribe_rate_above_threshold_breaches():
-    rows = [{"delivered": 1, "unsubscribe": 1}] * 3 + [{"delivered": 1, "unsubscribe": 0}] * 7
+    rows = [{"delivered_count": 1, "unsubscribe": True}] * 3 + [
+        {"delivered_count": 1, "unsubscribe": False}
+    ] * 7
     scorer = resolve_scorer("sales:unsubscribe_rate")
     rate = scorer.callable_(rows)
     result = evaluate_guardrails({"unsubscribe_rate": rate}, [_guardrail("unsubscribe_rate", 0.05)])
@@ -656,7 +730,7 @@ def test_unsubscribe_rate_above_threshold_breaches():
 
 
 def test_unsubscribe_rate_zero_delivered_does_not_breach():
-    rows = [{"delivered": 0, "unsubscribe": 1}]
+    rows = [{"delivered_count": 0, "unsubscribe": True}]
     scorer = resolve_scorer("sales:unsubscribe_rate")
     rate = scorer.callable_(rows)
     assert rate == 0.0

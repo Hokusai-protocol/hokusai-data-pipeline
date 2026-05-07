@@ -13,7 +13,7 @@
   "message_count": 1,
   "delivered_count": 1,
   "numerator": 1250.0,
-  "denominator": 1000,
+  "denominator": 1,
   "observed_at": "2024-11-20T16:45:00Z",
   "label_status": "observed",
   "prospect_id": "prospect-99887766",

@@ -146,6 +146,46 @@ Concrete example rows for each metric are in `schema/examples/`:
 
 ---
 
+## Scorer Input Contract
+
+Each registered sales scorer (`src/evaluation/scorers/builtin.py`) accepts a list of
+`sales_outcome_row/v1` dicts and derives all metric values from the canonical row fields
+below. Scorers do **not** consume the `numerator` or `denominator` fields as authoritative
+inputs; those fields exist for documentation and traceability only.
+
+### Canonical Input Fields
+
+| Field | Type | Used by |
+|---|---|---|
+| `delivered_count` | integer ≥ 0 | `revenue_per_1000_messages`, `spam_complaint_rate`, `unsubscribe_rate` |
+| `qualified_meeting` | boolean or null | `qualified_meeting_rate` |
+| `revenue_amount_cents` | integer ≥ 0 or null | `revenue_per_1000_messages` |
+| `revenue_currency` | string (ISO 4217) | documented context only (output is always USD) |
+| `spam_complaint` | boolean or null | `spam_complaint_rate` |
+| `unsubscribe` | boolean or null | `unsubscribe_rate` |
+
+### Revenue Formula
+
+```
+revenue_per_1000_messages (USD) =
+    sum(revenue_amount_cents) / 100 / sum(delivered_count) * 1000
+```
+
+- Output unit is USD per 1,000 delivered messages when `revenue_currency` is omitted or `USD`.
+- Rows with `delivered_count == 0` or absent are excluded from both numerator and denominator.
+- Absent `revenue_amount_cents` for a delivered row contributes 0.0 cents.
+
+### Missing-Label and Zero-Denominator Behavior
+
+| Metric | Missing or null label field | Zero delivered / zero denominator |
+|---|---|---|
+| `qualified_meeting_rate` | Row excluded from numerator and denominator | Returns `0.0` |
+| `revenue_per_1000_messages` | Absent `revenue_amount_cents` contributes 0.0 cents | Returns `0.0` |
+| `spam_complaint_rate` | Row excluded from numerator and denominator | Returns `0.0` |
+| `unsubscribe_rate` | Row excluded from numerator and denominator | Returns `0.0` |
+
+---
+
 ## Denominator Behavior
 
 ### `sales:qualified_meeting_rate`

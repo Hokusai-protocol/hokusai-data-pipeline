@@ -116,13 +116,13 @@
     },
     "numerator": {
       "title": "Numerator",
-      "description": "Numerator contribution (e.g., events observed: meetings booked, revenue in USD, complaint flags, unsubscribe flags).",
+      "description": "Raw numerator contribution for documentation and traceability (e.g., meetings booked: 0 or 1; revenue in USD; complaint or unsubscribe flag: 0 or 1). Not consumed as authoritative scorer input — scorers derive values from canonical label fields.",
       "type": "number",
       "minimum": 0
     },
     "denominator": {
       "title": "Denominator",
-      "description": "Denominator contribution (eligible observations for this row: conversations with observed labels, delivered messages, etc.).",
+      "description": "Raw eligible observation count for this row (e.g., conversations with observed labels, delivered message count). Not consumed as authoritative scorer input — scorers derive from raw canonical fields. For revenue rows this is the delivered_count, not a per-1000 scaling factor.",
       "type": "number",
       "minimum": 0
     },
