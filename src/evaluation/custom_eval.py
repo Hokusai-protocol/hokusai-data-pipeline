@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import io
 import json
 import logging
 import os
@@ -704,26 +705,52 @@ def _build_per_row_result_df(rows: list[dict[str, Any]], metrics: dict[str, floa
     return pd.DataFrame(result_rows)
 
 
-def _load_sales_outcome_rows(dataset_reference: str) -> list[dict[str, Any]]:
-    if _is_remote(dataset_reference):
-        raise DatasetAccessNotImplementedError(
-            "S3 dataset access not yet wired for deterministic scorer dispatch"
-        )
+def _parse_s3_uri(uri: str) -> tuple[str, str]:
+    if not uri.startswith("s3://"):
+        raise DatasetLoadError(f"unsupported S3 dataset reference: {uri!r}")
+    remainder = uri.removeprefix("s3://")
+    bucket, _, key = remainder.partition("/")
+    if not bucket or not key:
+        raise DatasetLoadError(f"invalid S3 dataset reference: {uri!r}")
+    return bucket, key
 
-    dataset_path = Path(dataset_reference)
-    if not dataset_path.exists() or not dataset_path.is_file():
-        raise DatasetLoadError(f"dataset_reference is not a readable file: {dataset_reference!r}")
 
-    suffix = dataset_path.suffix.lower()
-    if suffix == ".json":
-        rows = _load_json_rows(dataset_path)
-    elif suffix == ".jsonl":
-        rows = _load_jsonl_rows(dataset_path)
-    elif suffix == ".parquet":
-        rows = _load_parquet_rows(dataset_path)
-    else:
+def _load_s3_object_bytes(dataset_reference: str) -> bytes:
+    import boto3  # noqa: PLC0415
+
+    bucket, key = _parse_s3_uri(dataset_reference)
+    try:
+        response = boto3.client("s3").get_object(Bucket=bucket, Key=key)
+        return response["Body"].read()
+    except Exception as exc:  # noqa: BLE001
         raise DatasetLoadError(
-            f"unsupported deterministic sales dataset format {suffix!r} for {dataset_reference!r}"
+            f"unable to load remote dataset {dataset_reference!r}: {exc}"
+        ) from exc
+
+
+def _load_sales_outcome_rows(dataset_reference: str) -> list[dict[str, Any]]:
+    if dataset_reference.startswith("s3://"):
+        rows = _load_sales_outcome_rows_from_suffix(
+            dataset_reference,
+            Path(dataset_reference).suffix.lower(),
+            _load_s3_object_bytes(dataset_reference),
+        )
+    elif _is_remote(dataset_reference):
+        raise DatasetAccessNotImplementedError(
+            f"deterministic scorer dispatch does not support remote dataset_reference "
+            f"{dataset_reference!r}"
+        )
+    else:
+        dataset_path = Path(dataset_reference)
+        if not dataset_path.exists() or not dataset_path.is_file():
+            raise DatasetLoadError(
+                f"dataset_reference is not a readable file: {dataset_reference!r}"
+            )
+
+        rows = _load_sales_outcome_rows_from_suffix(
+            dataset_reference,
+            dataset_path.suffix.lower(),
+            dataset_path,
         )
 
     if not rows:
@@ -739,31 +766,67 @@ def _load_sales_outcome_rows(dataset_reference: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _load_sales_outcome_rows_from_suffix(
+    dataset_reference: str,
+    suffix: str,
+    source: Path | bytes,
+) -> list[dict[str, Any]]:
+    if suffix == ".json":
+        if isinstance(source, Path):
+            return _load_json_rows(source)
+        return _load_json_rows_from_text(source.decode("utf-8"), dataset_reference)
+    if suffix == ".jsonl":
+        if isinstance(source, Path):
+            return _load_jsonl_rows(source)
+        return _load_jsonl_rows_from_text(source.decode("utf-8"), dataset_reference)
+    if suffix == ".parquet":
+        if isinstance(source, Path):
+            return _load_parquet_rows(source)
+        return _load_parquet_rows_from_bytes(source, dataset_reference)
+    raise DatasetLoadError(
+        f"unsupported deterministic sales dataset format {suffix!r} for {dataset_reference!r}"
+    )
+
+
 def _load_json_rows(path: Path) -> list[dict[str, Any]]:
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+        return _load_json_rows_from_text(path.read_text(encoding="utf-8"), str(path))
+    except UnicodeDecodeError as exc:
         raise DatasetLoadError(f"invalid JSON dataset at {path}: {exc}") from exc
+
+
+def _load_json_rows_from_text(text: str, label: str) -> list[dict[str, Any]]:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise DatasetLoadError(f"invalid JSON dataset at {label}: {exc}") from exc
 
     if isinstance(payload, list):
         return payload
     if isinstance(payload, dict):
         return [payload]
-    raise DatasetLoadError(f"JSON dataset at {path} must contain an object or array of objects")
+    raise DatasetLoadError(f"JSON dataset at {label} must contain an object or array of objects")
 
 
 def _load_jsonl_rows(path: Path) -> list[dict[str, Any]]:
+    try:
+        return _load_jsonl_rows_from_text(path.read_text(encoding="utf-8"), str(path))
+    except UnicodeDecodeError as exc:
+        raise DatasetLoadError(f"invalid JSONL dataset at {path}: {exc}") from exc
+
+
+def _load_jsonl_rows_from_text(text: str, label: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     try:
-        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        for line_number, line in enumerate(text.splitlines(), start=1):
             if not line.strip():
                 continue
             payload = json.loads(line)
             if not isinstance(payload, dict):
-                raise DatasetLoadError(f"JSONL line {line_number} in {path} is not an object")
+                raise DatasetLoadError(f"JSONL line {line_number} in {label} is not an object")
             rows.append(payload)
     except json.JSONDecodeError as exc:
-        raise DatasetLoadError(f"invalid JSONL dataset at {path}: {exc}") from exc
+        raise DatasetLoadError(f"invalid JSONL dataset at {label}: {exc}") from exc
     return rows
 
 
@@ -777,6 +840,18 @@ def _load_parquet_rows(path: Path) -> list[dict[str, Any]]:
         return pd.read_parquet(path).to_dict("records")
     except Exception as exc:  # noqa: BLE001
         raise DatasetLoadError(f"invalid parquet dataset at {path}: {exc}") from exc
+
+
+def _load_parquet_rows_from_bytes(data: bytes, label: str) -> list[dict[str, Any]]:
+    try:
+        import pandas as pd
+    except ImportError as exc:
+        raise DatasetLoadError("pandas is required to load parquet datasets") from exc
+
+    try:
+        return pd.read_parquet(io.BytesIO(data)).to_dict("records")
+    except Exception as exc:  # noqa: BLE001
+        raise DatasetLoadError(f"invalid parquet dataset at {label}: {exc}") from exc
 
 
 def _canonicalize_local_dataset_for_hash(path: Path) -> str:

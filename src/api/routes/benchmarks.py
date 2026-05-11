@@ -20,6 +20,7 @@ from src.api.schemas.benchmark_spec import (
     BenchmarkSpecResponse,
     BenchmarkSpecUpdate,
     DatasetUploadResponse,
+    _is_remote_dataset_reference,
 )
 from src.api.services.dataset_validator import DatasetValidationError, DatasetValidator
 from src.api.services.governance.audit_logger import AuditLogger
@@ -118,7 +119,8 @@ async def create_benchmark_spec(
     """Create a new benchmark specification."""
     data = request.model_dump()
     model_fields = _schema_to_model_fields(data)
-    model_fields.setdefault("dataset_version", "latest")
+    if not _is_remote_dataset_reference(data.get("dataset_reference")):
+        model_fields.setdefault("dataset_version", "latest")
     model_fields.setdefault("input_schema", {})
     model_fields.setdefault("output_schema", {})
     try:

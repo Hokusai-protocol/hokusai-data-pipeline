@@ -23,7 +23,7 @@ SAMPLE_SPEC = {
     "spec_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
     "provider": "hokusai",
     "model_id": "model-123",
-    "dataset_id": "s3://bucket/dataset.csv",
+    "dataset_id": "/tmp/dataset.csv",
     "dataset_version": "latest",
     "eval_split": "test",
     "metric_name": "accuracy",
@@ -48,7 +48,7 @@ EVAL_SPEC_PAYLOAD = {
 CREATE_PAYLOAD = {
     "model_id": "model-123",
     "provider": "hokusai",
-    "dataset_reference": "s3://bucket/dataset.csv",
+    "dataset_reference": "/tmp/dataset.csv",
     "eval_split": "test",
     "target_column": "label",
     "input_columns": ["text"],
@@ -98,11 +98,12 @@ class TestCreateBenchmarkSpec:
             body = resp.json()
             assert body["spec_id"] == SAMPLE_SPEC["spec_id"]
             assert body["model_id"] == "model-123"
-            assert body["dataset_reference"] == "s3://bucket/dataset.csv"
+            assert body["dataset_reference"] == "/tmp/dataset.csv"
             assert body["input_columns"] == ["text"]
             assert body["target_column"] == "label"
             audit.log.assert_called_once()
             assert audit.log.call_args.kwargs["action"] == "benchmark_spec.created"
+            assert svc.register_spec.call_args.kwargs["dataset_version"] == "latest"
         finally:
             _cleanup_overrides()
 
@@ -129,6 +130,45 @@ class TestCreateBenchmarkSpec:
             payload = {k: v for k, v in CREATE_PAYLOAD.items() if k != "model_id"}
             resp = client.post("/api/v1/benchmarks", json=payload)
             assert resp.status_code == 422
+        finally:
+            _cleanup_overrides()
+
+    @patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+        _passthrough_middleware_dispatch,
+    )
+    def test_create_remote_without_dataset_version_returns_422(self) -> None:
+        client, svc, _ = _make_authed_client()
+        try:
+            payload = {**CREATE_PAYLOAD, "dataset_reference": "s3://bucket/dataset.csv"}
+            resp = client.post("/api/v1/benchmarks", json=payload)
+            assert resp.status_code == 422
+            svc.register_spec.assert_not_called()
+        finally:
+            _cleanup_overrides()
+
+    @patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+        _passthrough_middleware_dispatch,
+    )
+    def test_create_remote_with_canonical_dataset_version_preserves_value(self) -> None:
+        client, svc, _ = _make_authed_client()
+        try:
+            payload = {
+                **CREATE_PAYLOAD,
+                "dataset_reference": "s3://bucket/dataset.csv",
+                "dataset_version": "sha256:" + "a" * 64,
+            }
+            svc.register_spec.return_value = {
+                **SAMPLE_SPEC,
+                "dataset_id": "s3://bucket/dataset.csv",
+                "dataset_version": payload["dataset_version"],
+            }
+            resp = client.post("/api/v1/benchmarks", json=payload)
+            assert resp.status_code == 201
+            assert (
+                svc.register_spec.call_args.kwargs["dataset_version"] == payload["dataset_version"]
+            )
         finally:
             _cleanup_overrides()
 
@@ -222,16 +262,16 @@ class TestUpdateBenchmarkSpec:
         _passthrough_middleware_dispatch,
     )
     def test_update_returns_200(self) -> None:
-        updated = {**SAMPLE_SPEC, "dataset_id": "s3://bucket/new-dataset.csv"}
+        updated = {**SAMPLE_SPEC, "dataset_id": "/tmp/new-dataset.csv"}
         client, svc, audit = _make_authed_client()
         try:
             svc.update_spec_fields.return_value = updated
             resp = client.put(
                 f"/api/v1/benchmarks/{SAMPLE_SPEC['spec_id']}",
-                json={"dataset_reference": "s3://bucket/new-dataset.csv"},
+                json={"dataset_reference": "/tmp/new-dataset.csv"},
             )
             assert resp.status_code == 200
-            assert resp.json()["dataset_reference"] == "s3://bucket/new-dataset.csv"
+            assert resp.json()["dataset_reference"] == "/tmp/new-dataset.csv"
             audit.log.assert_called_once()
             assert audit.log.call_args.kwargs["action"] == "benchmark_spec.updated"
         finally:
@@ -263,6 +303,22 @@ class TestUpdateBenchmarkSpec:
             svc.update_spec_fields.return_value = SAMPLE_SPEC
             resp = client.put(f"/api/v1/benchmarks/{SAMPLE_SPEC['spec_id']}", json={})
             assert resp.status_code == 200
+        finally:
+            _cleanup_overrides()
+
+    @patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.dispatch",
+        _passthrough_middleware_dispatch,
+    )
+    def test_update_remote_without_dataset_version_returns_422(self) -> None:
+        client, svc, _ = _make_authed_client()
+        try:
+            resp = client.put(
+                f"/api/v1/benchmarks/{SAMPLE_SPEC['spec_id']}",
+                json={"dataset_reference": "s3://bucket/new-dataset.csv"},
+            )
+            assert resp.status_code == 422
+            svc.update_spec_fields.assert_not_called()
         finally:
             _cleanup_overrides()
 

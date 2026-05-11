@@ -26,7 +26,7 @@ def _valid_create_payload() -> dict:
     return {
         "model_id": "model-abc",
         "provider": "hokusai",
-        "dataset_reference": "s3://bucket/dataset.csv",
+        "dataset_reference": "/tmp/dataset.csv",
         "eval_split": "test",
         "target_column": "label",
         "input_columns": ["feature_a", "feature_b"],
@@ -101,6 +101,43 @@ class TestBenchmarkSpecCreate:
         payload = {**_valid_create_payload(), "metadata": {}}
         spec = BenchmarkSpecCreate(**payload)
         assert spec.metadata == {}
+
+    def test_remote_s3_requires_canonical_dataset_version(self):
+        payload = _valid_create_payload()
+        payload["dataset_reference"] = "s3://bucket/dataset.csv"
+        with pytest.raises(ValidationError, match="canonical sha256"):
+            BenchmarkSpecCreate(**payload)
+
+    @pytest.mark.parametrize(
+        "dataset_version",
+        ["", "latest", "v1", "sha256:" + "A" * 64, "sha256:" + "a" * 63, "sha256:" + "z" * 64],
+    )
+    def test_remote_s3_rejects_noncanonical_dataset_version(self, dataset_version: str):
+        payload = _valid_create_payload()
+        payload["dataset_reference"] = "s3://bucket/dataset.csv"
+        payload["dataset_version"] = dataset_version
+        with pytest.raises(ValidationError, match="canonical sha256"):
+            BenchmarkSpecCreate(**payload)
+
+    def test_remote_s3_accepts_canonical_dataset_version(self):
+        payload = _valid_create_payload()
+        payload["dataset_reference"] = "s3://bucket/dataset.csv"
+        payload["dataset_version"] = "sha256:" + "a" * 64
+        spec = BenchmarkSpecCreate(**payload)
+        assert spec.dataset_version == "sha256:" + "a" * 64
+
+    def test_file_uri_can_omit_dataset_version(self):
+        payload = _valid_create_payload()
+        payload["dataset_reference"] = "file:///tmp/dataset.csv"
+        spec = BenchmarkSpecCreate(**payload)
+        assert spec.dataset_version is None
+
+    def test_file_uri_can_use_latest_dataset_version(self):
+        payload = _valid_create_payload()
+        payload["dataset_reference"] = "file:///tmp/dataset.csv"
+        payload["dataset_version"] = "latest"
+        spec = BenchmarkSpecCreate(**payload)
+        assert spec.dataset_version == "latest"
 
 
 # --- Enum validation ---
@@ -180,6 +217,17 @@ class TestBenchmarkSpecUpdate:
     def test_update_validates_enum(self):
         with pytest.raises(ValidationError):
             BenchmarkSpecUpdate(provider="invalid")
+
+    def test_remote_update_requires_canonical_dataset_version(self):
+        with pytest.raises(ValidationError, match="canonical sha256"):
+            BenchmarkSpecUpdate(dataset_reference="s3://bucket/dataset.csv")
+
+    def test_remote_update_rejects_noncanonical_dataset_version(self):
+        with pytest.raises(ValidationError, match="canonical sha256"):
+            BenchmarkSpecUpdate(
+                dataset_reference="s3://bucket/dataset.csv",
+                dataset_version="latest",
+            )
 
 
 # --- BenchmarkSpecResponse ---
