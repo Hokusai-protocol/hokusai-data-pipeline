@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from src.api.models import BenchmarkSpec
 from src.api.services.dataset_validator import DatasetValidator
 from src.api.services.privacy.pii_detector import PIIDetector, PIIScanResult
+from src.utils.dataset_hash import format_sha256_dataset_version
 
 logger = logging.getLogger(__name__)
 
@@ -338,7 +339,8 @@ class BenchmarkSpecService:
         import pandas as pd
 
         # Compute SHA-256 hash
-        sha256_hash = hashlib.sha256(file_bytes).hexdigest()
+        sha256_hex = hashlib.sha256(file_bytes).hexdigest()
+        dataset_version = format_sha256_dataset_version(sha256_hex)
         file_size = len(file_bytes)
 
         # Load into DataFrame for PII scan
@@ -387,7 +389,7 @@ class BenchmarkSpecService:
             ServerSideEncryption="aws:kms",
             Metadata={
                 "model_id": model_id,
-                "sha256": sha256_hash,
+                "sha256": sha256_hex,
                 "uploaded_at": datetime.now(timezone.utc).isoformat(),
             },
         )
@@ -397,7 +399,7 @@ class BenchmarkSpecService:
             result = self.register_spec(
                 model_id=model_id,
                 dataset_id=s3_uri,
-                dataset_version=version,
+                dataset_version=dataset_version,
                 provider="hokusai",
                 **spec_fields,
             )
@@ -413,7 +415,8 @@ class BenchmarkSpecService:
 
         return {
             "s3_uri": s3_uri,
-            "sha256_hash": sha256_hash,
+            "sha256_hash": dataset_version,
+            "dataset_version": dataset_version,
             "spec_id": result["spec_id"],
             "filename": filename,
             "file_size_bytes": file_size,

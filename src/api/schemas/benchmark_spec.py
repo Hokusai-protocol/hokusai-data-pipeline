@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.utils.dataset_hash import parse_sha256_dataset_version
 from src.utils.metric_naming import derive_mlflow_name
 
 _SCORER_REF_SKIP_PREFIXES = ("genai:", "judge:")
@@ -208,6 +209,15 @@ class DatasetUploadResponse(BaseModel):
 
     s3_uri: str
     sha256_hash: str
+    dataset_version: str
     spec_id: str
     filename: str
     file_size_bytes: int
+
+    @field_validator("sha256_hash", "dataset_version")
+    @classmethod
+    def _validate_canonical_dataset_version(cls: type, value: str) -> str:
+        canonical = parse_sha256_dataset_version(value)
+        if canonical is None:
+            raise ValueError("must be canonical sha256:<64 lowercase hex>")
+        return canonical

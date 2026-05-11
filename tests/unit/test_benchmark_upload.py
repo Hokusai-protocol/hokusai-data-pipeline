@@ -54,6 +54,7 @@ def _cleanup_overrides() -> None:
 
 CSV_CONTENT = b"input,expected_output\nhello,world\nfoo,bar\n"
 CSV_HASH = hashlib.sha256(CSV_CONTENT).hexdigest()
+CSV_DATASET_VERSION = f"sha256:{CSV_HASH}"
 
 
 class TestUploadCSV:
@@ -66,7 +67,8 @@ class TestUploadCSV:
         try:
             svc.upload_dataset.return_value = {
                 "s3_uri": "s3://test-bucket/datasets/model-1/v1/test.csv",
-                "sha256_hash": CSV_HASH,
+                "sha256_hash": CSV_DATASET_VERSION,
+                "dataset_version": CSV_DATASET_VERSION,
                 "spec_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
                 "filename": "test.csv",
                 "file_size_bytes": len(CSV_CONTENT),
@@ -83,7 +85,8 @@ class TestUploadCSV:
             assert resp.status_code == 201
             body = resp.json()
             assert body["s3_uri"].startswith("s3://")
-            assert body["sha256_hash"] == CSV_HASH
+            assert body["sha256_hash"] == CSV_DATASET_VERSION
+            assert body["dataset_version"] == CSV_DATASET_VERSION
             assert body["spec_id"] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
             assert body["filename"] == "test.csv"
             assert body["file_size_bytes"] == len(CSV_CONTENT)
@@ -104,7 +107,8 @@ class TestUploadParquet:
             parquet_bytes = b"PAR1fake-parquet-content"
             svc.upload_dataset.return_value = {
                 "s3_uri": "s3://test-bucket/datasets/model-1/v1/test.parquet",
-                "sha256_hash": hashlib.sha256(parquet_bytes).hexdigest(),
+                "sha256_hash": f"sha256:{hashlib.sha256(parquet_bytes).hexdigest()}",
+                "dataset_version": f"sha256:{hashlib.sha256(parquet_bytes).hexdigest()}",
                 "spec_id": "11111111-2222-3333-4444-555555555555",
                 "filename": "test.parquet",
                 "file_size_bytes": len(parquet_bytes),
@@ -151,7 +155,8 @@ class TestUploadPIIDetection:
         try:
             svc.upload_dataset.return_value = {
                 "s3_uri": "s3://test-bucket/datasets/model-1/v1/pii.csv",
-                "sha256_hash": CSV_HASH,
+                "sha256_hash": CSV_DATASET_VERSION,
+                "dataset_version": CSV_DATASET_VERSION,
                 "spec_id": "aaaaaaaa-1111-2222-3333-444444444444",
                 "filename": "pii.csv",
                 "file_size_bytes": len(CSV_CONTENT),
@@ -209,7 +214,8 @@ class TestUploadInvalidFile:
         try:
             svc.upload_dataset.return_value = {
                 "s3_uri": "s3://test-bucket/datasets/model-1/v1/DATA.CSV",
-                "sha256_hash": CSV_HASH,
+                "sha256_hash": CSV_DATASET_VERSION,
+                "dataset_version": CSV_DATASET_VERSION,
                 "spec_id": "aaaaaaaa-1111-2222-3333-555555555555",
                 "filename": "DATA.CSV",
                 "file_size_bytes": len(CSV_CONTENT),
@@ -319,7 +325,8 @@ class TestUploadServiceMethod:
         )
 
         assert result["s3_uri"].startswith("s3://test-bucket/datasets/model-42/")
-        assert result["sha256_hash"] == CSV_HASH
+        assert result["sha256_hash"] == CSV_DATASET_VERSION
+        assert result["dataset_version"] == CSV_DATASET_VERSION
         assert result["filename"] == "test.csv"
         assert result["file_size_bytes"] == len(CSV_CONTENT)
         assert result["spec_id"]  # UUID string
@@ -330,6 +337,11 @@ class TestUploadServiceMethod:
         assert call_kwargs["ServerSideEncryption"] == "aws:kms"
         assert call_kwargs["Key"].startswith("datasets/model-42/")
         assert call_kwargs["Key"].endswith("/test.csv")
+        assert call_kwargs["Metadata"]["sha256"] == CSV_HASH
+
+        created_spec = service.get_spec(result["spec_id"])
+        assert created_spec is not None
+        assert created_spec["dataset_version"] == CSV_DATASET_VERSION
 
         mock_pii.scan_dataframe.assert_called_once()
 
@@ -470,7 +482,8 @@ class TestUploadDatasetValidation:
         try:
             svc.upload_dataset.return_value = {
                 "s3_uri": "s3://test-bucket/datasets/model-1/v1/test.csv",
-                "sha256_hash": CSV_HASH,
+                "sha256_hash": CSV_DATASET_VERSION,
+                "dataset_version": CSV_DATASET_VERSION,
                 "spec_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
                 "filename": "test.csv",
                 "file_size_bytes": len(CSV_CONTENT),

@@ -39,6 +39,10 @@ from src.evaluation.tags import (
     SCORER_REF_TAG,
     STATUS_TAG,
 )
+from src.utils.dataset_hash import (
+    format_sha256_dataset_version,
+    parse_sha256_dataset_version,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -212,6 +216,28 @@ def test_run_custom_eval_dataset_hash_passthrough() -> None:
     assert result == valid_hash
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("sha256:" + "a" * 64, "sha256:" + "a" * 64),
+        ("sha256:" + "0" * 64, "sha256:" + "0" * 64),
+        ("sha256:" + "A" * 64, None),
+        ("sha256:" + "a" * 63, None),
+        ("sha256:" + "a" * 65, None),
+        ("a" * 64, None),
+        (" latest ", None),
+        (None, None),
+    ],
+)
+def test_parse_sha256_dataset_version(value: object, expected: str | None) -> None:
+    assert parse_sha256_dataset_version(value) == expected
+
+
+def test_format_sha256_dataset_version_rejects_noncanonical_hex() -> None:
+    with pytest.raises(ValueError, match="64 lowercase hexadecimal"):
+        format_sha256_dataset_version("A" * 64)
+
+
 def test_run_custom_eval_dataset_hash_computed_from_path(tmp_path) -> None:
     rows = [{"input": "a", "output": "1"}, {"input": "b", "output": "2"}]
     dataset_file = tmp_path / "data.json"
@@ -286,6 +312,31 @@ def test_run_custom_eval_dispatches_to_mlflow_evaluate(tmp_path) -> None:
     assert fake_mlflow.evaluate_kwargs is not None
     assert fake_mlflow.evaluate_kwargs["model"] == "models:/model-a"
     assert result["status"] == "success"
+
+
+def test_run_custom_eval_dispatches_remote_s3_dataset_with_canonical_hash() -> None:
+    dataset_version = "sha256:" + "c" * 64
+    spec = _make_benchmark_spec(scorer_ref="pass_rate")
+    spec["dataset_reference"] = "s3://bucket/data.json"
+    spec["dataset_version"] = dataset_version
+
+    fake_mlflow = _FakeMlflow(metrics={"accuracy": 0.9})
+
+    result = run_custom_eval(
+        model_id="model-a",
+        benchmark_spec=spec,
+        benchmark_spec_id="spec-001",
+        mlflow_module=fake_mlflow,
+        mlflow_client=None,
+        cli_max_cost=None,
+        seed=None,
+        temperature=None,
+    )
+
+    assert result["status"] == "success"
+    assert fake_mlflow.evaluate_kwargs is not None
+    assert fake_mlflow.evaluate_kwargs["data"] == "s3://bucket/data.json"
+    assert fake_mlflow.tags[DATASET_HASH_TAG] == dataset_version
 
 
 def test_run_custom_eval_dispatches_to_mlflow_genai_evaluate(tmp_path) -> None:
@@ -414,6 +465,31 @@ def test_run_custom_eval_unknown_scorer_raises() -> None:
         )
 
     # Pre-run abort: no tags written
+    assert not fake_mlflow.tags
+
+
+def test_run_custom_eval_remote_dataset_requires_canonical_hash() -> None:
+    spec = _make_benchmark_spec(scorer_ref="pass_rate")
+    spec["dataset_reference"] = "s3://bucket/data.json"
+    spec["dataset_version"] = "latest"
+
+    fake_mlflow = _FakeMlflow()
+
+    with pytest.raises(
+        DatasetHashUnresolvableError,
+        match=r"Remote dataset_reference 's3://bucket/data.json' requires dataset_version",
+    ):
+        run_custom_eval(
+            model_id="model-a",
+            benchmark_spec=spec,
+            benchmark_spec_id="spec-001",
+            mlflow_module=fake_mlflow,
+            mlflow_client=None,
+            cli_max_cost=None,
+            seed=None,
+            temperature=None,
+        )
+
     assert not fake_mlflow.tags
 
 
