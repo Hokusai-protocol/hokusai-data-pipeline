@@ -13,7 +13,9 @@ import pytest
 from src.evaluation.custom_eval import (
     CustomEvalError,
     CustomEvalRuntimeError,
+    DatasetAccessNotImplementedError,
     DatasetHashUnresolvableError,
+    MetricNameCollisionError,
     ScorerLoadError,
     _all_scorer_refs,
     compute_dataset_hash,
@@ -109,6 +111,20 @@ def _make_benchmark_spec(
     }
 
 
+def _sales_rows() -> list[dict[str, Any]]:
+    return [
+        {
+            "row_id": "row-1",
+            "unit_id": "unit-1",
+            "schema_version": "sales_outcome_row/v1",
+            "delivered_count": 1,
+            "revenue_amount_cents": 500,
+            "unsubscribe": False,
+            "spam_complaint": False,
+        }
+    ]
+
+
 class _FakeRun:
     def __init__(self, run_id: str = "run-custom-001") -> None:
         self.info = SimpleNamespace(run_id=run_id)
@@ -128,6 +144,7 @@ class _FakeMlflow:
         self.tags: dict[str, str] = {}
         self.metrics_logged: dict[str, float] = {}
         self.evaluate_kwargs: dict | None = None
+        self.logged_artifacts: list[tuple[str, str]] = []
 
     def start_run(self, run_name: str | None = None, run_id: str | None = None) -> _FakeRun:
         return _FakeRun()
@@ -140,6 +157,9 @@ class _FakeMlflow:
 
     def log_param(self, key: str, value: Any) -> None:
         pass
+
+    def log_artifact(self, local_path: str, artifact_path: str = "") -> None:
+        self.logged_artifacts.append((local_path, artifact_path))
 
     def evaluate(self, **kwargs: Any) -> Any:
         if self._raise:
@@ -258,13 +278,13 @@ def test_dataset_hash_raises_when_path_not_sha256_and_remote() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_run_custom_eval_dispatches_to_mlflow_evaluate(tmp_path) -> None:
-    """Deterministic spec → mlflow.evaluate called, mlflow.genai.evaluate NOT called."""
+def test_run_custom_eval_dispatches_to_mlflow_evaluate_without_scorer_refs(tmp_path) -> None:
+    """Non-GenAI specs without scorer refs keep the mlflow.evaluate fallback."""
     rows = [{"input": "x"}]
     dataset_file = tmp_path / "data.json"
     dataset_file.write_text(json.dumps(rows), encoding="utf-8")
 
-    spec = _make_benchmark_spec(scorer_ref="pass_rate")
+    spec = _make_benchmark_spec(scorer_ref=None)
     spec["dataset_reference"] = str(dataset_file)
     spec["dataset_version"] = None
 
@@ -342,7 +362,7 @@ def test_run_custom_eval_emits_all_canonical_tags(tmp_path) -> None:
     dataset_file = tmp_path / "data.json"
     dataset_file.write_text(json.dumps(rows), encoding="utf-8")
 
-    spec = _make_benchmark_spec(scorer_ref="pass_rate")
+    spec = _make_benchmark_spec(scorer_ref=None)
     spec["dataset_reference"] = str(dataset_file)
     spec["dataset_version"] = None
 
@@ -471,7 +491,7 @@ def test_run_custom_eval_guardrail_scorer_ref_validated(tmp_path) -> None:
 
 def test_run_custom_eval_guardrail_scorer_ref_in_tag(tmp_path) -> None:
     """Guardrail scorer_refs are included in the hokusai.scorer_ref MLflow tag."""
-    rows = [{"input": "x"}]
+    rows = _sales_rows()
     dataset_file = tmp_path / "data.json"
     dataset_file.write_text(json.dumps(rows), encoding="utf-8")
 
@@ -511,13 +531,100 @@ def test_run_custom_eval_mlflow_failure_tags(tmp_path) -> None:
     dataset_file = tmp_path / "data.json"
     dataset_file.write_text(json.dumps(rows), encoding="utf-8")
 
-    spec = _make_benchmark_spec(scorer_ref="pass_rate")
+    spec = _make_benchmark_spec(scorer_ref=None)
     spec["dataset_reference"] = str(dataset_file)
     spec["dataset_version"] = None
 
     fake_mlflow = _FakeMlflow(raise_on_evaluate=True)
 
     with pytest.raises(CustomEvalRuntimeError, match="mlflow_evaluate_error"):
+        run_custom_eval(
+            model_id="model-a",
+            benchmark_spec=spec,
+            benchmark_spec_id="spec-001",
+            mlflow_module=fake_mlflow,
+            mlflow_client=None,
+            cli_max_cost=None,
+            seed=None,
+            temperature=None,
+        )
+
+    assert fake_mlflow.tags.get(STATUS_TAG) == "failed"
+    assert fake_mlflow.tags.get(FAILURE_REASON_TAG) == "mlflow_evaluate_error"
+
+
+def test_run_custom_eval_remote_deterministic_dataset_raises_after_run_start() -> None:
+    spec = _make_benchmark_spec(scorer_ref="sales:unsubscribe_rate")
+    spec["dataset_reference"] = "s3://bucket/sales.parquet"
+    spec["dataset_version"] = "sha256:" + "b" * 64
+
+    fake_mlflow = _FakeMlflow()
+
+    with pytest.raises(DatasetAccessNotImplementedError):
+        run_custom_eval(
+            model_id="model-a",
+            benchmark_spec=spec,
+            benchmark_spec_id="spec-001",
+            mlflow_module=fake_mlflow,
+            mlflow_client=None,
+            cli_max_cost=None,
+            seed=None,
+            temperature=None,
+        )
+
+    assert fake_mlflow.tags.get(STATUS_TAG) == "failed"
+    assert fake_mlflow.tags.get(FAILURE_REASON_TAG) == "mlflow_evaluate_error"
+
+
+def test_run_custom_eval_duplicate_canonical_metric_names_raise(tmp_path) -> None:
+    dataset_file = tmp_path / "sales.json"
+    dataset_file.write_text(
+        json.dumps(
+            [
+                {
+                    "row_id": "row-1",
+                    "unit_id": "unit-1",
+                    "schema_version": "sales_outcome_row/v1",
+                    "delivered_count": 1,
+                    "unsubscribe": False,
+                    "spam_complaint": False,
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    spec = {
+        "spec_id": "spec-001",
+        "model_id": "model-a",
+        "is_active": True,
+        "dataset_reference": str(dataset_file),
+        "dataset_version": None,
+        "dataset_id": "dataset-x",
+        "eval_split": "test",
+        "metric_name": "sales:unsubscribe_rate",
+        "metric_direction": "higher_is_better",
+        "eval_spec": {
+            "primary_metric": {
+                "name": "sales:unsubscribe_rate",
+                "direction": "higher_is_better",
+                "scorer_ref": "sales:unsubscribe_rate",
+            },
+            "secondary_metrics": [],
+            "guardrails": [
+                {
+                    "name": "sales_unsubscribe_rate",
+                    "direction": "lower_is_better",
+                    "threshold": 0.1,
+                    "scorer_ref": "sales:spam_complaint_rate",
+                }
+            ],
+        },
+    }
+
+    fake_mlflow = _FakeMlflow()
+
+    with pytest.raises(MetricNameCollisionError, match="metric_name_collision"):
         run_custom_eval(
             model_id="model-a",
             benchmark_spec=spec,

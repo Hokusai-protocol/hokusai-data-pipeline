@@ -61,15 +61,12 @@ class _FakeRun:
 
 
 class _FakeMlflow:
-    """Tiny fake mlflow module that captures tags, metrics, evaluate args, and artifacts."""
+    """Tiny fake mlflow module that captures tags, metrics, and artifacts."""
 
-    def __init__(self, *, rows: list[dict], metric_values: dict[str, float]) -> None:
+    def __init__(self) -> None:
         # Authentication (MLFLOW_TRACKING_TOKEN / Authorization) is handled externally.
-        self._rows = rows
-        self._metric_values = metric_values
         self.tags: dict[str, str] = {}
         self.metrics_logged: dict[str, float] = {}
-        self.evaluate_kwargs: dict[str, object] | None = None
         self.logged_artifacts: list[tuple[str, str]] = []
 
     def start_run(self, run_name: str | None = None, run_id: str | None = None) -> _FakeRun:
@@ -85,18 +82,7 @@ class _FakeMlflow:
         self.logged_artifacts.append((local_path, artifact_path))
 
     def evaluate(self, **kwargs: object) -> SimpleNamespace:
-        self.evaluate_kwargs = kwargs
-        result_df = pd.DataFrame(
-            {
-                "row_id": [row["row_id"] for row in self._rows],
-                "unit_id": [row["unit_id"] for row in self._rows],
-                **{
-                    metric_name: [metric_value] * len(self._rows)
-                    for metric_name, metric_value in self._metric_values.items()
-                },
-            }
-        )
-        return SimpleNamespace(metrics=self._metric_values, result_df=result_df)
+        raise AssertionError("mlflow.evaluate should not be used for direct sales scorer dispatch")
 
 
 def _build_sales_benchmark_spec(dataset_path: Path, eval_spec: dict) -> dict:
@@ -159,7 +145,7 @@ def test_sales_benchmark_spec_drives_canonical_metrics_and_artifact_end_to_end(
             for spec in guardrail_specs
         },
     }
-    fake_mlflow = _FakeMlflow(rows=rows, metric_values=metric_values)
+    fake_mlflow = _FakeMlflow()
 
     monkeypatch.setattr(
         "src.evaluation.custom_eval.tempfile.TemporaryDirectory",
@@ -189,11 +175,6 @@ def test_sales_benchmark_spec_drives_canonical_metrics_and_artifact_end_to_end(
         }
     )
     parquet_path = tmp_path / "per_row.parquet"
-
-    assert fake_mlflow.evaluate_kwargs is not None
-    assert fake_mlflow.evaluate_kwargs["model"] == f"models:/{MODEL_ID}"
-    assert fake_mlflow.evaluate_kwargs["data"] == str(dataset_path)
-    assert fake_mlflow.evaluate_kwargs["model_type"] == "prospect_message"
 
     assert result["status"] == "success"
     assert result["benchmark_spec_id"] == SPEC_ID
