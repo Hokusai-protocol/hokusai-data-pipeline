@@ -219,7 +219,7 @@ revenue_per_1000_messages (USD) =
 
 ## Versioning
 
-## Dataset Versioning Contract
+### Dataset Versioning Contract
 
 For `sales_outcome_row/v1` datasets, the GTM-generated `input_dataset_hash` must be persisted as
 the BenchmarkSpec `dataset_version` in canonical `sha256:<64 lowercase hex>` form.

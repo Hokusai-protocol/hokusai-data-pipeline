@@ -231,7 +231,7 @@ class TestDatasetUploadResponse:
         with pytest.raises(ValidationError, match="canonical sha256"):
             DatasetUploadResponse(
                 s3_uri="s3://bucket/dataset.csv",
-                sha256_hash="a" * 64,
+                sha256_hash="sha256:" + "a" * 64,
                 dataset_version="latest",
                 spec_id=str(uuid4()),
                 filename="dataset.csv",
