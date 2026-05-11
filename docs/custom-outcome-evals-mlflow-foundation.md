@@ -198,6 +198,12 @@ resolve via tier-2 or tier-3 fallback.  No database backfill is required.
 Every `mlflow.genai.evaluate` (and `mlflow.evaluate` when the result exposes a `result_df`)
 persists a structured per-row result table as a Parquet artifact attached to the MLflow run.
 
+For `sales_outcome_row/v1` datasets, non-GenAI specs with `scorer_ref` values now bypass
+`mlflow.evaluate` inference and execute the registered scorer callables directly against the
+loaded dataset rows. Metrics are logged under MLflow-safe keys derived from the eval-spec names,
+including guardrails. GenAI specs still route through `mlflow.genai.evaluate`, and non-GenAI
+specs without scorer refs keep the legacy `mlflow.evaluate` fallback.
+
 ### Artifact path
 
 ```
