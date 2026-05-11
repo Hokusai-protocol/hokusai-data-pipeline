@@ -659,7 +659,8 @@ def _dispatch_deterministic_scorers(
 
     metrics: dict[str, float] = {}
     for _, mlflow_metric_name, registered in resolved_scorers:
-        metric_value = registered.callable_(rows)
+        scorer_rows = _rows_for_sales_scorer(rows, registered.metadata.scorer_ref)
+        metric_value = registered.callable_(scorer_rows)
         if not isinstance(metric_value, (int, float)):
             raise DatasetLoadError(
                 f"deterministic scorer {registered.metadata.scorer_ref!r} returned non-numeric "
@@ -678,6 +679,20 @@ def _dispatch_deterministic_scorers(
         run_id=run_id,
     )
     return result
+
+
+def _rows_for_sales_scorer(rows: list[dict[str, Any]], scorer_ref: str) -> list[dict[str, Any]]:
+    """Return only rows intended for a given sales scorer.
+
+    sales_outcome_row/v1 requires both ``metric_name`` and ``scorer_ref``, but
+    matching either field keeps dispatch tolerant of older or partially-normalized
+    rows while still isolating scorer-specific metrics.
+    """
+    return [
+        row
+        for row in rows
+        if row.get("scorer_ref") == scorer_ref or row.get("metric_name") == scorer_ref
+    ]
 
 
 def _build_per_row_result_df(rows: list[dict[str, Any]], metrics: dict[str, float]) -> Any:
