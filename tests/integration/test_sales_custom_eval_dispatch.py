@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 from src.api.schemas.benchmark_spec import BenchmarkSpecResponse
-from src.evaluation.custom_eval import run_custom_eval
+from src.evaluation.custom_eval import DatasetAccessNotImplementedError, run_custom_eval
 from src.evaluation.scorers import resolve_scorer
 from src.evaluation.tags import (
     DATASET_HASH_TAG,
@@ -147,7 +147,12 @@ def _build_remote_sales_benchmark_spec(
 
 
 def _metric_value_from_ref(rows: list[dict], scorer_ref: str) -> float:
-    return float(resolve_scorer(scorer_ref).callable_(rows))
+    scorer_rows = [
+        row
+        for row in rows
+        if row.get("scorer_ref") == scorer_ref or row.get("metric_name") == scorer_ref
+    ]
+    return float(resolve_scorer(scorer_ref).callable_(scorer_rows))
 
 
 def test_sales_benchmark_spec_drives_canonical_metrics_and_artifact_end_to_end(
@@ -177,6 +182,9 @@ def test_sales_benchmark_spec_drives_canonical_metrics_and_artifact_end_to_end(
             for spec in guardrail_specs
         },
     }
+    old_full_dataset_revenue = float(
+        resolve_scorer(eval_spec["primary_metric"]["scorer_ref"]).callable_(rows)
+    )
     fake_mlflow = _FakeMlflow()
 
     monkeypatch.setattr(
@@ -223,6 +231,7 @@ def test_sales_benchmark_spec_drives_canonical_metrics_and_artifact_end_to_end(
     assert result["metrics"][primary_mlflow_name] == pytest.approx(
         metric_values[primary_mlflow_name]
     )
+    assert result["metrics"][primary_mlflow_name] != pytest.approx(old_full_dataset_revenue)
 
     unsubscribe_mlflow_name = derive_mlflow_name("sales:unsubscribe_rate")
     assert unsubscribe_mlflow_name in guardrail_mlflow_names
@@ -263,29 +272,21 @@ def test_sales_remote_benchmark_spec_uses_canonical_dataset_version_for_tags_and
 
     primary_metric_name = eval_spec["primary_metric"]["name"]
     primary_mlflow_name = derive_mlflow_name(primary_metric_name)
-    rows = [
-        _load_example("sales_outcome_row.revenue.v1.json"),
-        _load_example("sales_outcome_row.unsubscribe.v1.json"),
-    ]
-    metric_values = {
-        primary_mlflow_name: _metric_value_from_ref(
-            rows, eval_spec["primary_metric"]["scorer_ref"]
-        ),
-    }
-    fake_mlflow = _FakeMlflow(rows=rows, metric_values=metric_values)
+    fake_mlflow = _FakeMlflow()
 
-    result = run_custom_eval(
-        model_id=MODEL_ID,
-        benchmark_spec=benchmark_spec,
-        benchmark_spec_id=SPEC_ID,
-        mlflow_module=fake_mlflow,
-        mlflow_client=None,
-        cli_max_cost=None,
-        seed=None,
-        temperature=None,
-    )
+    with pytest.raises(DatasetAccessNotImplementedError):
+        run_custom_eval(
+            model_id=MODEL_ID,
+            benchmark_spec=benchmark_spec,
+            benchmark_spec_id=SPEC_ID,
+            mlflow_module=fake_mlflow,
+            mlflow_client=None,
+            cli_max_cost=None,
+            seed=None,
+            temperature=None,
+        )
 
-    assert result["status"] == "success"
-    assert fake_mlflow.evaluate_kwargs is not None
-    assert fake_mlflow.evaluate_kwargs["data"] == "s3://bucket/sales/outcomes.json"
     assert fake_mlflow.tags[DATASET_HASH_TAG] == dataset_version
+    assert fake_mlflow.tags[PRIMARY_METRIC_TAG] == primary_metric_name
+    assert fake_mlflow.tags[MLFLOW_NAME_TAG] == primary_mlflow_name
+    assert fake_mlflow.tags[STATUS_TAG] == "failed"
