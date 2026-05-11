@@ -219,6 +219,27 @@ revenue_per_1000_messages (USD) =
 
 ## Versioning
 
+## Dataset Versioning Contract
+
+For `sales_outcome_row/v1` datasets, the GTM-generated `input_dataset_hash` must be persisted as
+the BenchmarkSpec `dataset_version` in canonical `sha256:<64 lowercase hex>` form.
+
+- Dataset upload responses expose the canonical value in both `sha256_hash` and
+  `dataset_version`.
+- `hokusai-site` should use that canonical value directly when creating Hokusai BenchmarkSpecs.
+- Remote `dataset_reference` values such as `s3://bucket/sales/outcomes.json` require a canonical
+  `dataset_version`; `"latest"` only works for local-file eval flows where the pipeline can hash
+  the readable file content itself.
+
+Example remote BenchmarkSpec fields:
+
+```json
+{
+  "dataset_reference": "s3://bucket/sales/outcomes.json",
+  "dataset_version": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+}
+```
+
 This is version `v1` of the sales outcome row contract. Future incompatible row changes (new
 required fields, enum additions, type changes) should introduce a side-by-side schema version
 (e.g., `sales_outcome_row/v2`) rather than mutating the v1 schema in-place. The

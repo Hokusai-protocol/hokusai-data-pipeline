@@ -15,6 +15,7 @@ from src.api.schemas.benchmark_spec import BenchmarkSpecResponse
 from src.evaluation.custom_eval import run_custom_eval
 from src.evaluation.scorers import resolve_scorer
 from src.evaluation.tags import (
+    DATASET_HASH_TAG,
     MLFLOW_NAME_TAG,
     PER_ROW_ARTIFACT_URI_TAG,
     PRIMARY_METRIC_TAG,
@@ -120,6 +121,37 @@ def _build_sales_benchmark_spec(dataset_path: Path, eval_spec: dict) -> dict:
         "metric_name": eval_spec["primary_metric"]["name"],
         "metric_direction": eval_spec["primary_metric"]["direction"],
         "dataset_version": None,
+        "eval_spec": eval_spec,
+        "created_at": datetime(2026, 5, 7, 12, 0, tzinfo=UTC),
+        "updated_at": datetime(2026, 5, 7, 12, 30, tzinfo=UTC),
+        "is_active": True,
+    }
+    return BenchmarkSpecResponse.model_validate(payload).model_dump(mode="json")
+
+
+def _build_remote_sales_benchmark_spec(
+    dataset_reference: str, dataset_version: str, eval_spec: dict
+) -> dict:
+    payload = {
+        "spec_id": SPEC_ID,
+        "model_id": MODEL_ID,
+        "provider": "hokusai",
+        "dataset_reference": dataset_reference,
+        "eval_split": "test",
+        "target_column": "metric_name",
+        "input_columns": [
+            "row_id",
+            "unit_id",
+            "metric_name",
+            "scorer_ref",
+            "delivered_count",
+            "revenue_amount_cents",
+            "unsubscribe",
+            "spam_complaint",
+        ],
+        "metric_name": eval_spec["primary_metric"]["name"],
+        "metric_direction": eval_spec["primary_metric"]["direction"],
+        "dataset_version": dataset_version,
         "eval_spec": eval_spec,
         "created_at": datetime(2026, 5, 7, 12, 0, tzinfo=UTC),
         "updated_at": datetime(2026, 5, 7, 12, 30, tzinfo=UTC),
@@ -237,3 +269,42 @@ def test_sales_benchmark_spec_drives_canonical_metrics_and_artifact_end_to_end(
     assert len(written) == len(rows)
 
     UUID(result["benchmark_spec_id"])
+
+
+def test_sales_remote_benchmark_spec_uses_canonical_dataset_version_for_tags_and_dispatch() -> None:
+    eval_spec = _load_example("sales_eval_spec.exact_observed.v1.json")
+    dataset_version = "sha256:" + "d" * 64
+    benchmark_spec = _build_remote_sales_benchmark_spec(
+        "s3://bucket/sales/outcomes.json",
+        dataset_version,
+        eval_spec,
+    )
+
+    primary_metric_name = eval_spec["primary_metric"]["name"]
+    primary_mlflow_name = derive_mlflow_name(primary_metric_name)
+    rows = [
+        _load_example("sales_outcome_row.revenue.v1.json"),
+        _load_example("sales_outcome_row.unsubscribe.v1.json"),
+    ]
+    metric_values = {
+        primary_mlflow_name: _metric_value_from_ref(
+            rows, eval_spec["primary_metric"]["scorer_ref"]
+        ),
+    }
+    fake_mlflow = _FakeMlflow(rows=rows, metric_values=metric_values)
+
+    result = run_custom_eval(
+        model_id=MODEL_ID,
+        benchmark_spec=benchmark_spec,
+        benchmark_spec_id=SPEC_ID,
+        mlflow_module=fake_mlflow,
+        mlflow_client=None,
+        cli_max_cost=None,
+        seed=None,
+        temperature=None,
+    )
+
+    assert result["status"] == "success"
+    assert fake_mlflow.evaluate_kwargs is not None
+    assert fake_mlflow.evaluate_kwargs["data"] == "s3://bucket/sales/outcomes.json"
+    assert fake_mlflow.tags[DATASET_HASH_TAG] == dataset_version

@@ -14,6 +14,7 @@ from src.api.schemas.benchmark_spec import (
     BenchmarkSpecListResponse,
     BenchmarkSpecResponse,
     BenchmarkSpecUpdate,
+    DatasetUploadResponse,
     EvalSpec,
     GuardrailSpec,
     MetricDirection,
@@ -212,6 +213,30 @@ class TestBenchmarkSpecResponse:
         payload["updated_at"] = now.isoformat()
         resp = BenchmarkSpecResponse(**payload)
         assert resp.updated_at == now
+
+
+class TestDatasetUploadResponse:
+    def test_accepts_canonical_dataset_version(self) -> None:
+        response = DatasetUploadResponse(
+            s3_uri="s3://bucket/dataset.csv",
+            sha256_hash="sha256:" + "a" * 64,
+            dataset_version="sha256:" + "a" * 64,
+            spec_id=str(uuid4()),
+            filename="dataset.csv",
+            file_size_bytes=12,
+        )
+        assert response.dataset_version == "sha256:" + "a" * 64
+
+    def test_rejects_noncanonical_dataset_version(self) -> None:
+        with pytest.raises(ValidationError, match="canonical sha256"):
+            DatasetUploadResponse(
+                s3_uri="s3://bucket/dataset.csv",
+                sha256_hash="a" * 64,
+                dataset_version="latest",
+                spec_id=str(uuid4()),
+                filename="dataset.csv",
+                file_size_bytes=12,
+            )
 
 
 # --- BenchmarkSpecListResponse ---

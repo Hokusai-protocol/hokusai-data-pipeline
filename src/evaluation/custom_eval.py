@@ -7,7 +7,6 @@ import importlib
 import json
 import logging
 import os
-import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,6 +29,7 @@ from src.evaluation.tags import (
     SCORER_REF_TAG,
     STATUS_TAG,
 )
+from src.utils.dataset_hash import parse_sha256_dataset_version
 from src.utils.metric_naming import derive_mlflow_name
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,6 @@ _PER_ROW_ARTIFACT_DIR = "eval_results"
 _PER_ROW_ARTIFACT_FILE = "per_row.parquet"
 _PER_ROW_ARTIFACT_PATH = "eval_results/per_row.parquet"
 
-_SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _REMOTE_PREFIXES = ("s3://", "gs://", "az://", "kaggle://", "http://", "https://")
 
 
@@ -99,8 +98,9 @@ def compute_dataset_hash(
     Priority: (1) spec_dataset_version if already in sha256 form;
     (2) SHA-256 of canonical-JSON of dataset rows from local path.
     """
-    if spec_dataset_version and _SHA256_RE.match(spec_dataset_version):
-        return spec_dataset_version
+    canonical_dataset_version = parse_sha256_dataset_version(spec_dataset_version)
+    if canonical_dataset_version:
+        return canonical_dataset_version
 
     if dataset_path:
         p = Path(dataset_path)
@@ -189,7 +189,7 @@ def emit_canonical_tags(
     mlflow_module.set_tag(EVAL_SPEC_ID_TAG, benchmark_spec_id)
 
 
-def run_custom_eval(
+def run_custom_eval(  # noqa: C901
     *,
     model_id: str,
     benchmark_spec: dict[str, Any],
@@ -227,7 +227,16 @@ def run_custom_eval(
 
     # 4. Compute dataset hash (pre-run abort)
     dataset_reference = benchmark_spec.get("dataset_reference", "")
-    local_path = dataset_reference if not _is_remote(dataset_reference) else None
+    is_remote_reference = _is_remote(dataset_reference)
+    local_path = dataset_reference if not is_remote_reference else None
+    if is_remote_reference and not parse_sha256_dataset_version(
+        benchmark_spec.get("dataset_version")
+    ):
+        dataset_version = benchmark_spec.get("dataset_version")
+        raise DatasetHashUnresolvableError(
+            f"Remote dataset_reference {dataset_reference!r} requires dataset_version in "
+            f"canonical sha256:<hex> form; got {dataset_version!r}."
+        )
     dataset_hash = compute_dataset_hash(
         spec_dataset_version=benchmark_spec.get("dataset_version"),
         dataset_path=local_path,
