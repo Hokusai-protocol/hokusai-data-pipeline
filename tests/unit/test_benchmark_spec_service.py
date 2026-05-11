@@ -112,6 +112,39 @@ def test_register_rejects_invalid_provider() -> None:
         )
 
 
+def test_register_rejects_remote_dataset_with_noncanonical_version() -> None:
+    service = BenchmarkSpecService()
+
+    with pytest.raises(ValueError, match="canonical sha256"):
+        service.register_spec(
+            model_id="model-remote",
+            dataset_id="s3://bucket/dataset.csv",
+            dataset_version="latest",
+            eval_split="test",
+            metric_name="accuracy",
+            metric_direction="higher_is_better",
+            input_schema={},
+            output_schema={},
+        )
+
+
+def test_register_accepts_remote_dataset_with_canonical_version() -> None:
+    service = BenchmarkSpecService()
+
+    created = service.register_spec(
+        model_id="model-remote",
+        dataset_id="s3://bucket/dataset.csv",
+        dataset_version="sha256:" + "a" * 64,
+        eval_split="test",
+        metric_name="accuracy",
+        metric_direction="higher_is_better",
+        input_schema={},
+        output_schema={},
+    )
+
+    assert created["dataset_version"] == "sha256:" + "a" * 64
+
+
 def test_model_update_hook_raises_immutable_error() -> None:
     with pytest.raises(ValueError, match="immutable"):
         _prevent_benchmark_spec_update(None, None, None)
