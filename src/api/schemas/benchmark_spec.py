@@ -14,6 +14,7 @@ from src.utils.dataset_hash import parse_sha256_dataset_version
 from src.utils.metric_naming import derive_mlflow_name
 
 _SCORER_REF_SKIP_PREFIXES = ("genai:", "judge:")
+_REMOTE_DATASET_PREFIXES = ("s3://", "gs://", "az://", "http://", "https://")
 
 
 def _validate_scorer_ref_value(v: object) -> str | None:
@@ -32,6 +33,28 @@ def _validate_scorer_ref_value(v: object) -> str | None:
     except UnknownScorerError as exc:
         raise ValueError(f"unknown scorer_ref: {v!r}") from exc
     return v
+
+
+def _is_remote_dataset_reference(value: str | None) -> bool:
+    return isinstance(value, str) and any(
+        value.startswith(prefix) for prefix in _REMOTE_DATASET_PREFIXES
+    )
+
+
+def _validate_remote_dataset_version(
+    dataset_reference: str | None,
+    dataset_version: str | None,
+) -> str | None:
+    if not _is_remote_dataset_reference(dataset_reference):
+        return dataset_version
+
+    canonical = parse_sha256_dataset_version(dataset_version)
+    if canonical is None:
+        raise ValueError(
+            "remote dataset_reference requires dataset_version in canonical "
+            "sha256:<64 lowercase hex> form"
+        )
+    return canonical
 
 
 class BenchmarkProvider(str, Enum):
@@ -147,6 +170,13 @@ class BenchmarkSpecCreate(BaseModel):
             raise ValueError("baseline_value must be a finite number")
         return v
 
+    @model_validator(mode="after")
+    def _validate_remote_dataset_contract(self: BenchmarkSpecCreate) -> BenchmarkSpecCreate:
+        self.dataset_version = _validate_remote_dataset_version(
+            self.dataset_reference, self.dataset_version
+        )
+        return self
+
 
 class BenchmarkSpecUpdate(BaseModel):
     """Partial update schema for PATCH operations. All fields optional."""
@@ -170,6 +200,14 @@ class BenchmarkSpecUpdate(BaseModel):
         if v is not None and not math.isfinite(v):
             raise ValueError("baseline_value must be a finite number")
         return v
+
+    @model_validator(mode="after")
+    def _validate_remote_dataset_contract(self: BenchmarkSpecUpdate) -> BenchmarkSpecUpdate:
+        if self.dataset_reference is not None:
+            self.dataset_version = _validate_remote_dataset_version(
+                self.dataset_reference, self.dataset_version
+            )
+        return self
 
 
 class BenchmarkSpecResponse(BaseModel):

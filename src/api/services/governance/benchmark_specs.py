@@ -22,13 +22,34 @@ from sqlalchemy.orm import Session, sessionmaker
 from src.api.models import BenchmarkSpec
 from src.api.services.dataset_validator import DatasetValidator
 from src.api.services.privacy.pii_detector import PIIDetector, PIIScanResult
-from src.utils.dataset_hash import format_sha256_dataset_version
+from src.utils.dataset_hash import format_sha256_dataset_version, parse_sha256_dataset_version
 
 logger = logging.getLogger(__name__)
 
 SessionFactory = Callable[[], Session]
 
 VALID_METRIC_DIRECTIONS = {"higher_is_better", "lower_is_better"}
+_REMOTE_DATASET_PREFIXES = ("s3://", "gs://", "az://", "http://", "https://")
+
+
+def _is_remote_dataset_reference(value: str) -> bool:
+    return any(value.startswith(prefix) for prefix in _REMOTE_DATASET_PREFIXES)
+
+
+def _validate_dataset_reference_version_contract(
+    dataset_id: str,
+    dataset_version: str,
+) -> str:
+    if not _is_remote_dataset_reference(dataset_id):
+        return dataset_version
+
+    canonical = parse_sha256_dataset_version(dataset_version)
+    if canonical is None:
+        raise ValueError(
+            "remote dataset_reference requires dataset_version in canonical "
+            "sha256:<64 lowercase hex> form"
+        )
+    return canonical
 
 
 class BenchmarkSpecImmutableError(ValueError):
@@ -109,6 +130,7 @@ class BenchmarkSpecService:
 
         if provider not in {"hokusai", "kaggle"}:
             raise ValueError("provider must be one of: hokusai, kaggle")
+        dataset_version = _validate_dataset_reference_version_contract(dataset_id, dataset_version)
 
         now = datetime.now(timezone.utc)
         spec_id = str(uuid4())

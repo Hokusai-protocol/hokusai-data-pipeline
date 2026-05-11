@@ -15,9 +15,11 @@ from src.evaluation.custom_eval import (
     CustomEvalRuntimeError,
     DatasetAccessNotImplementedError,
     DatasetHashUnresolvableError,
+    DatasetLoadError,
     MetricNameCollisionError,
     ScorerLoadError,
     _all_scorer_refs,
+    _load_sales_outcome_rows,
     compute_dataset_hash,
     is_genai_spec,
     run_custom_eval,
@@ -629,15 +631,18 @@ def test_run_custom_eval_mlflow_failure_tags(tmp_path) -> None:
     assert fake_mlflow.tags.get(FAILURE_REASON_TAG) == "mlflow_evaluate_error"
 
 
-def test_run_custom_eval_remote_deterministic_dataset_raises_after_run_start() -> None:
+def test_run_custom_eval_remote_deterministic_dataset_succeeds_for_s3_sales_rows() -> None:
     spec = _make_benchmark_spec(scorer_ref="sales:unsubscribe_rate")
-    spec["dataset_reference"] = "s3://bucket/sales.parquet"
+    spec["dataset_reference"] = "s3://bucket/sales.json"
     spec["dataset_version"] = "sha256:" + "b" * 64
 
     fake_mlflow = _FakeMlflow()
 
-    with pytest.raises(DatasetAccessNotImplementedError):
-        run_custom_eval(
+    with patch(
+        "src.evaluation.custom_eval._load_s3_object_bytes",
+        return_value=json.dumps(_sales_rows()).encode("utf-8"),
+    ):
+        result = run_custom_eval(
             model_id="model-a",
             benchmark_spec=spec,
             benchmark_spec_id="spec-001",
@@ -648,8 +653,106 @@ def test_run_custom_eval_remote_deterministic_dataset_raises_after_run_start() -
             temperature=None,
         )
 
-    assert fake_mlflow.tags.get(STATUS_TAG) == "failed"
-    assert fake_mlflow.tags.get(FAILURE_REASON_TAG) == "mlflow_evaluate_error"
+    assert result["status"] == "success"
+    assert fake_mlflow.tags.get(STATUS_TAG) == "succeeded"
+    assert fake_mlflow.tags.get(FAILURE_REASON_TAG) is None
+    assert result["metrics"]["accuracy"] == pytest.approx(0.0)
+
+
+def test_run_custom_eval_remote_sales_dataset_does_not_raise_access_not_implemented() -> None:
+    spec = _make_benchmark_spec(scorer_ref="sales:unsubscribe_rate")
+    spec["dataset_reference"] = "s3://bucket/sales.json"
+    spec["dataset_version"] = "sha256:" + "d" * 64
+
+    fake_mlflow = _FakeMlflow()
+
+    with patch(
+        "src.evaluation.custom_eval._load_s3_object_bytes",
+        return_value=json.dumps(_sales_rows()).encode("utf-8"),
+    ):
+        try:
+            run_custom_eval(
+                model_id="model-a",
+                benchmark_spec=spec,
+                benchmark_spec_id="spec-001",
+                mlflow_module=fake_mlflow,
+                mlflow_client=None,
+                cli_max_cost=None,
+                seed=None,
+                temperature=None,
+            )
+        except DatasetAccessNotImplementedError as exc:
+            pytest.fail(f"unexpected DatasetAccessNotImplementedError: {exc}")
+
+
+def test_load_sales_outcome_rows_from_remote_json_object() -> None:
+    row = _sales_rows()[0]
+    with patch(
+        "src.evaluation.custom_eval._load_s3_object_bytes",
+        return_value=json.dumps(row).encode("utf-8"),
+    ):
+        rows = _load_sales_outcome_rows("s3://bucket/sales.json")
+    assert rows == [row]
+
+
+def test_load_sales_outcome_rows_from_remote_json_array() -> None:
+    rows = _sales_rows() * 2
+    with patch(
+        "src.evaluation.custom_eval._load_s3_object_bytes",
+        return_value=json.dumps(rows).encode("utf-8"),
+    ):
+        loaded = _load_sales_outcome_rows("s3://bucket/sales.json")
+    assert loaded == rows
+
+
+def test_load_sales_outcome_rows_from_remote_jsonl() -> None:
+    rows = _sales_rows() * 2
+    payload = ("\n\n" + "\n".join(json.dumps(row) for row in rows) + "\n").encode("utf-8")
+    with patch(
+        "src.evaluation.custom_eval._load_s3_object_bytes",
+        return_value=payload,
+    ):
+        loaded = _load_sales_outcome_rows("s3://bucket/sales.jsonl")
+    assert loaded == rows
+
+
+def test_load_sales_outcome_rows_rejects_unsupported_suffix() -> None:
+    with patch("src.evaluation.custom_eval._load_s3_object_bytes", return_value=b"ignored"):
+        with pytest.raises(
+            DatasetLoadError,
+            match="unsupported deterministic sales dataset format",
+        ):
+            _load_sales_outcome_rows("s3://bucket/sales.csv")
+
+
+def test_load_sales_outcome_rows_rejects_empty_remote_dataset() -> None:
+    with patch(
+        "src.evaluation.custom_eval._load_s3_object_bytes",
+        return_value=json.dumps([]).encode("utf-8"),
+    ):
+        with pytest.raises(DatasetLoadError, match="must contain at least one row"):
+            _load_sales_outcome_rows("s3://bucket/sales.json")
+
+
+def test_load_sales_outcome_rows_rejects_malformed_remote_json() -> None:
+    with patch("src.evaluation.custom_eval._load_s3_object_bytes", return_value=b"{not-json"):
+        with pytest.raises(DatasetLoadError, match="invalid JSON dataset"):
+            _load_sales_outcome_rows("s3://bucket/sales.json")
+
+
+def test_load_sales_outcome_rows_rejects_invalid_row_schema() -> None:
+    invalid_rows = [{"row_id": "row-1", "schema_version": "sales_outcome_row/v2"}]
+    with patch(
+        "src.evaluation.custom_eval._load_s3_object_bytes",
+        return_value=json.dumps(invalid_rows).encode("utf-8"),
+    ):
+        with pytest.raises(DatasetLoadError, match="unsupported schema_version"):
+            _load_sales_outcome_rows("s3://bucket/sales.json")
+
+
+def test_load_sales_outcome_rows_rejects_unsupported_remote_scheme() -> None:
+    with pytest.raises(DatasetAccessNotImplementedError, match="does not support remote"):
+        _load_sales_outcome_rows("gs://bucket/sales.json")
 
 
 def test_run_custom_eval_duplicate_canonical_metric_names_raise(tmp_path) -> None:

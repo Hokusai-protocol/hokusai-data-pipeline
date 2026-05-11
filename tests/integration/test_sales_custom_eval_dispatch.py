@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 from src.api.schemas.benchmark_spec import BenchmarkSpecResponse
-from src.evaluation.custom_eval import run_custom_eval
+from src.evaluation.custom_eval import DatasetAccessNotImplementedError, run_custom_eval
 from src.evaluation.scorers import resolve_scorer
 from src.evaluation.tags import (
     DATASET_HASH_TAG,
@@ -272,20 +272,67 @@ def test_sales_remote_benchmark_spec_uses_canonical_dataset_version_for_tags_and
             rows, eval_spec["primary_metric"]["scorer_ref"]
         ),
     }
-    fake_mlflow = _FakeMlflow(rows=rows, metric_values=metric_values)
+    fake_mlflow = _FakeMlflow()
 
-    result = run_custom_eval(
-        model_id=MODEL_ID,
-        benchmark_spec=benchmark_spec,
-        benchmark_spec_id=SPEC_ID,
-        mlflow_module=fake_mlflow,
-        mlflow_client=None,
-        cli_max_cost=None,
-        seed=None,
-        temperature=None,
-    )
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(
+            "src.evaluation.custom_eval._load_s3_object_bytes",
+            lambda _dataset_reference: json.dumps(rows).encode("utf-8"),
+        )
+        result = run_custom_eval(
+            model_id=MODEL_ID,
+            benchmark_spec=benchmark_spec,
+            benchmark_spec_id=SPEC_ID,
+            mlflow_module=fake_mlflow,
+            mlflow_client=None,
+            cli_max_cost=None,
+            seed=None,
+            temperature=None,
+        )
 
     assert result["status"] == "success"
-    assert fake_mlflow.evaluate_kwargs is not None
-    assert fake_mlflow.evaluate_kwargs["data"] == "s3://bucket/sales/outcomes.json"
+    assert fake_mlflow.tags[DATASET_HASH_TAG] == dataset_version
+    assert result["metrics"][primary_mlflow_name] == pytest.approx(
+        metric_values[primary_mlflow_name]
+    )
+    assert fake_mlflow.metrics_logged[primary_mlflow_name] == pytest.approx(
+        metric_values[primary_mlflow_name]
+    )
+
+
+def test_sales_remote_benchmark_spec_does_not_raise_dataset_access_not_implemented() -> None:
+    eval_spec = _load_example("sales_eval_spec.exact_observed.v1.json")
+    dataset_version = "sha256:" + "e" * 64
+    benchmark_spec = _build_remote_sales_benchmark_spec(
+        "s3://bucket/sales/outcomes.jsonl",
+        dataset_version,
+        eval_spec,
+    )
+    rows = [
+        _load_example("sales_outcome_row.revenue.v1.json"),
+        _load_example("sales_outcome_row.unsubscribe.v1.json"),
+    ]
+    fake_mlflow = _FakeMlflow()
+    payload = "\n".join(json.dumps(row) for row in rows).encode("utf-8")
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(
+            "src.evaluation.custom_eval._load_s3_object_bytes",
+            lambda _dataset_reference: payload,
+        )
+        try:
+            result = run_custom_eval(
+                model_id=MODEL_ID,
+                benchmark_spec=benchmark_spec,
+                benchmark_spec_id=SPEC_ID,
+                mlflow_module=fake_mlflow,
+                mlflow_client=None,
+                cli_max_cost=None,
+                seed=None,
+                temperature=None,
+            )
+        except DatasetAccessNotImplementedError as exc:
+            pytest.fail(f"unexpected DatasetAccessNotImplementedError: {exc}")
+
+    assert result["status"] == "success"
     assert fake_mlflow.tags[DATASET_HASH_TAG] == dataset_version
