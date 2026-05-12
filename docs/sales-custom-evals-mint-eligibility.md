@@ -171,3 +171,91 @@ building a sales custom eval:
   acceptance event.
 - [`docs/deltaone-acceptance-event.md`](deltaone-acceptance-event.md) — DeltaVerifier
   acceptance event payload and BPS encoding.
+
+## Operator Setup
+
+Steps to register scorers, configure an eval_spec, run the eval, and verify mint eligibility.
+
+### 1. Register scorers
+
+Built-in sales scorers (`sales:revenue_per_1000_messages`, `sales:unsubscribe_rate`,
+`sales:spam_complaint_rate`, `sales:qualified_meeting_rate`) are pre-registered in
+`src/evaluation/scorers/builtin.py`. Custom scorers must be added via:
+
+```python
+from src.evaluation.scorers import register_scorer, Aggregation
+from src.evaluation.schema import MetricFamily
+
+register_scorer(
+    "my_custom_scorer",
+    callable_=my_scorer_fn,
+    version="1.0.0",
+    input_schema={"type": "array"},
+    output_metric_keys=("my_custom_scorer",),
+    metric_family=MetricFamily.OUTCOME,
+    aggregation=Aggregation.MEAN,
+)
+```
+
+### 2. Configure guardrail thresholds in eval_spec
+
+Set `blocking: true` on guardrails that must gate the mint decision:
+
+```json
+{
+  "guardrails": [
+    {
+      "name": "sales:spam_complaint_rate",
+      "scorer_ref": "sales:spam_complaint_rate",
+      "direction": "lower_is_better",
+      "threshold": 0.005,
+      "blocking": true
+    }
+  ]
+}
+```
+
+### 3. Submit BenchmarkSpec via API
+
+```bash
+curl -X POST https://api.hokus.ai/api/v1/benchmarks \
+  -H "Authorization: Bearer $HOKUSAI_API_KEY" \
+  -d '{
+    "model_id": "my-model",
+    "metric_name": "sales:revenue_per_1000_messages",
+    "metric_direction": "higher_is_better",
+    "eval_spec": { ... }
+  }'
+```
+
+### 4. Run the eval
+
+```bash
+hokusai eval run my-model \
+  --benchmark-spec-id <spec_id> \
+  --output json
+```
+
+### 5. Verify mint eligibility
+
+Check the MLflow run tags to verify the pipeline completed:
+
+```bash
+# Check eval status
+mlflow runs get --run-id <run_id> | jq '.data.tags["hokusai.eval.status"]'
+# -> "succeeded"
+
+# Check measurement policy
+mlflow runs get --run-id <run_id> | jq '.data.tags["hokusai.measurement_policy"]'
+# -> {"type": "exact_observed_output", "mint_eligible": true, ...}
+
+# Check DeltaOne decision (set by orchestrator after evaluation)
+mlflow runs get --run-id <run_id> | jq '.data.tags["hokusai.deltaone.decision"]'
+# -> "accepted" or reason for rejection
+```
+
+Mint eligibility requires all of the following:
+- `hokusai.eval.status == "succeeded"`
+- `measurement_policy.mint_eligible == true` in the eval_spec
+- `DeltaOneDecision.accepted == true`
+- All `blocking: true` guardrails passed
