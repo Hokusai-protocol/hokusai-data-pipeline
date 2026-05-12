@@ -64,7 +64,7 @@ class DatasetHashUnresolvableError(CustomEvalError):
 
 
 class DatasetLoadError(CustomEvalError):
-    """Raised when a deterministic sales dataset cannot be loaded or validated."""
+    """Raised when a deterministic scorer dataset cannot be loaded or validated."""
 
 
 class DatasetAccessNotImplementedError(CustomEvalError, NotImplementedError):
@@ -363,6 +363,13 @@ def _has_direct_sales_scorer_refs(spec: RuntimeAdapterSpec) -> bool:
     )
 
 
+def _has_direct_task_router_scorer_refs(spec: RuntimeAdapterSpec) -> bool:
+    scored_specs = _metric_specs_with_scorers(spec)
+    return bool(scored_specs) and all(
+        scorer_ref.startswith("technical_task_router.") for _, scorer_ref in scored_specs
+    )
+
+
 def _metric_specs_with_scorers(
     spec: RuntimeAdapterSpec,
 ) -> list[tuple[str, str]]:
@@ -607,6 +614,13 @@ def _dispatch_runtime_result(
                 runtime_spec=runtime_spec,
                 run_id=run_id,
             )
+        if _has_direct_task_router_scorer_refs(runtime_spec):
+            return _dispatch_task_router_scorers(
+                mlflow_module=mlflow_module,
+                dataset_reference=dataset_reference,
+                runtime_spec=runtime_spec,
+                run_id=run_id,
+            )
         return _dispatch_deterministic(
             mlflow_module=mlflow_module,
             model_id=model_id,
@@ -664,6 +678,60 @@ def _dispatch_deterministic_scorers(
         if not isinstance(metric_value, (int, float)):
             raise DatasetLoadError(
                 f"deterministic scorer {registered.metadata.scorer_ref!r} returned non-numeric "
+                f"value {metric_value!r}"
+            )
+        metrics[mlflow_metric_name] = float(metric_value)
+
+    result = SimpleNamespace(
+        metrics=metrics,
+        result_df=_build_per_row_result_df(rows, metrics),
+    )
+    _persist_per_row_artifact(
+        mlflow_module=mlflow_module,
+        result=result,
+        runtime_spec=runtime_spec,
+        run_id=run_id,
+    )
+    return result
+
+
+def _dispatch_task_router_scorers(
+    *,
+    mlflow_module: Any,
+    dataset_reference: str,
+    runtime_spec: RuntimeAdapterSpec,
+    run_id: str,
+) -> SimpleNamespace:
+    """Compute task-router metrics directly; every row contributes to every scorer."""
+    from src.evaluation.scorers.registry import resolve_scorer
+
+    metric_specs = _metric_specs_with_scorers(runtime_spec)
+    metric_name_map: dict[str, str] = {}
+    resolved_scorers: list[tuple[str, str, Any]] = []
+    for spec_name, scorer_ref in metric_specs:
+        mlflow_metric_name = derive_mlflow_name(spec_name)
+        if mlflow_metric_name in metric_name_map:
+            raise MetricNameCollisionError(
+                "metric_name_collision: "
+                f"{spec_name!r} and {metric_name_map[mlflow_metric_name]!r} both normalize to "
+                f"{mlflow_metric_name!r}"
+            )
+        metric_name_map[mlflow_metric_name] = spec_name
+        resolved_scorers.append((spec_name, mlflow_metric_name, resolve_scorer(scorer_ref)))
+
+    rows = _load_task_router_rows(dataset_reference)
+    logger.info(
+        "Running direct task-router scorer dispatch for %d rows and scorer refs %s",
+        len(rows),
+        [registered.metadata.scorer_ref for _, _, registered in resolved_scorers],
+    )
+
+    metrics: dict[str, float] = {}
+    for _, mlflow_metric_name, registered in resolved_scorers:
+        metric_value = registered.callable_(rows)
+        if not isinstance(metric_value, (int, float)):
+            raise DatasetLoadError(
+                f"task-router scorer {registered.metadata.scorer_ref!r} returned non-numeric "
                 f"value {metric_value!r}"
             )
         metrics[mlflow_metric_name] = float(metric_value)
@@ -766,10 +834,73 @@ def _load_sales_outcome_rows(dataset_reference: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _load_task_router_rows(dataset_reference: str) -> list[dict[str, Any]]:
+    rows = _load_rows_for_schema(
+        dataset_reference=dataset_reference,
+        schema_version="technical_task_router_row/v1",
+        dataset_label="task-router",
+    )
+    return rows
+
+
+def _load_rows_for_schema(
+    *,
+    dataset_reference: str,
+    schema_version: str,
+    dataset_label: str,
+) -> list[dict[str, Any]]:
+    if dataset_reference.startswith("s3://"):
+        rows = _load_rows_from_suffix(
+            dataset_reference,
+            Path(dataset_reference).suffix.lower(),
+            _load_s3_object_bytes(dataset_reference),
+            dataset_label,
+        )
+    elif _is_remote(dataset_reference):
+        raise DatasetAccessNotImplementedError(
+            f"deterministic scorer dispatch does not support remote dataset_reference "
+            f"{dataset_reference!r}"
+        )
+    else:
+        dataset_path = Path(dataset_reference)
+        if not dataset_path.exists() or not dataset_path.is_file():
+            raise DatasetLoadError(
+                f"dataset_reference is not a readable file: {dataset_reference!r}"
+            )
+
+        rows = _load_rows_from_suffix(
+            dataset_reference,
+            dataset_path.suffix.lower(),
+            dataset_path,
+            dataset_label,
+        )
+
+    if not rows:
+        raise DatasetLoadError("deterministic scorer datasets must contain at least one row")
+
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise DatasetLoadError(f"row {index} is not an object")
+        if row.get("schema_version") != schema_version:
+            raise DatasetLoadError(
+                f"row {index} has unsupported schema_version {row.get('schema_version')!r}"
+            )
+    return rows
+
+
 def _load_sales_outcome_rows_from_suffix(
     dataset_reference: str,
     suffix: str,
     source: Path | bytes,
+) -> list[dict[str, Any]]:
+    return _load_rows_from_suffix(dataset_reference, suffix, source, "sales")
+
+
+def _load_rows_from_suffix(
+    dataset_reference: str,
+    suffix: str,
+    source: Path | bytes,
+    dataset_label: str,
 ) -> list[dict[str, Any]]:
     if suffix == ".json":
         if isinstance(source, Path):
@@ -784,7 +915,8 @@ def _load_sales_outcome_rows_from_suffix(
             return _load_parquet_rows(source)
         return _load_parquet_rows_from_bytes(source, dataset_reference)
     raise DatasetLoadError(
-        f"unsupported deterministic sales dataset format {suffix!r} for {dataset_reference!r}"
+        f"unsupported deterministic {dataset_label} dataset format "
+        f"{suffix!r} for {dataset_reference!r}"
     )
 
 

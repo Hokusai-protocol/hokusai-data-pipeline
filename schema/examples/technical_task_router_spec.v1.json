@@ -1,0 +1,26 @@
+{
+  "primary_metric": {
+    "name": "technical_task_router.benchmark_score/v1",
+    "scorer_ref": "technical_task_router.benchmark_score/v1",
+    "direction": "higher_is_better",
+    "unit": "proportion",
+    "threshold": 0.8
+  },
+  "secondary_metrics": [
+    {
+      "name": "technical_task_router.feasibility/v1",
+      "scorer_ref": "technical_task_router.feasibility/v1",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    }
+  ],
+  "guardrails": [],
+  "measurement_policy": {
+    "type": "exact_observed_output",
+    "max_cost_source": "row.max_cost_usd",
+    "actual_cost_source": "row.actual_cost_usd"
+  },
+  "unit_of_analysis": "technical_task",
+  "min_examples": 1,
+  "metric_family": "proportion"
+}

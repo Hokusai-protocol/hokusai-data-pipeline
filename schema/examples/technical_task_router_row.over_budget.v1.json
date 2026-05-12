@@ -1,0 +1,20 @@
+{
+  "schema_version": "technical_task_router_row/v1",
+  "row_id": "task-router-row-over-budget-001",
+  "benchmark_spec_id": "technical-task-router-spec-v1",
+  "eval_id": "technical-task-router-eval-001",
+  "model_id": "technical-task-router-challenger",
+  "task_descriptor": {
+    "task_id": "migrate-api-client",
+    "task_type": "refactor",
+    "language": "typescript",
+    "estimated_complexity": "high"
+  },
+  "allowed_models": ["fast-coder-v1", "deep-coder-v2"],
+  "selected_models": ["deep-coder-v2"],
+  "max_cost_usd": 0.75,
+  "actual_cost_usd": 0.81,
+  "completed_successfully": true,
+  "scorer_ref": "technical_task_router.benchmark_score/v1",
+  "observed_at": "2026-05-12T12:05:00Z"
+}

@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "technical_task_router_row/v1",
+  "title": "TechnicalTaskRouterRow",
+  "description": "A single benchmark observation row for a technical task router workflow prediction. The row records the task descriptor, allowed model set, selected workflow models, budget, observed cost, and completion outcome.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "row_id",
+    "benchmark_spec_id",
+    "eval_id",
+    "model_id",
+    "task_descriptor",
+    "allowed_models",
+    "selected_models",
+    "max_cost_usd",
+    "actual_cost_usd",
+    "completed_successfully",
+    "scorer_ref",
+    "observed_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "title": "Schema Version",
+      "description": "Version sentinel for this row schema. Must be exactly \"technical_task_router_row/v1\".",
+      "type": "string",
+      "const": "technical_task_router_row/v1"
+    },
+    "row_id": {
+      "title": "Row ID",
+      "description": "Unique identifier for this observation row.",
+      "type": "string",
+      "minLength": 1
+    },
+    "benchmark_spec_id": {
+      "title": "Benchmark Spec ID",
+      "description": "ID of the BenchmarkSpec this row belongs to.",
+      "type": "string",
+      "minLength": 1
+    },
+    "eval_id": {
+      "title": "Eval ID",
+      "description": "Evaluation run identifier.",
+      "type": "string",
+      "minLength": 1
+    },
+    "model_id": {
+      "title": "Model ID",
+      "description": "Hokusai model identifier for the router being evaluated.",
+      "type": "string",
+      "minLength": 1
+    },
+    "task_descriptor": {
+      "title": "Task Descriptor",
+      "description": "Structured task descriptor supplied to the router. This schema intentionally leaves descriptor contents opaque so benchmark authors can evolve task fields without changing the row contract.",
+      "type": "object"
+    },
+    "allowed_models": {
+      "title": "Allowed Models",
+      "description": "Model identifiers the workflow is allowed to select for this task.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1
+    },
+    "selected_models": {
+      "title": "Selected Models",
+      "description": "Model identifiers selected by the predicted workflow configuration.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "max_cost_usd": {
+      "title": "Max Cost USD",
+      "description": "Per-sample budget in USD. The value must be greater than zero.",
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "actual_cost_usd": {
+      "title": "Actual Cost USD",
+      "description": "Observed workflow cost in USD.",
+      "type": "number",
+      "minimum": 0
+    },
+    "completed_successfully": {
+      "title": "Completed Successfully",
+      "description": "Whether the workflow completed the task successfully.",
+      "type": "boolean"
+    },
+    "scorer_ref": {
+      "title": "Scorer Ref",
+      "description": "Primary scorer registry ref for this benchmark row.",
+      "type": "string",
+      "const": "technical_task_router.benchmark_score/v1"
+    },
+    "observed_at": {
+      "title": "Observed At",
+      "description": "ISO 8601 UTC timestamp when this row was observed or computed.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "metadata": {
+      "title": "Metadata",
+      "description": "Arbitrary additional metadata for extensibility. Does not affect metric computation.",
+      "type": "object"
+    }
+  }
+}

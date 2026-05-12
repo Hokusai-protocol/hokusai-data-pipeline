@@ -34,6 +34,36 @@ _SALES_ROW_SCHEMA: dict = {
     },
 }
 
+_TASK_ROUTER_ROW_SCHEMA: dict = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "schema_version": {"type": "string", "const": "technical_task_router_row/v1"},
+            "allowed_models": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+            },
+            "selected_models": {
+                "type": "array",
+                "items": {"type": "string"},
+            },
+            "max_cost_usd": {"type": "number", "exclusiveMinimum": 0},
+            "actual_cost_usd": {"type": "number", "minimum": 0},
+            "completed_successfully": {"type": "boolean"},
+        },
+        "required": [
+            "schema_version",
+            "allowed_models",
+            "selected_models",
+            "max_cost_usd",
+            "actual_cost_usd",
+            "completed_successfully",
+        ],
+    },
+}
+
 
 def _mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
@@ -180,6 +210,58 @@ def _sales_unsubscribe_rate(rows: list[dict]) -> float:
     return numerator / denominator if denominator else 0.0
 
 
+# ---------------------------------------------------------------------------
+# Technical task router scorers — operate on technical_task_router_row/v1 rows
+# ---------------------------------------------------------------------------
+
+
+def _task_router_row_is_feasible(row: dict) -> bool:
+    selected_models_raw = row.get("selected_models")
+    allowed_models_raw = row.get("allowed_models")
+    if not isinstance(selected_models_raw, list) or not isinstance(allowed_models_raw, list):
+        return False
+    if not all(isinstance(model, str) for model in selected_models_raw + allowed_models_raw):
+        return False
+
+    try:
+        actual_cost_usd = float(row["actual_cost_usd"])
+        max_cost_usd = float(row["max_cost_usd"])
+    except (KeyError, TypeError, ValueError):
+        return False
+
+    if actual_cost_usd < 0 or max_cost_usd <= 0:
+        return False
+
+    return set(selected_models_raw).issubset(set(allowed_models_raw)) and (
+        actual_cost_usd <= max_cost_usd
+    )
+
+
+def _task_router_feasibility(rows: list[dict]) -> float:
+    """Fraction of rows where selected models are allowed and observed cost is within budget."""
+    if not rows:
+        return 0.0
+    feasible_count = sum(1 for row in rows if _task_router_row_is_feasible(row))
+    return feasible_count / len(rows)
+
+
+def _task_router_success_under_budget(rows: list[dict]) -> float:
+    """Fraction of rows that are feasible and completed successfully."""
+    if not rows:
+        return 0.0
+    successful_count = sum(
+        1
+        for row in rows
+        if _task_router_row_is_feasible(row) and row.get("completed_successfully") is True
+    )
+    return successful_count / len(rows)
+
+
+def _task_router_benchmark_score(rows: list[dict]) -> float:
+    """Primary benchmark score: SuccessfulRunsWithinBudget / TotalRuns."""
+    return _task_router_success_under_budget(rows)
+
+
 _OUTCOME_SCORERS = [
     ("mean", _mean, Aggregation.MEAN),
     ("sum", _sum, Aggregation.SUM),
@@ -278,5 +360,45 @@ for _ref, _fn, _agg, _desc in _SALES_SCORERS:
         output_metric_keys=(_ref,),
         metric_family=MetricFamily.OUTCOME,
         aggregation=_agg,
+        description=_desc,
+    )
+
+_TASK_ROUTER_SCORERS = [
+    (
+        "technical_task_router.feasibility/v1",
+        _task_router_feasibility,
+        (
+            "Fraction of technical task router rows where every selected model is allowed "
+            "and actual_cost_usd is less than or equal to max_cost_usd."
+        ),
+    ),
+    (
+        "technical_task_router.success_under_budget/v1",
+        _task_router_success_under_budget,
+        (
+            "Fraction of technical task router rows where the workflow is feasible and "
+            "completed_successfully is true."
+        ),
+    ),
+    (
+        "technical_task_router.benchmark_score/v1",
+        _task_router_benchmark_score,
+        (
+            "Primary technical task router benchmark score. Computes "
+            "SuccessfulRunsWithinBudget / TotalRuns, where successful runs must select only "
+            "allowed models, stay within max_cost_usd, and complete successfully."
+        ),
+    ),
+]
+
+for _ref, _fn, _desc in _TASK_ROUTER_SCORERS:
+    register_scorer(
+        _ref,
+        callable_=_fn,
+        version="1.0.0",
+        input_schema=_TASK_ROUTER_ROW_SCHEMA,
+        output_metric_keys=(_ref,),
+        metric_family=MetricFamily.OUTCOME,
+        aggregation=Aggregation.PASS_RATE,
         description=_desc,
     )
