@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import copy
+import json
+from pathlib import Path
 
 import pytest
 
+from src.evaluation.custom_eval import DatasetLoadError, _load_technical_task_router_rows
 from src.evaluation.scorers.builtin import _score_technical_task_router_row
 from src.evaluation.scorers.registry import resolve_scorer
 
@@ -81,3 +84,11 @@ def test_router_row_missing_required_field_raises_value_error() -> None:
     del row["actual_cost_usd"]
     with pytest.raises(ValueError, match="missing required fields"):
         _score_technical_task_router_row(row)
+
+
+def test_load_technical_task_router_rows_empty_dataset_raises(tmp_path: Path) -> None:
+    """Empty datasets raise DatasetLoadError (mirrors sales scorer behaviour)."""
+    dataset_path = tmp_path / "empty.json"
+    dataset_path.write_text(json.dumps([]), encoding="utf-8")
+    with pytest.raises(DatasetLoadError, match="at least one row"):
+        _load_technical_task_router_rows(str(dataset_path))

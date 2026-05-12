@@ -729,20 +729,7 @@ def _dispatch_technical_task_router_scorers(
     metrics: dict[str, float] = {}
     per_row_metric_columns: dict[str, list[float]] = {}
     for _, mlflow_metric_name, registered in resolved_scorers:
-        output = registered.callable_(rows)
-        if not isinstance(output, dict):
-            raise DatasetLoadError(
-                f"deterministic scorer {registered.metadata.scorer_ref!r} returned non-dict "
-                f"value {output!r}"
-            )
         canonical_key = registered.metadata.output_metric_keys[0]
-        metric_value = output.get(canonical_key)
-        if not isinstance(metric_value, (int, float)):
-            raise DatasetLoadError(
-                f"deterministic scorer {registered.metadata.scorer_ref!r} returned non-numeric "
-                f"metric {metric_value!r}"
-            )
-        metrics[mlflow_metric_name] = float(metric_value)
 
         row_scores: list[float] = []
         for row in rows:
@@ -754,6 +741,9 @@ def _dispatch_technical_task_router_scorers(
                     f"non-numeric per-row metric {row_score!r}"
                 )
             row_scores.append(float(row_score))
+
+        aggregate = sum(row_scores) / len(row_scores) if row_scores else 0.0
+        metrics[mlflow_metric_name] = aggregate
         per_row_metric_columns[mlflow_metric_name] = row_scores
 
     result = SimpleNamespace(
