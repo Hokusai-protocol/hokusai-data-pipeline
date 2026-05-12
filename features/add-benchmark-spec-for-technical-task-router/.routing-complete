@@ -1,0 +1,63 @@
+{
+  "planner": "gpt-5.5",
+  "coder": "gpt-5.4",
+  "reviewer": "claude-sonnet-4-6",
+  "planDepth": "deep",
+  "codeDepth": "deep",
+  "reviewMode": "static+llm",
+  "reviewRecommended": "static+llm",
+  "provenance": {
+    "source": "expanded",
+    "inputKind": "task-packet",
+    "inputPath": "/Users/timothyogilvie/Dropbox/Hokusai/hokusai-data-pipeline/../worktrees/add-benchmark-spec-for-technical-task-router/features/add-benchmark-spec-for-technical-task-router/task-packet.md",
+    "inputHash": "4fa996301476237a64b6681dc31d96cd40aa377e05cc19fc6aa7f7b16170e266",
+    "routedAt": "2026-05-12T17:21:59.338Z",
+    "routerMode": "normal",
+    "appliedFrom": "/Users/timothyogilvie/Dropbox/Hokusai/hokusai-data-pipeline/../worktrees/add-benchmark-spec-for-technical-task-router/features/add-benchmark-spec-for-technical-task-router/.post-expansion-route.json",
+    "appliedAt": "2026-05-12T17:21:59Z"
+  },
+  "maxCostUsd": 25,
+  "expectedSuccess": 0.35,
+  "confidence": 0.1,
+  "expectedCostPlan": 1.89,
+  "expectedCostCode": 12.19,
+  "expectedCostReview": 0.92,
+  "reasoning": [
+    "Task classified as bugfix with long prompt length.",
+    "Risk score 20 from complexity, scope, and repo-surface keywords.",
+    "Coder baseline uses gpt-5.4 from heuristic eval routing.",
+    "Review mode static+llm chosen to match expected change risk.",
+    "DeepSeek models were ignored because providers.deepseek.enabled is not true."
+  ],
+  "signals": {
+    "taskType": "bugfix",
+    "promptLength": "long",
+    "complexityScore": 4,
+    "fileTypes": [
+      ".py",
+      ".json",
+      ".md"
+    ],
+    "riskScore": 20
+  },
+  "constraints": {
+    "maxCostUsd": 25
+  },
+  "routingMode": "heuristic-fallback",
+  "neighborCount": 0,
+  "neighborSimilarityRange": [
+    0,
+    0
+  ],
+  "expectedCost": 15,
+  "challengeRecommendation": {
+    "shouldChallenge": true,
+    "reason": "low-confidence",
+    "defaultModel": "gpt-5.4",
+    "challengerModel": "claude-sonnet-4-6",
+    "priority": 300
+  },
+  "cache_hit": false,
+  "route_source": "single",
+  "packet_hash": "3ed237b8d57ae3a077c48a99cb1454a666368a9e0a80d2a50fb7fd421f35071e"
+}

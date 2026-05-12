@@ -363,6 +363,13 @@ def _has_direct_sales_scorer_refs(spec: RuntimeAdapterSpec) -> bool:
     )
 
 
+def _has_direct_technical_task_router_scorer_refs(spec: RuntimeAdapterSpec) -> bool:
+    scored_specs = _metric_specs_with_scorers(spec)
+    return bool(scored_specs) and all(
+        scorer_ref.startswith("technical_task_router:") for _, scorer_ref in scored_specs
+    )
+
+
 def _metric_specs_with_scorers(
     spec: RuntimeAdapterSpec,
 ) -> list[tuple[str, str]]:
@@ -600,6 +607,13 @@ def _dispatch_runtime_result(
                 runtime_spec=runtime_spec,
                 run_id=run_id,
             )
+        if _has_direct_technical_task_router_scorer_refs(runtime_spec):
+            return _dispatch_technical_task_router_scorers(
+                mlflow_module=mlflow_module,
+                dataset_reference=dataset_reference,
+                runtime_spec=runtime_spec,
+                run_id=run_id,
+            )
         if _has_direct_sales_scorer_refs(runtime_spec):
             return _dispatch_deterministic_scorers(
                 mlflow_module=mlflow_module,
@@ -681,6 +695,80 @@ def _dispatch_deterministic_scorers(
     return result
 
 
+def _dispatch_technical_task_router_scorers(
+    *,
+    mlflow_module: Any,
+    dataset_reference: str,
+    runtime_spec: RuntimeAdapterSpec,
+    run_id: str,
+) -> SimpleNamespace:
+    """Compute technical task router scorer-backed metrics directly from rows."""
+    from src.evaluation.scorers.registry import resolve_scorer
+
+    metric_specs = _metric_specs_with_scorers(runtime_spec)
+    metric_name_map: dict[str, str] = {}
+    resolved_scorers: list[tuple[str, str, Any]] = []
+    for spec_name, scorer_ref in metric_specs:
+        mlflow_metric_name = derive_mlflow_name(spec_name)
+        if mlflow_metric_name in metric_name_map:
+            raise MetricNameCollisionError(
+                "metric_name_collision: "
+                f"{spec_name!r} and {metric_name_map[mlflow_metric_name]!r} both normalize to "
+                f"{mlflow_metric_name!r}"
+            )
+        metric_name_map[mlflow_metric_name] = spec_name
+        resolved_scorers.append((spec_name, mlflow_metric_name, resolve_scorer(scorer_ref)))
+
+    rows = _load_technical_task_router_rows(dataset_reference)
+    logger.info(
+        "Running technical task router scorer dispatch for %d rows and scorer refs %s",
+        len(rows),
+        [registered.metadata.scorer_ref for _, _, registered in resolved_scorers],
+    )
+
+    metrics: dict[str, float] = {}
+    per_row_metric_columns: dict[str, list[float]] = {}
+    for _, mlflow_metric_name, registered in resolved_scorers:
+        output = registered.callable_(rows)
+        if not isinstance(output, dict):
+            raise DatasetLoadError(
+                f"deterministic scorer {registered.metadata.scorer_ref!r} returned non-dict "
+                f"value {output!r}"
+            )
+        canonical_key = registered.metadata.output_metric_keys[0]
+        metric_value = output.get(canonical_key)
+        if not isinstance(metric_value, (int, float)):
+            raise DatasetLoadError(
+                f"deterministic scorer {registered.metadata.scorer_ref!r} returned non-numeric "
+                f"metric {metric_value!r}"
+            )
+        metrics[mlflow_metric_name] = float(metric_value)
+
+        row_scores: list[float] = []
+        for row in rows:
+            row_output = registered.callable_([row])
+            row_score = row_output.get(canonical_key) if isinstance(row_output, dict) else None
+            if not isinstance(row_score, (int, float)):
+                raise DatasetLoadError(
+                    f"deterministic scorer {registered.metadata.scorer_ref!r} returned "
+                    f"non-numeric per-row metric {row_score!r}"
+                )
+            row_scores.append(float(row_score))
+        per_row_metric_columns[mlflow_metric_name] = row_scores
+
+    result = SimpleNamespace(
+        metrics=metrics,
+        result_df=_build_per_row_result_df(rows, metrics, per_row_metric_columns),
+    )
+    _persist_per_row_artifact(
+        mlflow_module=mlflow_module,
+        result=result,
+        runtime_spec=runtime_spec,
+        run_id=run_id,
+    )
+    return result
+
+
 def _rows_for_sales_scorer(rows: list[dict[str, Any]], scorer_ref: str) -> list[dict[str, Any]]:
     """Return only rows intended for a given sales scorer.
 
@@ -695,12 +783,23 @@ def _rows_for_sales_scorer(rows: list[dict[str, Any]], scorer_ref: str) -> list[
     ]
 
 
-def _build_per_row_result_df(rows: list[dict[str, Any]], metrics: dict[str, float]) -> Any:
+def _build_per_row_result_df(
+    rows: list[dict[str, Any]],
+    metrics: dict[str, float],
+    per_row_metric_columns: dict[str, list[float]] | None = None,
+) -> Any:
     import pandas as pd
 
     result_rows = []
-    for row in rows:
-        metric_columns = dict(metrics)
+    per_row_metric_columns = per_row_metric_columns or {}
+    for index, row in enumerate(rows):
+        metric_columns = {
+            metric_name: values[index]
+            for metric_name, values in per_row_metric_columns.items()
+            if index < len(values)
+        }
+        if not metric_columns:
+            metric_columns = dict(metrics)
         result_rows.append({**row, **metric_columns})
     return pd.DataFrame(result_rows)
 
@@ -760,6 +859,45 @@ def _load_sales_outcome_rows(dataset_reference: str) -> list[dict[str, Any]]:
         if not isinstance(row, dict):
             raise DatasetLoadError(f"row {index} is not an object")
         if row.get("schema_version") != "sales_outcome_row/v1":
+            raise DatasetLoadError(
+                f"row {index} has unsupported schema_version {row.get('schema_version')!r}"
+            )
+    return rows
+
+
+def _load_technical_task_router_rows(dataset_reference: str) -> list[dict[str, Any]]:
+    if dataset_reference.startswith("s3://"):
+        rows = _load_sales_outcome_rows_from_suffix(
+            dataset_reference,
+            Path(dataset_reference).suffix.lower(),
+            _load_s3_object_bytes(dataset_reference),
+        )
+    elif _is_remote(dataset_reference):
+        raise DatasetAccessNotImplementedError(
+            f"deterministic scorer dispatch does not support remote dataset_reference "
+            f"{dataset_reference!r}"
+        )
+    else:
+        dataset_path = Path(dataset_reference)
+        if not dataset_path.exists() or not dataset_path.is_file():
+            raise DatasetLoadError(
+                f"dataset_reference is not a readable file: {dataset_reference!r}"
+            )
+        rows = _load_sales_outcome_rows_from_suffix(
+            dataset_reference,
+            dataset_path.suffix.lower(),
+            dataset_path,
+        )
+
+    if not rows:
+        raise DatasetLoadError("deterministic scorer datasets must contain at least one row")
+
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise DatasetLoadError(
+                f"technical task router row {index} is not a JSON object: {row!r}"
+            )
+        if row.get("schema_version") != "technical_task_router_row/v1":
             raise DatasetLoadError(
                 f"row {index} has unsupported schema_version {row.get('schema_version')!r}"
             )

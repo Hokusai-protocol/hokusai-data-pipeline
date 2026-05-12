@@ -1,0 +1,10 @@
+{
+  "taskId": "HOK-1665",
+  "title": "Add benchmark spec for technical task router",
+  "description": "We intend to launch a technical task router token that will support a technical task. We need to have a user defined benchmark supported in the website to evaluate the models. The description of the benchmark is as follows: \n\n## 3\\. Benchmark Definition\n\n### 3.1 Benchmark Task\n\nEach benchmark sample consists of:\n\n* a structured task descriptor\n* a set of available models\n* a maximum cost constraint\n\nThe model must output a workflow configuration that is expected to complete the task successfully within the cost limit.\n\n---\n\n### 3.2 Evaluation Criteria\n\n#### Stage 1 — Feasibility\n\nA prediction is valid if:\n\n* selected models are allowed\n* observed cost ≤ max cost\n\nElse score = 0.\n\n#### Stage 2 — Outcome Score\n\nScore = Successful Completion Under Budget\n\nBenchmark Score = SuccessfulRunsWithinBudget / TotalRuns\n\n---\n\n### 3.3 Definition of Success\n\ncompleted_successfully == true\n\n---\n\n### 3.4 Budget Compliance\n\nactual_cost_usd ≤ max_cost_usd\n\n---",
+  "labels": [],
+  "workflowType": "feature",
+  "featureName": "add-benchmark-spec-for-technical-task-router",
+  "contextPath": "features/add-benchmark-spec-for-technical-task-router/selected-task.json",
+  "selectedAt": "2026-05-12T17:12:46Z"
+}

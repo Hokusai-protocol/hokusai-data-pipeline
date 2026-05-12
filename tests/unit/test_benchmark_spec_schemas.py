@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -43,6 +45,11 @@ def _valid_response_payload() -> dict:
         "updated_at": None,
         "is_active": True,
     }
+
+
+def _load_example_payload(name: str) -> dict:
+    examples_dir = Path(__file__).resolve().parents[2] / "schema" / "examples"
+    return json.loads((examples_dir / name).read_text(encoding="utf-8"))
 
 
 # --- BenchmarkSpecCreate ---
@@ -262,6 +269,15 @@ class TestBenchmarkSpecResponse:
         resp = BenchmarkSpecResponse(**payload)
         assert resp.updated_at == now
 
+    def test_response_accepts_technical_task_router_fixture(self):
+        payload = _load_example_payload("technical_task_router_spec.v1.json")
+        resp = BenchmarkSpecResponse(**payload)
+        assert resp.metric_name == "technical_task_router:success_within_budget"
+        assert resp.eval_spec is not None
+        assert resp.eval_spec.primary_metric.scorer_ref == (
+            "technical_task_router:success_within_budget"
+        )
+
 
 class TestDatasetUploadResponse:
     def test_accepts_canonical_dataset_version(self) -> None:
@@ -410,6 +426,16 @@ class TestMetricSpec:
         ms = MetricSpec(name="accuracy", direction="higher_is_better", scorer_ref=None)
         assert ms.scorer_ref is None
 
+    def test_technical_task_router_metric_requires_matching_scorer_ref(self):
+        with pytest.raises(
+            ValidationError,
+            match="technical_task_router metrics must set scorer_ref",
+        ):
+            MetricSpec(
+                name="technical_task_router:success_within_budget",
+                direction="higher_is_better",
+            )
+
     def test_scorer_ref_empty_string_rejected(self):
         with pytest.raises(ValidationError) as exc_info:
             MetricSpec(name="accuracy", direction="higher_is_better", scorer_ref="")
@@ -485,6 +511,17 @@ class TestGuardrailSpec:
             name="latency", direction="lower_is_better", threshold=500.0, scorer_ref=None
         )
         assert g.scorer_ref is None
+
+    def test_technical_task_router_guardrail_requires_matching_scorer_ref(self):
+        with pytest.raises(
+            ValidationError,
+            match="technical_task_router metrics must set scorer_ref",
+        ):
+            GuardrailSpec(
+                name="technical_task_router:success_within_budget",
+                direction="lower_is_better",
+                threshold=0.1,
+            )
 
     def test_guardrail_scorer_ref_empty_string_rejected(self):
         with pytest.raises(ValidationError):
@@ -714,3 +751,15 @@ class TestEvalSpec:
         assert spec.eval_spec is not None
         assert spec.eval_spec.primary_metric.scorer_ref == "sales:revenue_per_1000_messages"
         assert spec.eval_spec.guardrails[0].scorer_ref == "sales:spam_complaint_rate"
+
+    def test_router_eval_spec_missing_scorer_ref_rejected(self):
+        with pytest.raises(
+            ValidationError,
+            match="technical_task_router metrics must set scorer_ref",
+        ):
+            EvalSpec(
+                primary_metric={
+                    "name": "technical_task_router:success_within_budget",
+                    "direction": "higher_is_better",
+                }
+            )

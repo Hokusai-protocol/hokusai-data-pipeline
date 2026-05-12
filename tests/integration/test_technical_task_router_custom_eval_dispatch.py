@@ -1,0 +1,164 @@
+"""Integration coverage for technical task router BenchmarkSpec custom-eval dispatch."""
+
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+from types import SimpleNamespace
+
+import pandas as pd
+import pytest
+
+from src.api.schemas.benchmark_spec import BenchmarkSpecResponse
+from src.evaluation.custom_eval import run_custom_eval
+from src.evaluation.tags import (
+    DATASET_HASH_TAG,
+    MLFLOW_NAME_TAG,
+    PER_ROW_ARTIFACT_URI_TAG,
+    PRIMARY_METRIC_TAG,
+    SCORER_REF_TAG,
+    STATUS_TAG,
+)
+from src.utils.metric_naming import derive_mlflow_name
+
+pytestmark = pytest.mark.integration
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+EXAMPLES_DIR = REPO_ROOT / "schema" / "examples"
+SPEC_ID = "f8ce05fa-8bcb-49f9-b7eb-17ff99817ad3"
+MODEL_ID = "technical-task-router-v1"
+RUN_ID = "technical-task-router-run-001"
+
+
+def _load_example(name: str) -> dict:
+    return json.loads((EXAMPLES_DIR / name).read_text(encoding="utf-8"))
+
+
+class _PersistTempDir:
+    def __init__(self, path: Path) -> None:
+        self._path = path
+
+    def __enter__(self) -> str:
+        return str(self._path)
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+
+class _FakeRun:
+    def __init__(self, run_id: str = RUN_ID) -> None:
+        self.info = SimpleNamespace(run_id=run_id)
+
+    def __enter__(self) -> _FakeRun:
+        return self
+
+    def __exit__(self, *args: object) -> bool:
+        return False
+
+
+class _FakeMlflow:
+    def __init__(self) -> None:
+        # Authentication (MLFLOW_TRACKING_TOKEN / Authorization) is handled externally.
+        self.tags: dict[str, str] = {}
+        self.metrics_logged: dict[str, float] = {}
+        self.logged_artifacts: list[tuple[str, str]] = []
+
+    def start_run(self, run_name: str | None = None, run_id: str | None = None) -> _FakeRun:
+        return _FakeRun(run_id=run_id or RUN_ID)
+
+    def set_tag(self, key: str, value: str) -> None:
+        self.tags[key] = value
+
+    def log_metric(self, key: str, value: float) -> None:
+        self.metrics_logged[key] = value
+
+    def log_artifact(self, local_path: str, artifact_path: str = "") -> None:
+        self.logged_artifacts.append((local_path, artifact_path))
+
+    def evaluate(self, **kwargs: object) -> SimpleNamespace:
+        raise AssertionError(
+            "mlflow.evaluate should not be used for technical task router direct dispatch"
+        )
+
+
+def _build_benchmark_spec(dataset_path: Path, eval_spec: dict) -> dict:
+    payload = {
+        "spec_id": SPEC_ID,
+        "model_id": MODEL_ID,
+        "provider": "hokusai",
+        "dataset_reference": str(dataset_path),
+        "eval_split": "test",
+        "target_column": "completed_successfully",
+        "input_columns": [
+            "task_descriptor",
+            "allowed_models",
+            "max_cost_usd",
+            "selected_models",
+            "workflow_config",
+            "actual_cost_usd",
+        ],
+        "metric_name": eval_spec["primary_metric"]["name"],
+        "metric_direction": eval_spec["primary_metric"]["direction"],
+        "dataset_version": None,
+        "eval_spec": eval_spec,
+        "created_at": datetime(2026, 5, 7, 12, 0, tzinfo=UTC),
+        "updated_at": datetime(2026, 5, 7, 12, 30, tzinfo=UTC),
+        "is_active": True,
+    }
+    return BenchmarkSpecResponse.model_validate(payload).model_dump(mode="json")
+
+
+def test_router_benchmark_spec_drives_direct_dispatch_and_per_row_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec_fixture = _load_example("technical_task_router_spec.v1.json")
+    eval_spec = spec_fixture["eval_spec"]
+    rows = [
+        _load_example("technical_task_router_row.valid_success.v1.json"),
+        _load_example("technical_task_router_row.valid_failed_completion.v1.json"),
+        _load_example("technical_task_router_row.valid_over_budget.v1.json"),
+        _load_example("technical_task_router_row.valid_disallowed_model.v1.json"),
+    ]
+    dataset_path = tmp_path / "technical_task_router_rows.json"
+    dataset_path.write_text(json.dumps(rows), encoding="utf-8")
+
+    benchmark_spec = _build_benchmark_spec(dataset_path, eval_spec)
+    metric_name = eval_spec["primary_metric"]["name"]
+    mlflow_name = derive_mlflow_name(metric_name)
+    fake_mlflow = _FakeMlflow()
+
+    monkeypatch.setattr(
+        "src.evaluation.custom_eval.tempfile.TemporaryDirectory",
+        lambda: _PersistTempDir(tmp_path),
+    )
+
+    result = run_custom_eval(
+        model_id=MODEL_ID,
+        benchmark_spec=benchmark_spec,
+        benchmark_spec_id=SPEC_ID,
+        mlflow_module=fake_mlflow,
+        mlflow_client=None,
+        cli_max_cost=None,
+        seed=None,
+        temperature=None,
+    )
+
+    parquet_path = tmp_path / "per_row.parquet"
+
+    assert result["status"] == "success"
+    assert result["metrics"][mlflow_name] == pytest.approx(0.25)
+    assert fake_mlflow.metrics_logged[mlflow_name] == pytest.approx(0.25)
+    assert fake_mlflow.tags[PRIMARY_METRIC_TAG] == metric_name
+    assert fake_mlflow.tags[MLFLOW_NAME_TAG] == mlflow_name
+    assert fake_mlflow.tags[SCORER_REF_TAG] == "technical_task_router:success_within_budget"
+    assert fake_mlflow.tags[STATUS_TAG] == "succeeded"
+    assert fake_mlflow.tags[DATASET_HASH_TAG].startswith("sha256:")
+    assert fake_mlflow.logged_artifacts == [(str(parquet_path), "eval_results")]
+    assert (
+        fake_mlflow.tags[PER_ROW_ARTIFACT_URI_TAG] == f"runs:/{RUN_ID}/eval_results/per_row.parquet"
+    )
+
+    written = pd.read_parquet(parquet_path)
+    assert list(written["row_id"]) == [row["row_id"] for row in rows]
+    assert list(written[mlflow_name]) == [1.0, 0.0, 0.0, 0.0]

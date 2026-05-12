@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "technical_task_router_row/v1",
+  "title": "TechnicalTaskRouterRow",
+  "description": "A single benchmark row for evaluating technical task router workflow selection against an allowed model set and max-cost budget.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "row_id",
+    "task_descriptor",
+    "allowed_models",
+    "max_cost_usd",
+    "selected_models",
+    "workflow_config",
+    "actual_cost_usd",
+    "completed_successfully"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "technical_task_router_row/v1"
+    },
+    "row_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "task_descriptor": {
+      "type": "object"
+    },
+    "allowed_models": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "max_cost_usd": {
+      "type": "number",
+      "minimum": 0
+    },
+    "selected_models": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "workflow_config": {
+      "type": "object"
+    },
+    "actual_cost_usd": {
+      "type": "number",
+      "minimum": 0
+    },
+    "completed_successfully": {
+      "type": "boolean"
+    }
+  }
+}

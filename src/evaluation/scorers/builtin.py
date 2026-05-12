@@ -34,6 +34,24 @@ _SALES_ROW_SCHEMA: dict = {
     },
 }
 
+_TECHNICAL_TASK_ROUTER_ROW_SCHEMA: dict = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "schema_version": {"type": "string"},
+            "row_id": {"type": "string"},
+            "task_descriptor": {"type": "object"},
+            "allowed_models": {"type": "array", "items": {"type": "string"}},
+            "max_cost_usd": {"type": "number", "minimum": 0},
+            "selected_models": {"type": "array", "items": {"type": "string"}},
+            "workflow_config": {"type": "object"},
+            "actual_cost_usd": {"type": "number", "minimum": 0},
+            "completed_successfully": {"type": "boolean"},
+        },
+    },
+}
+
 
 def _mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
@@ -180,6 +198,34 @@ def _sales_unsubscribe_rate(rows: list[dict]) -> float:
     return numerator / denominator if denominator else 0.0
 
 
+def _score_technical_task_router_row(row: dict) -> float:
+    required_fields = {
+        "allowed_models",
+        "max_cost_usd",
+        "selected_models",
+        "actual_cost_usd",
+        "completed_successfully",
+    }
+    missing_fields = sorted(field for field in required_fields if field not in row)
+    if missing_fields:
+        missing = ", ".join(missing_fields)
+        raise ValueError(f"technical_task_router row missing required fields: {missing}")
+
+    allowed_models = row["allowed_models"]
+    selected_models = row["selected_models"]
+    if not set(selected_models).issubset(set(allowed_models)):
+        return 0.0
+    if row["actual_cost_usd"] > row["max_cost_usd"]:
+        return 0.0
+    return 1.0 if row["completed_successfully"] is True else 0.0
+
+
+def technical_task_router_success_within_budget(rows: list[dict]) -> dict[str, float]:
+    """Return the mean success-within-budget score across router benchmark rows."""
+    score = _mean([_score_technical_task_router_row(row) for row in rows])
+    return {"technical_task_router:success_within_budget": score}
+
+
 _OUTCOME_SCORERS = [
     ("mean", _mean, Aggregation.MEAN),
     ("sum", _sum, Aggregation.SUM),
@@ -280,3 +326,17 @@ for _ref, _fn, _agg, _desc in _SALES_SCORERS:
         aggregation=_agg,
         description=_desc,
     )
+
+register_scorer(
+    "technical_task_router:success_within_budget",
+    callable_=technical_task_router_success_within_budget,
+    version="1.0.0",
+    input_schema=_TECHNICAL_TASK_ROUTER_ROW_SCHEMA,
+    output_metric_keys=("technical_task_router:success_within_budget",),
+    metric_family=MetricFamily.OUTCOME,
+    aggregation=Aggregation.MEAN,
+    description=(
+        "Fraction of technical task router rows that complete successfully while staying "
+        "within the allowed model set and max_cost_usd budget."
+    ),
+)

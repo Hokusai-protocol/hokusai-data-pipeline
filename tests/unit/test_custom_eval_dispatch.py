@@ -20,6 +20,7 @@ from src.evaluation.custom_eval import (
     ScorerLoadError,
     _all_scorer_refs,
     _load_sales_outcome_rows,
+    _load_technical_task_router_rows,
     compute_dataset_hash,
     is_genai_spec,
     run_custom_eval,
@@ -127,6 +128,22 @@ def _sales_rows() -> list[dict[str, Any]]:
             "revenue_amount_cents": 500,
             "unsubscribe": False,
             "spam_complaint": False,
+        }
+    ]
+
+
+def _technical_task_router_rows() -> list[dict[str, Any]]:
+    return [
+        {
+            "row_id": "router-row-1",
+            "schema_version": "technical_task_router_row/v1",
+            "task_descriptor": {"task_type": "bug_fix"},
+            "allowed_models": ["gpt-4.1", "o4-mini"],
+            "max_cost_usd": 1.0,
+            "selected_models": ["gpt-4.1"],
+            "workflow_config": {"steps": [{"model": "gpt-4.1"}]},
+            "actual_cost_usd": 0.8,
+            "completed_successfully": True,
         }
     ]
 
@@ -817,3 +834,52 @@ def test_run_custom_eval_duplicate_canonical_metric_names_raise(tmp_path) -> Non
 
     assert fake_mlflow.tags.get(STATUS_TAG) == "failed"
     assert fake_mlflow.tags.get(FAILURE_REASON_TAG) == "mlflow_evaluate_error"
+
+
+def test_run_custom_eval_dispatches_technical_task_router_rows_directly(tmp_path) -> None:
+    rows = _technical_task_router_rows()
+    dataset_file = tmp_path / "router.json"
+    dataset_file.write_text(json.dumps(rows), encoding="utf-8")
+
+    spec = _make_benchmark_spec(scorer_ref="technical_task_router:success_within_budget")
+    spec["dataset_reference"] = str(dataset_file)
+    spec["dataset_version"] = None
+    spec["metric_name"] = "technical_task_router:success_within_budget"
+    spec["eval_spec"]["primary_metric"]["name"] = "technical_task_router:success_within_budget"
+
+    fake_mlflow = _FakeMlflow()
+
+    result = run_custom_eval(
+        model_id="model-a",
+        benchmark_spec=spec,
+        benchmark_spec_id="spec-001",
+        mlflow_module=fake_mlflow,
+        mlflow_client=None,
+        cli_max_cost=None,
+        seed=None,
+        temperature=None,
+    )
+
+    assert result["status"] == "success"
+    assert fake_mlflow.evaluate_kwargs is None
+    assert result["metrics"]["technical_task_router_success_within_budget"] == pytest.approx(1.0)
+
+
+def test_load_technical_task_router_rows_from_remote_json_array() -> None:
+    rows = _technical_task_router_rows() * 2
+    with patch(
+        "src.evaluation.custom_eval._load_s3_object_bytes",
+        return_value=json.dumps(rows).encode("utf-8"),
+    ):
+        loaded = _load_technical_task_router_rows("s3://bucket/router.json")
+    assert loaded == rows
+
+
+def test_load_technical_task_router_rows_rejects_invalid_schema_version() -> None:
+    invalid_rows = [{"row_id": "row-1", "schema_version": "technical_task_router_row/v2"}]
+    with patch(
+        "src.evaluation.custom_eval._load_s3_object_bytes",
+        return_value=json.dumps(invalid_rows).encode("utf-8"),
+    ):
+        with pytest.raises(DatasetLoadError, match="unsupported schema_version"):
+            _load_technical_task_router_rows("s3://bucket/router.json")

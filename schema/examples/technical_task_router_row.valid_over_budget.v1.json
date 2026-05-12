@@ -1,0 +1,26 @@
+{
+  "schema_version": "technical_task_router_row/v1",
+  "row_id": "router-row-003",
+  "task_descriptor": {
+    "task_type": "architecture_design",
+    "difficulty": "high"
+  },
+  "allowed_models": [
+    "gpt-4.1",
+    "o4-mini"
+  ],
+  "max_cost_usd": 0.8,
+  "selected_models": [
+    "gpt-4.1"
+  ],
+  "workflow_config": {
+    "steps": [
+      {
+        "agent": "architect",
+        "model": "gpt-4.1"
+      }
+    ]
+  },
+  "actual_cost_usd": 0.95,
+  "completed_successfully": true
+}

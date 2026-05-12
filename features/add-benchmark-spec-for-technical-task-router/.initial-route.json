@@ -1,0 +1,18 @@
+{
+  "planner": "claude-sonnet-4-6",
+  "coder": "gpt-5.4",
+  "reviewer": "claude-sonnet-4-6",
+  "planDepth": "light",
+  "codeDepth": "medium",
+  "reviewMode": "llm",
+  "reviewRecommended": "llm",
+  "provenance": {
+    "source": "bootstrap",
+    "inputKind": "issue",
+    "inputPath": "features/add-benchmark-spec-for-technical-task-router/selected-task.json",
+    "inputHash": "",
+    "routedAt": "2026-05-12T17:12:48Z",
+    "routerMode": "normal"
+  },
+  "maxCostUsd": 25
+}

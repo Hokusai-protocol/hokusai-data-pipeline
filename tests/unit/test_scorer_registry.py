@@ -214,7 +214,19 @@ def test_list_scorers_includes_builtins():
     assert "mean_per_hundred" in refs
     assert "mean_per_thousand" in refs
     assert "mean_per_ten_thousand" in refs
+    assert "technical_task_router:success_within_budget" in refs
     assert refs == sorted(refs)
+
+
+def test_technical_task_router_scorer_metadata() -> None:
+    scorer = resolve_scorer("technical_task_router:success_within_budget")
+    meta = scorer.metadata
+    assert meta.scorer_ref == "technical_task_router:success_within_budget"
+    assert meta.version == "1.0.0"
+    assert meta.metric_family == MetricFamily.OUTCOME
+    assert meta.aggregation == Aggregation.MEAN
+    assert meta.output_metric_keys == ("technical_task_router:success_within_budget",)
+    assert meta.input_schema["items"]["properties"]["schema_version"]["type"] == "string"
 
 
 # ---------------------------------------------------------------------------

@@ -57,6 +57,16 @@ def _validate_remote_dataset_version(
     return canonical
 
 
+def _validate_prefixed_metric_scorer_ref(
+    name: str,
+    scorer_ref: str | None,
+) -> None:
+    if name.startswith("technical_task_router:") and scorer_ref != name:
+        raise ValueError(
+            "technical_task_router metrics must set scorer_ref equal to the metric name"
+        )
+
+
 class BenchmarkProvider(str, Enum):
     """Supported benchmark data providers."""
 
@@ -103,6 +113,7 @@ class MetricSpec(BaseModel):
     @model_validator(mode="after")
     def _populate_and_validate_mlflow_name(self: MetricSpec) -> MetricSpec:
         self.mlflow_name = derive_mlflow_name(self.name, override=self.mlflow_name)
+        _validate_prefixed_metric_scorer_ref(self.name, self.scorer_ref)
         return self
 
 
@@ -128,6 +139,7 @@ class GuardrailSpec(BaseModel):
     @model_validator(mode="after")
     def _populate_and_validate_mlflow_name(self: GuardrailSpec) -> GuardrailSpec:
         self.mlflow_name = derive_mlflow_name(self.name, override=self.mlflow_name)
+        _validate_prefixed_metric_scorer_ref(self.name, self.scorer_ref)
         return self
 
 

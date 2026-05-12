@@ -1,0 +1,25 @@
+{
+  "schema_version": "technical_task_router_row/v1",
+  "row_id": "router-row-004",
+  "task_descriptor": {
+    "task_type": "code_generation",
+    "difficulty": "low"
+  },
+  "allowed_models": [
+    "o4-mini"
+  ],
+  "max_cost_usd": 0.5,
+  "selected_models": [
+    "gpt-4.1"
+  ],
+  "workflow_config": {
+    "steps": [
+      {
+        "agent": "coder",
+        "model": "gpt-4.1"
+      }
+    ]
+  },
+  "actual_cost_usd": 0.3,
+  "completed_successfully": true
+}
