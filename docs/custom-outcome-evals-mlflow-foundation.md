@@ -279,3 +279,18 @@ This task covers:
   of the scalar `metric_name` + `metric_direction` fields
 - Scheduler logic for eval_spec-based evaluation runs
 - Site/UI wiring
+
+## Implementation Order
+
+The custom outcome eval pipeline has strict dependencies. Components must exist in this order:
+
+1. **Scorer registry** (`src/evaluation/scorers/registry.py`) — Scorer callables must be registered before any eval_spec references them via `scorer_ref`.
+2. **eval_spec schema** (`src/api/schemas/benchmark_spec.py`) — The `EvalSpec` Pydantic model defines the contract that all downstream components consume.
+3. **BenchmarkSpec with eval_spec** (`src/api/routes/benchmarks.py`) — An active `BenchmarkSpec` row must exist with a valid `eval_spec` before the eval worker can dispatch.
+4. **Custom eval dispatch** (`src/evaluation/custom_eval.py`) — Reads the `eval_spec` from the spec, loads the dataset, runs scorers, and logs metrics + tags to MLflow.
+5. **HEM persistence** (`src/evaluation/manifest.py`) — `create_hem_from_mlflow_run` reads the MLflow run tags/metrics to produce the Hokusai Evaluation Manifest artifact.
+6. **DeltaOne comparator** (`src/evaluation/deltaone_evaluator.py`) — Consumes two HEMs (candidate + baseline) and returns a statistical acceptance decision.
+7. **Guardrail enforcement** (`src/evaluation/guardrails.py`) — Evaluates blocking guardrail specs against observed metrics from the candidate run.
+8. **Mint orchestrator** (`src/evaluation/deltaone_mint_orchestrator.py`) — Gates on DeltaOne acceptance + guardrail pass before publishing a `MintRequest`.
+
+This order reflects both the build dependency graph and the runtime execution sequence. A failure at any step blocks downstream steps.

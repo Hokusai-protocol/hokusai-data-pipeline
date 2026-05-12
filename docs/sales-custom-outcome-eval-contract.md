@@ -72,6 +72,44 @@ DeltaOne comparator dispatch, HEM tag emission, and the sales outcome row schema
 | `exact_observed_output` | **Yes** (byte-identical SHA-256 hash join only) | Generated output exactly matches a logged sent message via SHA-256 hash; revenue is the historically observed outcome for that exact message. |
 | `diagnostic_only` | **Never** | Logs diagnostic quality signals; no causal or exact-correspondence path to revenue exists. |
 
+## Measurement Policy Selection Guide
+
+Choose a policy based on your data collection infrastructure and causal attribution requirements.
+
+### `diagnostic_only`
+
+Logs quality signals for observability without any causal attribution claim. Use when:
+you want to monitor model behavior before deploying a revenue-linked policy, or when no
+approved attribution mechanism is available. **Never mint-eligible.** The `mint_eligible`
+flag is hardcoded `false` in the eval_spec; no amount of metric improvement triggers a mint.
+
+### `exact_observed_output`
+
+Requires SHA-256 hash-join between the generated message and a logged sent message in the
+historical outcomes dataset. Use when your model reproduces messages that were already sent
+and logged, enabling exact outcome attribution. Mint-eligible when the hash join succeeds
+and DeltaOne accepts the result.
+
+### `off_policy`
+
+Uses importance weighting with logged propensity scores from the production policy. Use when
+you have a logged-propensity dataset and the overlap between historical and candidate
+distributions is acceptable (guardrails enforce this). Mint-eligible when propensity overlap
+guardrails pass and DeltaOne accepts.
+
+### `online_ab`
+
+Prospective randomized live A/B test with real outcome collection. The gold standard - no
+counterfactual assumptions. Use when you have the infrastructure to run a controlled live
+experiment. Mint-eligible when DeltaOne accepts the result.
+
+### `reward_model`
+
+Uses a validated, calibrated reward model as a proxy for revenue outcome. Use when a
+reward model has been evaluated against held-out revenue data and meets the calibration
+threshold. The reward model must itself be registered in the scorer registry. Mint-eligible
+when DeltaOne accepts and the reward model's calibration tag passes.
+
 ### Alias Note
 
 The issue text (HOK-1585) used the shorthand `exact_observed`. The canonical serialized value
