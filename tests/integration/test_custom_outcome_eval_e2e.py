@@ -191,9 +191,7 @@ def test_diagnostic_only_pipeline_full_e2e(tmp_path: Path, monkeypatch: pytest.M
     )
     fake_mlflow_for_hem = SimpleNamespace(
         get_run=lambda _run_id: hem_run,
-        artifacts=SimpleNamespace(
-            download_artifacts=lambda artifact_uri, dst_path: str(parquet_path)
-        ),
+        artifacts=SimpleNamespace(download_artifacts=lambda *args, **kwargs: str(parquet_path)),
     )
     monkeypatch.setitem(sys.modules, "mlflow", fake_mlflow_for_hem)
 
