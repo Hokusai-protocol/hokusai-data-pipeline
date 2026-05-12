@@ -61,6 +61,17 @@ class TestBenchmarkSpecCreate:
         spec = BenchmarkSpecCreate(**_valid_create_payload())
         assert spec.dataset_version is None
         assert spec.metadata is None
+        assert spec.task_type is None
+
+    def test_task_type_technical_task_router_accepted(self):
+        payload = {**_valid_create_payload(), "task_type": "technical_task_router"}
+        spec = BenchmarkSpecCreate(**payload)
+        assert spec.task_type == "technical_task_router"
+
+    def test_unknown_task_type_rejected(self):
+        payload = {**_valid_create_payload(), "task_type": "sales_outcome"}
+        with pytest.raises(ValidationError):
+            BenchmarkSpecCreate(**payload)
 
     def test_missing_required_fields(self):
         with pytest.raises(ValidationError) as exc_info:
@@ -214,6 +225,14 @@ class TestBenchmarkSpecUpdate:
         assert update.metric_name == "accuracy"
         assert update.model_id is None
 
+    def test_task_type_update_technical_task_router_accepted(self):
+        update = BenchmarkSpecUpdate(task_type="technical_task_router")
+        assert update.task_type == "technical_task_router"
+
+    def test_unknown_task_type_update_rejected(self):
+        with pytest.raises(ValidationError):
+            BenchmarkSpecUpdate(task_type="other")
+
     def test_update_validates_enum(self):
         with pytest.raises(ValidationError):
             BenchmarkSpecUpdate(provider="invalid")
@@ -240,6 +259,12 @@ class TestBenchmarkSpecResponse:
         assert resp.spec_id is not None
         assert resp.is_active is True
         assert resp.updated_at is None
+        assert resp.task_type is None
+
+    def test_response_task_type_technical_task_router_accepted(self):
+        payload = {**_valid_response_payload(), "task_type": "technical_task_router"}
+        resp = BenchmarkSpecResponse(**payload)
+        assert resp.task_type == "technical_task_router"
 
     def test_response_uuid_parsing(self):
         uid = uuid4()

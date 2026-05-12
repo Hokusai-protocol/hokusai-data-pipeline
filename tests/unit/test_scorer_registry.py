@@ -323,6 +323,12 @@ _SALES_REFS = [
     "sales:unsubscribe_rate",
 ]
 
+_TASK_ROUTER_REFS = [
+    "technical_task_router.feasibility/v1",
+    "technical_task_router.success_under_budget/v1",
+    "technical_task_router.benchmark_score/v1",
+]
+
 # ---------------------------------------------------------------------------
 # 14. Sales scorer registry availability
 # ---------------------------------------------------------------------------
@@ -337,6 +343,19 @@ def test_sales_scorers_resolve(ref):
 def test_list_scorers_includes_sales_refs():
     refs = [s.scorer_ref for s in list_scorers()]
     for ref in _SALES_REFS:
+        assert ref in refs
+    assert refs == sorted(refs)
+
+
+@pytest.mark.parametrize("ref", _TASK_ROUTER_REFS)
+def test_task_router_scorers_resolve(ref):
+    scorer = resolve_scorer(ref)
+    assert scorer.metadata.scorer_ref == ref
+
+
+def test_list_scorers_includes_task_router_refs():
+    refs = [s.scorer_ref for s in list_scorers()]
+    for ref in _TASK_ROUTER_REFS:
         assert ref in refs
     assert refs == sorted(refs)
 
@@ -359,11 +378,33 @@ def test_sales_scorer_metadata_fields(ref):
     assert meta.description is not None and len(meta.description) > 0
 
 
+@pytest.mark.parametrize("ref", _TASK_ROUTER_REFS)
+def test_task_router_scorer_metadata_fields(ref):
+    meta = resolve_scorer(ref).metadata
+    assert meta.version == "1.0.0"
+    assert meta.metric_family == MetricFamily.OUTCOME
+    assert meta.input_schema is not None
+    assert meta.output_metric_keys == (ref,)
+    assert meta.aggregation == Aggregation.PASS_RATE
+    assert len(meta.source_hash) == 64
+    assert all(c in "0123456789abcdef" for c in meta.source_hash)
+    assert meta.description is not None and len(meta.description) > 0
+
+
 @pytest.mark.parametrize("ref", _SALES_REFS)
 def test_sales_scorer_output_keys_are_canonical(ref):
     meta = resolve_scorer(ref).metadata
     for key in meta.output_metric_keys:
         assert ":" in key, f"Expected canonical colon name, got {key!r}"
+        derived = derive_mlflow_name(key)
+        validate_mlflow_metric_key(derived)
+
+
+@pytest.mark.parametrize("ref", _TASK_ROUTER_REFS)
+def test_task_router_scorer_output_keys_are_canonical(ref):
+    meta = resolve_scorer(ref).metadata
+    for key in meta.output_metric_keys:
+        assert key.startswith("technical_task_router.")
         derived = derive_mlflow_name(key)
         validate_mlflow_metric_key(derived)
 
@@ -377,6 +418,15 @@ def test_sales_scorer_derived_mlflow_names_unique():
     assert len(derived_names) == len(set(derived_names)), "Derived MLflow names must be unique"
 
 
+def test_task_router_scorer_derived_mlflow_names_unique():
+    derived_names = []
+    for ref in _TASK_ROUTER_REFS:
+        meta = resolve_scorer(ref).metadata
+        for key in meta.output_metric_keys:
+            derived_names.append(derive_mlflow_name(key))
+    assert len(derived_names) == len(set(derived_names)), "Derived MLflow names must be unique"
+
+
 @pytest.mark.parametrize("ref", _SALES_REFS)
 def test_sales_scorer_aggregation(ref):
     meta = resolve_scorer(ref).metadata
@@ -384,6 +434,12 @@ def test_sales_scorer_aggregation(ref):
         assert meta.aggregation == Aggregation.MEAN_PER_N
     else:
         assert meta.aggregation == Aggregation.MEAN
+
+
+@pytest.mark.parametrize("ref", _TASK_ROUTER_REFS)
+def test_task_router_scorer_aggregation(ref):
+    meta = resolve_scorer(ref).metadata
+    assert meta.aggregation == Aggregation.PASS_RATE
 
 
 # ---------------------------------------------------------------------------

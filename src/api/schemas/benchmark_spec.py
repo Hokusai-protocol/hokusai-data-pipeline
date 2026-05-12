@@ -162,6 +162,7 @@ class BenchmarkSpecCreate(BaseModel):
     metadata: dict[str, Any] | None = None
     baseline_value: float | None = None
     eval_spec: EvalSpec | None = None
+    task_type: Literal["technical_task_router"] | None = None
 
     @field_validator("baseline_value")
     @classmethod
@@ -193,6 +194,7 @@ class BenchmarkSpecUpdate(BaseModel):
     metadata: dict[str, Any] | None = None
     baseline_value: float | None = None
     eval_spec: EvalSpec | None = None
+    task_type: Literal["technical_task_router"] | None = None
 
     @field_validator("baseline_value")
     @classmethod
@@ -228,6 +230,7 @@ class BenchmarkSpecResponse(BaseModel):
     metadata: dict[str, Any] | None = None
     baseline_value: float | None = None
     eval_spec: EvalSpec | None = None
+    task_type: Literal["technical_task_router"] | None = None
     created_at: datetime
     updated_at: datetime | None = None
     is_active: bool

@@ -1,0 +1,18 @@
+{
+  "schema_version": "technical_task_router_row/v1",
+  "row_id": "task-router-row-invalid-negative-cost-001",
+  "benchmark_spec_id": "technical-task-router-spec-v1",
+  "eval_id": "technical-task-router-eval-001",
+  "model_id": "technical-task-router-challenger",
+  "task_descriptor": {
+    "task_id": "invalid-negative-cost",
+    "task_type": "code_debugging"
+  },
+  "allowed_models": ["fast-coder-v1"],
+  "selected_models": ["fast-coder-v1"],
+  "max_cost_usd": 0.25,
+  "actual_cost_usd": -0.01,
+  "completed_successfully": true,
+  "scorer_ref": "technical_task_router.benchmark_score/v1",
+  "observed_at": "2026-05-12T12:20:00Z"
+}

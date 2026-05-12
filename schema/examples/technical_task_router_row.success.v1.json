@@ -1,0 +1,23 @@
+{
+  "schema_version": "technical_task_router_row/v1",
+  "row_id": "task-router-row-success-001",
+  "benchmark_spec_id": "technical-task-router-spec-v1",
+  "eval_id": "technical-task-router-eval-001",
+  "model_id": "technical-task-router-challenger",
+  "task_descriptor": {
+    "task_id": "debug-flaky-pytest",
+    "task_type": "code_debugging",
+    "language": "python",
+    "estimated_complexity": "medium"
+  },
+  "allowed_models": ["fast-coder-v1", "deep-coder-v2", "test-runner-v1"],
+  "selected_models": ["deep-coder-v2", "test-runner-v1"],
+  "max_cost_usd": 0.5,
+  "actual_cost_usd": 0.42,
+  "completed_successfully": true,
+  "scorer_ref": "technical_task_router.benchmark_score/v1",
+  "observed_at": "2026-05-12T12:00:00Z",
+  "metadata": {
+    "workflow_id": "workflow-success-001"
+  }
+}
