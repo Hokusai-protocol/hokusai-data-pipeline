@@ -1,0 +1,68 @@
+{
+  "primary_metric": {
+    "name": "sales:qualified_meeting_rate",
+    "scorer_ref": "sales:qualified_meeting_rate",
+    "direction": "higher_is_better",
+    "unit": "proportion",
+    "threshold": 0.15
+  },
+  "secondary_metrics": [
+    {
+      "name": "reply_rate",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    }
+  ],
+  "guardrails": [
+    {
+      "name": "sales:unsubscribe_rate",
+      "scorer_ref": "sales:unsubscribe_rate",
+      "direction": "lower_is_better",
+      "threshold": 0.03,
+      "blocking": true
+    },
+    {
+      "name": "sales:spam_complaint_rate",
+      "scorer_ref": "sales:spam_complaint_rate",
+      "direction": "lower_is_better",
+      "threshold": 0.005,
+      "blocking": true
+    }
+  ],
+  "measurement_policy": {
+    "type": "online_ab",
+    "mint_eligible": true,
+    "assignment_unit": "prospect",
+    "randomization": "50_50",
+    "outcome_window_days": 14,
+    "holdout_required": true,
+    "min_treatment_size": 500,
+    "min_control_size": 500,
+    "max_cost_usd": 5.0
+  },
+  "label_policy": {
+    "source": "crm_meeting_events",
+    "attribution": "conversation_level_join",
+    "join_key": "conversation_id",
+    "outcome_event": "qualified_meeting_booked",
+    "label_timestamp_field": "meeting_qualified_at",
+    "system_of_record": "salesforce"
+  },
+  "coverage_policy": {
+    "min_coverage_fraction": 0.95,
+    "required_joins": [
+      "prospect_assignments",
+      "crm_meeting_events"
+    ],
+    "max_missing_outcome_fraction": 0.05,
+    "provenance_required_fields": [
+      "prospect_id",
+      "conversation_id",
+      "arm",
+      "source_system"
+    ]
+  },
+  "unit_of_analysis": "prospect_conversation",
+  "min_examples": 1000,
+  "metric_family": "proportion"
+}

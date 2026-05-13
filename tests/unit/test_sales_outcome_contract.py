@@ -36,6 +36,8 @@ EXAMPLES_DIR = SCHEMA_DIR / "examples"
 
 _VALID_EXAMPLE_FILES = [
     "sales_outcome_row.qualified_meeting.v1.json",
+    "sales_outcome_row.lead_scoring_qualified.v1.json",
+    "sales_outcome_row.lead_scoring_unqualified.v1.json",
     "sales_outcome_row.revenue.v1.json",
     "sales_outcome_row.spam_complaint.v1.json",
     "sales_outcome_row.unsubscribe.v1.json",
@@ -51,6 +53,7 @@ _EVAL_SPEC_FIXTURE_STEMS = [
     "sales_eval_spec.off_policy.v1",
     "sales_eval_spec.exact_observed.v1",
     "sales_eval_spec.diagnostic_only.v1",
+    "sales_eval_spec.lead_scoring.v1",
 ]
 
 # Unprefixed names used in existing eval spec fixtures that map to canonical sales:* names.
