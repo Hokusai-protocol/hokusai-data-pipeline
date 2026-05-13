@@ -2,7 +2,7 @@
 
 ## Overview
 
-When a DeltaOne evaluation is accepted and the token mint succeeds, the pipeline publishes a `MintRequest` message to Redis before advancing the canonical baseline score in MLflow. This enables downstream consumers (token contracts, reward distributors, etc.) to process the mint event reliably.
+When a DeltaOne evaluation is accepted, the pipeline publishes a durable `MintRequest` message to Redis as the primary handoff before advancing the canonical baseline score in MLflow. The legacy token mint hook still runs, but only as a secondary audit or dry-run side effect after Redis publication succeeds.
 
 ## Queue
 
@@ -63,12 +63,15 @@ Do **not** reimplement this formula — use the HOK-1266 helper.
 The sequence within `DeltaOneMintOrchestrator._execute_mint()` for accepted evaluations is:
 
 1. Build `DeltaOneAcceptanceEvent`
-2. Dispatch `deltaone.achieved` webhook
-3. Call `mint_hook.mint()`
-4. **`mint_request_publisher.publish(mint_request)`** ← this ticket
+2. Build and validate `MintRequest`
+3. Dispatch `deltaone.achieved` webhook
+4. **`mint_request_publisher.publish(mint_request)`**
 5. `_advance_canonical_score()` in MLflow
+6. Call `mint_hook.mint()` as a secondary audit or dry-run action
 
-If `publish()` raises a `RedisError`, the exception propagates and step 5 is never reached. This preserves the recovery invariant: a crash between detection and publish means the next evaluation re-detects the improvement and re-publishes.
+If `publish()` raises a `RedisError`, the exception propagates and steps 5-6 are never reached. This preserves the recovery invariant: a crash between detection and publish means the next evaluation re-detects the improvement and re-publishes.
+
+Legacy hook failures, skips, and dry-runs do not roll back the already durable Redis handoff or the canonical advancement. They are recorded separately in MLflow tags such as `hokusai.mint.legacy_status`.
 
 ## Contributor data
 

@@ -128,6 +128,20 @@ class TestMintRequestPublishIntegration:
         outcome = orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
 
         assert outcome.status == "success"
+        assert outcome.canonical_score_advanced is True
+        assert outcome.mint_result is not None
+        assert fake_redis_client.llen(QUEUE_NAME) == 1
+
+    def test_secondary_dry_run_is_recorded_after_primary_publish(
+        self, orchestrator, fake_redis_client
+    ) -> None:
+        outcome = orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        assert outcome.status == "success"
+        assert outcome.mint_result is not None
+        assert outcome.mint_result.status == "success"
+        assert orchestrator._client.tags["hokusai.mint.status"] == "published"  # noqa: SLF001
+        assert orchestrator._client.tags["hokusai.mint.legacy_status"] == "success"  # noqa: SLF001
         assert fake_redis_client.llen(QUEUE_NAME) == 1
 
     def test_published_message_is_valid_mint_request(self, orchestrator, fake_redis_client) -> None:
@@ -204,3 +218,47 @@ class TestMintRequestPublishIntegration:
 
         assert outcome.status == "not_eligible"
         assert fake_redis_client.llen(QUEUE_NAME) == 0
+
+    def test_secondary_dry_run_still_publishes_and_advances(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        evaluator = Mock()
+        evaluator.evaluate_for_model.return_value = _make_decision(accepted=True)
+        evaluator.delta_threshold_pp = 1.0
+        mint_hook = Mock()
+        mint_hook.mint.return_value = TokenMintResult(
+            status="dry_run",
+            audit_ref="audit-dry-run",
+            timestamp=datetime.now(timezone.utc),
+        )
+        mlflow_client = _FakeMlflowClient(
+            run_metrics={
+                "workflow_success_rate_under_budget": 0.87,
+                "hokusai_workflow_success_rate_under_budget": 0.87,
+            },
+            initial_tags={
+                "hokusai.eval_id": _EVAL_ID,
+                "hokusai.actual_cost_usd": "2.34",
+            },
+        )
+        publisher = MintRequestPublisher(redis_client=fake_redis_client)
+        orch = DeltaOneMintOrchestrator(
+            evaluator=evaluator,
+            mint_hook=mint_hook,
+            mlflow_client=mlflow_client,
+            mint_request_publisher=publisher,
+        )
+
+        outcome = orch.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        assert outcome.status == "success"
+        assert outcome.canonical_score_advanced is True
+        assert outcome.mint_result is not None
+        assert outcome.mint_result.status == "dry_run"
+        assert mlflow_client.tags["hokusai.mint.status"] == "published"
+        assert mlflow_client.tags["hokusai.mint.legacy_status"] == "dry_run"
+        assert fake_redis_client.llen(QUEUE_NAME) == 1

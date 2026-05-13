@@ -27,6 +27,7 @@ from src.api.services.privacy.pii_detector import PIIDetector
 from src.api.services.token_mint_hook import TokenMintHook
 from src.evaluation.deltaone_evaluator import DeltaOneEvaluator
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator, MintOutcome
+from src.events.publishers.mint_request_publisher import MintRequestPublisher
 
 
 @dataclass
@@ -314,7 +315,12 @@ class EvaluationService:
         if orchestrator is None:
             evaluator = DeltaOneEvaluator()
             mint_hook = TokenMintHook.from_settings()
-            orchestrator = DeltaOneMintOrchestrator(evaluator=evaluator, mint_hook=mint_hook)
+            mint_request_publisher = MintRequestPublisher()
+            orchestrator = DeltaOneMintOrchestrator(
+                evaluator=evaluator,
+                mint_hook=mint_hook,
+                mint_request_publisher=mint_request_publisher,
+            )
             self._deltaone_mint_orchestrator = orchestrator
 
         return orchestrator.process_evaluation(run_id=run_id, baseline_run_id=baseline_run_id)

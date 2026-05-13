@@ -11,7 +11,7 @@ Tests cover:
 - Redis errors propagate from publisher
 - Idempotency key matches HOK-1266 make_idempotency_key helper
 - Orchestrator publishes on acceptance before canonical score advancement
-- Orchestrator skips publish without publisher configured
+- Orchestrator requires a publisher for accepted DeltaOne mint handoff
 - No publish on rejection or guardrail breach
 - Publisher failure prevents canonical score advancement
 """
@@ -730,11 +730,12 @@ class TestOrchestratorPublishesOnAcceptance:
             publisher=None,
             run_metrics={"workflow_success_rate_under_budget": 0.87},
         )
-        # Should not raise even though publisher is None
-        outcome = orch.process_evaluation_with_spec(
-            "run-cand", "run-base", self._spec_with_contributors()
-        )
-        assert outcome.status == "success"
+        with pytest.raises(RuntimeError, match="MintRequestPublisher is required"):
+            orch.process_evaluation_with_spec(
+                "run-cand",
+                "run-base",
+                self._spec_with_contributors(),
+            )
 
     def test_no_publish_on_primary_rejection(self, monkeypatch) -> None:
         monkeypatch.setattr(
@@ -801,6 +802,8 @@ class TestOrchestratorPublishesOnAcceptance:
 
         # Canonical score tag must NOT have been set
         assert "hokusai.canonical_score" not in mlflow_client.tags
+        assert mlflow_client.tags["hokusai.mint.status"] == "requested"
+        orch.mint_hook.mint.assert_not_called()
 
     def test_publish_occurs_before_canonical_score_advance(self, monkeypatch) -> None:
         """Verify that publish() is called before _advance_canonical_score via call order."""
@@ -853,3 +856,59 @@ class TestOrchestratorPublishesOnAcceptance:
         assert "publish" in call_order
         assert "canonical_score_advance" in call_order
         assert call_order.index("publish") < call_order.index("canonical_score_advance")
+
+    def test_secondary_dry_run_keeps_primary_success(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        fake_client = fakeredis.FakeRedis(decode_responses=True)
+        publisher = MintRequestPublisher(redis_client=fake_client)
+        decision = _make_decision(accepted=True)
+        orch, mint_hook, mlflow_client = _make_orchestrator_with_publisher(
+            decision,
+            publisher=publisher,
+            run_metrics={"workflow_success_rate_under_budget": 0.87},
+        )
+        mint_hook.mint.return_value = TokenMintResult(
+            status="dry_run",
+            audit_ref="audit-dry-run",
+            timestamp=datetime.now(timezone.utc),
+        )
+
+        outcome = orch.process_evaluation_with_spec(
+            "run-cand", "run-base", self._spec_with_contributors()
+        )
+
+        assert outcome.status == "success"
+        assert outcome.mint_result is not None
+        assert outcome.mint_result.status == "dry_run"
+        assert mlflow_client.tags["hokusai.mint.status"] == "published"
+        assert mlflow_client.tags["hokusai.mint.legacy_status"] == "dry_run"
+        assert fake_client.llen(QUEUE_NAME) == 1
+
+    def test_secondary_failure_keeps_primary_success(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        fake_client = fakeredis.FakeRedis(decode_responses=True)
+        publisher = MintRequestPublisher(redis_client=fake_client)
+        decision = _make_decision(accepted=True)
+        orch, mint_hook, mlflow_client = _make_orchestrator_with_publisher(
+            decision,
+            publisher=publisher,
+            run_metrics={"workflow_success_rate_under_budget": 0.87},
+        )
+        mint_hook.mint.side_effect = RuntimeError("legacy hook exploded")
+
+        outcome = orch.process_evaluation_with_spec(
+            "run-cand", "run-base", self._spec_with_contributors()
+        )
+
+        assert outcome.status == "success"
+        assert outcome.mint_result is not None
+        assert outcome.mint_result.status == "failed"
+        assert mlflow_client.tags["hokusai.mint.status"] == "published"
+        assert mlflow_client.tags["hokusai.mint.legacy_status"] == "failed"
+        assert fake_client.llen(QUEUE_NAME) == 1

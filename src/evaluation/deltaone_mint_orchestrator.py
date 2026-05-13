@@ -102,7 +102,7 @@ class _EventContext:
 class DeltaOneMintOrchestrator:
     """Wire DeltaOne acceptance decisions to token mint operations."""
 
-    _FINAL_MINT_STATUSES = {"success", "dry_run"}
+    _FINAL_MINT_STATUSES = {"success", "published"}
 
     def __init__(
         self: DeltaOneMintOrchestrator,
@@ -349,6 +349,7 @@ class DeltaOneMintOrchestrator:
         blocked_reason: str | None = None,
         event_context: _EventContext | None = None,
     ) -> MintOutcome:
+        _ = blocked_reason
         attestation_hash, attestation_payload = self._create_signed_attestation(decision)
 
         # Build acceptance event before any mint side-effects so malformed payloads fail early
@@ -370,6 +371,23 @@ class DeltaOneMintOrchestrator:
                     "acceptance_event",
                     f"failed to build event for run {decision.run_id}: {exc}",
                 ) from exc
+        if acceptance_event is None:
+            raise EventPayloadError(
+                "acceptance_event",
+                f"accepted DeltaOne mint requires an acceptance event for run {decision.run_id}",
+            )
+        if self._mint_request_publisher is None:
+            raise RuntimeError(
+                "MintRequestPublisher is required for accepted DeltaOne mint handoff"
+            )
+
+        # Validate the durable handoff payload up front so webhook consumers are not notified
+        # about a mint that later fails local schema or contributor checks.
+        mint_request = _build_mint_request(
+            acceptance_event=acceptance_event,
+            event_context=event_context,
+        )
+        idempotency_key = acceptance_event.idempotency_key
 
         dispatch_deltaone_webhook_event(
             event_type=DELTAONE_ACHIEVED_EVENT,
@@ -384,7 +402,12 @@ class DeltaOneMintOrchestrator:
             )
             dispatch_deltaone_webhook_event(
                 event_type=DELTAONE_MINTED_EVENT,
-                payload=self._build_minted_payload(decision, attestation_hash, synthetic_result),
+                payload=self._build_minted_payload(
+                    decision=decision,
+                    attestation_hash=attestation_hash,
+                    mint_status="success",
+                    mint_result=synthetic_result,
+                ),
             )
             return MintOutcome(
                 status="success",
@@ -399,66 +422,87 @@ class DeltaOneMintOrchestrator:
             run_id=decision.run_id,
             status="requested",
             attestation_hash=attestation_hash,
-            idempotency_key=(
-                acceptance_event.idempotency_key if acceptance_event else attestation_hash
-            ),
-            audit_ref=None,
-            error=None,
+            idempotency_key=idempotency_key,
         )
 
-        # Build metadata for HOK-1276 handoff; include the serialized acceptance event if available
-        mint_metadata: dict[str, Any] = {
-            "attestation": attestation_payload,
-            "deltaone_decision": self._decision_to_dict(decision),
-        }
-        if acceptance_event is not None:
-            mint_metadata["deltaone_acceptance_event"] = acceptance_event.model_dump()
-
-        mint_result = self.mint_hook.mint(
-            model_id=decision.model_id,
-            token_id=self._resolve_token_id(decision.model_id),
-            delta_value=decision.delta_percentage_points,
-            idempotency_key=(
-                acceptance_event.idempotency_key if acceptance_event else attestation_hash
-            ),
-            metadata=mint_metadata,
-        )
-
+        self._mint_request_publisher.publish(mint_request)
         self._set_mint_tags(
             run_id=decision.run_id,
-            status=mint_result.status,
+            status="published",
             attestation_hash=attestation_hash,
-            idempotency_key=(
-                acceptance_event.idempotency_key if acceptance_event else attestation_hash
-            ),
-            audit_ref=mint_result.audit_ref,
-            error=mint_result.error,
+            idempotency_key=idempotency_key,
         )
+        self._advance_canonical_score(decision)
+        canonical_score_advanced = True
 
-        canonical_score_advanced = False
-        if mint_result.status == "success":
-            if self._mint_request_publisher is not None and acceptance_event is not None:
-                mint_request = _build_mint_request(
-                    acceptance_event=acceptance_event,
-                    event_context=event_context,
-                )
-                self._mint_request_publisher.publish(mint_request)
-            self._advance_canonical_score(decision)
-            canonical_score_advanced = True
+        mint_result = self._run_secondary_mint_hook(
+            decision=decision,
+            attestation_hash=attestation_hash,
+            attestation_payload=attestation_payload,
+            acceptance_event=acceptance_event,
+        )
 
         dispatch_deltaone_webhook_event(
             event_type=DELTAONE_MINTED_EVENT,
-            payload=self._build_minted_payload(decision, attestation_hash, mint_result),
+            payload=self._build_minted_payload(
+                decision=decision,
+                attestation_hash=attestation_hash,
+                mint_status="success",
+                mint_result=mint_result,
+            ),
         )
 
         return MintOutcome(
-            status=mint_result.status,
+            status="success",
             decision=decision,
             mint_result=mint_result,
             attestation_hash=attestation_hash,
             canonical_score_advanced=canonical_score_advanced,
             acceptance_event=acceptance_event,
         )
+
+    def _run_secondary_mint_hook(
+        self: DeltaOneMintOrchestrator,
+        decision: DeltaOneDecision,
+        attestation_hash: str,
+        attestation_payload: dict[str, Any],
+        acceptance_event: DeltaOneAcceptanceEvent,
+    ) -> TokenMintResult:
+        # The legacy hook remains an audit-side effect only after the durable Redis handoff
+        # succeeds. Its dry-run/failed outcomes are recorded, but do not roll back publish.
+        mint_metadata: dict[str, Any] = {
+            "attestation": attestation_payload,
+            "deltaone_decision": self._decision_to_dict(decision),
+            "deltaone_acceptance_event": acceptance_event.model_dump(),
+        }
+        try:
+            mint_result = self.mint_hook.mint(
+                model_id=decision.model_id,
+                token_id=self._resolve_token_id(decision.model_id),
+                delta_value=decision.delta_percentage_points,
+                idempotency_key=acceptance_event.idempotency_key,
+                metadata=mint_metadata,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "event=secondary_mint_hook_failed run_id=%s model_id=%s",
+                decision.run_id,
+                decision.model_id,
+            )
+            mint_result = TokenMintResult(
+                status="failed",
+                audit_ref="secondary_hook_exception",
+                timestamp=datetime.now(timezone.utc),
+                error=str(exc),
+            )
+
+        self._set_legacy_mint_tags(
+            run_id=decision.run_id,
+            status=mint_result.status,
+            audit_ref=mint_result.audit_ref,
+            error=mint_result.error,
+        )
+        return mint_result
 
     def _create_signed_attestation(
         self: DeltaOneMintOrchestrator, decision: DeltaOneDecision
@@ -500,8 +544,6 @@ class DeltaOneMintOrchestrator:
         status: str,
         attestation_hash: str,
         idempotency_key: str,
-        audit_ref: str | None,
-        error: str | None,
     ) -> None:
         self._client.set_tag(run_id, "hokusai.mint.status", status)
         self._client.set_tag(run_id, "hokusai.mint.attestation_hash", attestation_hash)
@@ -511,10 +553,22 @@ class DeltaOneMintOrchestrator:
             "hokusai.mint.updated_at",
             datetime.now(timezone.utc).isoformat(),
         )
-        if audit_ref:
-            self._client.set_tag(run_id, "hokusai.mint.audit_ref", audit_ref)
-        if error:
-            self._client.set_tag(run_id, "hokusai.mint.error", error)
+
+    def _set_legacy_mint_tags(
+        self: DeltaOneMintOrchestrator,
+        run_id: str,
+        status: str,
+        audit_ref: str | None,
+        error: str | None,
+    ) -> None:
+        self._client.set_tag(run_id, "hokusai.mint.legacy_status", status)
+        self._client.set_tag(
+            run_id,
+            "hokusai.mint.legacy_updated_at",
+            datetime.now(timezone.utc).isoformat(),
+        )
+        self._client.set_tag(run_id, "hokusai.mint.legacy_audit_ref", audit_ref or "")
+        self._client.set_tag(run_id, "hokusai.mint.legacy_error", error or "")
 
     @staticmethod
     def _decision_to_dict(decision: DeltaOneDecision) -> dict[str, Any]:
@@ -554,6 +608,7 @@ class DeltaOneMintOrchestrator:
     def _build_minted_payload(
         decision: DeltaOneDecision,
         attestation_hash: str,
+        mint_status: str,
         mint_result: TokenMintResult,
     ) -> dict[str, Any]:
         return {
@@ -564,9 +619,10 @@ class DeltaOneMintOrchestrator:
             "dataset_hash": decision.dataset_hash,
             "metric_name": decision.metric_name,
             "attestation_hash": attestation_hash,
-            "mint_status": mint_result.status,
-            "mint_audit_ref": mint_result.audit_ref,
-            "mint_error": mint_result.error,
+            "mint_status": mint_status,
+            "legacy_mint_status": mint_result.status,
+            "legacy_mint_audit_ref": mint_result.audit_ref,
+            "legacy_mint_error": mint_result.error,
             "minted_at": mint_result.timestamp.isoformat(),
         }
 

@@ -77,6 +77,9 @@ def _make_spec_with_guardrails(guardrails: list[dict]) -> dict:
         "model_id": "model-x",
         "model_id_uint": _MODEL_ID_UINT,
         "spec_id": _SPEC_ID,
+        "contributors": [
+            {"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 10000}
+        ],
         "eval_spec": {
             "primary_metric": {
                 "name": "workflow_success_rate_under_budget",
@@ -92,6 +95,12 @@ def _make_client_with_eval_id(run_metrics=None, extra_tags=None):
     if extra_tags:
         tags.update(extra_tags)
     return _FakeMlflowClient(run_metrics=run_metrics or {}, initial_tags=tags)
+
+
+def _make_publisher() -> Mock:
+    publisher = Mock()
+    publisher.publish.return_value = None
+    return publisher
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +121,10 @@ class TestProcessEvaluationWithSpec:
         )
         client = _make_client_with_eval_id(run_metrics=run_metrics or {})
         orch = DeltaOneMintOrchestrator(
-            evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
+            evaluator=evaluator,
+            mint_hook=mint_hook,
+            mlflow_client=client,
+            mint_request_publisher=_make_publisher(),
         )
         return orch, mint_hook, client
 
@@ -231,7 +243,10 @@ class TestWavemillProportionRegression:
         )
         client = _make_client_with_eval_id(run_metrics=run_metrics)
         orch = DeltaOneMintOrchestrator(
-            evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
+            evaluator=evaluator,
+            mint_hook=mint_hook,
+            mlflow_client=client,
+            mint_request_publisher=_make_publisher(),
         )
 
         outcome = orch.process_evaluation_with_spec("run-cand", "run-base", self._build_spec())
@@ -251,7 +266,10 @@ class TestWavemillProportionRegression:
         mint_hook = Mock()
         client = _make_client_with_eval_id(run_metrics=run_metrics)
         orch = DeltaOneMintOrchestrator(
-            evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
+            evaluator=evaluator,
+            mint_hook=mint_hook,
+            mlflow_client=client,
+            mint_request_publisher=_make_publisher(),
         )
 
         outcome = orch.process_evaluation_with_spec("run-cand", "run-base", self._build_spec())
@@ -351,7 +369,10 @@ class TestAcceptanceEventConstruction:
         )
         client = _make_client_with_eval_id(run_metrics=run_metrics)
         orch = DeltaOneMintOrchestrator(
-            evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
+            evaluator=evaluator,
+            mint_hook=mint_hook,
+            mlflow_client=client,
+            mint_request_publisher=_make_publisher(),
         )
         monkeypatch.setattr(
             "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
@@ -440,7 +461,10 @@ class TestAcceptanceEventConstruction:
         run_metrics = {"custom_accuracy": 0.90}
         client = _make_client_with_eval_id(run_metrics=run_metrics)
         orch = DeltaOneMintOrchestrator(
-            evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
+            evaluator=evaluator,
+            mint_hook=mint_hook,
+            mlflow_client=client,
+            mint_request_publisher=_make_publisher(),
         )
         monkeypatch.setattr(
             "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
@@ -468,7 +492,10 @@ class TestAcceptanceEventConstruction:
         run_metrics = {"workflow_success_rate_under_budget": 0.87, "cost_per_call": 0.05}
         client = _make_client_with_eval_id(run_metrics=run_metrics)
         orch = DeltaOneMintOrchestrator(
-            evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
+            evaluator=evaluator,
+            mint_hook=mint_hook,
+            mlflow_client=client,
+            mint_request_publisher=_make_publisher(),
         )
         monkeypatch.setattr(
             "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
@@ -495,7 +522,10 @@ class TestAcceptanceEventConstruction:
         mint_hook = Mock()
         client = _make_client_with_eval_id(run_metrics={"workflow_success_rate_under_budget": 0.87})
         orch = DeltaOneMintOrchestrator(
-            evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
+            evaluator=evaluator,
+            mint_hook=mint_hook,
+            mlflow_client=client,
+            mint_request_publisher=_make_publisher(),
         )
         monkeypatch.setattr(
             "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
@@ -533,7 +563,10 @@ class TestAcceptanceEventConstruction:
             initial_tags={},  # No eval_id
         )
         orch = DeltaOneMintOrchestrator(
-            evaluator=evaluator, mint_hook=mint_hook, mlflow_client=client
+            evaluator=evaluator,
+            mint_hook=mint_hook,
+            mlflow_client=client,
+            mint_request_publisher=_make_publisher(),
         )
         monkeypatch.setattr(
             "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",

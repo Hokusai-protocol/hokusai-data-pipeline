@@ -218,3 +218,67 @@ def test_execute_job_triggers_deltaone_mint_orchestrator_when_run_ids_present(
         run_id="run-candidate",
         baseline_run_id="run-baseline",
     )
+
+
+def test_default_deltaone_orchestrator_includes_mint_request_publisher(
+    request_payload: EvaluationRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_redis = FakeRedis()
+    created: dict[str, Any] = {}
+
+    class StubEvaluator:
+        pass
+
+    class StubMintHook:
+        @classmethod
+        def from_settings(cls):
+            return "mint-hook"
+
+    class StubPublisher:
+        def __init__(self) -> None:
+            created["publisher"] = self
+
+    class StubOrchestrator:
+        def __init__(self, evaluator, mint_hook, mint_request_publisher) -> None:
+            created["evaluator"] = evaluator
+            created["mint_hook"] = mint_hook
+            created["mint_request_publisher"] = mint_request_publisher
+
+        def process_evaluation(self, *, run_id: str, baseline_run_id: str) -> None:
+            created["process_args"] = (run_id, baseline_run_id)
+            return None
+
+    monkeypatch.setattr("src.api.services.evaluation_service.DeltaOneEvaluator", StubEvaluator)
+    monkeypatch.setattr("src.api.services.evaluation_service.TokenMintHook", StubMintHook)
+    monkeypatch.setattr(
+        "src.api.services.evaluation_service.MintRequestPublisher",
+        StubPublisher,
+    )
+    monkeypatch.setattr(
+        "src.api.services.evaluation_service.DeltaOneMintOrchestrator",
+        StubOrchestrator,
+    )
+
+    service = EvaluationService(redis_client=fake_redis)
+    service._validate_model_exists = lambda model_id: None
+
+    payload = EvaluationRequest(
+        config={
+            "eval_type": request_payload.config.eval_type,
+            "dataset_reference": request_payload.config.dataset_reference,
+            "parameters": {
+                **request_payload.config.parameters,
+                "run_id": "run-candidate",
+                "baseline_run_id": "run-baseline",
+            },
+        }
+    )
+    created_job = service.create_evaluation("my-model", payload, "default-orch")
+
+    service.execute_evaluation_job(str(created_job.job_id))
+
+    assert isinstance(created["publisher"], StubPublisher)
+    assert created["mint_request_publisher"] is created["publisher"]
+    assert created["mint_hook"] == "mint-hook"
+    assert created["process_args"] == ("run-candidate", "run-baseline")
