@@ -5,13 +5,23 @@ from __future__ import annotations
 # Auth-hook note: this suite uses fake MLflow clients and patched webhook/mint
 # calls only; no live MLflow requests are made.
 # Production MLflow auth relies on Authorization / MLFLOW_TRACKING_TOKEN env wiring.
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import fakeredis
+import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
+
 from src.api.schemas.token_mint import TokenMintResult
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator
+from src.events.publishers.mint_request_publisher import QUEUE_NAME, MintRequestPublisher
+
+_CONTRIBUTORS_TAG = json.dumps(
+    [{"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 10000}]
+)
 
 
 class _FakeMlflowClient:
@@ -53,10 +63,20 @@ def _accepted_decision() -> DeltaOneDecision:
     )
 
 
-def test_acceptance_mint_success_advances_canonical_score(monkeypatch) -> None:
+def _default_tags() -> dict[str, str]:
+    return {
+        "hokusai.eval_id": "eval-123",
+        "hokusai.benchmark_spec_id": "spec-123",
+        "hokusai.model_id_uint": "123",
+        "hokusai.contributors": _CONTRIBUTORS_TAG,
+    }
+
+
+def test_acceptance_publish_success_advances_canonical_score(monkeypatch) -> None:
     decision = _accepted_decision()
     evaluator = Mock()
     evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
 
     mint_hook = Mock()
     mint_hook.mint.return_value = TokenMintResult(
@@ -65,7 +85,8 @@ def test_acceptance_mint_success_advances_canonical_score(monkeypatch) -> None:
         timestamp=datetime.now(timezone.utc),
     )
 
-    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92})
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
     dispatch_mock = Mock(return_value=[])
     monkeypatch.setattr(
         "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
@@ -76,36 +97,39 @@ def test_acceptance_mint_success_advances_canonical_score(monkeypatch) -> None:
         evaluator=evaluator,
         mint_hook=mint_hook,
         mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
     )
 
     outcome = orchestrator.process_evaluation("run-candidate", "run-baseline")
 
     assert outcome.status == "success"
     assert outcome.canonical_score_advanced is True
+    assert redis_client.llen(QUEUE_NAME) == 1
     assert client.tags["hokusai.canonical_score"] == "0.92"
     assert client.tags["hokusai.canonical_score_run_id"] == "run-candidate"
-    assert client.tags["hokusai.mint.status"] == "success"
+    assert client.tags["hokusai.mint.status"] == "published"
+    assert client.tags["hokusai.mint.legacy_status"] == "success"
     mint_hook.mint.assert_called_once()
-    assert mint_hook.mint.call_args.kwargs["idempotency_key"] == outcome.attestation_hash
+    assert (
+        mint_hook.mint.call_args.kwargs["idempotency_key"]
+        == outcome.acceptance_event.idempotency_key
+    )
     assert dispatch_mock.call_count == 2
     assert dispatch_mock.call_args_list[0].kwargs["event_type"] == "deltaone.achieved"
     assert dispatch_mock.call_args_list[1].kwargs["event_type"] == "deltaone.minted"
 
 
-def test_acceptance_mint_failure_does_not_advance_canonical_score(monkeypatch) -> None:
+def test_publish_failure_does_not_advance_canonical_score(monkeypatch) -> None:
     decision = _accepted_decision()
     evaluator = Mock()
     evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
 
     mint_hook = Mock()
-    mint_hook.mint.return_value = TokenMintResult(
-        status="failed",
-        audit_ref="audit-2",
-        timestamp=datetime.now(timezone.utc),
-        error="upstream error",
-    )
+    broken_redis = Mock()
+    broken_redis.lpush.side_effect = RedisConnectionError("redis unavailable")
 
-    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92})
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
     monkeypatch.setattr(
         "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
         Mock(return_value=[]),
@@ -115,14 +139,89 @@ def test_acceptance_mint_failure_does_not_advance_canonical_score(monkeypatch) -
         evaluator=evaluator,
         mint_hook=mint_hook,
         mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=broken_redis),
+    )
+
+    with pytest.raises(RedisConnectionError):
+        orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert "hokusai.canonical_score" not in client.tags
+    assert client.tags["hokusai.mint.status"] == "requested"
+    mint_hook.mint.assert_not_called()
+
+
+def test_secondary_dry_run_does_not_block_primary_success(monkeypatch) -> None:
+    decision = _accepted_decision()
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+
+    mint_hook = Mock()
+    mint_hook.mint.return_value = TokenMintResult(
+        status="dry_run",
+        audit_ref="audit-dry-run",
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        Mock(return_value=[]),
+    )
+
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
     )
 
     outcome = orchestrator.process_evaluation("run-candidate", "run-baseline")
 
-    assert outcome.status == "failed"
-    assert outcome.canonical_score_advanced is False
-    assert "hokusai.canonical_score" not in client.tags
-    assert client.tags["hokusai.mint.status"] == "failed"
+    assert outcome.status == "success"
+    assert outcome.canonical_score_advanced is True
+    assert outcome.mint_result is not None
+    assert outcome.mint_result.status == "dry_run"
+    assert redis_client.llen(QUEUE_NAME) == 1
+    assert client.tags["hokusai.mint.status"] == "published"
+    assert client.tags["hokusai.mint.legacy_status"] == "dry_run"
+
+
+def test_secondary_failure_is_recorded_without_rolling_back_publish(monkeypatch) -> None:
+    decision = _accepted_decision()
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+
+    mint_hook = Mock()
+    mint_hook.mint.side_effect = RuntimeError("legacy hook exploded")
+
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        Mock(return_value=[]),
+    )
+
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+    )
+
+    outcome = orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert outcome.status == "success"
+    assert outcome.canonical_score_advanced is True
+    assert outcome.mint_result is not None
+    assert outcome.mint_result.status == "failed"
+    assert outcome.mint_result.error == "legacy hook exploded"
+    assert redis_client.llen(QUEUE_NAME) == 1
+    assert client.tags["hokusai.mint.status"] == "published"
+    assert client.tags["hokusai.mint.legacy_status"] == "failed"
+    assert client.tags["hokusai.canonical_score"] == "0.92"
 
 
 def test_rejection_skips_mint(monkeypatch) -> None:
@@ -132,6 +231,7 @@ def test_rejection_skips_mint(monkeypatch) -> None:
 
     evaluator = Mock()
     evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
     mint_hook = Mock()
 
     client = _FakeMlflowClient(run_metrics={"accuracy": 0.85})
