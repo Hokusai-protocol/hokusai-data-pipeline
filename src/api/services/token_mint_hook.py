@@ -232,16 +232,25 @@ class TokenMintHook:
             "vesting_present": vesting is not None,
         }
         if vesting is not None:
-            for field_name in (
-                "liquid_amount",
-                "vested_amount",
-                "vault_address",
-                "schedule_id",
-                "claimable_amount",
-            ):
+            for field_name in ("liquid_amount", "vested_amount", "claimable_amount"):
                 if field_name in vesting:
                     payload[field_name] = vesting[field_name]
         self._log_event(payload)
+        if vesting is not None:
+            _id_keys = ("vault_address", "schedule_id")
+            debug_fields = {k: vesting[k] for k in _id_keys if k in vesting}
+            if debug_fields:
+                LOGGER.debug(
+                    json.dumps(
+                        {
+                            "action": "token_mint_vesting_ids",
+                            "audit_ref": audit_ref,
+                            **debug_fields,
+                        },
+                        default=str,
+                        sort_keys=True,
+                    )
+                )
 
     def _log_event(self: TokenMintHook, payload: dict[str, Any]) -> None:
         """Emit structured JSON logs for CloudWatch queryability."""
