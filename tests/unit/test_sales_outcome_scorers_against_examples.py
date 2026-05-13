@@ -36,6 +36,13 @@ class TestScorerAgainstExamples:
         result = scorer.callable_([row])
         assert result == pytest.approx(1.0)
 
+    def test_lead_scoring_unqualified_example_returns_zero(self) -> None:
+        """qualified_meeting=false → rate of 0.0 over a single row."""
+        row = _load_example("sales_outcome_row.lead_scoring_unqualified.v1.json")
+        scorer = resolve_scorer(row["scorer_ref"])
+        result = scorer.callable_([row])
+        assert result == pytest.approx(0.0)
+
     def test_revenue_example_returns_expected_usd_per_1000(self) -> None:
         """revenue_amount_cents=125000, delivered_count=1 → 125000/100/1*1000 = 1250000.0 USD/1k."""
         row = _load_example("sales_outcome_row.revenue.v1.json")
@@ -63,6 +70,8 @@ class TestScorerAgainstExamples:
         """Every valid example's scorer_ref resolves in the registry without error."""
         valid_files = [
             "sales_outcome_row.qualified_meeting.v1.json",
+            "sales_outcome_row.lead_scoring_qualified.v1.json",
+            "sales_outcome_row.lead_scoring_unqualified.v1.json",
             "sales_outcome_row.revenue.v1.json",
             "sales_outcome_row.spam_complaint.v1.json",
             "sales_outcome_row.unsubscribe.v1.json",

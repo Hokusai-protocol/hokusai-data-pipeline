@@ -34,12 +34,15 @@ FIXTURE_POLICY_MAP: dict[str, tuple[str, bool]] = {
     "sales_eval_spec.off_policy.v1": ("off_policy", True),
     "sales_eval_spec.exact_observed.v1": ("exact_observed_output", True),
     "sales_eval_spec.diagnostic_only.v1": ("diagnostic_only", False),
+    "sales_eval_spec.lead_scoring.v1": ("online_ab", True),
 }
 
 ALL_FIXTURE_FILENAMES = [f"{stem}.json" for stem in FIXTURE_POLICY_MAP]
 
 MINT_ELIGIBLE_FIXTURE_FILENAMES = [
-    f"{stem}.json" for stem, (_, eligible) in FIXTURE_POLICY_MAP.items() if eligible
+    f"{stem}.json"
+    for stem, (_, eligible) in FIXTURE_POLICY_MAP.items()
+    if eligible and stem != "sales_eval_spec.lead_scoring.v1"
 ]
 
 REQUIRED_EVAL_SPEC_FIELDS = {
@@ -226,6 +229,25 @@ class TestDiagnosticOnlyFixture:
                 assert g.get("scorer_ref") == g["name"]
 
 
+class TestLeadScoringFixture:
+    def test_primary_metric_is_qualified_meeting_rate(self) -> None:
+        data = _load_fixture("sales_eval_spec.lead_scoring.v1.json")
+        assert data["primary_metric"]["name"] == "sales:qualified_meeting_rate"
+        assert data["primary_metric"]["scorer_ref"] == "sales:qualified_meeting_rate"
+
+    def test_metric_family_is_proportion(self) -> None:
+        data = _load_fixture("sales_eval_spec.lead_scoring.v1.json")
+        assert data["metric_family"] == "proportion"
+
+    def test_threshold_is_launch_floor(self) -> None:
+        data = _load_fixture("sales_eval_spec.lead_scoring.v1.json")
+        assert data["primary_metric"]["threshold"] == pytest.approx(0.15)
+
+    def test_unit_of_analysis_is_prospect_conversation(self) -> None:
+        data = _load_fixture("sales_eval_spec.lead_scoring.v1.json")
+        assert data["unit_of_analysis"] == "prospect_conversation"
+
+
 @pytest.mark.parametrize("filename", MINT_ELIGIBLE_FIXTURE_FILENAMES)
 class TestRevenueMetricRequiresEligiblePolicy:
     def test_primary_metric_is_canonical_revenue(self, filename: str) -> None:
@@ -276,7 +298,7 @@ class TestRevenueMetricRequiresEligiblePolicy:
 
 
 class TestFixtureInventory:
-    def test_all_five_fixtures_exist(self) -> None:
+    def test_all_six_fixtures_exist(self) -> None:
         for filename in ALL_FIXTURE_FILENAMES:
             path = EXAMPLES_DIR / filename
             assert path.exists(), f"Missing fixture: {filename}"
@@ -289,13 +311,13 @@ class TestFixtureInventory:
         expected = MINT_ELIGIBLE_POLICIES | {"diagnostic_only"}
         assert observed_types == expected
 
-    def test_exactly_four_mint_eligible_fixtures(self) -> None:
+    def test_exactly_five_mint_eligible_fixtures(self) -> None:
         eligible_count = 0
         for filename in ALL_FIXTURE_FILENAMES:
             data = _load_fixture(filename)
             if data["measurement_policy"]["mint_eligible"]:
                 eligible_count += 1
-        assert eligible_count == 4
+        assert eligible_count == 5
 
     def test_exactly_one_diagnostic_only_fixture(self) -> None:
         diagnostic_count = 0
