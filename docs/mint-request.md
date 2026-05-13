@@ -4,6 +4,10 @@
 
 When a DeltaOne evaluation is accepted, the pipeline publishes a durable `MintRequest` message to Redis as the primary handoff before advancing the canonical baseline score in MLflow. The legacy token mint hook still runs, but only as a secondary audit or dry-run side effect after Redis publication succeeds.
 
+The Redis payload authorizes a mint, but it is not the final mint result. When the downstream mint
+service enables vesting, the final reward may be split into immediate liquid and vested portions.
+That post-mint split is reported only after the secondary HTTP mint hook returns.
+
 ## Queue
 
 - **Queue name**: `hokusai:mint_requests`
@@ -72,6 +76,28 @@ The sequence within `DeltaOneMintOrchestrator._execute_mint()` for accepted eval
 If `publish()` raises a `RedisError`, the exception propagates and steps 5-6 are never reached. This preserves the recovery invariant: a crash between detection and publish means the next evaluation re-detects the improvement and re-publishes.
 
 Legacy hook failures, skips, and dry-runs do not roll back the already durable Redis handoff or the canonical advancement. They are recorded separately in MLflow tags such as `hokusai.mint.legacy_status`.
+
+## Post-mint vesting semantics
+
+A successful `MintRequest` publish or `deltaone.achieved` webhook does **not** imply that 100% of
+the reward is immediately liquid. If the downstream mint endpoint returns vesting details, the
+pipeline preserves them in post-mint surfaces:
+
+- MLflow tags under `hokusai.mint.vesting.*`
+- Consumed-attestation audit metadata as `mint_vesting`
+- `deltaone.minted` webhook payloads as an optional `vesting` object
+
+Supported `vesting` fields are additive and optional:
+
+- `liquid_amount`
+- `vested_amount`
+- `vault_address`
+- `schedule_id`
+- `claimable_amount`
+- `vesting_config`
+
+Legacy mint endpoints that return only `status`, `audit_ref`, `timestamp`, and `error` remain
+fully supported. In that case, no `vesting` block is emitted.
 
 ## Contributor data
 

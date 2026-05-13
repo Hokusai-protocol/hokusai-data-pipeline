@@ -85,19 +85,22 @@ class DeltaOneMintOrchestrator:
         )
 
         if mint_result.status in {"success", "dry_run", "skipped"}:
+            metadata = {
+                "mint_audit_ref": mint_result.audit_ref,
+                "model_id": decision.model_id,
+                "decision_summary": {
+                    "accepted": decision.accepted,
+                    "reason": decision.reason,
+                    "delta_percentage_points": decision.delta_percentage_points,
+                    "baseline_run_id": decision.baseline_run_id,
+                    "run_id": decision.run_id,
+                },
+            }
+            if mint_result.has_vesting_details():
+                metadata["mint_vesting"] = mint_result.vesting_payload()
             self._attestation_registry.consume(
                 request.attestation_hash,
-                metadata={
-                    "mint_audit_ref": mint_result.audit_ref,
-                    "model_id": decision.model_id,
-                    "decision_summary": {
-                        "accepted": decision.accepted,
-                        "reason": decision.reason,
-                        "delta_percentage_points": decision.delta_percentage_points,
-                        "baseline_run_id": decision.baseline_run_id,
-                        "run_id": decision.run_id,
-                    },
-                },
+                metadata=metadata,
                 nonce=request.attestation_payload.get("attestation_nonce"),
             )
             if self._score_history_audit is not None:
