@@ -100,6 +100,101 @@ def test_http_call_made_when_endpoint_configured(monkeypatch: pytest.MonkeyPatch
     assert call_kwargs["json"]["metadata"] == {"reason": "outcome"}
 
 
+def test_http_success_preserves_vesting_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    hook = TokenMintHook(mint_endpoint="https://mint.service.local", dry_run=False)
+
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {
+        "status": "success",
+        "audit_ref": "downstream-audit",
+        "error": None,
+        "vesting": {
+            "liquid_amount": "100",
+            "vested_amount": "900",
+            "vault_address": "0xvault",
+            "schedule_id": "schedule-1",
+            "claimable_amount": "25",
+            "vesting_config": {"enabled": True, "immediateUnlockBps": 1000},
+        },
+    }
+    post_mock = Mock(return_value=response)
+    monkeypatch.setattr("src.api.services.token_mint_hook.httpx.post", post_mock)
+
+    result = hook.mint("model-a", "token-a", 2.0)
+
+    assert result.status == "success"
+    assert result.audit_ref == "downstream-audit"
+    assert result.vesting_payload() == {
+        "liquid_amount": "100",
+        "vested_amount": "900",
+        "vault_address": "0xvault",
+        "schedule_id": "schedule-1",
+        "claimable_amount": "25",
+        "vesting_config": {"enabled": True, "immediateUnlockBps": 1000},
+    }
+
+
+def test_http_success_flat_vesting_fields_are_normalized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hook = TokenMintHook(mint_endpoint="https://mint.service.local", dry_run=False)
+
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {
+        "status": "success",
+        "liquid_amount": "100",
+        "vested_amount": "900",
+        "schedule_id": "schedule-1",
+    }
+    post_mock = Mock(return_value=response)
+    monkeypatch.setattr("src.api.services.token_mint_hook.httpx.post", post_mock)
+
+    result = hook.mint("model-a", "token-a", 2.0)
+
+    assert result.status == "success"
+    assert result.vesting_payload() == {
+        "liquid_amount": "100",
+        "vested_amount": "900",
+        "schedule_id": "schedule-1",
+    }
+
+
+def test_http_success_empty_body_stays_backward_compatible(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hook = TokenMintHook(mint_endpoint="https://mint.service.local", dry_run=False)
+
+    response = Mock()
+    response.status_code = 204
+    response.json.side_effect = ValueError("no json body")
+    post_mock = Mock(return_value=response)
+    monkeypatch.setattr("src.api.services.token_mint_hook.httpx.post", post_mock)
+
+    result = hook.mint("model-a", "token-a", 2.0)
+
+    assert result.status == "success"
+    assert result.vesting is None
+
+
+def test_http_success_malformed_json_stays_backward_compatible(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hook = TokenMintHook(mint_endpoint="https://mint.service.local", dry_run=False)
+
+    response = Mock()
+    response.status_code = 200
+    response.json.side_effect = json.JSONDecodeError("bad json", "x", 0)
+    post_mock = Mock(return_value=response)
+    monkeypatch.setattr("src.api.services.token_mint_hook.httpx.post", post_mock)
+
+    result = hook.mint("model-a", "token-a", 2.0)
+
+    assert result.status == "success"
+    assert result.vesting is None
+
+
 def test_timeout_returns_failed_status(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

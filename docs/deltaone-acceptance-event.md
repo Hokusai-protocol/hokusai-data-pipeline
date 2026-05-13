@@ -18,6 +18,10 @@ All numeric quantities are normalized for unambiguous on-chain consumption:
 - **Costs:** USDC micro-units (integer, 6 decimals), `ROUND_HALF_EVEN`
 - **Hashes:** lowercase 0x-prefixed 64-hex SHA-256
 
+This acceptance event is a pre-mint authorization artifact, not the final mint outcome. If the
+downstream mint service applies vesting, the actual liquid and vested split is emitted later in the
+post-mint audit tags and optional `vesting` block on the `deltaone.minted` webhook payload.
+
 ## Field Reference
 
 | Field | Type | Description |

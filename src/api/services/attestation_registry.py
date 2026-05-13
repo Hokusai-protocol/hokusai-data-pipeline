@@ -30,6 +30,7 @@ class ConsumedAttestationMetadata:
     consumed_at: str
     decision_summary: dict[str, Any]
     nonce: str | None = None
+    mint_vesting: dict[str, Any] | None = None
 
     def to_dict(self: ConsumedAttestationMetadata) -> dict[str, Any]:
         payload = {
@@ -40,6 +41,8 @@ class ConsumedAttestationMetadata:
         }
         if self.nonce:
             payload["nonce"] = self.nonce
+        if self.mint_vesting is not None:
+            payload["mint_vesting"] = self.mint_vesting
         return payload
 
 
@@ -77,6 +80,7 @@ class AttestationRegistry:
             consumed_at=str(metadata.get("consumed_at", now)),
             decision_summary=dict(metadata.get("decision_summary", {})),
             nonce=nonce,
+            mint_vesting=dict(metadata["mint_vesting"]) if metadata.get("mint_vesting") else None,
         )
         payload = json.dumps(normalized.to_dict(), sort_keys=True)
 

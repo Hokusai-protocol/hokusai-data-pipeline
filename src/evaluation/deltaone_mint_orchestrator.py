@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 
 DELTAONE_ACHIEVED_EVENT = "deltaone.achieved"
 DELTAONE_MINTED_EVENT = "deltaone.minted"
+_MLFLOW_TAG_VALUE_LIMIT = 5000
 
 # Tag keys used to resolve model_id_uint from MLflow run tags
 _MODEL_ID_UINT_TAG_KEYS = (
@@ -498,9 +499,7 @@ class DeltaOneMintOrchestrator:
 
         self._set_legacy_mint_tags(
             run_id=decision.run_id,
-            status=mint_result.status,
-            audit_ref=mint_result.audit_ref,
-            error=mint_result.error,
+            mint_result=mint_result,
         )
         return mint_result
 
@@ -557,18 +556,35 @@ class DeltaOneMintOrchestrator:
     def _set_legacy_mint_tags(
         self: DeltaOneMintOrchestrator,
         run_id: str,
-        status: str,
-        audit_ref: str | None,
-        error: str | None,
+        mint_result: TokenMintResult,
     ) -> None:
-        self._client.set_tag(run_id, "hokusai.mint.legacy_status", status)
+        self._client.set_tag(run_id, "hokusai.mint.legacy_status", mint_result.status)
         self._client.set_tag(
             run_id,
             "hokusai.mint.legacy_updated_at",
             datetime.now(timezone.utc).isoformat(),
         )
-        self._client.set_tag(run_id, "hokusai.mint.legacy_audit_ref", audit_ref or "")
-        self._client.set_tag(run_id, "hokusai.mint.legacy_error", error or "")
+        self._client.set_tag(run_id, "hokusai.mint.legacy_audit_ref", mint_result.audit_ref or "")
+        self._client.set_tag(run_id, "hokusai.mint.legacy_error", mint_result.error or "")
+
+        vesting_payload = mint_result.vesting_payload()
+        if vesting_payload is None:
+            return
+
+        for field_name, value in vesting_payload.items():
+            tag_key = f"hokusai.mint.vesting.{field_name}"
+            if field_name == "vesting_config":
+                serialized = json.dumps(value, separators=(",", ":"), sort_keys=True)
+                if len(serialized) > _MLFLOW_TAG_VALUE_LIMIT:
+                    logger.warning(
+                        "event=mint_vesting_config_truncated run_id=%s limit=%s",
+                        run_id,
+                        _MLFLOW_TAG_VALUE_LIMIT,
+                    )
+                    serialized = f"{serialized[: _MLFLOW_TAG_VALUE_LIMIT - 12]}...[truncated]"
+                self._client.set_tag(run_id, "hokusai.mint.vesting.config_json", serialized)
+                continue
+            self._client.set_tag(run_id, tag_key, str(value))
 
     @staticmethod
     def _decision_to_dict(decision: DeltaOneDecision) -> dict[str, Any]:
@@ -611,7 +627,7 @@ class DeltaOneMintOrchestrator:
         mint_status: str,
         mint_result: TokenMintResult,
     ) -> dict[str, Any]:
-        return {
+        payload = {
             "event_type": DELTAONE_MINTED_EVENT,
             "run_id": decision.run_id,
             "baseline_run_id": decision.baseline_run_id,
@@ -625,6 +641,10 @@ class DeltaOneMintOrchestrator:
             "legacy_mint_error": mint_result.error,
             "minted_at": mint_result.timestamp.isoformat(),
         }
+        vesting_payload = mint_result.vesting_payload()
+        if vesting_payload is not None:
+            payload["vesting"] = vesting_payload
+        return payload
 
     def _persist_guardrail_results(
         self: DeltaOneMintOrchestrator,

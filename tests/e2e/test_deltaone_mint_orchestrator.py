@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import fakeredis
 import pytest
 
+from src.api.schemas.token_mint import TokenMintResult
 from src.api.services.attestation_registry import (
     AttestationAlreadyConsumedError,
     AttestationRegistry,
@@ -98,3 +100,46 @@ def test_mint_orchestrator_rejects_superseded_spec() -> None:
 
     with pytest.raises(AttestationSpecSupersededError):
         orchestrator.mint_for_decision(decision=_decision(), request=request)
+
+
+def test_mint_orchestrator_persists_vesting_metadata() -> None:
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    orchestrator = DeltaOneMintOrchestrator(
+        mint_hook=TokenMintHook(dry_run=True),
+        attestation_registry=AttestationRegistry(redis_client=redis_client, ttl_seconds=120),
+        benchmark_spec_resolver=_SpecResolver(),
+    )
+    orchestrator._mint_hook.mint = lambda **_kwargs: TokenMintResult.model_validate(  # noqa: SLF001
+        {
+            "status": "success",
+            "audit_ref": "audit-1",
+            "timestamp": datetime.now(timezone.utc),
+            "vesting": {
+                "liquid_amount": "100",
+                "vested_amount": "900",
+                "schedule_id": "schedule-1",
+            },
+        }
+    )
+
+    request = MintRequestContext(
+        token_id="token-a",
+        attestation_hash="3" * 64,
+        attestation_payload={
+            "benchmark_spec_id": "spec-active",
+            "dataset_hash": "sha256:" + "a" * 64,
+            "attestation_nonce": "nonce-3",
+        },
+    )
+
+    result = orchestrator.mint_for_decision(decision=_decision(), request=request)
+
+    assert result is not None
+    payload = redis_client.get("attestation:used:" + ("3" * 64))
+    assert payload is not None
+    consumed = json.loads(payload)
+    assert consumed["mint_vesting"] == {
+        "liquid_amount": "100",
+        "vested_amount": "900",
+        "schedule_id": "schedule-1",
+    }

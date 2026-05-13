@@ -22,7 +22,7 @@ from .inference_log import (
     OutcomeSubmission,
     OutcomeSubmissionResponse,
 )
-from .token_mint import TokenMintRequest, TokenMintResult
+from .token_mint import TokenMintRequest, TokenMintResult, TokenMintVestingDetails
 
 __all__ = [
     "EvaluationScheduleCreate",
@@ -39,6 +39,7 @@ __all__ = [
     "MetricSpec",
     "TokenMintRequest",
     "TokenMintResult",
+    "TokenMintVestingDetails",
     "InferenceLogCreate",
     "InferenceLogResponse",
     "OutcomeSubmission",

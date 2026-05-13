@@ -224,6 +224,103 @@ def test_secondary_failure_is_recorded_without_rolling_back_publish(monkeypatch)
     assert client.tags["hokusai.canonical_score"] == "0.92"
 
 
+def test_vesting_details_flow_to_tags_and_webhook(monkeypatch) -> None:
+    decision = _accepted_decision()
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+
+    mint_hook = Mock()
+    mint_hook.mint.return_value = TokenMintResult.model_validate(
+        {
+            "status": "success",
+            "audit_ref": "audit-1",
+            "timestamp": datetime.now(timezone.utc),
+            "vesting": {
+                "liquid_amount": "100",
+                "vested_amount": "900",
+                "vault_address": "0xvault",
+                "schedule_id": "schedule-1",
+                "claimable_amount": "25",
+                "vesting_config": {"enabled": True, "immediateUnlockBps": 1000},
+            },
+        }
+    )
+
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
+    dispatch_mock = Mock(return_value=[])
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        dispatch_mock,
+    )
+
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+    )
+
+    outcome = orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert outcome.mint_result is not None
+    assert client.tags["hokusai.mint.vesting.liquid_amount"] == "100"
+    assert client.tags["hokusai.mint.vesting.vested_amount"] == "900"
+    assert client.tags["hokusai.mint.vesting.vault_address"] == "0xvault"
+    assert client.tags["hokusai.mint.vesting.schedule_id"] == "schedule-1"
+    assert client.tags["hokusai.mint.vesting.claimable_amount"] == "25"
+    assert (
+        client.tags["hokusai.mint.vesting.config_json"]
+        == '{"enabled":true,"immediateUnlockBps":1000}'
+    )
+
+    minted_payload = dispatch_mock.call_args_list[1].kwargs["payload"]
+    assert minted_payload["vesting"] == {
+        "liquid_amount": "100",
+        "vested_amount": "900",
+        "vault_address": "0xvault",
+        "schedule_id": "schedule-1",
+        "claimable_amount": "25",
+        "vesting_config": {"enabled": True, "immediateUnlockBps": 1000},
+    }
+
+
+def test_legacy_results_emit_no_vesting_tags_or_payload(monkeypatch) -> None:
+    decision = _accepted_decision()
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+
+    mint_hook = Mock()
+    mint_hook.mint.return_value = TokenMintResult(
+        status="success",
+        audit_ref="audit-1",
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
+    dispatch_mock = Mock(return_value=[])
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        dispatch_mock,
+    )
+
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+    )
+
+    orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert not any(key.startswith("hokusai.mint.vesting.") for key in client.tags)
+    minted_payload = dispatch_mock.call_args_list[1].kwargs["payload"]
+    assert "vesting" not in minted_payload
+
+
 def test_rejection_skips_mint(monkeypatch) -> None:
     decision = _accepted_decision()
     decision.accepted = False
