@@ -96,6 +96,7 @@ def _valid_mint_request(**overrides) -> MintRequest:
         "eval_id": _EVAL_ID,
         "attestation_hash": _ATT_HASH,
         "idempotency_key": _IDEMPOTENCY_KEY,
+        "total_samples": 1000,
         "evaluation": _valid_evaluation(),
         "contributors": [_valid_contributor()],
     }
@@ -171,6 +172,29 @@ class TestMintRequest:
         assert msg.model_id == "model-a"
         assert msg.message_type == "mint_request"
         assert msg.schema_version == "1.0"
+        assert msg.total_samples == 1000
+
+    def test_total_samples_accepts_python_field_name(self) -> None:
+        msg = _valid_mint_request(total_samples=1000)
+        assert msg.total_samples == 1000
+
+    def test_total_samples_accepts_json_alias(self) -> None:
+        data = _valid_mint_request().model_dump()
+        data.pop("total_samples")
+        data["totalSamples"] = 1000
+        msg = MintRequest.model_validate(data)
+        assert msg.total_samples == 1000
+
+    def test_total_samples_required(self) -> None:
+        data = _valid_mint_request().model_dump()
+        data.pop("total_samples")
+        with pytest.raises(ValidationError, match="totalSamples"):
+            MintRequest.model_validate(data)
+
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_total_samples_must_be_positive(self, value: int) -> None:
+        with pytest.raises(ValidationError, match="total_samples"):
+            _valid_mint_request(total_samples=value)
 
     def test_contributors_must_sum_to_10000(self) -> None:
         with pytest.raises(ValidationError, match="10000"):
@@ -288,17 +312,20 @@ class TestJsonSchemaDrift:
             data = json.load(f)
         msg = MintRequest.model_validate(data)
         assert msg.model_id == data["model_id"]
+        assert msg.total_samples == data["totalSamples"]
+        assert msg.total_samples == msg.evaluation.sample_size_candidate
         assert sum(c.weight_bps for c in msg.contributors) == 10000
 
     def test_example_json_round_trip(self) -> None:
         with EXAMPLE_FILE.open() as f:
             data = json.load(f)
         msg = MintRequest.model_validate(data)
-        dumped = json.loads(msg.model_dump_json())
+        dumped = json.loads(msg.model_dump_json(by_alias=True))
         # Verify key fields survive the round-trip
         assert dumped["model_id"] == data["model_id"]
         assert dumped["idempotency_key"] == data["idempotency_key"]
         assert dumped["attestation_hash"] == data["attestation_hash"]
+        assert dumped["totalSamples"] == data["totalSamples"]
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +353,8 @@ class TestMintRequestPublisher:
         parsed = json.loads(raw)
         assert parsed["model_id"] == "model-a"
         assert parsed["message_type"] == "mint_request"
+        assert parsed["totalSamples"] == 1000
+        assert "total_samples" not in parsed
 
     def test_published_payload_round_trips_through_pydantic(self) -> None:
         pub, client = self._make_publisher()
@@ -335,6 +364,13 @@ class TestMintRequestPublisher:
         recovered = MintRequest.model_validate_json(raw)
         assert recovered.model_id == msg.model_id
         assert recovered.idempotency_key == msg.idempotency_key
+        assert recovered.total_samples == msg.total_samples
+
+    def test_model_dump_json_by_alias_uses_total_samples_alias(self) -> None:
+        msg = _valid_mint_request()
+        parsed = json.loads(msg.model_dump_json(by_alias=True))
+        assert parsed["totalSamples"] == msg.total_samples
+        assert "total_samples" not in parsed
 
     def test_publish_multiple_messages_ordered_lifo_lpush(self) -> None:
         pub, client = self._make_publisher()
@@ -563,7 +599,7 @@ class TestBuildMintRequest:
 
     def test_no_context_raises_on_empty_contributors(self) -> None:
         event = _make_acceptance_event()
-        with pytest.raises(EventPayloadError, match="contributors"):
+        with pytest.raises(EventPayloadError, match="totalSamples"):
             _build_mint_request(event, None)
 
     def test_idempotency_key_preserved_from_acceptance_event(self) -> None:
@@ -584,6 +620,26 @@ class TestBuildMintRequest:
         msg = _build_mint_request(event, ctx)
         assert msg.evaluation.sample_size_baseline == 900
         assert msg.evaluation.sample_size_candidate == 1000
+        assert msg.total_samples == 1000
+        assert msg.total_samples == msg.evaluation.sample_size_candidate
+
+    @pytest.mark.parametrize("n_current", [1, 0, -1, None, True])
+    def test_total_samples_validation_from_decision(self, n_current) -> None:
+        event = _make_acceptance_event()
+        contribs = [
+            {"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 10000}
+        ]
+        ctx = self._make_ctx_with_contributors(contribs)
+        ctx.decision.n_current = n_current
+
+        if n_current is not True and n_current == 1:
+            msg = _build_mint_request(event, ctx)
+            assert msg.total_samples == 1
+            assert msg.evaluation.sample_size_candidate == 1
+            return
+
+        with pytest.raises(EventPayloadError, match="totalSamples"):
+            _build_mint_request(event, ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -818,7 +874,7 @@ class TestOrchestratorPublishesOnAcceptance:
         class TrackingPublisher:
             def publish(self, message: MintRequest) -> None:
                 call_order.append("publish")
-                fake_client.lpush(QUEUE_NAME, message.model_dump_json())
+                fake_client.lpush(QUEUE_NAME, message.model_dump_json(by_alias=True))
 
         decision = _make_decision(accepted=True)
         evaluator = Mock()
