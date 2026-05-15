@@ -33,6 +33,7 @@ That post-mint split is reported only after the secondary HTTP mint hook returns
 | `eval_id` | string | Evaluation run identifier |
 | `attestation_hash` | `0x`-prefixed 64-hex | SHA-256 of HEM payload |
 | `idempotency_key` | `0x`-prefixed 64-hex | Canonical dedup key (see below) |
+| `totalSamples` | integer `>= 1` | Required top-level sample count for DeltaVerifier ABI |
 | `evaluation` | object | Scores, costs, statistical metadata |
 | `contributors` | array | Wallet addresses + `weight_bps` (must sum to 10000) |
 
@@ -51,6 +52,8 @@ All score fields are in **basis points** (0–10000). Cost fields are in **USDC 
 | `ci_low_bps` / `ci_high_bps` | Optional — 95% CI in bps |
 | `p_value` | Optional |
 | `statistical_method` | Optional |
+
+`totalSamples` is camelCase to match the downstream DeltaVerifier ABI. The producer derives it from the accepted DeltaOne decision with the rule `totalSamples = evaluation.sample_size_candidate = decision.n_current`.
 
 ## Idempotency Key
 
@@ -74,6 +77,8 @@ The sequence within `DeltaOneMintOrchestrator._execute_mint()` for accepted eval
 6. Call `mint_hook.mint()` as a secondary audit or dry-run action
 
 If `publish()` raises a `RedisError`, the exception propagates and steps 5-6 are never reached. This preserves the recovery invariant: a crash between detection and publish means the next evaluation re-detects the improvement and re-publishes.
+
+If the producer cannot derive a positive integer candidate sample size from the accepted DeltaOne decision, MintRequest construction fails closed before Redis publish. In that case, canonical score advancement and the legacy mint hook are both skipped.
 
 Legacy hook failures, skips, and dry-runs do not roll back the already durable Redis handoff or the canonical advancement. They are recorded separately in MLflow tags such as `hokusai.mint.legacy_status`.
 

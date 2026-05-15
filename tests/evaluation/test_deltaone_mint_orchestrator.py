@@ -109,6 +109,9 @@ def test_acceptance_publish_success_advances_canonical_score(monkeypatch) -> Non
     assert client.tags["hokusai.canonical_score_run_id"] == "run-candidate"
     assert client.tags["hokusai.mint.status"] == "published"
     assert client.tags["hokusai.mint.legacy_status"] == "success"
+    payload = json.loads(redis_client.lindex(QUEUE_NAME, 0))
+    assert payload["totalSamples"] == 1000
+    assert payload["evaluation"]["sample_size_candidate"] == 1000
     mint_hook.mint.assert_called_once()
     assert (
         mint_hook.mint.call_args.kwargs["idempotency_key"]
@@ -147,6 +150,39 @@ def test_publish_failure_does_not_advance_canonical_score(monkeypatch) -> None:
 
     assert "hokusai.canonical_score" not in client.tags
     assert client.tags["hokusai.mint.status"] == "requested"
+    mint_hook.mint.assert_not_called()
+
+
+@pytest.mark.parametrize("n_current", [0, -1, None, True])
+def test_invalid_candidate_sample_size_aborts_publish_and_canonical_advance(
+    monkeypatch, n_current
+) -> None:
+    decision = _accepted_decision()
+    decision.n_current = n_current
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+
+    mint_hook = Mock()
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        Mock(return_value=[]),
+    )
+
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+    )
+
+    with pytest.raises(ValueError, match="totalSamples"):
+        orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert redis_client.llen(QUEUE_NAME) == 0
+    assert "hokusai.canonical_score" not in client.tags
     mint_hook.mint.assert_not_called()
 
 

@@ -231,6 +231,12 @@
       "title": "Idempotency Key",
       "type": "string"
     },
+    "totalSamples": {
+      "description": "Total sample count submitted to DeltaVerifier, derived from accepted candidate samples",
+      "minimum": 1,
+      "title": "Totalsamples",
+      "type": "integer"
+    },
     "evaluation": {
       "$ref": "#/$defs/MintRequestEvaluation"
     },
@@ -251,6 +257,7 @@
     "eval_id",
     "attestation_hash",
     "idempotency_key",
+    "totalSamples",
     "evaluation",
     "contributors"
   ],
