@@ -75,6 +75,11 @@ log/
 .env.test.local
 .env.production.local
 
+# Wavemill local state
+.wavemill/
+.wavemill-config.json
+.wavemill-config.json.backup
+
 # Coverage reports
 htmlcov/
 .tox/
