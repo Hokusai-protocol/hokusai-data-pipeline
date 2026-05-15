@@ -78,6 +78,7 @@ log/
 # Wavemill local state
 .wavemill/
 .wavemill-config.json
+.wavemill-config.local.json
 .wavemill-config.json.backup
 
 # Coverage reports
