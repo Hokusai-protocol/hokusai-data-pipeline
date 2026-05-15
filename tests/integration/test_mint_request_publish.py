@@ -29,7 +29,11 @@ _SPEC_ID = "spec-integration-v1"
 _MODEL_ID_UINT = "99001"
 
 
-def _make_decision(accepted: bool = True) -> DeltaOneDecision:
+def _make_decision(
+    accepted: bool = True,
+    metric_name: str = "workflow_success_rate_under_budget",
+    n_current: int = 1000,
+) -> DeltaOneDecision:
     return DeltaOneDecision(
         accepted=accepted,
         reason="accepted" if accepted else "delta_below_threshold",
@@ -37,11 +41,11 @@ def _make_decision(accepted: bool = True) -> DeltaOneDecision:
         baseline_run_id="run-base",
         model_id="model-integration",
         dataset_hash="sha256:" + "a" * 64,
-        metric_name="workflow_success_rate_under_budget",
+        metric_name=metric_name,
         delta_percentage_points=2.5,
         ci95_low_percentage_points=0.5,
         ci95_high_percentage_points=4.5,
-        n_current=1000,
+        n_current=n_current,
         n_baseline=1000,
         evaluated_at=datetime.now(timezone.utc),
     )
@@ -66,6 +70,13 @@ def _make_spec() -> dict:
             {"wallet_address": "0x6c3e007f281f6948b37c511a11e43c8026d2f069", "weight_bps": 3000},
         ],
     }
+
+
+def _make_technical_task_router_spec() -> dict:
+    spec = _make_spec()
+    spec["task_type"] = "technical_task_router"
+    spec["eval_spec"]["primary_metric"]["name"] = "technical_task_router.benchmark_score/v1"
+    return spec
 
 
 class _FakeMlflowClient:
@@ -149,11 +160,16 @@ class TestMintRequestPublishIntegration:
 
         raw = fake_redis_client.lindex(QUEUE_NAME, 0)
         msg = MintRequest.model_validate_json(raw)
+        payload = json.loads(raw)
 
         assert msg.model_id == "model-integration"
         assert msg.eval_id == _EVAL_ID
         assert msg.message_type == "mint_request"
         assert msg.schema_version == "1.0"
+        assert msg.total_samples > 0
+        assert msg.total_samples == msg.evaluation.sample_size_candidate
+        assert payload["totalSamples"] == msg.total_samples
+        assert "total_samples" not in payload
 
     def test_contributors_present_and_sum_to_10000(self, orchestrator, fake_redis_client) -> None:
         orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
@@ -262,3 +278,49 @@ class TestMintRequestPublishIntegration:
         assert mlflow_client.tags["hokusai.mint.status"] == "published"
         assert mlflow_client.tags["hokusai.mint.legacy_status"] == "dry_run"
         assert fake_redis_client.llen(QUEUE_NAME) == 1
+
+    def test_technical_task_router_spec_emits_total_samples(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        evaluator = Mock()
+        evaluator.evaluate_for_model.return_value = _make_decision(
+            accepted=True,
+            metric_name="technical_task_router.benchmark_score/v1",
+            n_current=4,
+        )
+        evaluator.delta_threshold_pp = 1.0
+        mint_hook = Mock()
+        mint_hook.mint.return_value = TokenMintResult(
+            status="success",
+            audit_ref="audit-integration",
+            timestamp=datetime.now(timezone.utc),
+        )
+        mlflow_client = _FakeMlflowClient(
+            run_metrics={
+                "technical_task_router.benchmark_score/v1": 0.87,
+                "technical_task_router_benchmark_score_v1": 0.87,
+            },
+            initial_tags={
+                "hokusai.eval_id": _EVAL_ID,
+                "hokusai.actual_cost_usd": "2.34",
+            },
+        )
+        publisher = MintRequestPublisher(redis_client=fake_redis_client)
+        orch = DeltaOneMintOrchestrator(
+            evaluator=evaluator,
+            mint_hook=mint_hook,
+            mlflow_client=mlflow_client,
+            mint_request_publisher=publisher,
+        )
+
+        orch.process_evaluation_with_spec(
+            "run-cand", "run-base", _make_technical_task_router_spec()
+        )
+
+        payload = json.loads(fake_redis_client.lindex(QUEUE_NAME, 0))
+        assert payload["totalSamples"] == 4
+        assert payload["evaluation"]["sample_size_candidate"] == 4

@@ -73,7 +73,7 @@ class MintRequestPublisher:
         Redis errors propagate to the caller — a failed publish must prevent
         canonical baseline advancement (HOK-1276 recovery contract).
         """
-        payload = message.model_dump_json()
+        payload = message.model_dump_json(by_alias=True)
         try:
             self._client.lpush(QUEUE_NAME, payload)
         except RedisError:

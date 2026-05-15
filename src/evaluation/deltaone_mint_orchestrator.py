@@ -986,27 +986,35 @@ def _build_mint_request(
     metric_family = acceptance_event.metric_family
     sample_size_baseline: int | None = None
     sample_size_candidate: int | None = None
+    total_samples: int | None = None
     ci_low_bps: int | None = None
     ci_high_bps: int | None = None
     statistical_reason: str | None = None
 
-    if ctx_decision is not None:
-        sample_size_baseline = ctx_decision.n_baseline if ctx_decision.n_baseline else None
-        sample_size_candidate = ctx_decision.n_current if ctx_decision.n_current else None
-        statistical_reason = ctx_decision.reason
+    if ctx_decision is None:
+        raise EventPayloadError(
+            "totalSamples",
+            "accepted MintRequest requires event_context.decision to derive "
+            "sample_size_candidate and totalSamples",
+        )
 
-        if ctx_decision.ci95_low_percentage_points is not None:
-            try:
-                ci_low_raw = ctx_decision.ci95_low_percentage_points / 100.0
-                ci_low_bps = to_basis_points(min(max(ci_low_raw, 0.0), 1.0), metric_family)
-            except (EventPayloadError, ValueError):
-                ci_low_bps = None
-        if ctx_decision.ci95_high_percentage_points is not None:
-            try:
-                ci_high_raw = ctx_decision.ci95_high_percentage_points / 100.0
-                ci_high_bps = to_basis_points(min(max(ci_high_raw, 0.0), 1.0), metric_family)
-            except (EventPayloadError, ValueError):
-                ci_high_bps = None
+    sample_size_baseline = _coerce_optional_nonnegative_sample_size(ctx_decision.n_baseline)
+    total_samples = _derive_total_samples(ctx_decision.n_current)
+    sample_size_candidate = total_samples
+    statistical_reason = ctx_decision.reason
+
+    if ctx_decision.ci95_low_percentage_points is not None:
+        try:
+            ci_low_raw = ctx_decision.ci95_low_percentage_points / 100.0
+            ci_low_bps = to_basis_points(min(max(ci_low_raw, 0.0), 1.0), metric_family)
+        except (EventPayloadError, ValueError):
+            ci_low_bps = None
+    if ctx_decision.ci95_high_percentage_points is not None:
+        try:
+            ci_high_raw = ctx_decision.ci95_high_percentage_points / 100.0
+            ci_high_bps = to_basis_points(min(max(ci_high_raw, 0.0), 1.0), metric_family)
+        except (EventPayloadError, ValueError):
+            ci_high_bps = None
 
     _FAMILY_TO_STAT_METHOD: dict[str, str] = {
         "proportion": "two_proportion_z",
@@ -1074,9 +1082,33 @@ def _build_mint_request(
         eval_id=acceptance_event.eval_id,
         attestation_hash=acceptance_event.attestation_hash,
         idempotency_key=acceptance_event.idempotency_key,
+        total_samples=total_samples,
         evaluation=evaluation,
         contributors=contributor_models,
     )
+
+
+def _coerce_optional_nonnegative_sample_size(value: Any) -> int | None:
+    """Return a non-negative integer sample size, or None when missing/invalid."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if value >= 0 else None
+
+
+def _derive_total_samples(value: Any) -> int:
+    """Derive the required top-level totalSamples field from decision.n_current."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise EventPayloadError(
+            "totalSamples",
+            "sample_size_candidate / totalSamples must be a positive integer "
+            "derived from decision.n_current",
+        )
+    if value <= 0:
+        raise EventPayloadError(
+            "totalSamples",
+            f"sample_size_candidate / totalSamples must be >= 1; got {value}",
+        )
+    return value
 
 
 def _normalize_weights_to_10000(

@@ -248,7 +248,7 @@ class MintRequest(BaseModel):
     All SHA-256 hashes are lowercase 0x-prefixed.
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
     # Envelope fields
     message_type: Literal["mint_request"] = MINT_REQUEST_MESSAGE_TYPE
@@ -267,6 +267,16 @@ class MintRequest(BaseModel):
     attestation_hash: str = Field(..., description="SHA-256 of HEM payload, 0x-prefixed 64-hex")
     idempotency_key: str = Field(
         ..., description="sha256(model_id_uint:eval_id:attestation_hash), 0x-prefixed"
+    )
+
+    total_samples: int = Field(
+        ...,
+        alias="totalSamples",
+        ge=1,
+        description=(
+            "Total sample count submitted to DeltaVerifier, "
+            "derived from accepted candidate samples"
+        ),
     )
 
     # Evaluation payload

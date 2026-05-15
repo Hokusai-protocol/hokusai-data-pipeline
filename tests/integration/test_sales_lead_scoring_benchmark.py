@@ -180,9 +180,13 @@ def test_above_threshold_rows_emit_valid_acceptance_event_and_mint_request(monke
     assert outcome.acceptance_event.guardrail_summary.guardrails_passed == 2
 
     assert len(publisher.messages) == 1
-    published = MintRequest.model_validate_json(publisher.messages[0].model_dump_json())
+    published = MintRequest.model_validate_json(
+        publisher.messages[0].model_dump_json(by_alias=True)
+    )
     assert published.model_id == MODEL_ID
     assert published.eval_id == EVAL_ID
+    assert published.total_samples == 3
+    assert published.total_samples == published.evaluation.sample_size_candidate
     assert published.evaluation.metric_name == "sales:qualified_meeting_rate"
     assert published.evaluation.metric_family == "proportion"
     assert published.evaluation.new_score_bps == 10000
