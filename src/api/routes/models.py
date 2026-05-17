@@ -1,5 +1,6 @@
 """Model-related API endpoints."""
 
+import asyncio
 import json
 import logging
 import re
@@ -199,7 +200,8 @@ async def create_tokenized_registration_event(
     )
 
     try:
-        event_emitted = get_registry_hooks().on_model_registered_with_baseline(
+        event_emitted = await asyncio.to_thread(
+            get_registry_hooks().on_model_registered_with_baseline,
             model_id=model_id,
             model_name=payload.model_name,
             model_version=payload.version,
