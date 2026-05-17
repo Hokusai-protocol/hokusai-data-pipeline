@@ -1,7 +1,9 @@
 """Model-related API endpoints."""
 
+import json
 import logging
 import re
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from slowapi import Limiter
@@ -14,9 +16,14 @@ from src.api.models import (
     ModelRegistration,
     ModelRegistrationResponse,
 )
+from src.api.schemas import (
+    TokenizedRegistrationEventRequest,
+    TokenizedRegistrationEventResponse,
+)
 from src.api.utils.config import get_settings
 from src.middleware.auth import require_auth
 from src.services.model_registry import HokusaiModelRegistry
+from src.services.model_registry_hooks import get_registry_hooks
 from src.services.performance_tracker import PerformanceTracker
 
 logger = logging.getLogger(__name__)
@@ -33,6 +40,27 @@ except ImportError:
 # Initialize services
 registry = HokusaiModelRegistry(tracking_uri=settings.mlflow_tracking_uri)
 tracker = PerformanceTracker()
+WRITE_SCOPES = {
+    "model:write",
+    "mlflow:write",
+    "mlflow:access",
+    "admin",
+    "mlflow:admin",
+    "write",
+    "full_access",
+}
+
+
+async def require_model_event_write_auth(request: Request) -> dict[str, Any]:
+    """Require authenticated caller with model registration event write access."""
+    auth = await require_auth(request)
+    scopes = auth.get("scopes") or []
+    if not any(scope in WRITE_SCOPES for scope in scopes):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions for model registration events",
+        )
+    return auth
 
 
 @router.get("/")
@@ -137,6 +165,88 @@ async def register_model(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to register model"
         ) from e
+
+
+@router.post(
+    "/tokenized-registration-events",
+    response_model=TokenizedRegistrationEventResponse,
+)
+@limiter.limit("30/minute")
+async def create_tokenized_registration_event(
+    request: Request,
+    payload: TokenizedRegistrationEventRequest,
+    auth: dict[str, Any] = Depends(require_model_event_write_auth),
+):
+    """Emit a post-registration hook event for a tokenized MLflow registration."""
+    user_id = str(auth["user_id"])
+    current_value = (
+        payload.current_value if payload.current_value is not None else payload.baseline_value
+    )
+    model_uri = payload.model_uri or f"models:/{payload.model_name}/{payload.version}"
+    model_id = f"{payload.model_name}/{payload.version}/{payload.token_id}"
+
+    tags = dict(payload.tags or {})
+    tags["user_id"] = user_id
+    tags.setdefault("proposal_identifier", payload.proposal_identifier)
+
+    logger.info(
+        "Processing tokenized registration event: model_name=%s version=%s run_id=%s user_id=%s",
+        payload.model_name,
+        payload.version,
+        payload.mlflow_run_id,
+        user_id,
+    )
+
+    try:
+        event_emitted = get_registry_hooks().on_model_registered_with_baseline(
+            model_id=model_id,
+            model_name=payload.model_name,
+            model_version=payload.version,
+            mlflow_run_id=payload.mlflow_run_id,
+            token_id=payload.token_id,
+            metric_name=payload.metric_name,
+            baseline_value=payload.baseline_value,
+            current_value=current_value,
+            tags=tags,
+            model_uri=model_uri,
+            api_schema=payload.api_schema,
+        )
+    except Exception:
+        logger.exception(
+            "Tokenized registration hook failed: model_name=%s version=%s run_id=%s user_id=%s",
+            payload.model_name,
+            payload.version,
+            payload.mlflow_run_id,
+            user_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to emit model registration event",
+        ) from None
+
+    if not event_emitted:
+        logger.warning(
+            (
+                "Tokenized registration hook returned failure: "
+                "model_name=%s version=%s run_id=%s tags=%s"
+            ),
+            payload.model_name,
+            payload.version,
+            payload.mlflow_run_id,
+            json.dumps(tags, sort_keys=True),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to emit model registration event",
+        )
+
+    return TokenizedRegistrationEventResponse(
+        status="ok",
+        model_id=model_id,
+        model_name=payload.model_name,
+        version=payload.version,
+        event_emitted=True,
+    )
 
 
 @router.get("/{model_name}/{version}")

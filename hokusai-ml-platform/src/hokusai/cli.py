@@ -18,6 +18,7 @@ import click
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SITE_WEBHOOK_URL = "https://hokus.ai/api/webhooks/model-registration"
+_DEFAULT_API_ENDPOINT = "https://api.hokus.ai"
 
 
 @click.group()
@@ -69,6 +70,7 @@ def model() -> None:
 @click.option(
     "--site-webhook-url",
     default=None,
+    hidden=True,
     help=(
         "URL of the Hokusai site webhook endpoint. "
         f"Defaults to HOKUSAI_SITE_WEBHOOK_URL, WEBHOOK_URL, or {_DEFAULT_SITE_WEBHOOK_URL}."
@@ -77,7 +79,14 @@ def model() -> None:
 @click.option(
     "--webhook-secret",
     default=None,
+    hidden=True,
     help="HMAC secret for signing the site notification. Defaults to HOKUSAI_SITE_WEBHOOK_SECRET.",
+)
+@click.option(
+    "--use-legacy-webhook",
+    is_flag=True,
+    hidden=True,
+    help="Internal/debug fallback to notify the site directly instead of the data pipeline API.",
 )
 def register_model(
     token_id: str,
@@ -91,6 +100,7 @@ def register_model(
     api_endpoint: str | None,
     site_webhook_url: str | None,
     webhook_secret: str | None,
+    use_legacy_webhook: bool,
 ) -> None:
     """Register a local model artifact without requiring a repository checkout."""
     ModelRegistry = _load_model_registry()
@@ -130,25 +140,38 @@ def register_model(
     click.echo(f"  MLflow run ID: {result['mlflow_run_id']}")
     click.echo(f"  Status: {result['status']}")
 
-    click.echo("Notifying Hokusai site of registration...")
     model_uri = f"models:/{result['model_name']}/{result['version']}"
     api_schema = _derive_api_schema_from_uri(model_uri)
-    notified = _notify_site_of_registration(
-        result,
-        site_webhook_url=site_webhook_url,
-        webhook_secret=webhook_secret,
-        api_schema=api_schema,
-    )
-    if notified:
-        click.echo("  Site notified successfully.")
-    else:
+    if (site_webhook_url or webhook_secret) and not use_legacy_webhook:
         click.echo(
-            "  Warning: site notification failed. The model is registered in MLflow but the "
-            "Hokusai site may not reflect the new status yet. Check HOKUSAI_SITE_WEBHOOK_SECRET "
-            "/ WEBHOOK_SECRET and HOKUSAI_SITE_WEBHOOK_URL / WEBHOOK_URL, then re-run with the "
-            "same arguments or contact support.",
+            "Warning: --site-webhook-url and --webhook-secret are ignored unless "
+            "--use-legacy-webhook is set.",
             err=True,
         )
+
+    if use_legacy_webhook:
+        click.echo("Notifying Hokusai site of registration...")
+        notified = _notify_site_of_registration(
+            result,
+            site_webhook_url=site_webhook_url,
+            webhook_secret=webhook_secret,
+            api_schema=api_schema,
+        )
+        if not notified:
+            raise click.ClickException("Legacy site notification failed.")
+        click.echo("  Site notified successfully.")
+        return
+
+    click.echo("Notifying Hokusai data pipeline of registration...")
+    _notify_pipeline_of_registration(
+        result,
+        api_key=api_key,
+        api_endpoint=api_endpoint,
+        registry=registry,
+        model_uri=model_uri,
+        api_schema=api_schema,
+    )
+    click.echo("  Data pipeline notified successfully.")
 
 
 def _derive_api_schema_from_uri(model_uri: str) -> Optional[dict[str, Any]]:
@@ -294,6 +317,92 @@ def _notify_site_of_registration(
     except Exception as exc:
         logger.warning("Site notification failed: %s", exc)
         return False
+
+
+def _resolve_api_endpoint(*, api_endpoint: str | None) -> str:
+    """Resolve the base API endpoint for pipeline notifications.
+
+    The registry's auth endpoint is intentionally excluded: it points to the MLflow
+    registry (registry.hokus.ai), not the data pipeline API (api.hokus.ai).
+    """
+    resolved = (
+        api_endpoint
+        or os.environ.get("HOKUSAI_API_ENDPOINT")
+        or os.environ.get("HOKUSAI_API_URL")
+        or _DEFAULT_API_ENDPOINT
+    )
+    return resolved.rstrip("/")
+
+
+def _build_pipeline_registration_event_url(api_endpoint: str) -> str:
+    """Build the registration-event endpoint for either bare or /api-suffixed bases."""
+    if api_endpoint.endswith("/api"):
+        return f"{api_endpoint}/models/tokenized-registration-events"
+    return f"{api_endpoint}/api/models/tokenized-registration-events"
+
+
+def _notify_pipeline_of_registration(
+    result: dict[str, Any],
+    *,
+    api_key: str | None = None,
+    api_endpoint: str | None = None,
+    registry: Any | None = None,
+    model_uri: str | None = None,
+    api_schema: Optional[dict[str, Any]] = None,
+) -> bool:
+    """POST tokenized registration metadata to the data pipeline API."""
+    resolved_api_key = (
+        api_key
+        or getattr(getattr(registry, "_auth", None), "api_key", None)
+        or os.environ.get("HOKUSAI_API_KEY")
+    )
+    if not resolved_api_key:
+        raise click.ClickException(
+            "HOKUSAI_API_KEY is required to notify the data pipeline after model registration."
+        )
+
+    resolved_endpoint = _resolve_api_endpoint(api_endpoint=api_endpoint)
+    url = _build_pipeline_registration_event_url(resolved_endpoint)
+
+    payload: dict[str, Any] = {
+        "model_name": result["model_name"],
+        "version": str(result["version"]),
+        "token_id": result["token_id"],
+        "proposal_identifier": result["proposal_identifier"],
+        "metric_name": result["metric_name"],
+        "baseline_value": result["baseline_value"],
+        "mlflow_run_id": result["mlflow_run_id"],
+        "model_uri": model_uri or f"models:/{result['model_name']}/{result['version']}",
+        "tags": result.get("tags") or {},
+    }
+    if api_schema is not None:
+        payload["api_schema"] = api_schema
+
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    req = urllib.request.Request(url, data=body, method="POST")  # noqa: S310
+    req.add_header("Authorization", f"Bearer {resolved_api_key}")
+    req.add_header("Content-Type", "application/json")
+
+    try:
+        with urllib.request.urlopen(req, timeout=15):  # noqa: S310
+            return True
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            response_body = exc.read().decode("utf-8").strip()
+        except Exception:
+            response_body = ""
+        if response_body:
+            detail = f" {response_body}"
+        raise click.ClickException(
+            f"Pipeline registration notification failed with HTTP {exc.code}.{detail}"
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise click.ClickException(
+            f"Pipeline registration notification failed: could not connect to {url} ({exc.reason})."
+        ) from exc
+    except OSError as exc:
+        raise click.ClickException(f"Pipeline registration notification failed: {exc}.") from exc
 
 
 def _log_model_artifact(
