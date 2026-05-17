@@ -66,6 +66,27 @@ class TestRedisPublisher:
         assert envelope["payload"] == message
         assert "message_id" in envelope
 
+    def test_publish_accepts_serialized_message_timestamp(self, mock_redis):
+        publisher = RedisPublisherWithCircuitBreaker()
+        message = {
+            "model_id": "test-model-123",
+            "token_symbol": "test-token",
+            "metric_name": "accuracy",
+            "baseline_value": 0.8,
+            "current_value": 0.85,
+            "model_name": "test_model",
+            "model_version": "1",
+            "mlflow_run_id": "abc123",
+            "timestamp": "2026-05-17T21:40:44.294000",
+        }
+
+        result = publisher.publish(message)
+
+        assert result is True
+        _, message_json = mock_redis.lpush.call_args[0]
+        envelope = json.loads(message_json)
+        assert envelope["timestamp"] == "2026-05-17T21:40:44.294000"
+
     def test_publish_failure_after_retries(self, mock_redis):
         publisher = RedisPublisherWithCircuitBreaker(
             retry_config={"max_retries": 1, "base_delay": 0.01, "max_delay": 0.01}

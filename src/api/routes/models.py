@@ -183,6 +183,7 @@ async def create_tokenized_registration_event(
         payload.current_value if payload.current_value is not None else payload.baseline_value
     )
     model_uri = payload.model_uri or f"models:/{payload.model_name}/{payload.version}"
+    hook_model_uri = model_uri if payload.api_schema is not None else None
     model_id = f"{payload.model_name}/{payload.version}/{payload.token_id}"
 
     tags = dict(payload.tags or {})
@@ -208,7 +209,7 @@ async def create_tokenized_registration_event(
             baseline_value=payload.baseline_value,
             current_value=current_value,
             tags=tags,
-            model_uri=model_uri,
+            model_uri=hook_model_uri,
             api_schema=payload.api_schema,
         )
     except Exception:
