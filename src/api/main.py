@@ -96,6 +96,7 @@ async def root() -> dict[str, Any]:
 
 
 app.include_router(models.router, prefix="/models", tags=["models"])
+app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(dspy.router, tags=["dspy"])
 app.include_router(evaluations.router)
 app.include_router(privacy.router)
