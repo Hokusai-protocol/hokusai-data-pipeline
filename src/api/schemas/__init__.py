@@ -22,6 +22,10 @@ from .inference_log import (
     OutcomeSubmission,
     OutcomeSubmissionResponse,
 )
+from .model_registration_event import (
+    TokenizedRegistrationEventRequest,
+    TokenizedRegistrationEventResponse,
+)
 from .token_mint import TokenMintRequest, TokenMintResult, TokenMintVestingDetails
 
 __all__ = [
@@ -44,4 +48,6 @@ __all__ = [
     "InferenceLogResponse",
     "OutcomeSubmission",
     "OutcomeSubmissionResponse",
+    "TokenizedRegistrationEventRequest",
+    "TokenizedRegistrationEventResponse",
 ]
