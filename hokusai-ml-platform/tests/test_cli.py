@@ -238,7 +238,7 @@ def test_model_register_notifies_pipeline_by_default(tmp_path: Path) -> None:
         )
 
     assert result.exit_code == 0, result.output
-    assert captured["url"] == "https://registry.hokus.ai/api/models/tokenized-registration-events"
+    assert captured["url"] == "https://api.hokus.ai/api/models/tokenized-registration-events"
     assert captured["headers"]["Authorization"] == "Bearer test-key"
     assert captured["body"]["model_name"] == "hokusai-MSG-AI"
     assert captured["body"]["version"] == "7"

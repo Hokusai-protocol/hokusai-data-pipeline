@@ -18,7 +18,7 @@ import click
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SITE_WEBHOOK_URL = "https://hokus.ai/api/webhooks/model-registration"
-_DEFAULT_API_ENDPOINT = "https://registry.hokus.ai/api"
+_DEFAULT_API_ENDPOINT = "https://api.hokus.ai"
 
 
 @click.group()
@@ -319,11 +319,14 @@ def _notify_site_of_registration(
         return False
 
 
-def _resolve_api_endpoint(*, api_endpoint: str | None, registry: Any | None = None) -> str:
-    """Resolve the base API endpoint for pipeline notifications."""
+def _resolve_api_endpoint(*, api_endpoint: str | None) -> str:
+    """Resolve the base API endpoint for pipeline notifications.
+
+    The registry's auth endpoint is intentionally excluded: it points to the MLflow
+    registry (registry.hokus.ai), not the data pipeline API (api.hokus.ai).
+    """
     resolved = (
         api_endpoint
-        or getattr(getattr(registry, "_auth", None), "api_endpoint", None)
         or os.environ.get("HOKUSAI_API_ENDPOINT")
         or os.environ.get("HOKUSAI_API_URL")
         or _DEFAULT_API_ENDPOINT
@@ -358,7 +361,7 @@ def _notify_pipeline_of_registration(
             "HOKUSAI_API_KEY is required to notify the data pipeline after model registration."
         )
 
-    resolved_endpoint = _resolve_api_endpoint(api_endpoint=api_endpoint, registry=registry)
+    resolved_endpoint = _resolve_api_endpoint(api_endpoint=api_endpoint)
     url = _build_pipeline_registration_event_url(resolved_endpoint)
 
     payload: dict[str, Any] = {
@@ -381,12 +384,8 @@ def _notify_pipeline_of_registration(
     req.add_header("Content-Type", "application/json")
 
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
-            if 200 <= resp.status < 300:
-                return True
-            raise click.ClickException(
-                f"Pipeline registration notification failed with HTTP {resp.status}."
-            )
+        with urllib.request.urlopen(req, timeout=15):  # noqa: S310
+            return True
     except urllib.error.HTTPError as exc:
         detail = ""
         try:

@@ -63,7 +63,7 @@ def test_notify_pipeline_posts_expected_payload(monkeypatch: pytest.MonkeyPatch)
     with patch.object(cli_module.urllib.request, "urlopen", side_effect=fake_urlopen):
         assert _notify_pipeline_of_registration(SAMPLE_RESULT) is True
 
-    assert captured["url"] == "https://registry.hokus.ai/api/models/tokenized-registration-events"
+    assert captured["url"] == "https://api.hokus.ai/api/models/tokenized-registration-events"
     assert captured["headers"]["Authorization"] == "Bearer test-key"
     assert captured["body"]["model_name"] == "hokusai-HLEAD"
     assert captured["body"]["proposal_identifier"] == "HLEAD"
