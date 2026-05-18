@@ -97,7 +97,9 @@ hokusai model register \
 ```
 
 The packaged CLI uploads the local artifact into MLflow and registers it against the
-token without requiring a checkout of `hokusai-data-pipeline`.
+token without requiring a checkout of `hokusai-data-pipeline`. By default, the same
+command also emits the tokenized registration event that updates the Hokusai site.
+Use `--no-notify-site` only for tests or recovery workflows.
 
 Or use the Python SDK directly:
 
