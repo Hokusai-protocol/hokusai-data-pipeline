@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+EVAL_SPEC_TAG = "hokusai.eval_spec"
 PRIMARY_METRIC_TAG = "hokusai.primary_metric"
 MLFLOW_NAME_TAG = "hokusai.mlflow_name"
 DATASET_HASH_TAG = "hokusai.dataset.hash"  # dotted form — DeltaOne/HEM convention
@@ -13,5 +14,6 @@ STATUS_TAG = "hokusai.eval.status"
 FAILURE_REASON_TAG = "hokusai.eval.failure_reason"
 PROJECTED_COST_TAG = "hokusai.eval.projected_cost_usd"
 ACTUAL_COST_TAG = "hokusai.eval.actual_cost_usd"
-EVAL_SPEC_ID_TAG = "hokusai.benchmark_spec_id"
+BENCHMARK_SPEC_ID_TAG = "hokusai.benchmark_spec_id"
+EVAL_SPEC_ID_TAG = BENCHMARK_SPEC_ID_TAG
 PER_ROW_ARTIFACT_URI_TAG = "hokusai.per_row_artifact_uri"

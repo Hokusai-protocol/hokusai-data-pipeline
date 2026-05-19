@@ -13,6 +13,12 @@ from ..exceptions import NotificationError
 DEFAULT_API_ENDPOINT = "https://api.hokus.ai"
 REGISTRATION_EVENT_PATH = "/api/models/tokenized-registration-events"
 MAX_ERROR_BODY_LENGTH = 1000
+OPTIONAL_REGISTRATION_FIELDS = (
+    "eval_spec",
+    "scorer_ref",
+    "primary_metric",
+    "benchmark_spec_id",
+)
 
 
 def resolve_registration_event_api_endpoint(api_endpoint: str | None = None) -> str:
@@ -53,6 +59,10 @@ def build_registration_event_payload(
     }
     if api_schema is not None:
         payload["api_schema"] = api_schema
+    for field_name in OPTIONAL_REGISTRATION_FIELDS:
+        value = result.get(field_name)
+        if value is not None:
+            payload[field_name] = value
     return payload
 
 

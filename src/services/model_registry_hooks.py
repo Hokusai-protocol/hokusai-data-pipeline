@@ -44,6 +44,10 @@ class ModelRegistryHooks:
         experiment_name: Optional[str] = None,
         model_uri: Optional[str] = None,
         api_schema: Optional[dict[str, Any]] = None,
+        eval_spec: Optional[str] = None,
+        scorer_ref: Optional[str] = None,
+        primary_metric: Optional[str] = None,
+        benchmark_spec_id: Optional[str] = None,
     ) -> bool:
         """Hook called after a model is registered and passes baseline validation.
 
@@ -64,6 +68,10 @@ class ModelRegistryHooks:
             experiment_name: Optional experiment name
             model_uri: Optional MLflow model URI used to derive api_schema when api_schema is None
             api_schema: Optional pre-computed api_schema dict; takes precedence over model_uri
+            eval_spec: Optional eval spec identifier for the registration
+            scorer_ref: Optional scorer reference for the registration
+            primary_metric: Optional primary metric identifier for the registration
+            benchmark_spec_id: Optional benchmark spec identifier for the registration
 
         Returns:
         -------
@@ -110,6 +118,10 @@ class ModelRegistryHooks:
                 experiment_name=experiment_name,
                 tags=tags,
                 api_schema=resolved_api_schema,
+                eval_spec=eval_spec,
+                scorer_ref=scorer_ref,
+                primary_metric=primary_metric,
+                benchmark_spec_id=benchmark_spec_id,
             )
 
             if success:

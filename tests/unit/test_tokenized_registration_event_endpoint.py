@@ -14,6 +14,12 @@ os.environ.setdefault("DB_PASSWORD", "test-password")
 
 from src.api.routes.models import router  # noqa: E402
 from src.api.schemas import TokenizedRegistrationEventRequest  # noqa: E402
+from src.evaluation.tags import (  # noqa: E402
+    BENCHMARK_SPEC_ID_TAG,
+    EVAL_SPEC_TAG,
+    PRIMARY_METRIC_TAG,
+    SCORER_REF_TAG,
+)
 from src.middleware.auth import APIKeyAuthMiddleware, ValidationResult  # noqa: E402
 
 
@@ -93,6 +99,7 @@ def test_tokenized_registration_event_success(
     assert kwargs["tags"]["user_id"] == "user-123"
     assert kwargs["tags"]["proposal_identifier"] == "HLEAD"
     assert kwargs["tags"]["team"] == "growth"
+    assert EVAL_SPEC_TAG not in kwargs["tags"]
 
 
 def test_tokenized_registration_event_rejects_unauthenticated(
@@ -140,6 +147,26 @@ def test_tokenized_registration_event_validation_errors(
     assert response.status_code == 422
 
 
+def test_tokenized_registration_event_rejects_non_object_api_schema(
+    client: TestClient, payload: dict[str, object]
+) -> None:
+    """api_schema must be an object when present."""
+    request_payload = dict(payload)
+    request_payload["api_schema"] = "not-an-object"
+
+    with patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.validate_with_auth_service",
+        new=AsyncMock(return_value=_validation_result()),
+    ):
+        response = client.post(
+            "/api/models/tokenized-registration-events",
+            json=request_payload,
+            headers={"Authorization": "Bearer test-key"},
+        )
+
+    assert response.status_code == 422
+
+
 def test_tokenized_registration_event_schema_rejects_non_finite_values() -> None:
     """The request schema should reject Infinity/NaN numeric values."""
     with pytest.raises(ValidationError):
@@ -152,6 +179,51 @@ def test_tokenized_registration_event_schema_rejects_non_finite_values() -> None
             baseline_value=float("inf"),
             mlflow_run_id="run-123",
         )
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["eval_spec", "scorer_ref", "primary_metric", "benchmark_spec_id"],
+)
+def test_tokenized_registration_event_schema_rejects_blank_optional_metadata(
+    field_name: str,
+) -> None:
+    """Optional registration metadata must not accept blank strings."""
+    payload = {
+        "model_name": "Sales Lead Scoring",
+        "version": "7",
+        "token_id": "HLEAD",
+        "proposal_identifier": "HLEAD",
+        "metric_name": "accuracy",
+        "baseline_value": 0.10,
+        "mlflow_run_id": "run-123",
+        field_name: "   ",
+    }
+
+    with pytest.raises(ValidationError):
+        TokenizedRegistrationEventRequest(**payload)
+
+
+def test_tokenized_registration_event_schema_accepts_richer_metadata() -> None:
+    """Optional registration metadata should round-trip after whitespace trimming."""
+    request = TokenizedRegistrationEventRequest(
+        model_name="Sales Lead Scoring",
+        version="7",
+        token_id="HLEAD",
+        proposal_identifier="HLEAD",
+        metric_name="accuracy",
+        baseline_value=0.10,
+        mlflow_run_id="run-123",
+        eval_spec=" technical_task_router/v1 ",
+        scorer_ref=" technical_task_router.success_under_budget/v1 ",
+        primary_metric=" success_under_budget ",
+        benchmark_spec_id=" technical_task_router.success_under_budget/v1 ",
+    )
+
+    assert request.eval_spec == "technical_task_router/v1"
+    assert request.scorer_ref == "technical_task_router.success_under_budget/v1"
+    assert request.primary_metric == "success_under_budget"
+    assert request.benchmark_spec_id == "technical_task_router.success_under_budget/v1"
 
 
 def test_tokenized_registration_event_passes_explicit_values(
@@ -185,6 +257,61 @@ def test_tokenized_registration_event_passes_explicit_values(
     assert kwargs["api_schema"] == {"inputSchema": {"type": "object"}}
 
 
+def test_tokenized_registration_event_task_router_metadata_flows_through(
+    client: TestClient, payload: dict[str, object]
+) -> None:
+    """Task-router registrations should forward rich metadata in tags and hook kwargs."""
+    hooks = Mock()
+    hooks.on_model_registered_with_baseline.return_value = True
+    mlflow_client = Mock()
+    request_payload = dict(payload)
+    request_payload.update(
+        {
+            "eval_spec": "technical_task_router/v1",
+            "scorer_ref": "technical_task_router.success_under_budget/v1",
+            "primary_metric": "success_under_budget",
+            "benchmark_spec_id": "technical_task_router.success_under_budget/v1",
+        }
+    )
+
+    with (
+        patch(
+            "src.middleware.auth.APIKeyAuthMiddleware.validate_with_auth_service",
+            new=AsyncMock(return_value=_validation_result()),
+        ),
+        patch("src.api.routes.models.get_registry_hooks", return_value=hooks),
+        patch("src.api.routes.models.mlflow") as mlflow_module,
+    ):
+        mlflow_module.tracking.MlflowClient.return_value = mlflow_client
+        response = client.post(
+            "/api/models/tokenized-registration-events",
+            json=request_payload,
+            headers={"Authorization": "Bearer test-key"},
+        )
+
+    assert response.status_code == 200
+    _, kwargs = hooks.on_model_registered_with_baseline.call_args
+    assert kwargs["eval_spec"] == "technical_task_router/v1"
+    assert kwargs["scorer_ref"] == "technical_task_router.success_under_budget/v1"
+    assert kwargs["primary_metric"] == "success_under_budget"
+    assert kwargs["benchmark_spec_id"] == "technical_task_router.success_under_budget/v1"
+    assert kwargs["tags"][EVAL_SPEC_TAG] == "technical_task_router/v1"
+    assert kwargs["tags"][SCORER_REF_TAG] == "technical_task_router.success_under_budget/v1"
+    assert kwargs["tags"][PRIMARY_METRIC_TAG] == "success_under_budget"
+    assert kwargs["tags"][BENCHMARK_SPEC_ID_TAG] == "technical_task_router.success_under_budget/v1"
+    mlflow_client.set_model_version_tag.assert_any_call(
+        name="Sales Lead Scoring",
+        version="7",
+        key=EVAL_SPEC_TAG,
+        value="technical_task_router/v1",
+    )
+    mlflow_client.set_tag.assert_any_call(
+        "run-123",
+        SCORER_REF_TAG,
+        "technical_task_router.success_under_budget/v1",
+    )
+
+
 def test_tokenized_registration_event_does_not_derive_schema_server_side(
     client: TestClient, payload: dict[str, object]
 ) -> None:
@@ -211,6 +338,31 @@ def test_tokenized_registration_event_does_not_derive_schema_server_side(
     _, kwargs = hooks.on_model_registered_with_baseline.call_args
     assert kwargs["model_uri"] is None
     assert kwargs["api_schema"] is None
+
+
+def test_tokenized_registration_event_legacy_payload_skips_mlflow_metadata_mirroring(
+    client: TestClient, payload: dict[str, object]
+) -> None:
+    """Legacy payloads should not attempt rich metadata tag writes."""
+    hooks = Mock()
+    hooks.on_model_registered_with_baseline.return_value = True
+
+    with (
+        patch(
+            "src.middleware.auth.APIKeyAuthMiddleware.validate_with_auth_service",
+            new=AsyncMock(return_value=_validation_result()),
+        ),
+        patch("src.api.routes.models.get_registry_hooks", return_value=hooks),
+        patch("src.api.routes.models.mlflow") as mlflow_module,
+    ):
+        response = client.post(
+            "/api/models/tokenized-registration-events",
+            json=payload,
+            headers={"Authorization": "Bearer test-key"},
+        )
+
+    assert response.status_code == 200
+    mlflow_module.tracking.MlflowClient.assert_not_called()
 
 
 def test_tokenized_registration_event_returns_502_on_hook_failure(

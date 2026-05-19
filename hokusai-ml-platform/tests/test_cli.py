@@ -24,6 +24,14 @@ cli = cli_module.cli
 _REGISTER_CALLBACK = cli.commands["model"].commands["register"].callback
 _REGISTER_GLOBALS = _REGISTER_CALLBACK.__globals__
 
+SAMPLE_API_SCHEMA = {
+    "inputSchema": {
+        "type": "object",
+        "properties": {"prompt": {"type": "string"}},
+        "required": ["prompt"],
+    }
+}
+
 
 def test_model_register_uses_packaged_registry(tmp_path: Path) -> None:
     """The packaged CLI should register without any repo-local imports."""
@@ -87,6 +95,10 @@ def test_model_register_uses_packaged_registry(tmp_path: Path) -> None:
         metric_name="reply_rate",
         baseline_value=0.1342,
         additional_tags={"proposal_identifier": "MSG-AI"},
+        eval_spec=None,
+        scorer_ref=None,
+        primary_metric=None,
+        benchmark_spec_id=None,
         notify_site=True,
         best_effort_notification=False,
         api_schema=None,
@@ -143,7 +155,8 @@ def test_log_model_artifact_sets_mlflow_tracking_token(tmp_path: Path) -> None:
     def fake_start_run():
         token_seen.append(os.environ.get("MLFLOW_TRACKING_TOKEN"))
         return Mock(
-            __enter__=lambda s: Mock(info=Mock(run_id="run-abc")), __exit__=Mock(return_value=False)
+            __enter__=lambda s: Mock(info=Mock(run_id="run-abc")),
+            __exit__=Mock(return_value=False),
         )
 
     with (
@@ -219,6 +232,124 @@ def test_model_register_notifies_pipeline_by_default(tmp_path: Path) -> None:
     assert "Data pipeline notified successfully." in result.output
     notify_site.assert_not_called()
     mock_registry.register_tokenized_model.assert_called_once()
+
+
+def test_model_register_forwards_derived_api_schema_to_registry(tmp_path: Path) -> None:
+    """CLI registration should pass derived api_schema into the shared registry path."""
+    runner = CliRunner()
+    artifact_path = tmp_path / "model.pkl"
+    artifact_path.write_text("test-model")
+
+    mock_registry = Mock()
+    mock_registry.tracking_uri = "file:///tmp/mlruns"
+    mock_registry._auth = Mock(api_key="test-key", api_endpoint="https://registry.hokus.ai/api")
+    mock_registry.register_tokenized_model.return_value = {
+        "model_name": "hokusai-MSG-AI",
+        "version": "7",
+        "token_id": "MSG-AI",
+        "proposal_identifier": "MSG-AI",
+        "metric_name": "reply_rate",
+        "baseline_value": 0.1342,
+        "mlflow_run_id": "run-123",
+        "status": "registered",
+        "event_emitted": True,
+        "site_status_update": "succeeded",
+    }
+
+    with (
+        patch.dict(
+            _REGISTER_GLOBALS,
+            {
+                "_load_model_registry": Mock(return_value=lambda **_: mock_registry),
+                "_log_model_artifact": Mock(return_value="runs:/run-123/model"),
+                "_derive_api_schema_from_uri": Mock(return_value=SAMPLE_API_SCHEMA),
+            },
+        ),
+        patch.object(cli_module, "_notify_site_of_registration") as notify_site,
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "model",
+                "register",
+                "--token-id",
+                "MSG-AI",
+                "--model-path",
+                str(artifact_path),
+                "--metric",
+                "reply_rate",
+                "--baseline",
+                "0.1342",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert (
+        mock_registry.register_tokenized_model.call_args.kwargs["api_schema"] == SAMPLE_API_SCHEMA
+    )
+    notify_site.assert_not_called()
+
+
+def test_model_register_forwards_richer_registration_metadata(tmp_path: Path) -> None:
+    """CLI flags should forward richer benchmark identity fields to the registry."""
+    runner = CliRunner()
+    artifact_path = tmp_path / "model.pkl"
+    artifact_path.write_text("test-model")
+
+    mock_registry = Mock()
+    mock_registry.tracking_uri = "file:///tmp/mlruns"
+    mock_registry._auth = Mock(api_key="test-key", api_endpoint="https://registry.hokus.ai/api")
+    mock_registry.register_tokenized_model.return_value = {
+        "model_name": "hokusai-MSG-AI",
+        "version": "7",
+        "token_id": "MSG-AI",
+        "proposal_identifier": "MSG-AI",
+        "metric_name": "reply_rate",
+        "baseline_value": 0.1342,
+        "mlflow_run_id": "run-123",
+        "status": "registered",
+        "event_emitted": True,
+        "site_status_update": "succeeded",
+    }
+
+    with patch.dict(
+        _REGISTER_GLOBALS,
+        {
+            "_load_model_registry": Mock(return_value=lambda **_: mock_registry),
+            "_log_model_artifact": Mock(return_value="runs:/run-123/model"),
+            "_derive_api_schema_from_uri": Mock(return_value=None),
+        },
+    ):
+        result = runner.invoke(
+            cli,
+            [
+                "model",
+                "register",
+                "--token-id",
+                "MSG-AI",
+                "--model-path",
+                str(artifact_path),
+                "--metric",
+                "reply_rate",
+                "--baseline",
+                "0.1342",
+                "--eval-spec",
+                "technical_task_router/v1",
+                "--scorer-ref",
+                "technical_task_router.success_under_budget/v1",
+                "--primary-metric",
+                "success_under_budget",
+                "--benchmark-spec-id",
+                "technical_task_router.success_under_budget/v1",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    call_kwargs = mock_registry.register_tokenized_model.call_args.kwargs
+    assert call_kwargs["eval_spec"] == "technical_task_router/v1"
+    assert call_kwargs["scorer_ref"] == "technical_task_router.success_under_budget/v1"
+    assert call_kwargs["primary_metric"] == "success_under_budget"
+    assert call_kwargs["benchmark_spec_id"] == "technical_task_router.success_under_budget/v1"
 
 
 def test_model_register_fails_without_api_key(tmp_path: Path) -> None:

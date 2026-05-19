@@ -75,7 +75,7 @@ def _make_spec() -> dict:
 def _make_technical_task_router_spec() -> dict:
     spec = _make_spec()
     spec["task_type"] = "technical_task_router"
-    spec["eval_spec"]["primary_metric"]["name"] = "technical_task_router.benchmark_score/v1"
+    spec["eval_spec"]["primary_metric"]["name"] = "technical_task_router.success_under_budget/v1"
     return spec
 
 
@@ -289,7 +289,7 @@ class TestMintRequestPublishIntegration:
         evaluator = Mock()
         evaluator.evaluate_for_model.return_value = _make_decision(
             accepted=True,
-            metric_name="technical_task_router.benchmark_score/v1",
+            metric_name="technical_task_router.success_under_budget/v1",
             n_current=4,
         )
         evaluator.delta_threshold_pp = 1.0
@@ -301,8 +301,8 @@ class TestMintRequestPublishIntegration:
         )
         mlflow_client = _FakeMlflowClient(
             run_metrics={
-                "technical_task_router.benchmark_score/v1": 0.87,
-                "technical_task_router_benchmark_score_v1": 0.87,
+                "technical_task_router.success_under_budget/v1": 0.87,
+                "technical_task_router_success_under_budget_v1": 0.87,
             },
             initial_tags={
                 "hokusai.eval_id": _EVAL_ID,
