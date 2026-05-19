@@ -15,6 +15,6 @@
   "max_cost_usd": 0.75,
   "actual_cost_usd": 0.81,
   "completed_successfully": true,
-  "scorer_ref": "technical_task_router.benchmark_score/v1",
+  "scorer_ref": "technical_task_router.success_under_budget/v1",
   "observed_at": "2026-05-12T12:05:00Z"
 }

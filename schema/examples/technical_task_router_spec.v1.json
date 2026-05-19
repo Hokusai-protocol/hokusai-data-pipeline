@@ -1,12 +1,18 @@
 {
   "primary_metric": {
-    "name": "technical_task_router.benchmark_score/v1",
-    "scorer_ref": "technical_task_router.benchmark_score/v1",
+    "name": "technical_task_router.success_under_budget/v1",
+    "scorer_ref": "technical_task_router.success_under_budget/v1",
     "direction": "higher_is_better",
     "unit": "proportion",
     "threshold": 0.8
   },
   "secondary_metrics": [
+    {
+      "name": "technical_task_router.benchmark_score/v1",
+      "scorer_ref": "technical_task_router.benchmark_score/v1",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    },
     {
       "name": "technical_task_router.feasibility/v1",
       "scorer_ref": "technical_task_router.feasibility/v1",

@@ -138,17 +138,21 @@ def test_task_router_benchmark_spec_scores_all_rows_and_persists_artifact(
         temperature=None,
     )
 
-    primary_name = "technical_task_router.benchmark_score/v1"
+    primary_name = "technical_task_router.success_under_budget/v1"
+    benchmark_score_name = "technical_task_router.benchmark_score/v1"
     feasibility_name = "technical_task_router.feasibility/v1"
     primary_mlflow_name = derive_mlflow_name(primary_name)
+    benchmark_score_mlflow_name = derive_mlflow_name(benchmark_score_name)
     feasibility_mlflow_name = derive_mlflow_name(feasibility_name)
     parquet_path = tmp_path / "per_row.parquet"
 
     assert result["status"] == "success"
     assert result["benchmark_spec_id"] == SPEC_ID
     assert result["metrics"][primary_mlflow_name] == pytest.approx(0.25)
+    assert result["metrics"][benchmark_score_mlflow_name] == pytest.approx(0.25)
     assert result["metrics"][feasibility_mlflow_name] == pytest.approx(0.5)
     assert fake_mlflow.metrics_logged[primary_mlflow_name] == pytest.approx(0.25)
+    assert fake_mlflow.metrics_logged[benchmark_score_mlflow_name] == pytest.approx(0.25)
     assert fake_mlflow.metrics_logged[feasibility_mlflow_name] == pytest.approx(0.5)
 
     assert fake_mlflow.tags[PRIMARY_METRIC_TAG] == primary_name
@@ -156,6 +160,7 @@ def test_task_router_benchmark_spec_scores_all_rows_and_persists_artifact(
     assert fake_mlflow.tags[SCORER_REF_TAG] == ",".join(
         sorted(
             {
+                "technical_task_router.success_under_budget/v1",
                 "technical_task_router.benchmark_score/v1",
                 "technical_task_router.feasibility/v1",
             }
@@ -170,6 +175,7 @@ def test_task_router_benchmark_spec_scores_all_rows_and_persists_artifact(
     written = pd.read_parquet(parquet_path)
     assert list(written["row_id"]) == [row["row_id"] for row in rows]
     assert primary_mlflow_name in written.columns
+    assert benchmark_score_mlflow_name in written.columns
     assert feasibility_mlflow_name in written.columns
     assert len(written) == 4
 

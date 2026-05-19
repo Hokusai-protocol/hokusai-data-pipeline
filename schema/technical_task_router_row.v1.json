@@ -96,7 +96,7 @@
       "title": "Scorer Ref",
       "description": "Primary scorer registry ref for this benchmark row.",
       "type": "string",
-      "const": "technical_task_router.benchmark_score/v1"
+      "const": "technical_task_router.success_under_budget/v1"
     },
     "observed_at": {
       "title": "Observed At",
