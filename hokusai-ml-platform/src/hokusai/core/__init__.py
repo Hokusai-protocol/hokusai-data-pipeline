@@ -31,6 +31,7 @@ _ML_ATTRS = {
     "ModelRegistryEntry": ".core.registry",
     "ModelLineage": ".core.registry",
     "RegistryException": ".core.registry",
+    "NotificationError": ".exceptions",
     # versioning
     "ModelVersionManager": ".core.versioning",
     "Version": ".core.versioning",
@@ -75,6 +76,7 @@ __all__ = [
     "ModelRegistryEntry",
     "ModelLineage",
     "RegistryException",
+    "NotificationError",
     # Versioning (ml)
     "ModelVersionManager",
     "Version",

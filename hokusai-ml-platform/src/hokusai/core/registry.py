@@ -11,6 +11,8 @@ import mlflow
 from mlflow.tracking import MlflowClient
 
 from ..auth.client import AuthenticatedClient, get_global_auth
+from ..exceptions import NotificationError
+from .notification import build_registration_event_payload, notify_pipeline_of_registration
 from .models import HokusaiModel
 
 logger = logging.getLogger(__name__)
@@ -127,7 +129,7 @@ class ModelRegistry(AuthenticatedClient):
 
         for attempt in range(max_retries):
             try:
-                self.client = MlflowClient(self.tracking_uri)
+                self.client = MlflowClient(tracking_uri=self.tracking_uri)
                 # Test connection by listing experiments (with limit=1)
                 self.client.search_experiments(max_results=1)
                 break
@@ -140,7 +142,7 @@ class ModelRegistry(AuthenticatedClient):
                 else:
                     logger.error(f"Failed to create MLflow client after {max_retries} attempts")
                     # Create client anyway - individual operations will handle errors
-                    self.client = MlflowClient(self.tracking_uri)
+                    self.client = MlflowClient(tracking_uri=self.tracking_uri)
 
     def register_baseline(
         self,
@@ -462,6 +464,12 @@ class ModelRegistry(AuthenticatedClient):
         metric_name: str,
         baseline_value: float,
         additional_tags: Optional[Dict[str, str]] = None,
+        *,
+        notify_site: bool = True,
+        best_effort_notification: bool = False,
+        notification_timeout: float = 10.0,
+        api_schema: Optional[Dict[str, Any]] = None,
+        notification_api_endpoint: str | None = None,
     ) -> Dict[str, Any]:
         """Register a model with Hokusai token metadata.
 
@@ -473,6 +481,11 @@ class ModelRegistry(AuthenticatedClient):
             metric_name: Performance metric name (e.g., "reply_rate")
             baseline_value: Baseline performance value
             additional_tags: Optional additional tags
+            notify_site: Emit the registration event after MLflow succeeds
+            best_effort_notification: Suppress notification failures in the return payload
+            notification_timeout: Timeout for the registration event request
+            api_schema: Optional API schema attached to the registration event
+            notification_api_endpoint: Optional override for the event API base URL
 
         Returns:
         -------
@@ -539,7 +552,7 @@ class ModelRegistry(AuthenticatedClient):
                     name=model_name, version=model_version.version, key=key, value=str(value)
                 )
 
-            return {
+            result = {
                 "model_name": model_name,
                 "version": model_version.version,
                 "token_id": normalized_token_id,
@@ -552,6 +565,40 @@ class ModelRegistry(AuthenticatedClient):
                 "tags": tags,
             }
 
+            if not notify_site:
+                result["event_emitted"] = False
+                result["site_status_update"] = "skipped"
+                return result
+
+            payload = build_registration_event_payload(
+                result,
+                model_uri=f"models:/{model_name}/{model_version.version}",
+                api_schema=api_schema,
+            )
+
+            try:
+                notification_response = notify_pipeline_of_registration(
+                    payload,
+                    api_key=self._auth.api_key or "",
+                    api_endpoint=notification_api_endpoint,
+                    timeout=notification_timeout,
+                )
+            except NotificationError as exc:
+                if not best_effort_notification:
+                    raise
+                logger.warning("Registration event notification failed: %s", exc)
+                result["event_emitted"] = False
+                result["site_status_update"] = "failed"
+                result["notification_error"] = str(exc)
+                return result
+
+            result["event_emitted"] = bool(notification_response.get("event_emitted", True))
+            result["site_status_update"] = "succeeded"
+            result["notification_response"] = notification_response
+            return result
+
+        except NotificationError:
+            raise
         except Exception as e:
             raise RegistryException(f"Failed to register tokenized model: {str(e)}")
 

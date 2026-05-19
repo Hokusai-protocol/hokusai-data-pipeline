@@ -1,11 +1,23 @@
 """Unit tests for token-aware MLflow model registry functionality."""
 
+# These tests never instantiate a real MLflow client; authentication stays out of
+# scope because object.__new__ bypasses the code path that reads MLFLOW_TRACKING_TOKEN.
+import sys
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from hokusai.core.models import HokusaiModel
-from hokusai.core.registry import ModelRegistry, RegistryException
-from mlflow.exceptions import MlflowException
+
+SDK_SRC = Path(__file__).parent.parent.parent / "src"
+if str(SDK_SRC) not in sys.path:
+    sys.path.insert(0, str(SDK_SRC))
+for _mod in list(sys.modules):
+    if _mod == "hokusai" or _mod.startswith("hokusai."):
+        del sys.modules[_mod]
+
+from hokusai.core.models import HokusaiModel  # noqa: E402
+from hokusai.core.registry import ModelRegistry, RegistryException  # noqa: E402
+from mlflow.exceptions import MlflowException  # noqa: E402
 
 
 class TestTokenizedModelRegistry:
@@ -29,7 +41,11 @@ class TestTokenizedModelRegistry:
     @pytest.fixture
     def registry(self, mock_mlflow_client):
         """Create ModelRegistry instance with mocked client."""
-        return ModelRegistry("http://test:5000")
+        registry = object.__new__(ModelRegistry)
+        registry.client = Mock()
+        registry._auth = Mock(api_key="test-key")
+        registry.tracking_uri = "http://test:5000"
+        return registry
 
     def test_register_tokenized_model_success(self, registry, mock_model) -> None:
         """Test successful tokenized model registration."""
@@ -47,6 +63,7 @@ class TestTokenizedModelRegistry:
             token_id="msg-ai",
             metric_name="reply_rate",
             baseline_value=0.1342,
+            notify_site=False,
         )
 
         # Verify model was created
@@ -81,6 +98,7 @@ class TestTokenizedModelRegistry:
                 token_id="msg-ai",
                 metric_name="reply_rate",
                 baseline_value="invalid",
+                notify_site=False,
             )
 
     def test_register_tokenized_model_missing_required_params(self, registry) -> None:
@@ -92,6 +110,7 @@ class TestTokenizedModelRegistry:
                 token_id=None,
                 metric_name="reply_rate",
                 baseline_value=0.1342,
+                notify_site=False,
             )
 
     def test_validate_hokusai_tags_success(self, registry) -> None:
@@ -265,13 +284,14 @@ class TestTokenizedModelRegistry:
 
         additional_tags = {"dataset": "customer_interactions", "environment": "production"}
 
-        result = registry.register_tokenized_model(
+        registry.register_tokenized_model(
             model_uri="runs:/abc123/model",
             model_name="MSG-AI",
             token_id="msg-ai",
             metric_name="reply_rate",
             baseline_value=0.1342,
             additional_tags=additional_tags,
+            notify_site=False,
         )
 
         # Verify additional tags were set
@@ -294,6 +314,7 @@ class TestTokenizedModelRegistry:
             metric_name="reply_rate",
             baseline_value=0.1342,
             additional_tags={"proposal_identifier": "HOK-1135"},
+            notify_site=False,
         )
 
         assert result["proposal_identifier"] == "HOK-1135"
@@ -313,4 +334,5 @@ class TestTokenizedModelRegistry:
                 token_id="msg-ai",
                 metric_name="reply_rate",
                 baseline_value=0.1342,
+                notify_site=False,
             )

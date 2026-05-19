@@ -1,10 +1,8 @@
-"""Tests for CLI notification routing through the data pipeline API."""
+"""Tests for CLI notification wrappers and routing behavior."""
 
 from __future__ import annotations
 
-import json
 import sys
-import urllib.error
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -40,59 +38,31 @@ SAMPLE_RESULT = {
 
 
 def test_notify_pipeline_posts_expected_payload(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The helper should authenticate with the user API key and hit /api/models."""
-    captured: dict[str, object] = {}
-
-    class Response:
-        status = 200
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-    def fake_urlopen(req, timeout=None):
-        captured["url"] = req.full_url
-        captured["headers"] = dict(req.headers)
-        captured["body"] = json.loads(req.data)
-        return Response()
-
+    """The CLI wrapper should delegate to the shared helper with the same payload."""
     monkeypatch.setenv("HOKUSAI_API_KEY", "test-key")
 
-    with patch.object(cli_module.urllib.request, "urlopen", side_effect=fake_urlopen):
+    with patch.object(
+        cli_module, "notify_pipeline_of_registration", return_value={}
+    ) as notify_mock:
         assert _notify_pipeline_of_registration(SAMPLE_RESULT) is True
 
-    assert captured["url"] == "https://api.hokus.ai/api/models/tokenized-registration-events"
-    assert captured["headers"]["Authorization"] == "Bearer test-key"
-    assert captured["body"]["model_name"] == "hokusai-HLEAD"
-    assert captured["body"]["proposal_identifier"] == "HLEAD"
-    assert captured["body"]["model_uri"] == "models:/hokusai-HLEAD/7"
+    payload = notify_mock.call_args.args[0]
+    assert payload["model_name"] == "hokusai-HLEAD"
+    assert payload["proposal_identifier"] == "HLEAD"
+    assert payload["model_uri"] == "models:/hokusai-HLEAD/7"
+    assert notify_mock.call_args.kwargs["api_key"] == "test-key"
 
 
 def test_notify_pipeline_uses_non_api_base_when_needed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bare domains should still route to /api/models."""
-    captured_urls: list[str] = []
-
-    class Response:
-        status = 200
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-    def fake_urlopen(req, timeout=None):
-        captured_urls.append(req.full_url)
-        return Response()
-
+    """Bare domains should be passed through to the shared helper."""
     monkeypatch.setenv("HOKUSAI_API_KEY", "test-key")
 
-    with patch.object(cli_module.urllib.request, "urlopen", side_effect=fake_urlopen):
+    with patch.object(
+        cli_module, "notify_pipeline_of_registration", return_value={}
+    ) as notify_mock:
         _notify_pipeline_of_registration(SAMPLE_RESULT, api_endpoint="https://registry.hokus.ai")
 
-    assert captured_urls == ["https://registry.hokus.ai/api/models/tokenized-registration-events"]
+    assert notify_mock.call_args.kwargs["api_endpoint"] == "https://registry.hokus.ai"
 
 
 def test_notify_pipeline_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,17 +79,14 @@ def test_notify_pipeline_surfaces_http_errors(monkeypatch: pytest.MonkeyPatch) -
     """Non-2xx responses should produce actionable failures."""
     monkeypatch.setenv("HOKUSAI_API_KEY", "test-key")
 
-    def fake_urlopen(req, timeout=None):
-        raise urllib.error.HTTPError(
-            url=req.full_url,
-            code=502,
-            msg="Bad Gateway",
-            hdrs=None,
-            fp=None,
-        )
-
     with (
-        patch.object(cli_module.urllib.request, "urlopen", side_effect=fake_urlopen),
+        patch.object(
+            cli_module,
+            "notify_pipeline_of_registration",
+            side_effect=cli_module.NotificationError(
+                "Pipeline failed with HTTP 502", status_code=502
+            ),
+        ),
         pytest.raises(Exception) as exc_info,
     ):
         _notify_pipeline_of_registration(SAMPLE_RESULT)
@@ -133,9 +100,9 @@ def test_notify_pipeline_surfaces_transport_errors(monkeypatch: pytest.MonkeyPat
 
     with (
         patch.object(
-            cli_module.urllib.request,
-            "urlopen",
-            side_effect=urllib.error.URLError("connection refused"),
+            cli_module,
+            "notify_pipeline_of_registration",
+            side_effect=cli_module.NotificationError("could not connect to endpoint"),
         ),
         pytest.raises(Exception) as exc_info,
     ):
