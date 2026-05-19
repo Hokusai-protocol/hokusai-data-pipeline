@@ -40,6 +40,10 @@ SAMPLE_RESULT = {
     "mlflow_run_id": "run-123",
     "status": "registered",
     "tags": {"proposal_identifier": "HLEAD", "hokusai_token_id": "HLEAD"},
+    "eval_spec": "technical_task_router/v1",
+    "scorer_ref": "technical_task_router.success_under_budget/v1",
+    "primary_metric": "success_under_budget",
+    "benchmark_spec_id": "technical_task_router.success_under_budget/v1",
 }
 
 SAMPLE_API_SCHEMA = {
@@ -130,6 +134,30 @@ def test_build_registration_event_payload_omits_api_schema_when_absent() -> None
     assert "api_schema" not in payload
 
 
+def test_build_registration_event_payload_includes_richer_metadata_when_present() -> None:
+    """Optional benchmark identity fields should be forwarded when available."""
+    payload = build_registration_event_payload(SAMPLE_RESULT)
+
+    assert payload["eval_spec"] == "technical_task_router/v1"
+    assert payload["scorer_ref"] == "technical_task_router.success_under_budget/v1"
+    assert payload["primary_metric"] == "success_under_budget"
+    assert payload["benchmark_spec_id"] == "technical_task_router.success_under_budget/v1"
+
+
+def test_build_registration_event_payload_omits_richer_metadata_when_absent() -> None:
+    """Legacy payloads should remain unchanged when richer metadata is missing."""
+    result = dict(SAMPLE_RESULT)
+    for key in ("eval_spec", "scorer_ref", "primary_metric", "benchmark_spec_id"):
+        result.pop(key, None)
+
+    payload = build_registration_event_payload(result)
+
+    assert "eval_spec" not in payload
+    assert "scorer_ref" not in payload
+    assert "primary_metric" not in payload
+    assert "benchmark_spec_id" not in payload
+
+
 def test_register_tokenized_model_success_emits_event(registry: ModelRegistry) -> None:
     """Successful registration should emit the site event by default."""
     mock_version = Mock()
@@ -185,6 +213,40 @@ def test_register_tokenized_model_forwards_api_schema_in_event_payload(
 
     payload = notify_mock.call_args.args[0]
     assert payload["api_schema"] == SAMPLE_API_SCHEMA
+
+
+def test_register_tokenized_model_forwards_richer_metadata_in_event_payload(
+    registry: ModelRegistry,
+) -> None:
+    """Registry notifications should include the richer benchmark identity fields."""
+    mock_version = Mock()
+    mock_version.version = "1"
+    registry.client.create_model_version.return_value = mock_version
+    registry.client.create_registered_model.return_value = None
+    registry.client.set_model_version_tag.return_value = None
+
+    with patch.object(
+        registry_module,
+        "notify_pipeline_of_registration",
+        return_value={"event_emitted": True},
+    ) as notify_mock:
+        registry.register_tokenized_model(
+            model_uri="runs:/abc123/model",
+            model_name="MSG-AI",
+            token_id="msg-ai",
+            metric_name="reply_rate",
+            baseline_value=0.1342,
+            eval_spec="technical_task_router/v1",
+            scorer_ref="technical_task_router.success_under_budget/v1",
+            primary_metric="success_under_budget",
+            benchmark_spec_id="technical_task_router.success_under_budget/v1",
+        )
+
+    payload = notify_mock.call_args.args[0]
+    assert payload["eval_spec"] == "technical_task_router/v1"
+    assert payload["scorer_ref"] == "technical_task_router.success_under_budget/v1"
+    assert payload["primary_metric"] == "success_under_budget"
+    assert payload["benchmark_spec_id"] == "technical_task_router.success_under_budget/v1"
 
 
 @pytest.mark.parametrize("status_code", [400, 503])

@@ -45,6 +45,10 @@ class ModelReadyToDeployMessage:
     experiment_name: Optional[str] = None
     tags: Optional[dict[str, str]] = None
     api_schema: Optional[dict[str, Any]] = None
+    eval_spec: Optional[str] = None
+    scorer_ref: Optional[str] = None
+    primary_metric: Optional[str] = None
+    benchmark_spec_id: Optional[str] = None
 
     # System fields (auto-populated)
     timestamp: Optional[datetime] = None
@@ -132,6 +136,10 @@ class ModelReadyToDeployMessage:
                 "experiment_name": {"type": ["string", "null"]},
                 "tags": {"type": ["object", "null"], "additionalProperties": {"type": "string"}},
                 "api_schema": {"type": ["object", "null"]},
+                "eval_spec": {"type": ["string", "null"], "minLength": 1},
+                "scorer_ref": {"type": ["string", "null"], "minLength": 1},
+                "primary_metric": {"type": ["string", "null"], "minLength": 1},
+                "benchmark_spec_id": {"type": ["string", "null"], "minLength": 1},
                 "timestamp": {"type": "string", "format": "date-time"},
                 "message_version": {"type": "string"},
             },

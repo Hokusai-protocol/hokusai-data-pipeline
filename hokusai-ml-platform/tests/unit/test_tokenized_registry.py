@@ -89,6 +89,49 @@ class TestTokenizedModelRegistry:
         assert result["mlflow_run_id"] == "abc123"
         assert result["status"] == "registered"
 
+    def test_register_tokenized_model_sets_richer_metadata_tags(self, registry) -> None:
+        """Rich registration metadata should be written to model version and run tags."""
+        mock_version = Mock()
+        mock_version.version = "1"
+        registry.client.create_model_version.return_value = mock_version
+        registry.client.create_registered_model.return_value = None
+        registry.client.set_model_version_tag.return_value = None
+
+        result = registry.register_tokenized_model(
+            model_uri="runs:/abc123/model",
+            model_name="MSG-AI",
+            token_id="msg-ai",
+            metric_name="accuracy",
+            baseline_value=0.9,
+            eval_spec="technical_task_router/v1",
+            scorer_ref="technical_task_router.success_under_budget/v1",
+            primary_metric="success_under_budget",
+            benchmark_spec_id="technical_task_router.success_under_budget/v1",
+            notify_site=False,
+        )
+
+        registry.client.set_model_version_tag.assert_any_call(
+            name="MSG-AI",
+            version="1",
+            key="hokusai.eval_spec",
+            value="technical_task_router/v1",
+        )
+        registry.client.set_model_version_tag.assert_any_call(
+            name="MSG-AI",
+            version="1",
+            key="hokusai.scorer_ref",
+            value="technical_task_router.success_under_budget/v1",
+        )
+        registry.client.set_tag.assert_any_call(
+            "abc123",
+            "hokusai.benchmark_spec_id",
+            "technical_task_router.success_under_budget/v1",
+        )
+        assert result["eval_spec"] == "technical_task_router/v1"
+        assert result["scorer_ref"] == "technical_task_router.success_under_budget/v1"
+        assert result["primary_metric"] == "success_under_budget"
+        assert result["benchmark_spec_id"] == "technical_task_router.success_under_budget/v1"
+
     def test_register_tokenized_model_invalid_baseline_value(self, registry) -> None:
         """Test registration with invalid baseline value."""
         with pytest.raises(ValueError, match="baseline_value must be numeric"):
@@ -178,6 +221,29 @@ class TestTokenizedModelRegistry:
         assert result["token_id"] == "msg-ai"
         assert result["metric_name"] == "reply_rate"
         assert result["baseline_value"] == 0.1342
+
+    def test_get_tokenized_model_exposes_richer_metadata(self, registry) -> None:
+        """Richer registration metadata should be surfaced when present on MLflow tags."""
+        mock_version = Mock()
+        mock_version.name = "MSG-AI"
+        mock_version.version = "1"
+        mock_version.tags = {
+            "hokusai_token_id": "msg-ai",
+            "benchmark_metric": "reply_rate",
+            "benchmark_value": "0.1342",
+            "hokusai.eval_spec": "technical_task_router/v1",
+            "hokusai.scorer_ref": "technical_task_router.success_under_budget/v1",
+            "hokusai.primary_metric": "success_under_budget",
+            "hokusai.benchmark_spec_id": "technical_task_router.success_under_budget/v1",
+        }
+        registry.client.get_model_version.return_value = mock_version
+
+        result = registry.get_tokenized_model("MSG-AI", "1")
+
+        assert result["eval_spec"] == "technical_task_router/v1"
+        assert result["scorer_ref"] == "technical_task_router.success_under_budget/v1"
+        assert result["primary_metric"] == "success_under_budget"
+        assert result["benchmark_spec_id"] == "technical_task_router.success_under_budget/v1"
 
     def test_list_models_by_token(self, registry) -> None:
         """Test listing models by token ID."""
@@ -282,7 +348,10 @@ class TestTokenizedModelRegistry:
         registry.client.create_model_version.return_value = mock_version
         registry.client.set_model_version_tag.return_value = None
 
-        additional_tags = {"dataset": "customer_interactions", "environment": "production"}
+        additional_tags = {
+            "dataset": "customer_interactions",
+            "environment": "production",
+        }
 
         registry.register_tokenized_model(
             model_uri="runs:/abc123/model",
@@ -299,6 +368,28 @@ class TestTokenizedModelRegistry:
             registry.client.set_model_version_tag.assert_any_call(
                 name="MSG-AI", version="1", key=key, value=value
             )
+
+    def test_explicit_metadata_overrides_conflicting_additional_tags(self, registry) -> None:
+        """Canonical explicit metadata should win over conflicting caller-supplied tags."""
+        mock_version = Mock()
+        mock_version.version = "1"
+        registry.client.create_model_version.return_value = mock_version
+        registry.client.set_model_version_tag.return_value = None
+
+        result = registry.register_tokenized_model(
+            model_uri="runs:/abc123/model",
+            model_name="MSG-AI",
+            token_id="msg-ai",
+            metric_name="reply_rate",
+            baseline_value=0.1342,
+            additional_tags={"hokusai.scorer_ref": "stale/value"},
+            scorer_ref="technical_task_router.success_under_budget/v1",
+            notify_site=False,
+        )
+
+        assert (
+            result["tags"]["hokusai.scorer_ref"] == "technical_task_router.success_under_budget/v1"
+        )
 
     def test_register_tokenized_model_uses_explicit_proposal_identifier(self, registry) -> None:
         """Test registration preserves an explicit proposal identifier."""
@@ -320,7 +411,10 @@ class TestTokenizedModelRegistry:
         assert result["proposal_identifier"] == "HOK-1135"
         assert result["mlflow_run_id"] is None
         registry.client.set_model_version_tag.assert_any_call(
-            name="MSG-AI", version="1", key="hokusai_proposal_identifier", value="HOK-1135"
+            name="MSG-AI",
+            version="1",
+            key="hokusai_proposal_identifier",
+            value="HOK-1135",
         )
 
     def test_mlflow_exception_handling(self, registry) -> None:
