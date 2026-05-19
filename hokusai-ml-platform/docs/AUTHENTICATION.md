@@ -176,6 +176,12 @@ with mlflow.start_run() as run:
     print(f"Model registered: {result}")
 ```
 
+`register_tokenized_model(...)` now performs both steps by default: MLflow registration
+and the follow-up registration event that marks the model as registered on the Hokusai
+site. If the notification step fails after MLflow succeeds, the SDK raises
+`NotificationError` with `mlflow_registered=True` so callers can retry the event path
+without guessing whether the model version already exists.
+
 ## Security Best Practices
 
 1. **Never hardcode API keys** in your source code

@@ -39,6 +39,26 @@ MLflow authentication error (HTTP 401): Invalid credentials
 
 ### 2. API Method Issues
 
+#### Error: Model registered in MLflow but the site stayed in draft
+```python
+from hokusai.exceptions import NotificationError
+
+try:
+    registry.register_tokenized_model(...)
+except NotificationError as exc:
+    if exc.mlflow_registered:
+        print("MLflow registration succeeded; retry the registration event path.")
+```
+
+`register_tokenized_model(...)` now raises `NotificationError` by default when the
+follow-up `/api/models/tokenized-registration-events` call fails. This prevents a
+successful return value from masking a site update failure.
+
+Recovery options:
+1. Retry the same registration call if it is safe in your workflow.
+2. Re-emit the registration event using the known model metadata.
+3. Use `best_effort_notification=True` only when you intentionally want partial success.
+
 #### Error: register_baseline() got an unexpected keyword argument 'model_name'
 This has been fixed in the latest version. The method now accepts both signatures:
 

@@ -3,6 +3,7 @@
 # ruff: noqa: T201
 
 from hokusai.core.registry import ModelRegistry
+from hokusai.exceptions import NotificationError
 
 
 def main() -> None:
@@ -57,6 +58,10 @@ def main() -> None:
         print("First accepted registration fulfills the proposal.")
         print()
 
+    except NotificationError as e:
+        print(f"Site notification failed after MLflow registration: {e}")
+        print(f"MLflow registration already succeeded: {e.mlflow_registered}")
+        print()
     except Exception as e:
         print(f"Registration failed: {e}")
         print()

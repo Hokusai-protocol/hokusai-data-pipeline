@@ -17,6 +17,7 @@ __all__ = [
     "MLflowAuthenticationError",
     "ModelNotFoundError",
     "ConfigurationError",
+    "NotificationError",
     "HokusaiModel",
     # ML-dependent (require hokusai-ml-platform[ml])
     "ModelRegistry",
@@ -39,6 +40,7 @@ _BASE_IMPORTS = {
     "MLflowAuthenticationError": ("hokusai.exceptions", "MLflowAuthenticationError"),
     "ModelNotFoundError": ("hokusai.exceptions", "ModelNotFoundError"),
     "ConfigurationError": ("hokusai.exceptions", "ConfigurationError"),
+    "NotificationError": ("hokusai.exceptions", "NotificationError"),
 }
 
 # --- ML imports: require [ml] extra -----------------------------------------
