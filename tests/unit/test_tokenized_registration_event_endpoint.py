@@ -89,7 +89,7 @@ def test_tokenized_registration_event_success(
     hooks.on_model_registered_with_baseline.assert_called_once()
     _, kwargs = hooks.on_model_registered_with_baseline.call_args
     assert kwargs["current_value"] == 0.10
-    assert kwargs["model_uri"] == "models:/Sales Lead Scoring/7"
+    assert kwargs["model_uri"] is None
     assert kwargs["tags"]["user_id"] == "user-123"
     assert kwargs["tags"]["proposal_identifier"] == "HLEAD"
     assert kwargs["tags"]["team"] == "growth"
@@ -183,6 +183,34 @@ def test_tokenized_registration_event_passes_explicit_values(
     assert kwargs["current_value"] == 0.23
     assert kwargs["model_uri"] == "models:/custom/7"
     assert kwargs["api_schema"] == {"inputSchema": {"type": "object"}}
+
+
+def test_tokenized_registration_event_does_not_derive_schema_server_side(
+    client: TestClient, payload: dict[str, object]
+) -> None:
+    """Requests without api_schema should not trigger server-side MLflow schema lookup."""
+    hooks = Mock()
+    hooks.on_model_registered_with_baseline.return_value = True
+    request_payload = dict(payload)
+    request_payload["model_uri"] = "models:/custom/7"
+
+    with (
+        patch(
+            "src.middleware.auth.APIKeyAuthMiddleware.validate_with_auth_service",
+            new=AsyncMock(return_value=_validation_result()),
+        ),
+        patch("src.api.routes.models.get_registry_hooks", return_value=hooks),
+    ):
+        response = client.post(
+            "/api/models/tokenized-registration-events",
+            json=request_payload,
+            headers={"Authorization": "Bearer test-key"},
+        )
+
+    assert response.status_code == 200
+    _, kwargs = hooks.on_model_registered_with_baseline.call_args
+    assert kwargs["model_uri"] is None
+    assert kwargs["api_schema"] is None
 
 
 def test_tokenized_registration_event_returns_502_on_hook_failure(
