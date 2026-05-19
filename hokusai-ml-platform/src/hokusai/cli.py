@@ -61,6 +61,18 @@ def model() -> None:
     default=None,
     help="Canonical proposal identifier to store alongside the token ID.",
 )
+@click.option("--eval-spec", default=None, help="Eval spec identifier to record on the model.")
+@click.option("--scorer-ref", default=None, help="Canonical scorer reference for the model.")
+@click.option(
+    "--primary-metric",
+    default=None,
+    help="Primary metric name to record alongside benchmark metadata.",
+)
+@click.option(
+    "--benchmark-spec-id",
+    default=None,
+    help="BenchmarkSpec identifier to record alongside the registration.",
+)
 @click.option(
     "--mlflow-uri",
     default=None,
@@ -110,6 +122,10 @@ def register_model(
     baseline: float,
     model_name: str | None,
     proposal_identifier: str | None,
+    eval_spec: str | None,
+    scorer_ref: str | None,
+    primary_metric: str | None,
+    benchmark_spec_id: str | None,
     mlflow_uri: str | None,
     api_key: str | None,
     api_endpoint: str | None,
@@ -150,6 +166,10 @@ def register_model(
             metric_name=metric,
             baseline_value=baseline,
             additional_tags=additional_tags or None,
+            eval_spec=eval_spec,
+            scorer_ref=scorer_ref,
+            primary_metric=primary_metric,
+            benchmark_spec_id=benchmark_spec_id,
             notify_site=not no_notify_site and not use_legacy_webhook,
             best_effort_notification=best_effort_notification,
             api_schema=api_schema,

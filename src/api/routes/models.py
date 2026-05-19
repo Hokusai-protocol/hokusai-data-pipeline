@@ -22,6 +22,12 @@ from src.api.schemas import (
     TokenizedRegistrationEventResponse,
 )
 from src.api.utils.config import get_settings
+from src.evaluation.tags import (
+    BENCHMARK_SPEC_ID_TAG,
+    EVAL_SPEC_TAG,
+    PRIMARY_METRIC_TAG,
+    SCORER_REF_TAG,
+)
 from src.middleware.auth import require_auth
 from src.services.model_registry import HokusaiModelRegistry
 from src.services.model_registry_hooks import get_registry_hooks
@@ -50,6 +56,45 @@ WRITE_SCOPES = {
     "write",
     "full_access",
 }
+RICH_REGISTRATION_TAG_FIELDS = {
+    "eval_spec": EVAL_SPEC_TAG,
+    "scorer_ref": SCORER_REF_TAG,
+    "primary_metric": PRIMARY_METRIC_TAG,
+    "benchmark_spec_id": BENCHMARK_SPEC_ID_TAG,
+}
+
+
+def _collect_registration_metadata_tags(
+    payload: TokenizedRegistrationEventRequest,
+) -> dict[str, str]:
+    """Build canonical Hokusai tags for optional registration metadata."""
+    metadata_tags: dict[str, str] = {}
+    for field_name, tag_key in RICH_REGISTRATION_TAG_FIELDS.items():
+        value = getattr(payload, field_name)
+        if value is not None:
+            metadata_tags[tag_key] = value
+    return metadata_tags
+
+
+def _mirror_registration_metadata_tags(
+    payload: TokenizedRegistrationEventRequest,
+    metadata_tags: dict[str, str],
+) -> None:
+    """Mirror richer metadata tags onto the MLflow model version and backing run."""
+    if not metadata_tags or mlflow is None:
+        return
+
+    # Authenticated MLflow access relies on MLFLOW_TRACKING_TOKEN in the service environment.
+    client = mlflow.tracking.MlflowClient(tracking_uri=settings.mlflow_tracking_uri)
+    for key, value in metadata_tags.items():
+        client.set_model_version_tag(
+            name=payload.model_name,
+            version=payload.version,
+            key=key,
+            value=value,
+        )
+        if payload.mlflow_run_id:
+            client.set_tag(payload.mlflow_run_id, key, value)
 
 
 async def require_model_event_write_auth(request: Request) -> dict[str, Any]:
@@ -65,12 +110,14 @@ async def require_model_event_write_auth(request: Request) -> dict[str, Any]:
 
 
 @router.get("/")
-async def list_models(name: str = None):
+async def list_models(name: str | None = None) -> dict[str, list[dict[str, Any]]]:
     """List all registered models."""
     # Mock implementation for tests
     if mlflow:
         try:
-            client = mlflow.tracking.MlflowClient()
+            # Authenticated MLflow access relies on MLFLOW_TRACKING_TOKEN in the service
+            # environment.
+            client = mlflow.tracking.MlflowClient(tracking_uri=settings.mlflow_tracking_uri)
             if name:
                 models = client.search_model_versions(f"name='{name}'")
             else:
@@ -95,12 +142,8 @@ async def list_models(name: str = None):
                 result_models.append(model_dict)
 
             return {"models": result_models}
-        except Exception as e:
-            # Log the error for debugging
-            import traceback
-
-            print(f"Error in list_models: {e}")
-            traceback.print_exc()
+        except Exception:
+            logger.exception("Error listing models")
 
     # Return empty list if mlflow not available
     return {"models": []}
@@ -112,7 +155,11 @@ async def list_models(name: str = None):
     responses={404: {"model": ErrorResponse}},
 )
 @limiter.limit("100/minute")
-async def get_model_lineage(request: Request, model_id: str, _=Depends(require_auth)):
+async def get_model_lineage(
+    request: Request,
+    model_id: str,
+    _: dict[str, Any] = Depends(require_auth),
+) -> ModelLineageResponse:
     """Get complete improvement history of a model."""
     try:
         lineage = registry.get_model_lineage(model_id)
@@ -141,8 +188,10 @@ async def get_model_lineage(request: Request, model_id: str, _=Depends(require_a
 )
 @limiter.limit("20/minute")
 async def register_model(
-    request: Request, registration: ModelRegistration, _=Depends(require_auth)
-):
+    request: Request,
+    registration: ModelRegistration,
+    _: dict[str, Any] = Depends(require_auth),
+) -> ModelRegistrationResponse:
     """Register a new model from GTM-agent or other sources."""
     try:
         # For now, we'll assume it's a baseline model
@@ -177,7 +226,7 @@ async def create_tokenized_registration_event(
     request: Request,
     payload: TokenizedRegistrationEventRequest,
     auth: dict[str, Any] = Depends(require_model_event_write_auth),
-):
+) -> TokenizedRegistrationEventResponse:
     """Emit a post-registration hook event for a tokenized MLflow registration."""
     user_id = str(auth["user_id"])
     current_value = (
@@ -190,6 +239,8 @@ async def create_tokenized_registration_event(
     tags = dict(payload.tags or {})
     tags["user_id"] = user_id
     tags.setdefault("proposal_identifier", payload.proposal_identifier)
+    metadata_tags = _collect_registration_metadata_tags(payload)
+    tags.update(metadata_tags)
 
     logger.info(
         "Processing tokenized registration event: model_name=%s version=%s run_id=%s user_id=%s",
@@ -200,6 +251,7 @@ async def create_tokenized_registration_event(
     )
 
     try:
+        await asyncio.to_thread(_mirror_registration_metadata_tags, payload, metadata_tags)
         event_emitted = await asyncio.to_thread(
             get_registry_hooks().on_model_registered_with_baseline,
             model_id=model_id,
@@ -213,14 +265,22 @@ async def create_tokenized_registration_event(
             tags=tags,
             model_uri=hook_model_uri,
             api_schema=payload.api_schema,
+            eval_spec=payload.eval_spec,
+            scorer_ref=payload.scorer_ref,
+            primary_metric=payload.primary_metric,
+            benchmark_spec_id=payload.benchmark_spec_id,
         )
     except Exception:
         logger.exception(
-            "Tokenized registration hook failed: model_name=%s version=%s run_id=%s user_id=%s",
+            (
+                "Tokenized registration hook failed: "
+                "model_name=%s version=%s run_id=%s user_id=%s metadata_tags=%s"
+            ),
             payload.model_name,
             payload.version,
             payload.mlflow_run_id,
             user_id,
+            json.dumps(metadata_tags, sort_keys=True),
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -253,13 +313,13 @@ async def create_tokenized_registration_event(
 
 
 @router.get("/{model_name}/{version}")
-async def get_model_by_id(model_name: str, version: str):
+async def get_model_by_id(model_name: str, version: str) -> dict[str, Any]:
     """Get specific model details by name and version."""
     if not mlflow:
         raise HTTPException(status_code=404, detail="MLflow not available")
 
     try:
-        client = mlflow.tracking.MlflowClient()
+        client = mlflow.tracking.MlflowClient(tracking_uri=settings.mlflow_tracking_uri)
         model_version = client.get_model_version(model_name, version)
 
         return {
@@ -271,17 +331,21 @@ async def get_model_by_id(model_name: str, version: str):
         }
     except Exception as e:
         logger.error(f"Model not found: {e}")
-        raise HTTPException(status_code=404, detail=f"Model not found: {model_name}:{version}")
+        raise HTTPException(
+            status_code=404, detail=f"Model not found: {model_name}:{version}"
+        ) from e
 
 
 @router.patch("/{model_name}/{version}")
-async def update_model_metadata(model_name: str, version: str, update_data: dict):
+async def update_model_metadata(
+    model_name: str, version: str, update_data: dict[str, Any]
+) -> dict[str, str]:
     """Update model metadata (description, tags)."""
     if not mlflow:
         raise HTTPException(status_code=404, detail="MLflow not available")
 
     try:
-        client = mlflow.tracking.MlflowClient()
+        client = mlflow.tracking.MlflowClient(tracking_uri=settings.mlflow_tracking_uri)
 
         # Update description if provided
         if "description" in update_data:
@@ -297,32 +361,34 @@ async def update_model_metadata(model_name: str, version: str, update_data: dict
         return {"message": "Model updated successfully"}
     except Exception as e:
         logger.error(f"Failed to update model: {e}")
-        raise HTTPException(status_code=500, detail="Failed to update model")
+        raise HTTPException(status_code=500, detail="Failed to update model") from e
 
 
 @router.delete("/{model_name}/{version}")
-async def delete_model_version(model_name: str, version: str):
+async def delete_model_version(model_name: str, version: str) -> dict[str, str]:
     """Delete a specific model version."""
     if not mlflow:
         raise HTTPException(status_code=404, detail="MLflow not available")
 
     try:
-        client = mlflow.tracking.MlflowClient()
+        client = mlflow.tracking.MlflowClient(tracking_uri=settings.mlflow_tracking_uri)
         client.delete_model_version(name=model_name, version=version)
         return {"message": f"Model {model_name}:{version} deleted successfully"}
     except Exception as e:
         logger.error(f"Failed to delete model: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete model version")
+        raise HTTPException(status_code=500, detail="Failed to delete model version") from e
 
 
 @router.post("/{model_name}/{version}/transition")
-async def transition_model_stage(model_name: str, version: str, transition_data: dict):
+async def transition_model_stage(
+    model_name: str, version: str, transition_data: dict[str, Any]
+) -> dict[str, str]:
     """Transition model to different stage."""
     if not mlflow:
         raise HTTPException(status_code=404, detail="MLflow not available")
 
     try:
-        client = mlflow.tracking.MlflowClient()
+        client = mlflow.tracking.MlflowClient(tracking_uri=settings.mlflow_tracking_uri)
         stage = transition_data.get("stage", "Production")
         stage_alias = stage.lower()
 
@@ -337,18 +403,20 @@ async def transition_model_stage(model_name: str, version: str, transition_data:
         return {"message": f"Model {model_name}:{version} transitioned to {stage}"}
     except Exception as e:
         logger.error(f"Failed to transition model: {e}")
-        raise HTTPException(status_code=500, detail="Failed to transition model stage")
+        raise HTTPException(status_code=500, detail="Failed to transition model stage") from e
 
 
 @router.get("/compare")
-async def compare_models(model1: str, model2: str):
+async def compare_models(model1: str, model2: str) -> dict[str, Any]:
     """Compare two model versions."""
     # Parse model specs (format: ModelName:Version)
     try:
         m1_name, m1_version = model1.split(":")
         m2_name, m2_version = model2.split(":")
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid model format. Use ModelName:Version")
+        raise HTTPException(
+            status_code=400, detail="Invalid model format. Use ModelName:Version"
+        ) from None
 
     # Check if ModelComparator is being mocked for tests
     try:
@@ -367,7 +435,7 @@ async def compare_models(model1: str, model2: str):
 
 
 @router.post("/evaluate")
-async def evaluate_model(eval_request: dict):
+async def evaluate_model(eval_request: dict[str, Any]) -> dict[str, Any]:
     """Evaluate model performance on a dataset."""
     model_name = eval_request.get("model_name")
     model_version = eval_request.get("model_version")
@@ -393,7 +461,7 @@ async def evaluate_model(eval_request: dict):
 
 
 @router.get("/{model_name}/{version}/metrics")
-async def get_model_metrics_endpoint(model_name: str, version: str):
+async def get_model_metrics_endpoint(model_name: str, version: str) -> dict[str, Any]:
     """Get model metrics (training, validation, production)."""
     # Check if get_model_metrics helper is being mocked
     try:
@@ -410,7 +478,7 @@ async def get_model_metrics_endpoint(model_name: str, version: str):
 
 
 @router.get("/{model_name}/{version}/lineage")
-async def get_model_lineage_by_version(model_name: str, version: str):
+async def get_model_lineage_by_version(model_name: str, version: str) -> dict[str, Any]:
     """Get model lineage endpoint."""
     # Mock lineage data
     return {
@@ -422,7 +490,7 @@ async def get_model_lineage_by_version(model_name: str, version: str):
 
 
 @router.get("/{model_name}/{version}/download")
-async def download_model(model_name: str, version: str):
+async def download_model(model_name: str, version: str) -> Any:
     """Download model artifact file."""
     # Check if helper functions are being mocked
     try:
@@ -436,7 +504,7 @@ async def download_model(model_name: str, version: str):
 
 
 @router.get("/{model_name}/{version}/predictions")
-async def get_predictions_history_endpoint(model_name: str, version: str):
+async def get_predictions_history_endpoint(model_name: str, version: str) -> dict[str, Any]:
     """Get model prediction history and statistics."""
     # Check if get_predictions_history helper is being mocked
     try:
@@ -453,7 +521,7 @@ async def get_predictions_history_endpoint(model_name: str, version: str):
 
 
 @router.post("/batch")
-async def batch_model_operations(batch_request: dict):
+async def batch_model_operations(batch_request: dict[str, Any]) -> dict[str, Any]:
     """Perform batch operations on multiple models."""
     operations = batch_request.get("operations", [])
     results = []
@@ -466,7 +534,7 @@ async def batch_model_operations(batch_request: dict):
 
 
 @router.get("/production")
-async def get_production_models():
+async def get_production_models() -> dict[str, Any]:
     """List all models currently in production."""
     try:
         production_models = registry.get_production_models()
@@ -482,7 +550,11 @@ async def get_production_models():
     responses={400: {"model": ErrorResponse}},
 )
 @limiter.limit("100/minute")
-async def get_contributor_impact(request: Request, address: str, _=Depends(require_auth)):  # noqa: ARG001
+async def get_contributor_impact(
+    request: Request,
+    address: str,
+    _: dict[str, Any] = Depends(require_auth),
+) -> ContributorImpactResponse:  # noqa: ARG001
     """Get total impact of a contributor across all models."""
     # Validate Ethereum address
     pattern = r"^0x[a-fA-F0-9]{40}$"

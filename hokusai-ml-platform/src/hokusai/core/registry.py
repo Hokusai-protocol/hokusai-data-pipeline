@@ -12,13 +12,27 @@ from mlflow.tracking import MlflowClient
 
 from ..auth.client import AuthenticatedClient, get_global_auth
 from ..exceptions import NotificationError
-from .notification import build_registration_event_payload, notify_pipeline_of_registration
+from .notification import (
+    build_registration_event_payload,
+    notify_pipeline_of_registration,
+)
 from .models import HokusaiModel
 
 logger = logging.getLogger(__name__)
 
 # Required tags for Hokusai tokenized models
-REQUIRED_HOKUSAI_TAGS = {"hokusai_token_id": str, "benchmark_metric": str, "benchmark_value": str}
+REQUIRED_HOKUSAI_TAGS = {
+    "hokusai_token_id": str,
+    "benchmark_metric": str,
+    "benchmark_value": str,
+}
+RICH_REGISTRATION_TAGS = {
+    "eval_spec": "hokusai.eval_spec",
+    "scorer_ref": "hokusai.scorer_ref",
+    "primary_metric": "hokusai.primary_metric",
+    "benchmark_spec_id": "hokusai.benchmark_spec_id",
+}
+MAX_REGISTRATION_METADATA_LENGTH = 500
 
 
 class RegistryException(Exception):
@@ -233,7 +247,10 @@ class ModelRegistry(AuthenticatedClient):
             raise RegistryException(f"Failed to register baseline model: {str(e)}")
 
     def register_baseline_via_api(
-        self, model_type: str, mlflow_run_id: str, metadata: Optional[Dict[str, Any]] = None
+        self,
+        model_type: str,
+        mlflow_run_id: str,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> ModelRegistryEntry:
         """Register a baseline model via the Hokusai API."""
         try:
@@ -310,7 +327,10 @@ class ModelRegistry(AuthenticatedClient):
 
             for key, value in tags.items():
                 self.client.set_model_version_tag(
-                    name=baseline.model_type, version=model_version.version, key=key, value=value
+                    name=baseline.model_type,
+                    version=model_version.version,
+                    key=key,
+                    value=value,
                 )
 
             return entry
@@ -375,7 +395,9 @@ class ModelRegistry(AuthenticatedClient):
                     break
 
             return ModelLineage(
-                model_id=model_id, entries=lineage_entries, total_improvement=total_improvement
+                model_id=model_id,
+                entries=lineage_entries,
+                total_improvement=total_improvement,
             )
 
         except Exception as e:
@@ -465,6 +487,10 @@ class ModelRegistry(AuthenticatedClient):
         baseline_value: float,
         additional_tags: Optional[Dict[str, str]] = None,
         *,
+        eval_spec: str | None = None,
+        scorer_ref: str | None = None,
+        primary_metric: str | None = None,
+        benchmark_spec_id: str | None = None,
         notify_site: bool = True,
         best_effort_notification: bool = False,
         notification_timeout: float = 10.0,
@@ -507,6 +533,12 @@ class ModelRegistry(AuthenticatedClient):
         # Validate token ID format
         self.validate_token_id(token_id)
         normalized_token_id = self.normalize_token_id(token_id)
+        normalized_metadata = self._normalize_registration_metadata(
+            eval_spec=eval_spec,
+            scorer_ref=scorer_ref,
+            primary_metric=primary_metric,
+            benchmark_spec_id=benchmark_spec_id,
+        )
 
         try:
             # Create or get registered model
@@ -542,15 +574,22 @@ class ModelRegistry(AuthenticatedClient):
             if mlflow_run_id:
                 tags["mlflow_run_id"] = mlflow_run_id
 
-            # Add any additional tags
             if additional_tags:
                 tags.update(additional_tags)
+            metadata_tags = self._metadata_tags_from_values(normalized_metadata)
+            tags.update(metadata_tags)
 
             # Set all tags
             for key, value in tags.items():
                 self.client.set_model_version_tag(
-                    name=model_name, version=model_version.version, key=key, value=str(value)
+                    name=model_name,
+                    version=model_version.version,
+                    key=key,
+                    value=str(value),
                 )
+            if mlflow_run_id:
+                for key, value in metadata_tags.items():
+                    self.client.set_tag(mlflow_run_id, key, str(value))
 
             result = {
                 "model_name": model_name,
@@ -564,6 +603,7 @@ class ModelRegistry(AuthenticatedClient):
                 "status": "registered",
                 "tags": tags,
             }
+            result.update(normalized_metadata)
 
             if not notify_site:
                 result["event_emitted"] = False
@@ -653,6 +693,10 @@ class ModelRegistry(AuthenticatedClient):
                 "token_id": tags["hokusai_token_id"],
                 "metric_name": tags["benchmark_metric"],
                 "baseline_value": float(tags["benchmark_value"]),
+                "eval_spec": tags.get(RICH_REGISTRATION_TAGS["eval_spec"]),
+                "scorer_ref": tags.get(RICH_REGISTRATION_TAGS["scorer_ref"]),
+                "primary_metric": tags.get(RICH_REGISTRATION_TAGS["primary_metric"]),
+                "benchmark_spec_id": tags.get(RICH_REGISTRATION_TAGS["benchmark_spec_id"]),
                 "tags": tags,
             }
 
@@ -768,6 +812,50 @@ class ModelRegistry(AuthenticatedClient):
                 if value:
                     return str(value)
         return token_id
+
+    def _normalize_registration_metadata(
+        self,
+        *,
+        eval_spec: str | None,
+        scorer_ref: str | None,
+        primary_metric: str | None,
+        benchmark_spec_id: str | None,
+    ) -> Dict[str, str | None]:
+        """Validate and normalize optional registration metadata fields."""
+        normalized: Dict[str, str | None] = {}
+        for field_name, value in {
+            "eval_spec": eval_spec,
+            "scorer_ref": scorer_ref,
+            "primary_metric": primary_metric,
+            "benchmark_spec_id": benchmark_spec_id,
+        }.items():
+            normalized[field_name] = self._normalize_optional_registration_string(field_name, value)
+        return normalized
+
+    def _normalize_optional_registration_string(
+        self, field_name: str, value: str | None
+    ) -> str | None:
+        """Normalize an optional string field used in tokenized registration."""
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError(f"{field_name} must be a non-empty string when provided")
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError(f"{field_name} must be a non-empty string when provided")
+        if len(normalized) > MAX_REGISTRATION_METADATA_LENGTH:
+            raise ValueError(
+                f"{field_name} must be <= {MAX_REGISTRATION_METADATA_LENGTH} characters"
+            )
+        return normalized
+
+    def _metadata_tags_from_values(self, metadata: Dict[str, str | None]) -> Dict[str, str]:
+        """Convert normalized metadata values into canonical MLflow tags."""
+        return {
+            RICH_REGISTRATION_TAGS[field_name]: value
+            for field_name, value in metadata.items()
+            if value is not None
+        }
 
     def delete_model_version(self, model_id: str) -> bool:
         """Delete a specific model version."""

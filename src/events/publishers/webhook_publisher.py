@@ -267,6 +267,14 @@ class WebhookPublisher(AbstractPublisher):
 
         if message.api_schema is not None:
             model_dict["api_schema"] = message.api_schema
+        if message.eval_spec is not None:
+            model_dict["eval_spec"] = message.eval_spec
+        if message.scorer_ref is not None:
+            model_dict["scorer_ref"] = message.scorer_ref
+        if message.primary_metric is not None:
+            model_dict["primary_metric"] = message.primary_metric
+        if message.benchmark_spec_id is not None:
+            model_dict["benchmark_spec_id"] = message.benchmark_spec_id
 
         payload: Dict[str, Any] = {
             "event_type": "model_registered",

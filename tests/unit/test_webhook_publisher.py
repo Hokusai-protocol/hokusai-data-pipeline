@@ -145,6 +145,32 @@ class TestWebhookPublisher:
         """Test payload validation with valid data."""
         assert publisher._validate_payload(sample_payload) is True
 
+    def test_create_webhook_payload_includes_richer_registration_metadata(self, publisher):
+        """Webhook payloads should expose explicit registration metadata on model."""
+        message = ModelReadyToDeployMessage(
+            model_id="test-model-123",
+            token_symbol="test-token",
+            metric_name="accuracy",
+            baseline_value=0.85,
+            current_value=0.92,
+            model_name="test_model",
+            model_version="v1.0.0",
+            mlflow_run_id="run-123",
+            eval_spec="technical_task_router/v1",
+            scorer_ref="technical_task_router.success_under_budget/v1",
+            primary_metric="success_under_budget",
+            benchmark_spec_id="technical_task_router.success_under_budget/v1",
+        )
+
+        payload = publisher._create_webhook_payload(message)
+
+        assert payload["model"]["eval_spec"] == "technical_task_router/v1"
+        assert payload["model"]["scorer_ref"] == "technical_task_router.success_under_budget/v1"
+        assert payload["model"]["primary_metric"] == "success_under_budget"
+        assert (
+            payload["model"]["benchmark_spec_id"] == "technical_task_router.success_under_budget/v1"
+        )
+
     def test_validate_payload_missing_fields(self, publisher):
         """Test payload validation with missing required fields."""
         # Missing model, timestamp, source
