@@ -36,6 +36,14 @@ SAMPLE_RESULT = {
     "tags": {"proposal_identifier": "HLEAD", "hokusai_token_id": "HLEAD"},
 }
 
+SAMPLE_API_SCHEMA = {
+    "inputSchema": {
+        "type": "object",
+        "properties": {"prompt": {"type": "string"}},
+        "required": ["prompt"],
+    }
+}
+
 
 def test_notify_pipeline_posts_expected_payload(monkeypatch: pytest.MonkeyPatch) -> None:
     """The CLI wrapper should delegate to the shared helper with the same payload."""
@@ -63,6 +71,36 @@ def test_notify_pipeline_uses_non_api_base_when_needed(monkeypatch: pytest.Monke
         _notify_pipeline_of_registration(SAMPLE_RESULT, api_endpoint="https://registry.hokus.ai")
 
     assert notify_mock.call_args.kwargs["api_endpoint"] == "https://registry.hokus.ai"
+
+
+def test_notify_pipeline_forwards_explicit_api_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CLI compatibility wrapper should include explicit api_schema when provided."""
+    monkeypatch.setenv("HOKUSAI_API_KEY", "test-key")
+
+    with patch.object(
+        cli_module, "notify_pipeline_of_registration", return_value={}
+    ) as notify_mock:
+        assert _notify_pipeline_of_registration(SAMPLE_RESULT, api_schema=SAMPLE_API_SCHEMA) is True
+
+    payload = notify_mock.call_args.args[0]
+    assert payload["api_schema"] == SAMPLE_API_SCHEMA
+
+
+def test_notify_pipeline_omits_api_schema_when_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The wrapper should preserve omission semantics for missing api_schema."""
+    monkeypatch.setenv("HOKUSAI_API_KEY", "test-key")
+
+    with patch.object(
+        cli_module, "notify_pipeline_of_registration", return_value={}
+    ) as notify_mock:
+        assert _notify_pipeline_of_registration(SAMPLE_RESULT, api_schema=None) is True
+
+    payload = notify_mock.call_args.args[0]
+    assert "api_schema" not in payload
 
 
 def test_notify_pipeline_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
