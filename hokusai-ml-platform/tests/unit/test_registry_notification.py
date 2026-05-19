@@ -42,6 +42,14 @@ SAMPLE_RESULT = {
     "tags": {"proposal_identifier": "HLEAD", "hokusai_token_id": "HLEAD"},
 }
 
+SAMPLE_API_SCHEMA = {
+    "inputSchema": {
+        "type": "object",
+        "properties": {"prompt": {"type": "string"}},
+        "required": ["prompt"],
+    }
+}
+
 
 @pytest.fixture
 def registry() -> ModelRegistry:
@@ -101,6 +109,27 @@ def test_notify_pipeline_posts_expected_payload() -> None:
     assert response == {"event_emitted": True}
 
 
+def test_build_registration_event_payload_includes_api_schema_when_provided() -> None:
+    """Explicit api_schema should be forwarded verbatim in the SDK payload."""
+    payload = build_registration_event_payload(
+        SAMPLE_RESULT,
+        model_uri="models:/hokusai-HLEAD/7",
+        api_schema=SAMPLE_API_SCHEMA,
+    )
+
+    assert payload["api_schema"] == SAMPLE_API_SCHEMA
+
+
+def test_build_registration_event_payload_omits_api_schema_when_absent() -> None:
+    """Absent api_schema should not appear in the SDK payload."""
+    payload = build_registration_event_payload(
+        SAMPLE_RESULT,
+        model_uri="models:/hokusai-HLEAD/7",
+    )
+
+    assert "api_schema" not in payload
+
+
 def test_register_tokenized_model_success_emits_event(registry: ModelRegistry) -> None:
     """Successful registration should emit the site event by default."""
     mock_version = Mock()
@@ -128,6 +157,34 @@ def test_register_tokenized_model_success_emits_event(registry: ModelRegistry) -
     assert payload["model_uri"] == "models:/MSG-AI/1"
     assert result["event_emitted"] is True
     assert result["site_status_update"] == "succeeded"
+
+
+def test_register_tokenized_model_forwards_api_schema_in_event_payload(
+    registry: ModelRegistry,
+) -> None:
+    """SDK registration should pass api_schema through the shared notification path."""
+    mock_version = Mock()
+    mock_version.version = "1"
+    registry.client.create_model_version.return_value = mock_version
+    registry.client.create_registered_model.return_value = None
+    registry.client.set_model_version_tag.return_value = None
+
+    with patch.object(
+        registry_module,
+        "notify_pipeline_of_registration",
+        return_value={"event_emitted": True},
+    ) as notify_mock:
+        registry.register_tokenized_model(
+            model_uri="runs:/abc123/model",
+            model_name="MSG-AI",
+            token_id="msg-ai",
+            metric_name="reply_rate",
+            baseline_value=0.1342,
+            api_schema=SAMPLE_API_SCHEMA,
+        )
+
+    payload = notify_mock.call_args.args[0]
+    assert payload["api_schema"] == SAMPLE_API_SCHEMA
 
 
 @pytest.mark.parametrize("status_code", [400, 503])

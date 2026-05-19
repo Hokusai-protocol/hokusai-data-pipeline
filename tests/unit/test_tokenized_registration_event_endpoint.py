@@ -140,6 +140,26 @@ def test_tokenized_registration_event_validation_errors(
     assert response.status_code == 422
 
 
+def test_tokenized_registration_event_rejects_non_object_api_schema(
+    client: TestClient, payload: dict[str, object]
+) -> None:
+    """api_schema must be an object when present."""
+    request_payload = dict(payload)
+    request_payload["api_schema"] = "not-an-object"
+
+    with patch(
+        "src.middleware.auth.APIKeyAuthMiddleware.validate_with_auth_service",
+        new=AsyncMock(return_value=_validation_result()),
+    ):
+        response = client.post(
+            "/api/models/tokenized-registration-events",
+            json=request_payload,
+            headers={"Authorization": "Bearer test-key"},
+        )
+
+    assert response.status_code == 422
+
+
 def test_tokenized_registration_event_schema_rejects_non_finite_values() -> None:
     """The request schema should reject Infinity/NaN numeric values."""
     with pytest.raises(ValidationError):
