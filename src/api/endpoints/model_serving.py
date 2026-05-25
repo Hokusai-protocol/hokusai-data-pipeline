@@ -14,13 +14,13 @@ import pickle
 import tempfile
 import time
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 import numpy as np
 import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from huggingface_hub import hf_hub_download, snapshot_download
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ...middleware.auth import require_auth
 from ..dependencies import get_contributor_logger
@@ -32,12 +32,60 @@ logger = logging.getLogger(__name__)
 # Create router
 router = APIRouter(prefix="/api/v1/models", tags=["model-serving"])
 
+MODEL_CONFIGS: dict[str, dict[str, Any]] = {
+    "21": {
+        "name": "Sales Lead Scoring Model",
+        "repository_id": "timogilvie/hokusai-model-21-sales-lead-scorer",
+        "storage_type": "huggingface_private",
+        "model_type": "sklearn",
+        "is_private": True,
+        "inference_method": "local",
+        "cache_duration": 3600,
+        "max_batch_size": 100,
+        "supported_inference_methods": ["api", "local"],
+    },
+    "30": {
+        "name": "Technical Task Router",
+        "storage_type": "in_process",
+        "model_type": "technical_task_router",
+        "is_private": False,
+        "inference_method": "local",
+        "model_version": "v1",
+        "schema": "technical_task_router_row/v1",
+        "description": "Deterministic local router for technical task benchmark inputs.",
+        "max_batch_size": 1,
+        "supported_inference_methods": ["local"],
+    },
+}
+
+TECHNICAL_TASK_ROUTER_BASE_COSTS_USD: dict[str, float] = {
+    "fast-coder-v1": 0.25,
+    "deep-coder-v2": 0.42,
+    "test-runner-v1": 0.12,
+    "db-specialist-v1": 0.37,
+}
+
+TECHNICAL_TASK_ROUTER_COMPLEXITY_MULTIPLIERS: dict[str, float] = {
+    "low": 0.8,
+    "medium": 1.0,
+    "high": 3.2,
+}
+
+TECHNICAL_TASK_ROUTER_TASK_TYPE_MULTIPLIERS: dict[str, dict[str, float]] = {
+    "performance_tuning": {
+        "db-specialist-v1": 0.7,
+        "fast-coder-v1": 1.8,
+    }
+}
+
 
 class PredictionRequest(BaseModel):
     """Request schema for model predictions."""
 
     inputs: dict[str, Any] = Field(..., description="Input data for prediction")
-    options: Optional[dict[str, Any]] = Field(default={}, description="Additional options")
+    options: Optional[dict[str, Any]] = Field(
+        default_factory=dict, description="Additional options"
+    )
 
 
 class PredictionResponse(BaseModel):
@@ -50,6 +98,38 @@ class PredictionResponse(BaseModel):
     metadata: dict[str, Any]
     timestamp: str
     inference_log_id: Optional[str] = None
+
+
+class TechnicalTaskDescriptor(BaseModel):
+    """Structured router task description used for deterministic cost estimation."""
+
+    model_config = ConfigDict(extra="allow")
+
+    task_id: str
+    task_type: str
+    language: str
+    estimated_complexity: Literal["low", "medium", "high"]
+
+
+class TechnicalTaskRouterInputs(BaseModel):
+    """Validated model-30 payload matching technical_task_router_row/v1."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    schema_version: Literal["technical_task_router_row/v1"]
+    row_id: str
+    benchmark_spec_id: str
+    eval_id: str
+    model_id: str
+    task_descriptor: TechnicalTaskDescriptor
+    allowed_models: list[str] = Field(..., min_length=1)
+    selected_models: list[str]
+    max_cost_usd: float = Field(..., gt=0)
+    actual_cost_usd: float = Field(..., ge=0)
+    completed_successfully: bool
+    scorer_ref: Literal["technical_task_router.success_under_budget/v1"]
+    observed_at: datetime
+    metadata: dict[str, Any] | None = None
 
 
 class ModelServingService:
@@ -73,24 +153,11 @@ class ModelServingService:
         In production, this would query the database.
         For now, we'll return config for Model ID 21.
         """
-        model_configs = {
-            "21": {
-                "name": "Sales Lead Scoring Model",
-                "repository_id": "timogilvie/hokusai-model-21-sales-lead-scorer",
-                "storage_type": "huggingface_private",
-                "model_type": "sklearn",  # or "pytorch", "tensorflow", etc.
-                "is_private": True,
-                "inference_method": "local",  # or "api", "endpoint"
-                "cache_duration": 3600,  # 1 hour
-                "max_batch_size": 100,
-            }
-        }
-
-        config = model_configs.get(model_id)
+        config = MODEL_CONFIGS.get(model_id)
         if not config:
             raise HTTPException(status_code=404, detail=f"Model {model_id} not found")
 
-        return config
+        return dict(config)
 
     async def load_model_from_huggingface(self, repository_id: str, model_type: str) -> Any:
         """Load a model from HuggingFace Hub.
@@ -186,7 +253,11 @@ class ModelServingService:
             raise HTTPException(status_code=500, detail=f"Failed to call inference API: {str(e)}")
 
     async def predict_local(
-        self, model_id: str, model: Any, inputs: dict[str, Any]
+        self,
+        model_id: str,
+        model: Any,
+        inputs: dict[str, Any],
+        options: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Run prediction locally with the loaded model.
 
@@ -238,9 +309,113 @@ class ModelServingService:
                 "confidence": float(max(probabilities)),
             }
 
-        else:
-            # Generic prediction logic for other models
-            raise NotImplementedError(f"Local prediction not implemented for model {model_id}")
+        elif model_id == "30":
+            return self._predict_technical_task_router(inputs, options or {})
+
+        # Generic prediction logic for other models
+        raise NotImplementedError(f"Local prediction not implemented for model {model_id}")
+
+    def _predict_technical_task_router(
+        self, inputs: dict[str, Any], options: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Deterministically route a technical task to an allowed model within budget."""
+        try:
+            validated_inputs = TechnicalTaskRouterInputs.model_validate(inputs)
+        except ValidationError as exc:
+            raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+        cost_overrides = self._extract_router_cost_overrides(validated_inputs.metadata, options)
+        chosen_model, estimated_cost = self._select_router_model(validated_inputs, cost_overrides)
+
+        if chosen_model is None or estimated_cost is None:
+            return {
+                "status": "over_budget",
+                "selected_models": [],
+                "estimated_cost_usd": None,
+                "actual_cost_usd": 0.0,
+                "max_cost_usd": validated_inputs.max_cost_usd,
+                "task_descriptor": validated_inputs.task_descriptor.model_dump(mode="json"),
+                "allowed_models": validated_inputs.allowed_models,
+                "schema_version": validated_inputs.schema_version,
+                "completed_successfully": False,
+                "rationale": "No allowed model could satisfy the budget constraint.",
+            }
+
+        return {
+            "status": "success",
+            "selected_models": [chosen_model],
+            "estimated_cost_usd": estimated_cost,
+            "actual_cost_usd": estimated_cost,
+            "max_cost_usd": validated_inputs.max_cost_usd,
+            "task_descriptor": validated_inputs.task_descriptor.model_dump(mode="json"),
+            "allowed_models": validated_inputs.allowed_models,
+            "schema_version": validated_inputs.schema_version,
+            "completed_successfully": True,
+            "rationale": f"Selected cheapest allowed model within budget: {chosen_model}.",
+        }
+
+    def _extract_router_cost_overrides(
+        self, metadata: dict[str, Any] | None, options: dict[str, Any]
+    ) -> dict[str, float]:
+        """Collect caller-provided cost hints from metadata/options when present."""
+        candidates = [
+            options.get("candidate_costs_usd"),
+            options.get("metadata", {}).get("candidate_costs_usd")
+            if isinstance(options.get("metadata"), dict)
+            else None,
+            metadata.get("candidate_costs_usd") if isinstance(metadata, dict) else None,
+        ]
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            overrides: dict[str, float] = {}
+            for model_name, cost in candidate.items():
+                try:
+                    overrides[str(model_name)] = float(cost)
+                except (TypeError, ValueError):
+                    continue
+            if overrides:
+                return overrides
+        return {}
+
+    def _estimate_router_cost(
+        self,
+        model_name: str,
+        task_descriptor: TechnicalTaskDescriptor,
+        cost_overrides: dict[str, float],
+    ) -> float:
+        """Estimate router cost for a single candidate model."""
+        if model_name in cost_overrides:
+            return cost_overrides[model_name]
+
+        base_cost = TECHNICAL_TASK_ROUTER_BASE_COSTS_USD.get(model_name, 1.0)
+        complexity_multiplier = TECHNICAL_TASK_ROUTER_COMPLEXITY_MULTIPLIERS.get(
+            task_descriptor.estimated_complexity, 1.0
+        )
+        task_multiplier = TECHNICAL_TASK_ROUTER_TASK_TYPE_MULTIPLIERS.get(
+            task_descriptor.task_type, {}
+        ).get(model_name, 1.0)
+        return round(base_cost * complexity_multiplier * task_multiplier, 4)
+
+    def _select_router_model(
+        self,
+        inputs: TechnicalTaskRouterInputs,
+        cost_overrides: dict[str, float],
+    ) -> tuple[str | None, float | None]:
+        """Pick the cheapest allowed model that satisfies the budget."""
+        ranked_candidates: list[tuple[float, str]] = []
+        for model_name in inputs.allowed_models:
+            estimated_cost = self._estimate_router_cost(
+                model_name, inputs.task_descriptor, cost_overrides
+            )
+            if estimated_cost <= inputs.max_cost_usd:
+                ranked_candidates.append((estimated_cost, model_name))
+
+        if not ranked_candidates:
+            return None, None
+
+        estimated_cost, selected_model = min(ranked_candidates, key=lambda item: (item[0], item[1]))
+        return selected_model, estimated_cost
 
     def _prepare_sales_lead_features(self, data: dict[str, Any]) -> np.ndarray:
         """Prepare features for Sales Lead Scoring Model (ID 21).
@@ -331,19 +506,26 @@ class ModelServingService:
             if cached_model is None:
                 # Load model from HuggingFace
                 logger.info(f"Loading model {model_id} from HuggingFace...")
-                model = await self.load_model_from_huggingface(
-                    config["repository_id"], config["model_type"]
-                )
-                # Cache the model
-                self.model_cache[cache_key] = {
-                    "model": model,
-                    "loaded_at": datetime.utcnow(),
-                    "config": config,
-                }
-                cached_model = self.model_cache[cache_key]
+                repository_id = config.get("repository_id")
+                if repository_id:
+                    model = await self.load_model_from_huggingface(
+                        repository_id, config["model_type"]
+                    )
+                    # Cache the model
+                    self.model_cache[cache_key] = {
+                        "model": model,
+                        "loaded_at": datetime.utcnow(),
+                        "config": config,
+                    }
+                    cached_model = self.model_cache[cache_key]
 
             # Run local prediction
-            predictions = await self.predict_local(model_id, cached_model["model"], inputs)
+            predictions = await self.predict_local(
+                model_id,
+                cached_model["model"] if cached_model else None,
+                inputs,
+                options,
+            )
 
         else:
             raise HTTPException(
@@ -393,15 +575,22 @@ async def get_model_info(
 
     config = serving_service.get_model_config(model_id)
 
-    return {
+    response: dict[str, Any] = {
         "model_id": model_id,
         "name": config["name"],
         "type": config["model_type"],
         "storage": config["storage_type"],
         "is_available": True,
-        "inference_methods": ["api", "local"] if config["is_private"] else ["api"],
+        "inference_methods": config.get(
+            "supported_inference_methods",
+            ["api", "local"] if config["is_private"] else ["api"],
+        ),
         "max_batch_size": config.get("max_batch_size", 1),
     }
+    for _key in ("model_version", "schema", "description"):
+        if (_val := config.get(_key)) is not None:
+            response[_key] = _val
+    return response
 
 
 @router.post("/{model_id}/predict")
