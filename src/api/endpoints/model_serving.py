@@ -114,7 +114,7 @@ class TechnicalTaskDescriptor(BaseModel):
 class TechnicalTaskRouterInputs(BaseModel):
     """Validated model-30 payload matching technical_task_router_row/v1."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     schema_version: Literal["technical_task_router_row/v1"]
     row_id: str
