@@ -197,6 +197,25 @@ class TestModelServingAuth:
         assert response.status_code == 401
         assert "API key required" in response.json()["detail"]
 
+    def test_model_30_predict_endpoint_accepts_valid_api_key(self, client, mock_auth_service):
+        """Test that model 30 predict accepts valid auth with nested inputs."""
+        response = client.post(
+            "/api/v1/models/30/predict",
+            headers={"Authorization": "Bearer hk_live_valid_key_123"},
+            json={
+                "inputs": {
+                    "task": {
+                        "description": "Implement password reset flow",
+                        "task_type": "feature",
+                    }
+                }
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["model_id"] == "30"
+        assert response.json()["predictions"]["status"] == "success"
+
 
 class TestAuthMiddlewareIntegration:
     """Test integration between endpoints and auth middleware."""

@@ -14,7 +14,7 @@ import pickle
 import tempfile
 import time
 from datetime import datetime
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 import requests
@@ -51,8 +51,8 @@ MODEL_CONFIGS: dict[str, dict[str, Any]] = {
         "is_private": False,
         "inference_method": "local",
         "model_version": "v1",
-        "schema": "technical_task_router_row/v1",
-        "description": "Deterministic local router for technical task benchmark inputs.",
+        "schema": "technical_task_router_inputs/v1",
+        "description": "Deterministic local router for nested technical task inputs.",
         "max_batch_size": 1,
         "supported_inference_methods": ["local"],
     },
@@ -100,36 +100,114 @@ class PredictionResponse(BaseModel):
     inference_log_id: Optional[str] = None
 
 
-class TechnicalTaskDescriptor(BaseModel):
-    """Structured router task description used for deterministic cost estimation."""
+class TechnicalTaskGroup(BaseModel):
+    """Required task description for model 30 routing."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
-    task_id: str
+    description: str
     task_type: str
-    language: str
-    estimated_complexity: Literal["low", "medium", "high"]
+    language: str | None = None
+    framework: str | None = None
+    repo_type: str | None = None
+
+
+class TechnicalTaskRoutingGroup(BaseModel):
+    """Optional routing constraints and preferences."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    available_models: list[str] | None = Field(default=None, min_length=1)
+    preferred_models: list[str] | None = Field(default=None, min_length=1)
+    max_cost_usd: float | None = Field(default=None, gt=0)
+    max_latency_seconds: float | None = Field(default=None, gt=0)
+    prioritize_quality: bool | None = None
+    prioritize_speed: bool | None = None
+
+
+class TechnicalTaskContextGroup(BaseModel):
+    """Optional task context that can improve routing quality."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    domain: str | None = None
+    repo_size_bucket: str | None = None
+    requires_tests: bool | None = None
+    risk_level: str | None = None
+    file_count: int | None = Field(default=None, ge=0)
+    estimated_complexity: str | None = None
+    security_sensitive: bool | None = None
+
+
+class TechnicalTaskWorkflowGroup(BaseModel):
+    """Optional workflow and execution-surface metadata."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    surface: str | None = None
+    stages: list[str] | None = Field(default=None, min_length=1)
+    execution_environment: str | None = None
+    human_review_required: bool | None = None
+
+
+class TechnicalTaskPredictionGroup(BaseModel):
+    """Optional caller-side expectations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_duration_seconds: float | None = Field(default=None, ge=0)
+    expected_cost_usd: float | None = Field(default=None, ge=0)
+    expected_success_probability: float | None = Field(default=None, ge=0, le=1)
+
+
+class TechnicalTaskOutcomeGroup(BaseModel):
+    """Optional post-execution outcome metadata."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    completed_successfully: bool | None = None
+    actual_cost_usd: float | None = Field(default=None, ge=0)
+    actual_time_seconds: float | None = Field(default=None, ge=0)
+    retry_count: int | None = Field(default=None, ge=0)
+    intervention_required: bool | None = None
+    selected_model: str | None = None
+
+
+class TechnicalTaskRubricGroup(BaseModel):
+    """Optional evaluation metadata."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    quality_score: float | None = None
+    correctness_score: float | None = None
+    human_rating: str | None = None
+    benchmark_passed: bool | None = None
+
+
+class TechnicalTaskMetadataGroup(BaseModel):
+    """Optional integration metadata."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    external_task_id: str | None = None
+    run_id: str | None = None
+    integration_version: str | None = None
+    idempotency_key: str | None = None
 
 
 class TechnicalTaskRouterInputs(BaseModel):
-    """Validated model-30 payload matching technical_task_router_row/v1."""
+    """Validated model-30 payload matching technical_task_router_inputs/v1."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["technical_task_router_row/v1"]
-    row_id: str
-    benchmark_spec_id: str
-    eval_id: str
-    model_id: str
-    task_descriptor: TechnicalTaskDescriptor
-    allowed_models: list[str] = Field(..., min_length=1)
-    selected_models: list[str]
-    max_cost_usd: float = Field(..., gt=0)
-    actual_cost_usd: float = Field(..., ge=0)
-    completed_successfully: bool
-    scorer_ref: Literal["technical_task_router.success_under_budget/v1"]
-    observed_at: datetime
-    metadata: dict[str, Any] | None = None
+    task: TechnicalTaskGroup
+    routing: TechnicalTaskRoutingGroup | None = None
+    context: TechnicalTaskContextGroup | None = None
+    workflow: TechnicalTaskWorkflowGroup | None = None
+    prediction: TechnicalTaskPredictionGroup | None = None
+    outcome: TechnicalTaskOutcomeGroup | None = None
+    rubric: TechnicalTaskRubricGroup | None = None
+    metadata: TechnicalTaskMetadataGroup | None = None
 
 
 class ModelServingService:
@@ -324,8 +402,36 @@ class ModelServingService:
         except ValidationError as exc:
             raise HTTPException(status_code=422, detail=exc.errors()) from exc
 
-        cost_overrides = self._extract_router_cost_overrides(validated_inputs.metadata, options)
-        chosen_model, estimated_cost = self._select_router_model(validated_inputs, cost_overrides)
+        available_models = (
+            validated_inputs.routing.available_models
+            if validated_inputs.routing and validated_inputs.routing.available_models is not None
+            else list(TECHNICAL_TASK_ROUTER_BASE_COSTS_USD)
+        )
+        preferred_models = (
+            validated_inputs.routing.preferred_models
+            if validated_inputs.routing and validated_inputs.routing.preferred_models is not None
+            else None
+        )
+        max_cost_usd = (
+            validated_inputs.routing.max_cost_usd
+            if validated_inputs.routing and validated_inputs.routing.max_cost_usd is not None
+            else 1.0
+        )
+        estimated_complexity = (
+            validated_inputs.context.estimated_complexity
+            if validated_inputs.context and validated_inputs.context.estimated_complexity
+            else "medium"
+        )
+
+        cost_overrides = self._extract_router_cost_overrides(options)
+        chosen_model, estimated_cost = self._select_router_model(
+            available_models=available_models,
+            preferred_models=preferred_models,
+            max_cost_usd=max_cost_usd,
+            task_type=validated_inputs.task.task_type,
+            estimated_complexity=estimated_complexity,
+            cost_overrides=cost_overrides,
+        )
 
         if chosen_model is None or estimated_cost is None:
             return {
@@ -333,10 +439,8 @@ class ModelServingService:
                 "selected_models": [],
                 "estimated_cost_usd": None,
                 "actual_cost_usd": 0.0,
-                "max_cost_usd": validated_inputs.max_cost_usd,
-                "task_descriptor": validated_inputs.task_descriptor.model_dump(mode="json"),
-                "allowed_models": validated_inputs.allowed_models,
-                "schema_version": validated_inputs.schema_version,
+                "max_cost_usd": max_cost_usd,
+                "task": validated_inputs.task.model_dump(mode="json", exclude_none=True),
                 "completed_successfully": False,
                 "rationale": "No allowed model could satisfy the budget constraint.",
             }
@@ -346,24 +450,19 @@ class ModelServingService:
             "selected_models": [chosen_model],
             "estimated_cost_usd": estimated_cost,
             "actual_cost_usd": estimated_cost,
-            "max_cost_usd": validated_inputs.max_cost_usd,
-            "task_descriptor": validated_inputs.task_descriptor.model_dump(mode="json"),
-            "allowed_models": validated_inputs.allowed_models,
-            "schema_version": validated_inputs.schema_version,
+            "max_cost_usd": max_cost_usd,
+            "task": validated_inputs.task.model_dump(mode="json", exclude_none=True),
             "completed_successfully": True,
             "rationale": f"Selected cheapest allowed model within budget: {chosen_model}.",
         }
 
-    def _extract_router_cost_overrides(
-        self, metadata: dict[str, Any] | None, options: dict[str, Any]
-    ) -> dict[str, float]:
-        """Collect caller-provided cost hints from metadata/options when present."""
+    def _extract_router_cost_overrides(self, options: dict[str, Any]) -> dict[str, float]:
+        """Collect caller-provided cost hints from request options when present."""
         candidates = [
             options.get("candidate_costs_usd"),
             options.get("metadata", {}).get("candidate_costs_usd")
             if isinstance(options.get("metadata"), dict)
             else None,
-            metadata.get("candidate_costs_usd") if isinstance(metadata, dict) else None,
         ]
         for candidate in candidates:
             if not isinstance(candidate, dict):
@@ -381,7 +480,8 @@ class ModelServingService:
     def _estimate_router_cost(
         self,
         model_name: str,
-        task_descriptor: TechnicalTaskDescriptor,
+        task_type: str,
+        estimated_complexity: str,
         cost_overrides: dict[str, float],
     ) -> float:
         """Estimate router cost for a single candidate model."""
@@ -390,31 +490,47 @@ class ModelServingService:
 
         base_cost = TECHNICAL_TASK_ROUTER_BASE_COSTS_USD.get(model_name, 1.0)
         complexity_multiplier = TECHNICAL_TASK_ROUTER_COMPLEXITY_MULTIPLIERS.get(
-            task_descriptor.estimated_complexity, 1.0
+            estimated_complexity, 1.0
         )
-        task_multiplier = TECHNICAL_TASK_ROUTER_TASK_TYPE_MULTIPLIERS.get(
-            task_descriptor.task_type, {}
-        ).get(model_name, 1.0)
+        task_multiplier = TECHNICAL_TASK_ROUTER_TASK_TYPE_MULTIPLIERS.get(task_type, {}).get(
+            model_name, 1.0
+        )
         return round(base_cost * complexity_multiplier * task_multiplier, 4)
 
     def _select_router_model(
         self,
-        inputs: TechnicalTaskRouterInputs,
+        *,
+        available_models: list[str],
+        preferred_models: list[str] | None,
+        max_cost_usd: float,
+        task_type: str,
+        estimated_complexity: str,
         cost_overrides: dict[str, float],
     ) -> tuple[str | None, float | None]:
         """Pick the cheapest allowed model that satisfies the budget."""
         ranked_candidates: list[tuple[float, str]] = []
-        for model_name in inputs.allowed_models:
+        for model_name in available_models:
             estimated_cost = self._estimate_router_cost(
-                model_name, inputs.task_descriptor, cost_overrides
+                model_name, task_type, estimated_complexity, cost_overrides
             )
-            if estimated_cost <= inputs.max_cost_usd:
+            if estimated_cost <= max_cost_usd:
                 ranked_candidates.append((estimated_cost, model_name))
 
         if not ranked_candidates:
             return None, None
 
-        estimated_cost, selected_model = min(ranked_candidates, key=lambda item: (item[0], item[1]))
+        preferred_rank = {
+            model_name: index for index, model_name in enumerate(preferred_models or [])
+        }
+        if preferred_rank:
+            preferred_candidates = [item for item in ranked_candidates if item[1] in preferred_rank]
+            if preferred_candidates:
+                ranked_candidates = preferred_candidates
+
+        estimated_cost, selected_model = min(
+            ranked_candidates,
+            key=lambda item: (item[0], preferred_rank.get(item[1], float("inf")), item[1]),
+        )
         return selected_model, estimated_cost
 
     def _prepare_sales_lead_features(self, data: dict[str, Any]) -> np.ndarray:
