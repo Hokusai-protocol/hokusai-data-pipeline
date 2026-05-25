@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -14,9 +12,6 @@ from fastapi.testclient import TestClient
 from src.api.dependencies import get_contributor_logger
 from src.api.endpoints import model_serving
 from src.middleware.auth import require_auth
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-EXAMPLES_DIR = REPO_ROOT / "schema" / "examples"
 
 
 class FakeContributorLogger:
@@ -30,8 +25,73 @@ class FakeContributorLogger:
         return None
 
 
-def _load_example(filename: str) -> dict:
-    return json.loads((EXAMPLES_DIR / filename).read_text(encoding="utf-8"))
+def _minimal_model_30_inputs() -> dict:
+    return {
+        "task": {
+            "description": "Implement password reset flow",
+            "task_type": "feature",
+        }
+    }
+
+
+def _full_model_30_inputs() -> dict:
+    return {
+        "task": {
+            "description": "Refactor billing webhook retry handling",
+            "task_type": "refactor",
+            "language": "python",
+            "framework": "fastapi",
+            "repo_type": "monorepo",
+        },
+        "routing": {
+            "available_models": ["fast-coder-v1", "deep-coder-v2", "db-specialist-v1"],
+            "preferred_models": ["deep-coder-v2", "db-specialist-v1"],
+            "max_cost_usd": 0.5,
+            "max_latency_seconds": 30,
+            "prioritize_quality": True,
+            "prioritize_speed": False,
+        },
+        "context": {
+            "domain": "payments",
+            "repo_size_bucket": "large",
+            "requires_tests": True,
+            "risk_level": "medium",
+            "file_count": 6,
+            "estimated_complexity": "medium",
+            "security_sensitive": True,
+        },
+        "workflow": {
+            "surface": "wavemill",
+            "stages": ["plan", "code", "review"],
+            "execution_environment": "ci",
+            "human_review_required": True,
+        },
+        "prediction": {
+            "expected_duration_seconds": 1800,
+            "expected_cost_usd": 0.45,
+            "expected_success_probability": 0.8,
+        },
+        "outcome": {
+            "completed_successfully": False,
+            "actual_cost_usd": 0.0,
+            "actual_time_seconds": 0.0,
+            "retry_count": 0,
+            "intervention_required": False,
+            "selected_model": "deep-coder-v2",
+        },
+        "rubric": {
+            "quality_score": 0.9,
+            "correctness_score": 0.85,
+            "human_rating": "strong",
+            "benchmark_passed": True,
+        },
+        "metadata": {
+            "external_task_id": "task-123",
+            "run_id": "run-456",
+            "integration_version": "2026.05",
+            "idempotency_key": "idem-789",
+        },
+    }
 
 
 @pytest.fixture()
@@ -73,7 +133,7 @@ def test_get_model_config_model_30_returns_router_config() -> None:
     assert config["model_type"] == "technical_task_router"
     assert config["inference_method"] == "local"
     assert config["model_version"] == "v1"
-    assert config["schema"] == "technical_task_router_row/v1"
+    assert config["schema"] == "technical_task_router_inputs/v1"
 
 
 def test_get_model_config_unknown_model_raises_404() -> None:
@@ -124,7 +184,7 @@ def test_model_30_info_endpoint_returns_router_metadata(client: TestClient) -> N
     assert body["storage"] == "in_process"
     assert body["inference_methods"] == ["local"]
     assert body["model_version"] == "v1"
-    assert body["schema"] == "technical_task_router_row/v1"
+    assert body["schema"] == "technical_task_router_inputs/v1"
 
 
 def test_model_30_health_endpoint_is_ready(client: TestClient) -> None:
@@ -140,27 +200,43 @@ def test_model_30_health_endpoint_is_ready(client: TestClient) -> None:
     }
 
 
-def test_model_30_predict_success_fixture(client: TestClient) -> None:
-    payload = {"inputs": _load_example("technical_task_router_row.success.v1.json")}
+def test_model_30_predict_minimal_payload_succeeds(client: TestClient) -> None:
+    payload = {"inputs": _minimal_model_30_inputs()}
 
     response = client.post("/api/v1/models/30/predict", json=payload)
 
     assert response.status_code == 200
     body = response.json()
     predictions = body["predictions"]
-    allowed_models = set(payload["inputs"]["allowed_models"])
-    selected_models = predictions["selected_models"]
 
     assert body["model_id"] == "30"
     assert predictions["status"] == "success"
-    assert selected_models
-    assert set(selected_models).issubset(allowed_models)
+    assert predictions["selected_models"]
     assert predictions["actual_cost_usd"] <= predictions["max_cost_usd"]
-    assert predictions["schema_version"] == "technical_task_router_row/v1"
+    assert predictions["task"] == payload["inputs"]["task"]
 
 
-def test_model_30_predict_over_budget_fixture(client: TestClient) -> None:
-    payload = {"inputs": _load_example("technical_task_router_row.over_budget.v1.json")}
+def test_model_30_predict_full_payload_accepts_all_groups(client: TestClient) -> None:
+    payload = {"inputs": _full_model_30_inputs()}
+
+    response = client.post("/api/v1/models/30/predict", json=payload)
+
+    assert response.status_code == 200
+    predictions = response.json()["predictions"]
+    assert predictions["status"] == "success"
+    assert predictions["task"] == payload["inputs"]["task"]
+    assert len(predictions["selected_models"]) == 1
+    assert predictions["selected_models"][0] in payload["inputs"]["routing"]["preferred_models"]
+    assert predictions["max_cost_usd"] == payload["inputs"]["routing"]["max_cost_usd"]
+
+
+def test_model_30_predict_over_budget_with_nested_budget(client: TestClient) -> None:
+    payload = {
+        "inputs": {
+            **_minimal_model_30_inputs(),
+            "routing": {"max_cost_usd": 0.01},
+        }
+    }
 
     response = client.post("/api/v1/models/30/predict", json=payload)
 
@@ -169,49 +245,113 @@ def test_model_30_predict_over_budget_fixture(client: TestClient) -> None:
     assert predictions["status"] == "over_budget"
     assert predictions["selected_models"] == []
     assert predictions["actual_cost_usd"] == 0.0
+    assert predictions["max_cost_usd"] == 0.01
 
 
-def test_model_30_predict_disallowed_fixture_does_not_select_unapproved_model(
-    client: TestClient,
-) -> None:
-    payload = {"inputs": _load_example("technical_task_router_row.disallowed_model.v1.json")}
+def test_model_30_predict_available_model_constraint_is_respected(client: TestClient) -> None:
+    payload = {
+        "inputs": {
+            **_minimal_model_30_inputs(),
+            "routing": {"available_models": ["db-specialist-v1", "deep-coder-v2"]},
+        }
+    }
 
     response = client.post("/api/v1/models/30/predict", json=payload)
 
     assert response.status_code == 200
     predictions = response.json()["predictions"]
-    assert set(predictions["selected_models"]).issubset(set(payload["inputs"]["allowed_models"]))
+    assert set(predictions["selected_models"]).issubset(
+        set(payload["inputs"]["routing"]["available_models"])
+    )
 
 
-def test_model_30_predict_invalid_payload_returns_422(client: TestClient) -> None:
+def test_model_30_predict_allows_optional_groups_to_be_null(client: TestClient) -> None:
+    payload = {
+        "inputs": {
+            **_minimal_model_30_inputs(),
+            "routing": None,
+            "context": None,
+            "workflow": None,
+            "prediction": None,
+            "outcome": None,
+            "rubric": None,
+            "metadata": None,
+        }
+    }
+
+    response = client.post("/api/v1/models/30/predict", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["predictions"]["status"] == "success"
+
+
+def test_model_30_predict_missing_task_returns_422(client: TestClient) -> None:
     response = client.post(
         "/api/v1/models/30/predict",
         json={
             "inputs": {
-                "schema_version": "technical_task_router_row/v1",
-                "row_id": "bad-row",
-                "benchmark_spec_id": "bench",
-                "eval_id": "eval",
-                "model_id": "technical-task-router-challenger",
-                "task_descriptor": {
-                    "task_id": "task-1",
-                    "task_type": "code_debugging",
-                    "language": "python",
-                    "estimated_complexity": "medium",
-                },
-                "allowed_models": ["fast-coder-v1"],
-                "selected_models": [],
-                "max_cost_usd": 0,
-                "actual_cost_usd": 0,
-                "completed_successfully": False,
-                "scorer_ref": "technical_task_router.success_under_budget/v1",
-                "observed_at": "2026-05-12T12:00:00Z",
+                "routing": {"max_cost_usd": 0.5},
             }
         },
     )
 
     assert response.status_code == 422
-    assert "greater than 0" in response.text
+    assert "Field required" in response.text
+
+
+def test_model_30_predict_old_flat_payload_returns_422(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/models/30/predict",
+        json={
+            "inputs": {
+                "schema_version": "technical_task_router_row/v1",
+                "task_descriptor": {
+                    "task_id": "task-1",
+                    "task_type": "feature",
+                    "language": "python",
+                    "estimated_complexity": "medium",
+                },
+                "allowed_models": ["fast-coder-v1"],
+                "max_cost_usd": 0.5,
+            }
+        },
+    )
+
+    assert response.status_code == 422
+    assert "Extra inputs are not permitted" in response.text
+
+
+def test_model_30_predict_rejects_mixed_nested_and_flat_payload(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/models/30/predict",
+        json={
+            "inputs": {
+                **_minimal_model_30_inputs(),
+                "allowed_models": ["fast-coder-v1"],
+            }
+        },
+    )
+
+    assert response.status_code == 422
+    assert "Extra inputs are not permitted" in response.text
+
+
+def test_model_30_predict_rejects_stray_nested_field(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/models/30/predict",
+        json={
+            "inputs": {
+                "task": {
+                    "description": "Implement password reset flow",
+                    "task_type": "feature",
+                    "priority": "high",
+                }
+            }
+        },
+    )
+
+    assert response.status_code == 422
+    assert "Extra inputs are not permitted" in response.text
 
 
 def test_model_21_info_health_predict_regression(client: TestClient) -> None:
