@@ -97,9 +97,6 @@ def test_model_21_info_endpoint_shape_is_stable(client: TestClient) -> None:
         "is_available": True,
         "inference_methods": ["api", "local"],
         "max_batch_size": 100,
-        "model_version": None,
-        "schema": None,
-        "description": None,
     }
 
 

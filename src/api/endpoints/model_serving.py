@@ -575,7 +575,7 @@ async def get_model_info(
 
     config = serving_service.get_model_config(model_id)
 
-    return {
+    response: dict[str, Any] = {
         "model_id": model_id,
         "name": config["name"],
         "type": config["model_type"],
@@ -586,10 +586,11 @@ async def get_model_info(
             ["api", "local"] if config["is_private"] else ["api"],
         ),
         "max_batch_size": config.get("max_batch_size", 1),
-        "model_version": config.get("model_version"),
-        "schema": config.get("schema"),
-        "description": config.get("description"),
     }
+    for _key in ("model_version", "schema", "description"):
+        if (_val := config.get(_key)) is not None:
+            response[_key] = _val
+    return response
 
 
 @router.post("/{model_id}/predict")
