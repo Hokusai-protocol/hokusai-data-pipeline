@@ -84,6 +84,8 @@ pluggy==1.6.0
     # via pytest
 pre-commit==3.6.0
     # via -r requirements-dev.in
+psutil==7.2.2
+    # via -r requirements-dev.in
 pygments==2.19.2
     # via mkdocs-material
 pymdown-extensions==10.16

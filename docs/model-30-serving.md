@@ -117,3 +117,35 @@ That integration test requires `MLFLOW_TRACKING_URI` and any registry credential
 ## Follow-Up
 
 After validating `Technical Task Router` version `1`, set the registered model alias `production` and switch `MODEL_30_MLFLOW_URI` to `models:/Technical Task Router@production` when the deployment path is ready for alias-based promotion.
+
+## Local Reproduction Harness
+
+Use `scripts/diagnostics/reproduce_model_30_inference.py` to reproduce model 30 behavior outside FastAPI while still loading the configured MLflow artifact through `src.api.endpoints.model_30_adapter`.
+
+Prerequisites:
+
+- Set `MLFLOW_TRACKING_URI` plus any auth or mTLS environment the deployed service uses
+- Pass `--model-uri` or set `MODEL_30_MLFLOW_URI`
+- Install dev dependencies if you want RSS sampling via `psutil`; otherwise the script falls back to `resource.getrusage(...)`
+
+Example:
+
+```bash
+python -m scripts.diagnostics.reproduce_model_30_inference \
+  --model-uri 'models:/Technical Task Router/1' \
+  --warm-iterations 5 \
+  --output /tmp/model-30-report.json
+```
+
+Fixture locations:
+
+- `data/test_fixtures/model_30_curated_payload.json`
+- `data/test_fixtures/model_30_minimal_payload.json`
+
+Report interpretation:
+
+- `verdict = "model_runtime"` means the local cold load or warm inference exceeded the configured thresholds, so slowness is likely inside artifact loading or model execution
+- `verdict = "api_or_cache"` means both payloads stayed comfortably below the thresholds locally, so the deployed API path or cache layer is the more likely source
+- `verdict = "inconclusive"` means the local measurements did not isolate a single bottleneck
+
+The report also includes `timing_source`. On branches that already include the PR 195 adapter timing hooks, the harness uses those directly. On older branches it falls back to wall-clock timing around the same adapter call path.
