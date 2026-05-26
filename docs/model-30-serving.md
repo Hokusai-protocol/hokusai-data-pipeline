@@ -61,6 +61,42 @@ Model 30 responses include:
 
 `request_id` matches `inference_log_id` so callers can correlate the public response with persisted inference logs.
 
+## Latency Tracing
+
+Each `POST /api/v1/models/30/predict` request now emits exactly one structured `model_30_latency_trace` log record. The trace is keyed by `request_id`, includes the caller-provided `metadata.run_id` when present, and classifies the path as `warm` or `cold` based on whether the MLflow artifact was already cached in-process.
+
+Trace fields:
+
+- `event`: fixed to `model_30_latency_trace`
+- `request_id`: public-safe request correlation id, also returned in the API response
+- `run_id`: optional caller correlation id from `inputs.metadata.run_id`
+- `path_type`: `warm` or `cold`
+- `outcome`: `success`, `timeout`, `validation_error`, `http_error`, or `error`
+- `dominant_phase`: largest contributor across the per-phase timings and the timeout boundary
+- `total_ms`: sum of the non-overlapping model 30 phases below
+- `request_validation_ms`
+- `model_cache_lookup_ms`
+- `artifact_load_ms`
+- `preprocessor_setup_ms`
+- `feature_transformation_ms`
+- `model_inference_ms`
+- `postprocessing_serialization_ms`
+- `timeout_deadline_boundary_ms`
+
+Use `dominant_phase` to identify where the request spent the most time. A cold request typically shows `artifact_load` dominating, while a warm request should shift time toward `model_inference` or upstream data-shaping phases. Timeout responses include `request_id` and `run_id` in the `504` body so the matching trace can be found without exposing request payload details.
+
+Sample CloudWatch Logs Insights query:
+
+```sql
+fields @timestamp, request_id, run_id, path_type, outcome, dominant_phase, total_ms,
+       request_validation_ms, model_cache_lookup_ms, artifact_load_ms,
+       preprocessor_setup_ms, feature_transformation_ms, model_inference_ms,
+       postprocessing_serialization_ms, timeout_deadline_boundary_ms
+| filter event = "model_30_latency_trace"
+| sort @timestamp desc
+| limit 50
+```
+
 ## Smoke Test
 
 Unit and targeted endpoint verification:
