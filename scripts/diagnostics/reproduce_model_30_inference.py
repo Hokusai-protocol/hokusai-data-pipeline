@@ -169,6 +169,8 @@ def _rss_mb() -> float:
     if psutil is not None:
         return round(psutil.Process().memory_info().rss / (1024**2), 3)
 
+    # ru_maxrss is the process lifetime *peak* RSS, not current — deltas between
+    # samples may be zero even after allocation. Install psutil for current RSS.
     rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     if sys.platform == "darwin":
         bytes_per_unit = 1
@@ -248,18 +250,19 @@ def _run_payload(
     for _ in range(warm_iterations):
         try:
             result, timings, timing_source = _invoke_model(model_uri, features)
-            inference_seconds = _seconds_from_ms(
-                timings,
-                "inference_only_ms",
-            ) or _seconds_from_ms(timings, "total_call_ms")
+            inference_seconds = _seconds_from_ms(timings, "inference_only_ms")
+            if inference_seconds is None:
+                inference_seconds = _seconds_from_ms(timings, "total_call_ms")
             if inference_seconds is None:
                 msg = "Inference timing data was not captured"
                 raise RuntimeError(msg)
             samples.append(inference_seconds)
             payload_report["result_preview"] = _truncate_preview(result)
+            payload_report["error"] = None  # clear error from any prior failed iteration
         except Exception as exc:  # noqa: BLE001 - report all failures in output JSON
-            payload_report["error"] = _serialize_error(exc)
-            payload_report["timed_iteration_errors"].append(payload_report["error"])
+            err = _serialize_error(exc)
+            payload_report["error"] = err
+            payload_report["timed_iteration_errors"].append(err)
 
     if samples:
         payload_report["warm_seconds"] = {
@@ -343,10 +346,9 @@ def generate_report(args: argparse.Namespace) -> dict[str, Any]:
     rss_before_load_mb = _rss_mb()
     reset_model_30_cache()
     cold_result, cold_timings, timing_source = _invoke_model(args.model_uri, curated_features)
-    cold_load_seconds = _seconds_from_ms(
-        cold_timings,
-        "artifact_load_ms",
-    ) or _seconds_from_ms(cold_timings, "total_call_ms")
+    cold_load_seconds = _seconds_from_ms(cold_timings, "artifact_load_ms")
+    if cold_load_seconds is None:
+        cold_load_seconds = _seconds_from_ms(cold_timings, "total_call_ms")
     if cold_load_seconds is None:
         msg = "Cold-load timing data was not captured"
         raise RuntimeError(msg)

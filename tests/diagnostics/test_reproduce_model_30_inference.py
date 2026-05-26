@@ -82,6 +82,24 @@ def test_main_generates_json_report(monkeypatch, tmp_path, capsys) -> None:
         assert payload_report["error"] is None
 
 
+def test_main_exits_non_zero_for_below_minimum_warm_iterations(capsys) -> None:
+    import pytest
+
+    with pytest.raises(SystemExit) as exc_info:
+        harness.main(
+            [
+                "--model-uri",
+                "models:/Technical Task Router/1",
+                "--warm-iterations",
+                "2",
+            ]
+        )
+
+    assert exc_info.value.code != 0
+    captured = capsys.readouterr()
+    assert "warm-iterations" in captured.err
+
+
 def test_main_exits_non_zero_for_invalid_payload(tmp_path, capsys) -> None:
     invalid_payload = tmp_path / "invalid.json"
     invalid_payload.write_text('{"routing": {"max_cost_usd": 0.5}}', encoding="utf-8")
