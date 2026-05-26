@@ -26,6 +26,17 @@ from .model_registration_event import (
     TokenizedRegistrationEventRequest,
     TokenizedRegistrationEventResponse,
 )
+from .technical_task_router_inputs import (
+    TechnicalTaskContextGroup,
+    TechnicalTaskGroup,
+    TechnicalTaskMetadataGroup,
+    TechnicalTaskOutcomeGroup,
+    TechnicalTaskPredictionGroup,
+    TechnicalTaskRouterInputs,
+    TechnicalTaskRoutingGroup,
+    TechnicalTaskRubricGroup,
+    TechnicalTaskWorkflowGroup,
+)
 from .token_mint import TokenMintRequest, TokenMintResult, TokenMintVestingDetails
 
 __all__ = [
@@ -50,4 +61,13 @@ __all__ = [
     "OutcomeSubmissionResponse",
     "TokenizedRegistrationEventRequest",
     "TokenizedRegistrationEventResponse",
+    "TechnicalTaskContextGroup",
+    "TechnicalTaskGroup",
+    "TechnicalTaskMetadataGroup",
+    "TechnicalTaskOutcomeGroup",
+    "TechnicalTaskPredictionGroup",
+    "TechnicalTaskRouterInputs",
+    "TechnicalTaskRoutingGroup",
+    "TechnicalTaskRubricGroup",
+    "TechnicalTaskWorkflowGroup",
 ]

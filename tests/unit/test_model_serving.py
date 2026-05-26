@@ -11,6 +11,11 @@ from fastapi.testclient import TestClient
 
 from src.api.dependencies import get_contributor_logger
 from src.api.endpoints import model_serving
+from src.api.endpoints.model_30_adapter import (
+    MODEL_30_SCHEMA,
+    MODEL_30_VERSION,
+    reset_model_30_cache,
+)
 from src.middleware.auth import require_auth
 
 
@@ -113,8 +118,9 @@ def client(app: FastAPI) -> TestClient:
 
 
 @pytest.fixture(autouse=True)
-def clear_model_cache() -> None:
+def clear_caches() -> None:
     model_serving.serving_service.model_cache.clear()
+    reset_model_30_cache()
 
 
 def test_get_model_config_model_21_returns_sales_lead_config() -> None:
@@ -131,9 +137,11 @@ def test_get_model_config_model_30_returns_router_config() -> None:
 
     assert config["name"] == "Technical Task Router"
     assert config["model_type"] == "technical_task_router"
-    assert config["inference_method"] == "local"
-    assert config["model_version"] == "v1"
-    assert config["schema"] == "technical_task_router_inputs/v1"
+    assert config["storage_type"] == "mlflow"
+    assert config["inference_method"] == "mlflow_pyfunc"
+    assert config["model_version"] == MODEL_30_VERSION
+    assert config["schema"] == MODEL_30_SCHEMA
+    assert config["model_uri"] == "models:/Technical Task Router/1"
 
 
 def test_get_model_config_unknown_model_raises_404() -> None:
@@ -148,8 +156,7 @@ def test_model_21_info_endpoint_shape_is_stable(client: TestClient) -> None:
     response = client.get("/api/v1/models/21/info")
 
     assert response.status_code == 200
-    body = response.json()
-    assert body == {
+    assert response.json() == {
         "model_id": "21",
         "name": "Sales Lead Scoring Model",
         "type": "sklearn",
@@ -173,116 +180,165 @@ def test_model_21_health_endpoint_shape_is_stable(client: TestClient) -> None:
     }
 
 
-def test_model_30_info_endpoint_returns_router_metadata(client: TestClient) -> None:
+def test_model_30_info_endpoint_returns_mlflow_metadata(client: TestClient) -> None:
     response = client.get("/api/v1/models/30/info")
 
     assert response.status_code == 200
-    body = response.json()
-    assert body["model_id"] == "30"
-    assert body["name"] == "Technical Task Router"
-    assert body["type"] == "technical_task_router"
-    assert body["storage"] == "in_process"
-    assert body["inference_methods"] == ["local"]
-    assert body["model_version"] == "v1"
-    assert body["schema"] == "technical_task_router_inputs/v1"
+    assert response.json() == {
+        "model_id": "30",
+        "name": "Technical Task Router",
+        "type": "technical_task_router",
+        "storage": "mlflow",
+        "is_available": True,
+        "inference_methods": ["mlflow_pyfunc"],
+        "max_batch_size": 1,
+        "model_type": "technical_task_router",
+        "storage_type": "mlflow",
+        "model_uri": "models:/Technical Task Router/1",
+        "model_version": MODEL_30_VERSION,
+        "schema": MODEL_30_SCHEMA,
+        "description": "MLflow-backed router for nested technical task inputs.",
+    }
 
 
-def test_model_30_health_endpoint_is_ready(client: TestClient) -> None:
-    response = client.get("/api/v1/models/30/health")
+def test_model_30_health_endpoint_reflects_mlflow_cache(client: TestClient) -> None:
+    with patch("src.api.endpoints.model_serving.is_model_30_cached", return_value=True):
+        response = client.get("/api/v1/models/30/health")
 
     assert response.status_code == 200
     assert response.json() == {
         "model_id": "30",
         "status": "healthy",
-        "is_cached": False,
-        "storage_type": "in_process",
+        "is_cached": True,
+        "storage_type": "mlflow",
         "inference_ready": True,
     }
 
 
-def test_model_30_predict_minimal_payload_succeeds(client: TestClient) -> None:
+def test_model_30_predict_minimal_payload_uses_adapter_path(client: TestClient) -> None:
     payload = {"inputs": _minimal_model_30_inputs()}
+    normalized_output = {
+        "selected_model": "fast-coder-v1",
+        "selected_models": ["fast-coder-v1"],
+        "confidence": 0.83,
+        "rationale": "Budget-friendly choice",
+        "estimated_cost_usd": 0.25,
+    }
 
-    response = client.post("/api/v1/models/30/predict", json=payload)
+    with (
+        patch(
+            "src.api.endpoints.model_serving.validate_nested_model_30_inputs",
+            side_effect=lambda raw: raw,
+        ) as validate_mock,
+        patch(
+            "src.api.endpoints.model_serving.model_30_inputs_to_features",
+            return_value={"features": "ok"},
+        ) as feature_mock,
+        patch(
+            "src.api.endpoints.model_serving.call_mlflow_model_30",
+            return_value={"raw": "output"},
+        ) as call_mock,
+        patch(
+            "src.api.endpoints.model_serving.normalize_model_30_output",
+            return_value=normalized_output,
+        ) as normalize_mock,
+        patch.object(model_serving.serving_service, "predict_local") as local_predict_mock,
+    ):
+        response = client.post("/api/v1/models/30/predict", json=payload)
 
     assert response.status_code == 200
     body = response.json()
-    predictions = body["predictions"]
-
     assert body["model_id"] == "30"
-    assert predictions["status"] == "success"
-    assert predictions["selected_models"]
-    assert predictions["actual_cost_usd"] <= predictions["max_cost_usd"]
-    assert predictions["task"] == payload["inputs"]["task"]
+    assert body["predictions"] == normalized_output
+    assert body["metadata"]["model_uri"] == "models:/Technical Task Router/1"
+    assert body["metadata"]["model_version"] == MODEL_30_VERSION
+    assert body["metadata"]["schema"] == MODEL_30_SCHEMA
+    assert body["metadata"]["inference_method"] == "mlflow_pyfunc"
+    assert body["metadata"]["request_id"] == body["inference_log_id"]
+    validate_mock.assert_called_once_with(payload["inputs"])
+    feature_mock.assert_called_once_with(payload["inputs"])
+    call_mock.assert_called_once_with("models:/Technical Task Router/1", {"features": "ok"})
+    normalize_mock.assert_called_once_with({"raw": "output"}, payload["inputs"])
+    local_predict_mock.assert_not_called()
 
 
-def test_model_30_predict_full_payload_accepts_all_groups(client: TestClient) -> None:
+def test_model_30_predict_full_payload_passes_validated_inputs_to_adapter(
+    client: TestClient,
+) -> None:
     payload = {"inputs": _full_model_30_inputs()}
-
-    response = client.post("/api/v1/models/30/predict", json=payload)
-
-    assert response.status_code == 200
-    predictions = response.json()["predictions"]
-    assert predictions["status"] == "success"
-    assert predictions["task"] == payload["inputs"]["task"]
-    assert len(predictions["selected_models"]) == 1
-    assert predictions["selected_models"][0] in payload["inputs"]["routing"]["preferred_models"]
-    assert predictions["max_cost_usd"] == payload["inputs"]["routing"]["max_cost_usd"]
-
-
-def test_model_30_predict_over_budget_with_nested_budget(client: TestClient) -> None:
-    payload = {
-        "inputs": {
-            **_minimal_model_30_inputs(),
-            "routing": {"max_cost_usd": 0.01},
-        }
+    validated_inputs = object()
+    normalized_output = {
+        "selected_model": "deep-coder-v2",
+        "selected_models": ["deep-coder-v2"],
+        "confidence": 0.91,
+        "rationale": "Preferred high quality route",
+        "estimated_cost_usd": 0.42,
     }
 
-    response = client.post("/api/v1/models/30/predict", json=payload)
+    with (
+        patch(
+            "src.api.endpoints.model_serving.validate_nested_model_30_inputs",
+            return_value=validated_inputs,
+        ),
+        patch(
+            "src.api.endpoints.model_serving.model_30_inputs_to_features",
+            return_value={"features": "ok"},
+        ) as feature_mock,
+        patch(
+            "src.api.endpoints.model_serving.call_mlflow_model_30",
+            return_value={"raw": "output"},
+        ),
+        patch(
+            "src.api.endpoints.model_serving.normalize_model_30_output",
+            return_value=normalized_output,
+        ),
+    ):
+        response = client.post("/api/v1/models/30/predict", json=payload)
 
     assert response.status_code == 200
-    predictions = response.json()["predictions"]
-    assert predictions["status"] == "over_budget"
-    assert predictions["selected_models"] == []
-    assert predictions["actual_cost_usd"] == 0.0
-    assert predictions["max_cost_usd"] == 0.01
+    feature_mock.assert_called_once_with(validated_inputs)
 
 
-def test_model_30_predict_available_model_constraint_is_respected(client: TestClient) -> None:
-    payload = {
-        "inputs": {
-            **_minimal_model_30_inputs(),
-            "routing": {"available_models": ["db-specialist-v1", "deep-coder-v2"]},
-        }
-    }
+def test_model_30_predict_old_flat_payload_returns_422_and_skips_mlflow(client: TestClient) -> None:
+    with patch("src.api.endpoints.model_serving.call_mlflow_model_30") as call_mock:
+        response = client.post(
+            "/api/v1/models/30/predict",
+            json={
+                "inputs": {
+                    "schema_version": "technical_task_router_row/v1",
+                    "task_descriptor": {
+                        "task_id": "task-1",
+                        "task_type": "feature",
+                        "language": "python",
+                        "estimated_complexity": "medium",
+                    },
+                    "allowed_models": ["fast-coder-v1"],
+                    "selected_models": ["fast-coder-v1"],
+                    "max_cost_usd": 0.5,
+                }
+            },
+        )
 
-    response = client.post("/api/v1/models/30/predict", json=payload)
-
-    assert response.status_code == 200
-    predictions = response.json()["predictions"]
-    assert set(predictions["selected_models"]).issubset(
-        set(payload["inputs"]["routing"]["available_models"])
-    )
+    assert response.status_code == 422
+    call_mock.assert_not_called()
+    assert "Extra inputs are not permitted" in response.text
 
 
-def test_model_30_predict_allows_optional_groups_to_be_null(client: TestClient) -> None:
-    payload = {
-        "inputs": {
-            **_minimal_model_30_inputs(),
-            "routing": None,
-            "context": None,
-            "workflow": None,
-            "prediction": None,
-            "outcome": None,
-            "rubric": None,
-            "metadata": None,
-        }
-    }
+def test_model_30_predict_rejects_mixed_nested_and_flat_payload(client: TestClient) -> None:
+    with patch("src.api.endpoints.model_serving.call_mlflow_model_30") as call_mock:
+        response = client.post(
+            "/api/v1/models/30/predict",
+            json={
+                "inputs": {
+                    **_minimal_model_30_inputs(),
+                    "allowed_models": ["fast-coder-v1"],
+                }
+            },
+        )
 
-    response = client.post("/api/v1/models/30/predict", json=payload)
-
-    assert response.status_code == 200
-    assert response.json()["predictions"]["status"] == "success"
+    assert response.status_code == 422
+    call_mock.assert_not_called()
+    assert "Extra inputs are not permitted" in response.text
 
 
 def test_model_30_predict_missing_task_returns_422(client: TestClient) -> None:
@@ -299,59 +355,18 @@ def test_model_30_predict_missing_task_returns_422(client: TestClient) -> None:
     assert "Field required" in response.text
 
 
-def test_model_30_predict_old_flat_payload_returns_422(client: TestClient) -> None:
-    response = client.post(
-        "/api/v1/models/30/predict",
-        json={
-            "inputs": {
-                "schema_version": "technical_task_router_row/v1",
-                "task_descriptor": {
-                    "task_id": "task-1",
-                    "task_type": "feature",
-                    "language": "python",
-                    "estimated_complexity": "medium",
-                },
-                "allowed_models": ["fast-coder-v1"],
-                "max_cost_usd": 0.5,
-            }
-        },
-    )
+def test_model_30_predict_mlflow_failure_returns_503(client: TestClient) -> None:
+    with patch(
+        "src.api.endpoints.model_serving.call_mlflow_model_30",
+        side_effect=RuntimeError("registry unavailable"),
+    ):
+        response = client.post(
+            "/api/v1/models/30/predict",
+            json={"inputs": _minimal_model_30_inputs()},
+        )
 
-    assert response.status_code == 422
-    assert "Extra inputs are not permitted" in response.text
-
-
-def test_model_30_predict_rejects_mixed_nested_and_flat_payload(client: TestClient) -> None:
-    response = client.post(
-        "/api/v1/models/30/predict",
-        json={
-            "inputs": {
-                **_minimal_model_30_inputs(),
-                "allowed_models": ["fast-coder-v1"],
-            }
-        },
-    )
-
-    assert response.status_code == 422
-    assert "Extra inputs are not permitted" in response.text
-
-
-def test_model_30_predict_rejects_stray_nested_field(client: TestClient) -> None:
-    response = client.post(
-        "/api/v1/models/30/predict",
-        json={
-            "inputs": {
-                "task": {
-                    "description": "Implement password reset flow",
-                    "task_type": "feature",
-                    "priority": "high",
-                }
-            }
-        },
-    )
-
-    assert response.status_code == 422
-    assert "Extra inputs are not permitted" in response.text
+    assert response.status_code == 503
+    assert response.json()["detail"].startswith("Model 30 MLflow inference failed")
 
 
 def test_model_21_info_health_predict_regression(client: TestClient) -> None:

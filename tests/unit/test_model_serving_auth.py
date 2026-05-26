@@ -199,22 +199,26 @@ class TestModelServingAuth:
 
     def test_model_30_predict_endpoint_accepts_valid_api_key(self, client, mock_auth_service):
         """Test that model 30 predict accepts valid auth with nested inputs."""
-        response = client.post(
-            "/api/v1/models/30/predict",
-            headers={"Authorization": "Bearer hk_live_valid_key_123"},
-            json={
-                "inputs": {
-                    "task": {
-                        "description": "Implement password reset flow",
-                        "task_type": "feature",
+        with patch(
+            "src.api.endpoints.model_serving.call_mlflow_model_30",
+            return_value={"selected_model": "fast-coder-v1", "confidence": 0.8},
+        ):
+            response = client.post(
+                "/api/v1/models/30/predict",
+                headers={"Authorization": "Bearer hk_live_valid_key_123"},
+                json={
+                    "inputs": {
+                        "task": {
+                            "description": "Implement password reset flow",
+                            "task_type": "feature",
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
 
         assert response.status_code == 200
         assert response.json()["model_id"] == "30"
-        assert response.json()["predictions"]["status"] == "success"
+        assert response.json()["predictions"]["selected_model"] == "fast-coder-v1"
 
 
 class TestAuthMiddlewareIntegration:
