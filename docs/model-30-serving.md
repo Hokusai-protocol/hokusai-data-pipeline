@@ -21,7 +21,7 @@ Top-level flat benchmark-row fields such as `schema_version`, `task_descriptor`,
 
 Environment variables:
 
-- `MODEL_30_MLFLOW_URI` defaults to `models:/Technical Task Router/1`
+- `MODEL_30_MLFLOW_URI` defaults to `models:/Technical Task Router/4`
 - `MLFLOW_TRACKING_URI` must point at the registry/tracking server
 - Any auth token or mTLS environment expected by the deployed MLflow stack must also be present
 
@@ -116,7 +116,7 @@ That integration test requires `MLFLOW_TRACKING_URI` and any registry credential
 
 ## Follow-Up
 
-After validating `Technical Task Router` version `1`, set the registered model alias `production` and switch `MODEL_30_MLFLOW_URI` to `models:/Technical Task Router@production` when the deployment path is ready for alias-based promotion.
+After validating `Technical Task Router` version `4`, set the registered model alias `production` and switch `MODEL_30_MLFLOW_URI` to `models:/Technical Task Router@production` when the deployment path is ready for alias-based promotion.
 
 ## Local Reproduction Harness
 
@@ -132,7 +132,7 @@ Example:
 
 ```bash
 python -m scripts.diagnostics.reproduce_model_30_inference \
-  --model-uri 'models:/Technical Task Router/1' \
+  --model-uri 'models:/Technical Task Router/4' \
   --warm-iterations 5 \
   --output /tmp/model-30-report.json
 ```

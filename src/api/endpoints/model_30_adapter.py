@@ -20,8 +20,8 @@ import pandas as pd
 
 from src.api.schemas import TechnicalTaskRouterInputs
 
-DEFAULT_MODEL_30_MLFLOW_URI = "models:/Technical Task Router/1"
-MODEL_30_VERSION = "1"
+DEFAULT_MODEL_30_MLFLOW_URI = "models:/Technical Task Router/4"
+MODEL_30_VERSION = "4"
 MODEL_30_SCHEMA = "technical_task_router_inputs/v1"
 
 _MODEL_30_CACHE: dict[str, Any] = {}
