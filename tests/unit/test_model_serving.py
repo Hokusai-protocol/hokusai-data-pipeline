@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -367,6 +368,31 @@ def test_model_30_predict_mlflow_failure_returns_503(client: TestClient) -> None
 
     assert response.status_code == 503
     assert response.json()["detail"].startswith("Model 30 MLflow inference failed")
+
+
+def test_model_30_predict_mlflow_timeout_returns_504_without_alb_timeout(
+    client: TestClient,
+) -> None:
+    def slow_call(*_: object) -> dict[str, str]:
+        time.sleep(0.05)
+        return {"selected_model": "fast-coder-v1"}
+
+    original_timeout = model_serving.serving_service.prediction_timeout_seconds
+    model_serving.serving_service.prediction_timeout_seconds = 0.01
+    try:
+        with patch(
+            "src.api.endpoints.model_serving.call_mlflow_model_30",
+            side_effect=slow_call,
+        ):
+            response = client.post(
+                "/api/v1/models/30/predict",
+                json={"inputs": _minimal_model_30_inputs()},
+            )
+    finally:
+        model_serving.serving_service.prediction_timeout_seconds = original_timeout
+
+    assert response.status_code == 504
+    assert "timed out" in response.json()["detail"]
 
 
 def test_model_21_info_health_predict_regression(client: TestClient) -> None:

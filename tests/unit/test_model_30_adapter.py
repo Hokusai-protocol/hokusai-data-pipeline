@@ -7,6 +7,7 @@ shared env such as `MLFLOW_TRACKING_TOKEN`.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from types import SimpleNamespace
@@ -90,6 +91,7 @@ def _full_inputs() -> dict:
 @pytest.fixture(autouse=True)
 def clear_cache() -> None:
     model_30_adapter.reset_model_30_cache()
+    model_30_adapter._MLFLOW_CLIENT_CONFIGURED = False
 
 
 def test_validate_nested_inputs_accepts_minimal_task() -> None:
@@ -305,6 +307,32 @@ def test_call_mlflow_model_30_calls_predict() -> None:
 
     fake_model.predict.assert_called_once_with({"row": 1})
     assert result == {"selected_model": "fast-coder-v1"}
+
+
+def test_call_mlflow_model_30_configures_sdk_from_deployment_env(monkeypatch) -> None:
+    fake_model = MagicMock()
+    fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}
+    monkeypatch.setenv("MLFLOW_SERVER_URL", "https://mlflow.hokusai-development.local:5000")
+    monkeypatch.setenv("MLFLOW_CLIENT_CERT_PATH", "/tmp/api-certs/client.crt")
+    monkeypatch.setenv("MLFLOW_CLIENT_KEY_PATH", "/tmp/api-certs/client.key")
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    monkeypatch.delenv("MLFLOW_TRACKING_CLIENT_CERT_PATH", raising=False)
+    monkeypatch.delenv("MLFLOW_TRACKING_CLIENT_KEY_PATH", raising=False)
+
+    with (
+        patch("src.api.endpoints.model_30_adapter.mlflow.set_tracking_uri") as set_uri_mock,
+        patch(
+            "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
+            return_value=fake_model,
+        ),
+    ):
+        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/1", {"row": 1})
+
+    set_uri_mock.assert_called_once_with("https://mlflow.hokusai-development.local:5000")
+    assert os.environ["MLFLOW_TRACKING_URI"] == "https://mlflow.hokusai-development.local:5000"
+    assert os.environ["MLFLOW_TRACKING_CLIENT_CERT_PATH"] == "/tmp/api-certs/client.crt"
+    assert os.environ["MLFLOW_TRACKING_CLIENT_KEY_PATH"] == "/tmp/api-certs/client.key"
+    assert os.environ["MLFLOW_TRACKING_INSECURE_TLS"] == "true"
 
 
 def test_call_mlflow_model_30_propagates_predict_errors() -> None:
