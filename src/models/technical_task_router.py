@@ -288,15 +288,25 @@ def _normalize_serving_features(row: dict[str, Any]) -> dict[str, Any]:
                 FEATURE_DEFAULTS["repo_size_bucket"],
             ]
         ),
-        "files_touched_bucket": _files_bucket(row.get("file_count")),
-        "description_length_bucket": _description_bucket(task_description),
+        "files_touched_bucket": _first_nonempty(
+            [row.get("files_touched_bucket"), _files_bucket(row.get("file_count"))]
+        ),
+        "description_length_bucket": _first_nonempty(
+            [row.get("description_length_bucket"), _description_bucket(task_description)]
+        ),
         "risk_level": _first_nonempty(
             [row.get("risk_level"), context.get("risk_level"), FEATURE_DEFAULTS["risk_level"]]
         ),
         "requires_tests": _coerce_bool(row.get("requires_tests")),
-        "is_migration": _contains_any(task_description, ["migration", "schema", "alembic"]),
-        "ui_heavy": _contains_any(task_description, ["ui", "frontend", "component"]),
-        "cross_service": _contains_any(task_description, ["service", "integration", "api"]),
+        "is_migration": _coerce_bool(row["is_migration"])
+        if "is_migration" in row
+        else _contains_any(task_description, ["migration", "schema", "alembic"]),
+        "ui_heavy": _coerce_bool(row["ui_heavy"])
+        if "ui_heavy" in row
+        else _contains_any(task_description, ["ui", "frontend", "component"]),
+        "cross_service": _coerce_bool(row["cross_service"])
+        if "cross_service" in row
+        else _contains_any(task_description, ["service", "integration", "api"]),
         "allowed_models": row.get("allowed_models"),
         "preferred_models": row.get("preferred_models"),
         "available_planner_models": row.get("available_planner_models"),
@@ -310,7 +320,9 @@ def _normalize_serving_features(row: dict[str, Any]) -> dict[str, Any]:
     }
 
     normalized["complexity"] = _complexity_number(
-        row.get("estimated_complexity") or context.get("estimated_complexity")
+        row.get("complexity")
+        or row.get("estimated_complexity")
+        or context.get("estimated_complexity")
     )
     return normalized
 

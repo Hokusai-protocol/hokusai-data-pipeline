@@ -153,7 +153,7 @@ def test_model_30_inputs_to_features_maps_nested_payload_to_signature_shape() ->
     assert row["available_coder_models"] == ["deep-coder-v2", "fast-coder-v1"]
     assert row["available_reviewer_models"] == ["deep-coder-v2", "fast-coder-v1"]
     assert row["complexity"] == "medium"
-    assert row["files_touched_bucket"] == "medium"
+    assert row["files_touched_bucket"] == "6_15"
     assert row["max_cost_usd"] == 0.5
     assert row["task_type"] == "refactor"
     assert row["surface"] == "wavemill"
@@ -180,7 +180,7 @@ def test_router_features_minimal_fixture() -> None:
     assert features["language"] is None
     assert features["complexity"] == "low"
     assert features["description_length_bucket"] == "short"
-    assert features["files_touched_bucket"] == "small"
+    assert features["files_touched_bucket"] == "1"
     assert features["available_planner_models"] == []
     assert features["available_coder_models"] == []
     assert features["available_reviewer_models"] == []
@@ -214,7 +214,7 @@ def test_router_features_curated_fixture() -> None:
         "domain": "payments",
         "complexity": "high",
         "description_length_bucket": "short",
-        "files_touched_bucket": "large",
+        "files_touched_bucket": "16_plus",
         "available_planner_models": ["deep-coder-v2", "fast-coder-v1"],
         "available_coder_models": ["deep-coder-v2", "fast-coder-v1"],
         "available_reviewer_models": ["deep-coder-v2", "fast-coder-v1"],
@@ -260,12 +260,12 @@ def test_description_length_bucket_boundaries(length: int, expected_bucket: str)
 @pytest.mark.parametrize(
     ("file_count", "expected_bucket"),
     [
-        (model_30_adapter._FILES_SMALL_MAX - 1, "small"),
-        (model_30_adapter._FILES_SMALL_MAX, "small"),
-        (model_30_adapter._FILES_SMALL_MAX + 1, "medium"),
-        (model_30_adapter._FILES_MEDIUM_MAX - 1, "medium"),
-        (model_30_adapter._FILES_MEDIUM_MAX, "medium"),
-        (model_30_adapter._FILES_MEDIUM_MAX + 1, "large"),
+        (model_30_adapter._FILES_SMALL_MAX - 1, "2_5"),
+        (model_30_adapter._FILES_SMALL_MAX, "2_5"),
+        (model_30_adapter._FILES_SMALL_MAX + 1, "6_15"),
+        (model_30_adapter._FILES_MEDIUM_MAX - 1, "6_15"),
+        (model_30_adapter._FILES_MEDIUM_MAX, "6_15"),
+        (model_30_adapter._FILES_MEDIUM_MAX + 1, "16_plus"),
     ],
 )
 def test_files_touched_bucket_boundaries(file_count: int, expected_bucket: str) -> None:

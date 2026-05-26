@@ -68,7 +68,7 @@ _ROUTER_LEAKAGE_COLUMNS: frozenset[str] = frozenset(
 _DESCRIPTION_SHORT_MAX = 200
 _DESCRIPTION_MEDIUM_MAX = 1000
 _FILES_SMALL_MAX = 5
-_FILES_MEDIUM_MAX = 20
+_FILES_MEDIUM_MAX = 15
 
 _GREENFIELD_KEYWORDS = re.compile(
     r"\b(greenfield|from scratch|new project|scaffold|bootstrap)\b",
@@ -176,11 +176,13 @@ def _bucket_description_length(length: int) -> str:
 
 
 def _bucket_files_touched(file_count: int) -> str:
+    if file_count <= 1:
+        return "1"
     if file_count <= _FILES_SMALL_MAX:
-        return "small"
+        return "2_5"
     if file_count <= _FILES_MEDIUM_MAX:
-        return "medium"
-    return "large"
+        return "6_15"
+    return "16_plus"
 
 
 def _derive_complexity(validated: TechnicalTaskRouterInputs) -> str:
@@ -193,9 +195,9 @@ def _derive_complexity(validated: TechnicalTaskRouterInputs) -> str:
     description_bucket = _bucket_description_length(len(description))
     files_bucket = _bucket_files_touched(file_count)
 
-    if description_bucket == "long" or files_bucket == "large":
+    if description_bucket == "long" or files_bucket == "16_plus":
         return "high"
-    if description_bucket == "medium" or files_bucket == "medium":
+    if description_bucket == "medium" or files_bucket == "6_15":
         return "medium"
     return "low"
 
