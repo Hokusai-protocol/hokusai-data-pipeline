@@ -245,10 +245,10 @@ def test_pyfunc_cache_loads_once_per_uri() -> None:
         "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
         return_value=fake_model,
     ) as load_mock:
-        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/1", {"row": 1})
-        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/1", {"row": 2})
+        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/4", {"row": 1})
+        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/4", {"row": 2})
 
-    load_mock.assert_called_once_with("models:/Technical Task Router/1")
+    load_mock.assert_called_once_with("models:/Technical Task Router/4")
 
 
 def test_pyfunc_cache_loads_distinct_uris_separately() -> None:
@@ -258,8 +258,8 @@ def test_pyfunc_cache_loads_distinct_uris_separately() -> None:
         "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
         return_value=fake_model,
     ) as load_mock:
-        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/1", {"row": 1})
-        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/2", {"row": 2})
+        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/4", {"row": 1})
+        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/3", {"row": 2})
 
     assert load_mock.call_count == 2
 
@@ -276,7 +276,7 @@ def test_pyfunc_cache_is_thread_safe_on_cold_start() -> None:
 
     def worker() -> None:
         start_event.wait()
-        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/1", {"row": 1})
+        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/4", {"row": 1})
 
     with patch(
         "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
@@ -289,7 +289,7 @@ def test_pyfunc_cache_is_thread_safe_on_cold_start() -> None:
         for thread in threads:
             thread.join()
 
-    assert load_calls == ["models:/Technical Task Router/1"]
+    assert load_calls == ["models:/Technical Task Router/4"]
 
 
 def test_call_mlflow_model_30_calls_predict() -> None:
@@ -301,7 +301,7 @@ def test_call_mlflow_model_30_calls_predict() -> None:
         return_value=fake_model,
     ):
         result = model_30_adapter.call_mlflow_model_30(
-            "models:/Technical Task Router/1",
+            "models:/Technical Task Router/4",
             {"row": 1},
         )
 
@@ -319,7 +319,7 @@ def test_call_mlflow_model_30_populates_timing_fields() -> None:
         return_value=fake_model,
     ):
         model_30_adapter.call_mlflow_model_30(
-            "models:/Technical Task Router/1",
+            "models:/Technical Task Router/4",
             {"row": 1},
             timings,
         )
@@ -339,9 +339,9 @@ def test_call_mlflow_model_30_warm_path_keeps_artifact_load_small() -> None:
         "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
         return_value=fake_model,
     ):
-        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/1", {"row": 1})
+        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/4", {"row": 1})
         model_30_adapter.call_mlflow_model_30(
-            "models:/Technical Task Router/1",
+            "models:/Technical Task Router/4",
             {"row": 2},
             timings,
         )
@@ -367,7 +367,7 @@ def test_call_mlflow_model_30_configures_sdk_from_deployment_env(monkeypatch) ->
             return_value=fake_model,
         ),
     ):
-        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/1", {"row": 1})
+        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/4", {"row": 1})
 
     set_uri_mock.assert_called_once_with("https://mlflow.hokusai-development.local:5000")
     assert os.environ["MLFLOW_TRACKING_URI"] == "https://mlflow.hokusai-development.local:5000"
@@ -386,6 +386,6 @@ def test_call_mlflow_model_30_propagates_predict_errors() -> None:
     ):
         with pytest.raises(RuntimeError, match="boom"):
             model_30_adapter.call_mlflow_model_30(
-                "models:/Technical Task Router/1",
+                "models:/Technical Task Router/4",
                 {"row": 1},
             )

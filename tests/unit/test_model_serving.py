@@ -143,7 +143,7 @@ def test_get_model_config_model_30_returns_router_config() -> None:
     assert config["inference_method"] == "mlflow_pyfunc"
     assert config["model_version"] == MODEL_30_VERSION
     assert config["schema"] == MODEL_30_SCHEMA
-    assert config["model_uri"] == "models:/Technical Task Router/1"
+    assert config["model_uri"] == "models:/Technical Task Router/4"
 
 
 def test_get_model_config_unknown_model_raises_404() -> None:
@@ -196,7 +196,7 @@ def test_model_30_info_endpoint_returns_mlflow_metadata(client: TestClient) -> N
         "max_batch_size": 1,
         "model_type": "technical_task_router",
         "storage_type": "mlflow",
-        "model_uri": "models:/Technical Task Router/1",
+        "model_uri": "models:/Technical Task Router/4",
         "model_version": MODEL_30_VERSION,
         "schema": MODEL_30_SCHEMA,
         "description": "MLflow-backed router for nested technical task inputs.",
@@ -252,7 +252,7 @@ def test_model_30_predict_minimal_payload_uses_adapter_path(client: TestClient) 
     body = response.json()
     assert body["model_id"] == "30"
     assert body["predictions"] == normalized_output
-    assert body["metadata"]["model_uri"] == "models:/Technical Task Router/1"
+    assert body["metadata"]["model_uri"] == "models:/Technical Task Router/4"
     assert body["metadata"]["model_version"] == MODEL_30_VERSION
     assert body["metadata"]["schema"] == MODEL_30_SCHEMA
     assert body["metadata"]["inference_method"] == "mlflow_pyfunc"
@@ -260,7 +260,7 @@ def test_model_30_predict_minimal_payload_uses_adapter_path(client: TestClient) 
     validate_mock.assert_called_once_with(payload["inputs"])
     feature_mock.assert_called_once_with(payload["inputs"])
     assert call_mock.call_count == 1
-    assert call_mock.call_args.args[:2] == ("models:/Technical Task Router/1", {"features": "ok"})
+    assert call_mock.call_args.args[:2] == ("models:/Technical Task Router/4", {"features": "ok"})
     assert isinstance(call_mock.call_args.args[2], dict)
     normalize_mock.assert_called_once_with({"raw": "output"}, payload["inputs"])
     local_predict_mock.assert_not_called()
