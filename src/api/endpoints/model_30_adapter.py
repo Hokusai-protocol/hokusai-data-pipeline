@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from collections.abc import Mapping
 from typing import Any
 
@@ -108,11 +109,26 @@ def model_30_inputs_to_features(validated_inputs: TechnicalTaskRouterInputs) -> 
     return pd.DataFrame([row])
 
 
-def call_mlflow_model_30(model_uri: str, features: object) -> Any:
+def call_mlflow_model_30(
+    model_uri: str,
+    features: object,
+    _timings: dict[str, float] | None = None,
+) -> Any:
     """Load the cached MLflow model and invoke predict()."""
     _configure_mlflow_client_from_environment()
+    load_started_at = time.perf_counter()
     model = _get_or_load_model_30(model_uri)
-    return model.predict(features)
+    artifact_load_ms = (time.perf_counter() - load_started_at) * 1000
+
+    predict_started_at = time.perf_counter()
+    result = model.predict(features)
+    inference_only_ms = (time.perf_counter() - predict_started_at) * 1000
+
+    if _timings is not None:
+        _timings["artifact_load_ms"] = artifact_load_ms
+        _timings["inference_only_ms"] = inference_only_ms
+
+    return result
 
 
 def _configure_mlflow_client_from_environment() -> None:

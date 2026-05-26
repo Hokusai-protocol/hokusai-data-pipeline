@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field, ValidationError
 from ...middleware.auth import require_auth
 from ..dependencies import get_contributor_logger
 from ..services.contributor_logger import ContributorLogger
+from .latency_trace import Model30LatencyTrace
 from .model_30_adapter import (
     MODEL_30_SCHEMA,
     MODEL_30_VERSION,
@@ -352,7 +353,11 @@ class ModelServingService:
         return np.array(features).reshape(1, -1)
 
     async def serve_prediction(  # noqa: C901
-        self, model_id: str, inputs: dict[str, Any], options: dict[str, Any]
+        self,
+        model_id: str,
+        inputs: dict[str, Any],
+        options: dict[str, Any],
+        request_id: str = "",
     ) -> dict[str, Any]:
         """Main method to serve predictions for a model.
 
@@ -417,38 +422,101 @@ class ModelServingService:
                     status_code=400,
                     detail=f"MLflow pyfunc inference is not configured for model {model_id}",
                 )
+            trace = Model30LatencyTrace(request_id=request_id, model_uri=config["model_uri"])
+            trace_emitted = False
             try:
-                validated_inputs = validate_nested_model_30_inputs(inputs)
-                features = model_30_inputs_to_features(validated_inputs)
-                raw_model_output = await asyncio.wait_for(
-                    asyncio.to_thread(call_mlflow_model_30, config["model_uri"], features),
-                    timeout=self.prediction_timeout_seconds,
+                with trace.phase("model_cache_lookup"):
+                    is_cached = is_model_30_cached(config["model_uri"])
+                trace.set_path_type(is_cached)
+
+                with trace.phase("request_validation"):
+                    validated_inputs = validate_nested_model_30_inputs(inputs)
+                metadata = getattr(validated_inputs, "metadata", None)
+                if metadata is not None:
+                    trace.run_id = getattr(metadata, "run_id", None)
+
+                # Model 30 does not have a separate setup object today; record the
+                # pre-inference preparation boundary explicitly so the schema stays stable.
+                with trace.phase("preprocessor_setup"):
+                    pass
+
+                with trace.phase("feature_transformation"):
+                    features = model_30_inputs_to_features(validated_inputs)
+
+                mlflow_timings: dict[str, float] = {}
+                inference_started_at = time.perf_counter()
+                try:
+                    raw_model_output = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            call_mlflow_model_30,
+                            config["model_uri"],
+                            features,
+                            mlflow_timings,
+                        ),
+                        timeout=self.prediction_timeout_seconds,
+                    )
+                except asyncio.TimeoutError as exc:
+                    trace.outcome = "timeout"
+                    trace.deadline_boundary_ms = (time.perf_counter() - inference_started_at) * 1000
+                    trace.record_ms("artifact_load", mlflow_timings.get("artifact_load_ms", 0.0))
+                    trace.emit(logger)
+                    trace_emitted = True
+                    logger.error(
+                        "Model 30 MLflow inference timed out",
+                        extra={
+                            "model_id": model_id,
+                            "model_uri": config.get("model_uri"),
+                            "timeout_seconds": self.prediction_timeout_seconds,
+                            "request_id": request_id,
+                            "run_id": trace.run_id,
+                        },
+                    )
+                    raise HTTPException(
+                        status_code=504,
+                        detail={
+                            "error": (
+                                "Model 30 inference timed out before the service deadline. "
+                                "Please retry after the model cache has warmed."
+                            ),
+                            "request_id": request_id,
+                            "run_id": trace.run_id,
+                        },
+                    ) from exc
+
+                trace.deadline_boundary_ms = (time.perf_counter() - inference_started_at) * 1000
+                trace.record_ms("artifact_load", mlflow_timings.get("artifact_load_ms", 0.0))
+                trace.record_ms(
+                    "model_inference",
+                    mlflow_timings.get("inference_only_ms", trace.deadline_boundary_ms),
                 )
-                predictions = normalize_model_30_output(raw_model_output, validated_inputs)
-            except asyncio.TimeoutError as exc:
+
+                with trace.phase("postprocessing_serialization"):
+                    predictions = normalize_model_30_output(raw_model_output, validated_inputs)
+                trace.outcome = "success"
+                trace.emit(logger)
+                trace_emitted = True
+            except ValidationError as exc:
+                trace.outcome = "validation_error"
+                if not trace_emitted:
+                    trace.emit(logger)
+                raise HTTPException(status_code=422, detail=exc.errors()) from exc
+            except HTTPException:
+                if not trace_emitted:
+                    trace.outcome = "http_error"
+                    trace.emit(logger)
+                raise
+            except Exception as exc:
+                trace.outcome = "error"
+                if not trace_emitted:
+                    trace.emit(logger)
                 logger.error(
-                    "Model 30 MLflow inference timed out",
+                    "Model 30 MLflow inference failed",
                     extra={
                         "model_id": model_id,
                         "model_uri": config.get("model_uri"),
-                        "timeout_seconds": self.prediction_timeout_seconds,
+                        "request_id": request_id,
+                        "run_id": trace.run_id,
                     },
-                )
-                raise HTTPException(
-                    status_code=504,
-                    detail=(
-                        "Model 30 inference timed out before the service deadline. "
-                        "Please retry after the model cache has warmed."
-                    ),
-                ) from exc
-            except ValidationError as exc:
-                raise HTTPException(status_code=422, detail=exc.errors()) from exc
-            except HTTPException:
-                raise
-            except Exception as exc:
-                logger.error(
-                    "Model 30 MLflow inference failed",
-                    extra={"model_id": model_id, "model_uri": config.get("model_uri")},
                     exc_info=exc,
                 )
                 raise HTTPException(
@@ -576,7 +644,10 @@ async def predict(
 
         # Run prediction
         predictions = await serving_service.serve_prediction(
-            model_id=model_id, inputs=request.inputs, options=request.options
+            model_id=model_id,
+            inputs=request.inputs,
+            options=request.options,
+            request_id=request_id,
         )
         inference_latency_ms = int((time.perf_counter() - started_at) * 1000)
         model_version = str(
@@ -696,7 +767,6 @@ async def check_model_health(
 
 # Example usage for testing
 if __name__ == "__main__":
-    import asyncio
 
     async def test_model_21():
         """Test Model ID 21 serving."""
