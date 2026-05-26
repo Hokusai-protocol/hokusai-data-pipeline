@@ -8,6 +8,7 @@ Authentication is handled by APIKeyAuthMiddleware - all endpoints
 use the require_auth dependency to access validated user context.
 """
 
+import asyncio
 import logging
 import os
 import pickle
@@ -104,6 +105,12 @@ class ModelServingService:
         self.model_cache = {}
         self.hf_token = os.getenv("HUGGINGFACE_API_KEY")
         self.inference_api_url = "https://api-inference.huggingface.co/models"
+        self.prediction_timeout_seconds = float(
+            os.getenv("MODEL_SERVING_PREDICTION_TIMEOUT_SECONDS", "25")
+        )
+        self.model_load_timeout_seconds = float(
+            os.getenv("MODEL_SERVING_LOAD_TIMEOUT_SECONDS", "25")
+        )
 
     def get_model_config(self, model_id: str) -> dict[str, Any]:
         """Get model configuration from database.
@@ -136,48 +143,59 @@ class ModelServingService:
             raise HTTPException(status_code=500, detail="HuggingFace token not configured")
 
         try:
-            # Download model file from HuggingFace
-            with tempfile.TemporaryDirectory() as tmpdir:
-                if model_type == "sklearn":
-                    # Download pickle file
-                    model_path = hf_hub_download(
-                        repo_id=repository_id,
-                        filename="model.pkl",
-                        token=self.hf_token,
-                        cache_dir=tmpdir,
-                    )
-
-                    # Load the model
-                    with open(model_path, "rb") as f:
-                        model_data = pickle.load(f)
-
-                    return model_data
-
-                elif model_type == "pytorch":
-                    # Download PyTorch model
-                    model_path = hf_hub_download(
-                        repo_id=repository_id,
-                        filename="pytorch_model.bin",
-                        token=self.hf_token,
-                        cache_dir=tmpdir,
-                    )
-
-                    # Load PyTorch model (simplified)
-                    import torch
-
-                    model = torch.load(model_path)
-                    return model
-
-                else:
-                    # For other types, download entire repository
-                    snapshot_path = snapshot_download(
-                        repo_id=repository_id, token=self.hf_token, cache_dir=tmpdir
-                    )
-                    return snapshot_path
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._load_model_from_huggingface_sync,
+                    repository_id,
+                    model_type,
+                ),
+                timeout=self.model_load_timeout_seconds,
+            )
+        except asyncio.TimeoutError as exc:
+            logger.error(
+                "Timed out loading model from HuggingFace",
+                extra={
+                    "repository_id": repository_id,
+                    "model_type": model_type,
+                    "timeout_seconds": self.model_load_timeout_seconds,
+                },
+            )
+            raise HTTPException(
+                status_code=504,
+                detail=(
+                    "Timed out loading model artifact. "
+                    "Please retry after the model cache has warmed."
+                ),
+            ) from exc
 
         except Exception as e:
             logger.error(f"Failed to load model from HuggingFace: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
+
+    def _load_model_from_huggingface_sync(self, repository_id: str, model_type: str) -> Any:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            if model_type == "sklearn":
+                model_path = hf_hub_download(
+                    repo_id=repository_id,
+                    filename="model.pkl",
+                    token=self.hf_token,
+                    cache_dir=tmpdir,
+                )
+                with open(model_path, "rb") as f:
+                    return pickle.load(f)
+
+            if model_type == "pytorch":
+                model_path = hf_hub_download(
+                    repo_id=repository_id,
+                    filename="pytorch_model.bin",
+                    token=self.hf_token,
+                    cache_dir=tmpdir,
+                )
+                import torch
+
+                return torch.load(model_path)
+
+            return snapshot_download(repo_id=repository_id, token=self.hf_token, cache_dir=tmpdir)
 
     async def predict_with_inference_api(
         self, repository_id: str, inputs: dict[str, Any]
@@ -238,8 +256,10 @@ class ModelServingService:
                 classifier = model
 
             # Make prediction
-            prediction = classifier.predict(features)[0]
-            probabilities = classifier.predict_proba(features)[0]
+            prediction, probabilities = await asyncio.wait_for(
+                asyncio.to_thread(self._predict_sales_lead_sync, classifier, features),
+                timeout=self.prediction_timeout_seconds,
+            )
 
             # Calculate lead score
             lead_score = int(probabilities[1] * 100)
@@ -274,6 +294,12 @@ class ModelServingService:
 
         # Generic prediction logic for other models
         raise NotImplementedError(f"Local prediction not implemented for model {model_id}")
+
+    @staticmethod
+    def _predict_sales_lead_sync(classifier: Any, features: np.ndarray) -> tuple[Any, Any]:
+        prediction = classifier.predict(features)[0]
+        probabilities = classifier.predict_proba(features)[0]
+        return prediction, probabilities
 
     def _prepare_sales_lead_features(self, data: dict[str, Any]) -> np.ndarray:
         """Prepare features for Sales Lead Scoring Model (ID 21).
@@ -325,7 +351,7 @@ class ModelServingService:
 
         return np.array(features).reshape(1, -1)
 
-    async def serve_prediction(
+    async def serve_prediction(  # noqa: C901
         self, model_id: str, inputs: dict[str, Any], options: dict[str, Any]
     ) -> dict[str, Any]:
         """Main method to serve predictions for a model.
@@ -394,8 +420,27 @@ class ModelServingService:
             try:
                 validated_inputs = validate_nested_model_30_inputs(inputs)
                 features = model_30_inputs_to_features(validated_inputs)
-                raw_model_output = call_mlflow_model_30(config["model_uri"], features)
+                raw_model_output = await asyncio.wait_for(
+                    asyncio.to_thread(call_mlflow_model_30, config["model_uri"], features),
+                    timeout=self.prediction_timeout_seconds,
+                )
                 predictions = normalize_model_30_output(raw_model_output, validated_inputs)
+            except asyncio.TimeoutError as exc:
+                logger.error(
+                    "Model 30 MLflow inference timed out",
+                    extra={
+                        "model_id": model_id,
+                        "model_uri": config.get("model_uri"),
+                        "timeout_seconds": self.prediction_timeout_seconds,
+                    },
+                )
+                raise HTTPException(
+                    status_code=504,
+                    detail=(
+                        "Model 30 inference timed out before the service deadline. "
+                        "Please retry after the model cache has warmed."
+                    ),
+                ) from exc
             except ValidationError as exc:
                 raise HTTPException(status_code=422, detail=exc.errors()) from exc
             except HTTPException:
