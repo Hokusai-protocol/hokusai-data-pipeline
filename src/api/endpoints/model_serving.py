@@ -20,11 +20,21 @@ import numpy as np
 import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from huggingface_hub import hf_hub_download, snapshot_download
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from ...middleware.auth import require_auth
 from ..dependencies import get_contributor_logger
 from ..services.contributor_logger import ContributorLogger
+from .model_30_adapter import (
+    MODEL_30_SCHEMA,
+    MODEL_30_VERSION,
+    call_mlflow_model_30,
+    get_model_30_uri,
+    is_model_30_cached,
+    model_30_inputs_to_features,
+    normalize_model_30_output,
+    validate_nested_model_30_inputs,
+)
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -32,12 +42,40 @@ logger = logging.getLogger(__name__)
 # Create router
 router = APIRouter(prefix="/api/v1/models", tags=["model-serving"])
 
+MODEL_CONFIGS: dict[str, dict[str, Any]] = {
+    "21": {
+        "name": "Sales Lead Scoring Model",
+        "repository_id": "timogilvie/hokusai-model-21-sales-lead-scorer",
+        "storage_type": "huggingface_private",
+        "model_type": "sklearn",
+        "is_private": True,
+        "inference_method": "local",
+        "cache_duration": 3600,
+        "max_batch_size": 100,
+        "supported_inference_methods": ["api", "local"],
+    },
+    "30": {
+        "name": "Technical Task Router",
+        "storage_type": "mlflow",
+        "model_type": "technical_task_router",
+        "is_private": False,
+        "inference_method": "mlflow_pyfunc",
+        "model_version": MODEL_30_VERSION,
+        "schema": MODEL_30_SCHEMA,
+        "description": "MLflow-backed router for nested technical task inputs.",
+        "max_batch_size": 1,
+        "supported_inference_methods": ["mlflow_pyfunc"],
+    },
+}
+
 
 class PredictionRequest(BaseModel):
     """Request schema for model predictions."""
 
     inputs: dict[str, Any] = Field(..., description="Input data for prediction")
-    options: Optional[dict[str, Any]] = Field(default={}, description="Additional options")
+    options: Optional[dict[str, Any]] = Field(
+        default_factory=dict, description="Additional options"
+    )
 
 
 class PredictionResponse(BaseModel):
@@ -73,24 +111,13 @@ class ModelServingService:
         In production, this would query the database.
         For now, we'll return config for Model ID 21.
         """
-        model_configs = {
-            "21": {
-                "name": "Sales Lead Scoring Model",
-                "repository_id": "timogilvie/hokusai-model-21-sales-lead-scorer",
-                "storage_type": "huggingface_private",
-                "model_type": "sklearn",  # or "pytorch", "tensorflow", etc.
-                "is_private": True,
-                "inference_method": "local",  # or "api", "endpoint"
-                "cache_duration": 3600,  # 1 hour
-                "max_batch_size": 100,
-            }
-        }
-
-        config = model_configs.get(model_id)
+        config = MODEL_CONFIGS.get(model_id)
         if not config:
             raise HTTPException(status_code=404, detail=f"Model {model_id} not found")
-
-        return config
+        resolved_config = dict(config)
+        if model_id == "30":
+            resolved_config["model_uri"] = get_model_30_uri()
+        return resolved_config
 
     async def load_model_from_huggingface(self, repository_id: str, model_type: str) -> Any:
         """Load a model from HuggingFace Hub.
@@ -186,7 +213,11 @@ class ModelServingService:
             raise HTTPException(status_code=500, detail=f"Failed to call inference API: {str(e)}")
 
     async def predict_local(
-        self, model_id: str, model: Any, inputs: dict[str, Any]
+        self,
+        model_id: str,
+        model: Any,
+        inputs: dict[str, Any],
+        options: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Run prediction locally with the loaded model.
 
@@ -238,9 +269,11 @@ class ModelServingService:
                 "confidence": float(max(probabilities)),
             }
 
-        else:
-            # Generic prediction logic for other models
-            raise NotImplementedError(f"Local prediction not implemented for model {model_id}")
+        elif model_id == "30":
+            raise NotImplementedError("Model 30 predictions are served through MLflow pyfunc")
+
+        # Generic prediction logic for other models
+        raise NotImplementedError(f"Local prediction not implemented for model {model_id}")
 
     def _prepare_sales_lead_features(self, data: dict[str, Any]) -> np.ndarray:
         """Prepare features for Sales Lead Scoring Model (ID 21).
@@ -331,19 +364,52 @@ class ModelServingService:
             if cached_model is None:
                 # Load model from HuggingFace
                 logger.info(f"Loading model {model_id} from HuggingFace...")
-                model = await self.load_model_from_huggingface(
-                    config["repository_id"], config["model_type"]
-                )
-                # Cache the model
-                self.model_cache[cache_key] = {
-                    "model": model,
-                    "loaded_at": datetime.utcnow(),
-                    "config": config,
-                }
-                cached_model = self.model_cache[cache_key]
+                repository_id = config.get("repository_id")
+                if repository_id:
+                    model = await self.load_model_from_huggingface(
+                        repository_id, config["model_type"]
+                    )
+                    # Cache the model
+                    self.model_cache[cache_key] = {
+                        "model": model,
+                        "loaded_at": datetime.utcnow(),
+                        "config": config,
+                    }
+                    cached_model = self.model_cache[cache_key]
 
             # Run local prediction
-            predictions = await self.predict_local(model_id, cached_model["model"], inputs)
+            predictions = await self.predict_local(
+                model_id,
+                cached_model["model"] if cached_model else None,
+                inputs,
+                options,
+            )
+
+        elif inference_method == "mlflow_pyfunc":
+            if model_id != "30":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"MLflow pyfunc inference is not configured for model {model_id}",
+                )
+            try:
+                validated_inputs = validate_nested_model_30_inputs(inputs)
+                features = model_30_inputs_to_features(validated_inputs)
+                raw_model_output = call_mlflow_model_30(config["model_uri"], features)
+                predictions = normalize_model_30_output(raw_model_output, validated_inputs)
+            except ValidationError as exc:
+                raise HTTPException(status_code=422, detail=exc.errors()) from exc
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.error(
+                    "Model 30 MLflow inference failed",
+                    extra={"model_id": model_id, "model_uri": config.get("model_uri")},
+                    exc_info=exc,
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Model 30 MLflow inference failed: {exc}",
+                ) from exc
 
         else:
             raise HTTPException(
@@ -393,15 +459,26 @@ async def get_model_info(
 
     config = serving_service.get_model_config(model_id)
 
-    return {
+    response: dict[str, Any] = {
         "model_id": model_id,
         "name": config["name"],
         "type": config["model_type"],
         "storage": config["storage_type"],
         "is_available": True,
-        "inference_methods": ["api", "local"] if config["is_private"] else ["api"],
+        "inference_methods": config.get(
+            "supported_inference_methods",
+            ["api", "local"] if config["is_private"] else ["api"],
+        ),
         "max_batch_size": config.get("max_batch_size", 1),
     }
+    if model_id == "30":
+        response["model_type"] = config["model_type"]
+        response["storage_type"] = config["storage_type"]
+        response["model_uri"] = config["model_uri"]
+    for _key in ("model_version", "schema", "description"):
+        if (_val := config.get(_key)) is not None:
+            response[_key] = _val
+    return response
 
 
 @router.post("/{model_id}/predict")
@@ -447,29 +524,42 @@ async def predict(
 
     try:
         started_at = time.perf_counter()
+        model_config = serving_service.get_model_config(model_id)
+        inference_method = request.options.get("inference_method", model_config["inference_method"])
+        inference_log_id = contributor_logger.new_inference_log_id()
+        request_id = str(inference_log_id)
+
         # Run prediction
         predictions = await serving_service.serve_prediction(
             model_id=model_id, inputs=request.inputs, options=request.options
         )
         inference_latency_ms = int((time.perf_counter() - started_at) * 1000)
-        model_config = serving_service.get_model_config(model_id)
         model_version = str(
             request.options.get("model_version", model_config.get("model_version", "unknown"))
         )
-        inference_log_id = contributor_logger.new_inference_log_id()
 
         # Build response
+        metadata = {
+            "api_version": "1.0",
+            "inference_method": inference_method,
+            "user_id": user_id,
+            "api_key_id": api_key_id,
+        }
+        if model_id == "30":
+            metadata.update(
+                {
+                    "model_uri": model_config["model_uri"],
+                    "model_version": model_config["model_version"],
+                    "schema": model_config["schema"],
+                    "request_id": request_id,
+                }
+            )
         response = PredictionResponse(
             model_id=model_id,
             predictions=predictions,
-            metadata={
-                "api_version": "1.0",
-                "inference_method": request.options.get("inference_method", "local"),
-                "user_id": user_id,
-                "api_key_id": api_key_id,
-            },
+            metadata=metadata,
             timestamp=datetime.utcnow().isoformat(),
-            inference_log_id=str(inference_log_id),
+            inference_log_id=request_id,
         )
 
         # Persist inference log in the background so hot-path latency remains low.
@@ -482,8 +572,9 @@ async def predict(
             output_payload=predictions,
             trace_metadata={
                 "latency_ms": inference_latency_ms,
-                "inference_method": request.options.get("inference_method", "local"),
+                "inference_method": inference_method,
                 "model_id": model_id,
+                "request_id": request_id,
             },
             inference_log_id=inference_log_id,
         )
@@ -535,6 +626,8 @@ async def check_model_health(
         # Check if model is cached
         cache_key = f"model_{model_id}"
         is_cached = cache_key in serving_service.model_cache
+        if model_id == "30":
+            is_cached = is_model_30_cached(config["model_uri"])
 
         return {
             "model_id": model_id,
