@@ -4,19 +4,36 @@ This test suite verifies that model serving endpoints properly integrate
 with the APIKeyAuthMiddleware for authentication.
 """
 
+import uuid
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.api.dependencies import get_contributor_logger
 from src.api.endpoints import model_serving
+from src.api.utils.config import get_settings
 from src.middleware.auth import APIKeyAuthMiddleware
 
 
+class FakeContributorLogger:
+    """Avoid database access when endpoint background tasks run in auth tests."""
+
+    @staticmethod
+    def new_inference_log_id():
+        return uuid.uuid4()
+
+    def log_inference(self, **_: object) -> None:
+        return None
+
+
 @pytest.fixture
-def app():
+def app(monkeypatch):
     """Create a test FastAPI application with middleware."""
+    monkeypatch.setenv("DB_PASSWORD", "test-password")
+    get_settings.cache_clear()
+
     test_app = FastAPI()
 
     # Add auth middleware (with all paths requiring auth)
@@ -27,6 +44,7 @@ def app():
 
     # Include model serving router
     test_app.include_router(model_serving.router)
+    test_app.dependency_overrides[get_contributor_logger] = lambda: FakeContributorLogger()
 
     return test_app
 
@@ -172,6 +190,36 @@ class TestModelServingAuth:
         assert response.json()["model_id"] == "21"
         assert response.json()["status"] == "healthy"
 
+    def test_model_30_info_endpoint_requires_auth(self, client):
+        """Test that model 30 info endpoint also requires authentication."""
+        response = client.get("/api/v1/models/30/info")
+
+        assert response.status_code == 401
+        assert "API key required" in response.json()["detail"]
+
+    def test_model_30_predict_endpoint_accepts_valid_api_key(self, client, mock_auth_service):
+        """Test that model 30 predict accepts valid auth with nested inputs."""
+        with patch(
+            "src.api.endpoints.model_serving.call_mlflow_model_30",
+            return_value={"selected_model": "fast-coder-v1", "confidence": 0.8},
+        ):
+            response = client.post(
+                "/api/v1/models/30/predict",
+                headers={"Authorization": "Bearer hk_live_valid_key_123"},
+                json={
+                    "inputs": {
+                        "task": {
+                            "description": "Implement password reset flow",
+                            "task_type": "feature",
+                        }
+                    }
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["model_id"] == "30"
+        assert response.json()["predictions"]["selected_model"] == "fast-coder-v1"
+
 
 class TestAuthMiddlewareIntegration:
     """Test integration between endpoints and auth middleware."""
@@ -263,17 +311,16 @@ class TestAuthErrorMessages:
             assert "Invalid" in response.json()["detail"]
 
 
-@pytest.mark.asyncio
 class TestAuthPerformance:
     """Test auth caching and performance."""
 
-    async def test_redis_caching_reduces_auth_calls(self, client):
+    def test_redis_caching_reduces_auth_calls(self, client):
         """Test that Redis caching reduces calls to auth service."""
         # This would be tested in integration tests with actual Redis
         # Unit test just verifies the caching logic exists
         pass
 
-    async def test_auth_timeout_handling(self, client):
+    def test_auth_timeout_handling(self, client):
         """Test that auth service timeouts are handled gracefully."""
         # Mock auth service timeout
         with patch("src.middleware.auth.httpx.AsyncClient") as mock_client:
