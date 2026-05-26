@@ -50,6 +50,18 @@ Normalization accepts common aliases from the model output:
 
 There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures return `503` with a `Model 30 MLflow inference failed` prefix.
 
+## Nested API To Router Feature Mapping
+
+Model 30 is served from the nested public API contract, but its live prediction frame uses the Wavemill router feature schema it was trained on. `model_30_inputs_to_features()` delegates to `map_nested_to_router_features()` and emits only router input columns:
+
+- Direct task/context/workflow fields: `task_type`, `language`, `framework`, `repo_type`, `domain`, `risk_level`, `requires_tests`, `security_sensitive`, `repo_size_bucket`, and `surface`
+- Derived buckets: `description_length_bucket` from task description length and `files_touched_bucket` from `context.file_count`
+- `complexity` from `context.estimated_complexity` when present, otherwise a description/file-count fallback
+- Role availability arrays: `available_planner_models`, `available_coder_models`, and `available_reviewer_models` all use the sorted, deduped `routing.available_models` list because the nested API does not yet provide role annotations
+- Description-derived booleans: `is_greenfield`, `is_migration`, `cross_service`, and `ui_heavy`
+
+Live prediction inputs intentionally exclude target, outcome, and leakage fields such as selected models, actual cost/time, retry/intervention counts, and completed outcome fields.
+
 ## Response Metadata
 
 Model 30 responses include:

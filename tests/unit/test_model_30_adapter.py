@@ -6,7 +6,6 @@ shared env such as `MLFLOW_TRACKING_TOKEN`.
 
 from __future__ import annotations
 
-import json
 import os
 import threading
 import time
@@ -148,13 +147,13 @@ def test_model_30_inputs_to_features_maps_nested_payload_to_signature_shape() ->
     features = model_30_adapter.model_30_inputs_to_features(validated)
 
     assert isinstance(features, pd.DataFrame)
-    assert list(features["schema_version"]) == [model_30_adapter.MODEL_30_SCHEMA]
+    assert list(features.columns) == list(model_30_adapter.ROUTER_FEATURE_COLUMNS)
     row = features.iloc[0].to_dict()
-    assert (
-        json.loads(row["task_descriptor"])["description"]
-        == "Refactor billing webhook retry handling"
-    )
-    assert json.loads(row["allowed_models"]) == ["fast-coder-v1", "deep-coder-v2"]
+    assert row["available_planner_models"] == ["deep-coder-v2", "fast-coder-v1"]
+    assert row["available_coder_models"] == ["deep-coder-v2", "fast-coder-v1"]
+    assert row["available_reviewer_models"] == ["deep-coder-v2", "fast-coder-v1"]
+    assert row["complexity"] == "medium"
+    assert row["files_touched_bucket"] == "medium"
     assert row["max_cost_usd"] == 0.5
     assert row["task_type"] == "refactor"
     assert row["surface"] == "wavemill"
@@ -166,9 +165,176 @@ def test_model_30_inputs_to_features_does_not_require_post_routing_outcomes() ->
     features = model_30_adapter.model_30_inputs_to_features(validated)
 
     row = features.iloc[0].to_dict()
-    assert row["task_description"] == "Implement password reset flow"
-    assert row["allowed_models"] == json.dumps([])
+    assert row["description_length_bucket"] == "short"
+    assert row["available_planner_models"] == []
     assert "selected_models" not in row
+
+
+def test_router_features_minimal_fixture() -> None:
+    validated = model_30_adapter.validate_nested_model_30_inputs(_minimal_inputs())
+
+    features = model_30_adapter.map_nested_to_router_features(validated)
+
+    assert tuple(features) == model_30_adapter.ROUTER_FEATURE_COLUMNS
+    assert features["task_type"] == "feature"
+    assert features["language"] is None
+    assert features["complexity"] == "low"
+    assert features["description_length_bucket"] == "short"
+    assert features["files_touched_bucket"] == "small"
+    assert features["available_planner_models"] == []
+    assert features["available_coder_models"] == []
+    assert features["available_reviewer_models"] == []
+    assert features["is_greenfield"] is False
+    assert features["is_migration"] is False
+    assert features["cross_service"] is False
+    assert features["ui_heavy"] is False
+
+
+def test_router_features_curated_fixture() -> None:
+    payload = _full_inputs()
+    payload["task"]["description"] = (
+        "Migrate legacy auth across services into a new React dashboard from scratch"
+    )
+    payload["routing"]["available_models"] = [
+        "fast-coder-v1",
+        "deep-coder-v2",
+        "fast-coder-v1",
+    ]
+    payload["context"]["file_count"] = 24
+    payload["context"]["estimated_complexity"] = "high"
+    validated = model_30_adapter.validate_nested_model_30_inputs(payload)
+
+    features = model_30_adapter.map_nested_to_router_features(validated)
+
+    assert features == {
+        "task_type": "refactor",
+        "language": "python",
+        "framework": "fastapi",
+        "repo_type": "monorepo",
+        "domain": "payments",
+        "complexity": "high",
+        "description_length_bucket": "short",
+        "files_touched_bucket": "large",
+        "available_planner_models": ["deep-coder-v2", "fast-coder-v1"],
+        "available_coder_models": ["deep-coder-v2", "fast-coder-v1"],
+        "available_reviewer_models": ["deep-coder-v2", "fast-coder-v1"],
+        "max_cost_usd": 0.5,
+        "prioritize_quality": True,
+        "prioritize_speed": None,
+        "risk_level": "medium",
+        "requires_tests": True,
+        "security_sensitive": True,
+        "repo_size_bucket": "large",
+        "surface": "wavemill",
+        "is_greenfield": True,
+        "is_migration": True,
+        "cross_service": True,
+        "ui_heavy": True,
+    }
+
+
+@pytest.mark.parametrize("leakage_key", sorted(model_30_adapter._ROUTER_LEAKAGE_COLUMNS))
+def test_router_features_no_leakage_keys(leakage_key: str) -> None:
+    validated = model_30_adapter.validate_nested_model_30_inputs(_full_inputs())
+
+    features = model_30_adapter.map_nested_to_router_features(validated)
+
+    assert leakage_key not in features
+
+
+@pytest.mark.parametrize(
+    ("length", "expected_bucket"),
+    [
+        (model_30_adapter._DESCRIPTION_SHORT_MAX - 1, "short"),
+        (model_30_adapter._DESCRIPTION_SHORT_MAX, "short"),
+        (model_30_adapter._DESCRIPTION_SHORT_MAX + 1, "medium"),
+        (model_30_adapter._DESCRIPTION_MEDIUM_MAX - 1, "medium"),
+        (model_30_adapter._DESCRIPTION_MEDIUM_MAX, "medium"),
+        (model_30_adapter._DESCRIPTION_MEDIUM_MAX + 1, "long"),
+    ],
+)
+def test_description_length_bucket_boundaries(length: int, expected_bucket: str) -> None:
+    assert model_30_adapter._bucket_description_length(length) == expected_bucket
+
+
+@pytest.mark.parametrize(
+    ("file_count", "expected_bucket"),
+    [
+        (model_30_adapter._FILES_SMALL_MAX - 1, "small"),
+        (model_30_adapter._FILES_SMALL_MAX, "small"),
+        (model_30_adapter._FILES_SMALL_MAX + 1, "medium"),
+        (model_30_adapter._FILES_MEDIUM_MAX - 1, "medium"),
+        (model_30_adapter._FILES_MEDIUM_MAX, "medium"),
+        (model_30_adapter._FILES_MEDIUM_MAX + 1, "large"),
+    ],
+)
+def test_files_touched_bucket_boundaries(file_count: int, expected_bucket: str) -> None:
+    assert model_30_adapter._bucket_files_touched(file_count) == expected_bucket
+
+
+def test_boolean_flags_migration_description() -> None:
+    validated = model_30_adapter.validate_nested_model_30_inputs(
+        {
+            "task": {
+                "description": "Migrate legacy auth across services with service boundary fixes",
+                "task_type": "migration",
+            }
+        }
+    )
+
+    features = model_30_adapter.map_nested_to_router_features(validated)
+
+    assert features["is_migration"] is True
+    assert features["cross_service"] is True
+    assert features["is_greenfield"] is False
+    assert features["ui_heavy"] is False
+
+
+def test_boolean_flags_greenfield_description() -> None:
+    validated = model_30_adapter.validate_nested_model_30_inputs(
+        {
+            "task": {
+                "description": "Build a new React dashboard from scratch",
+                "task_type": "feature",
+            }
+        }
+    )
+
+    features = model_30_adapter.map_nested_to_router_features(validated)
+
+    assert features["is_greenfield"] is True
+    assert features["ui_heavy"] is True
+    assert features["is_migration"] is False
+    assert features["cross_service"] is False
+
+
+def test_boolean_flags_empty_description() -> None:
+    flags = model_30_adapter._detect_boolean_flags("")
+
+    assert flags == {
+        "is_greenfield": False,
+        "is_migration": False,
+        "cross_service": False,
+        "ui_heavy": False,
+    }
+
+
+def test_mapper_is_deterministic() -> None:
+    validated = model_30_adapter.validate_nested_model_30_inputs(_full_inputs())
+
+    first = model_30_adapter.map_nested_to_router_features(validated)
+    second = model_30_adapter.map_nested_to_router_features(validated)
+
+    assert first == second
+
+
+def test_features_frame_maps_nested_payload_to_router_schema() -> None:
+    validated = model_30_adapter.validate_nested_model_30_inputs(_full_inputs())
+
+    features = model_30_adapter.model_30_inputs_to_features(validated)
+
+    assert list(features.columns) == list(model_30_adapter.ROUTER_FEATURE_COLUMNS)
+    assert set(features.iloc[0].to_dict()) == set(model_30_adapter.ROUTER_FEATURE_COLUMNS)
 
 
 def test_normalize_output_handles_dataframe() -> None:
