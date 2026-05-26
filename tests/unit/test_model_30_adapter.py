@@ -309,6 +309,47 @@ def test_call_mlflow_model_30_calls_predict() -> None:
     assert result == {"selected_model": "fast-coder-v1"}
 
 
+def test_call_mlflow_model_30_populates_timing_fields() -> None:
+    fake_model = MagicMock()
+    fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}
+    timings: dict[str, float] = {}
+
+    with patch(
+        "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
+        return_value=fake_model,
+    ):
+        model_30_adapter.call_mlflow_model_30(
+            "models:/Technical Task Router/1",
+            {"row": 1},
+            timings,
+        )
+
+    assert "artifact_load_ms" in timings
+    assert "inference_only_ms" in timings
+    assert timings["artifact_load_ms"] >= 0.0
+    assert timings["inference_only_ms"] >= 0.0
+
+
+def test_call_mlflow_model_30_warm_path_keeps_artifact_load_small() -> None:
+    fake_model = MagicMock()
+    fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}
+    timings: dict[str, float] = {}
+
+    with patch(
+        "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
+        return_value=fake_model,
+    ):
+        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/1", {"row": 1})
+        model_30_adapter.call_mlflow_model_30(
+            "models:/Technical Task Router/1",
+            {"row": 2},
+            timings,
+        )
+
+    assert timings["artifact_load_ms"] < 5.0
+    assert timings["inference_only_ms"] >= 0.0
+
+
 def test_call_mlflow_model_30_configures_sdk_from_deployment_env(monkeypatch) -> None:
     fake_model = MagicMock()
     fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}

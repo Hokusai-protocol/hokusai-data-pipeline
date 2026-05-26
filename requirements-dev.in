@@ -7,6 +7,7 @@ ruff==0.1.8
 mypy==1.7.0
 pre-commit==3.6.0
 pip-tools==7.3.0
+psutil==7.2.2
 
 # Documentation
 mkdocs==1.5.3

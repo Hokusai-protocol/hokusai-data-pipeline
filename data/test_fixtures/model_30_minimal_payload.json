@@ -1,0 +1,6 @@
+{
+  "task": {
+    "description": "Implement password reset flow",
+    "task_type": "feature"
+  }
+}
