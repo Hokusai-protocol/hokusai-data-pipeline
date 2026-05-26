@@ -12,6 +12,7 @@ import threading
 from collections.abc import Mapping
 from typing import Any
 
+import mlflow
 import mlflow.pyfunc
 import numpy as np
 import pandas as pd
@@ -24,6 +25,8 @@ MODEL_30_SCHEMA = "technical_task_router_inputs/v1"
 
 _MODEL_30_CACHE: dict[str, Any] = {}
 _MODEL_30_CACHE_LOCK = threading.Lock()
+_MLFLOW_CLIENT_CONFIGURED = False
+_MLFLOW_CLIENT_CONFIG_LOCK = threading.Lock()
 
 
 def get_model_30_uri() -> str:
@@ -107,8 +110,45 @@ def model_30_inputs_to_features(validated_inputs: TechnicalTaskRouterInputs) -> 
 
 def call_mlflow_model_30(model_uri: str, features: object) -> Any:
     """Load the cached MLflow model and invoke predict()."""
+    _configure_mlflow_client_from_environment()
     model = _get_or_load_model_30(model_uri)
     return model.predict(features)
+
+
+def _configure_mlflow_client_from_environment() -> None:
+    """Apply deployment MLflow env vars to the MLflow SDK before first load.
+
+    The API entrypoint fetches mTLS files into MLFLOW_CLIENT_CERT_PATH,
+    MLFLOW_CLIENT_KEY_PATH, and MLFLOW_CA_BUNDLE_PATH for the async proxy. The
+    MLflow SDK expects the TRACKING-prefixed variants, so mirror them here.
+    """
+    global _MLFLOW_CLIENT_CONFIGURED
+
+    if _MLFLOW_CLIENT_CONFIGURED:
+        return
+
+    with _MLFLOW_CLIENT_CONFIG_LOCK:
+        if _MLFLOW_CLIENT_CONFIGURED:
+            return
+
+        tracking_uri = os.getenv("MLFLOW_TRACKING_URI") or os.getenv("MLFLOW_SERVER_URL")
+        if tracking_uri:
+            os.environ.setdefault("MLFLOW_TRACKING_URI", tracking_uri)
+            mlflow.set_tracking_uri(tracking_uri)
+
+            if tracking_uri.startswith("https://") and ".local" in tracking_uri:
+                os.environ.setdefault("MLFLOW_TRACKING_INSECURE_TLS", "true")
+
+        if client_cert_path := os.getenv("MLFLOW_CLIENT_CERT_PATH"):
+            os.environ.setdefault("MLFLOW_TRACKING_CLIENT_CERT_PATH", client_cert_path)
+        if client_key_path := os.getenv("MLFLOW_CLIENT_KEY_PATH"):
+            os.environ.setdefault("MLFLOW_TRACKING_CLIENT_KEY_PATH", client_key_path)
+        if (ca_bundle_path := os.getenv("MLFLOW_CA_BUNDLE_PATH")) and os.getenv(
+            "MLFLOW_TRACKING_INSECURE_TLS", ""
+        ).lower() != "true":
+            os.environ.setdefault("MLFLOW_TRACKING_SERVER_CERT_PATH", ca_bundle_path)
+
+        _MLFLOW_CLIENT_CONFIGURED = True
 
 
 def normalize_model_30_output(
