@@ -6,8 +6,8 @@ MLflow authentication is supplied by shared environment configuration such as
 
 from __future__ import annotations
 
-import json
 import os
+import re
 import threading
 import time
 from collections.abc import Mapping
@@ -23,6 +23,68 @@ from src.api.schemas import TechnicalTaskRouterInputs
 DEFAULT_MODEL_30_MLFLOW_URI = "models:/Technical Task Router/4"
 MODEL_30_VERSION = "4"
 MODEL_30_SCHEMA = "technical_task_router_inputs/v1"
+ROUTER_FEATURE_COLUMNS: tuple[str, ...] = (
+    "task_type",
+    "language",
+    "framework",
+    "repo_type",
+    "domain",
+    "complexity",
+    "description_length_bucket",
+    "files_touched_bucket",
+    "available_planner_models",
+    "available_coder_models",
+    "available_reviewer_models",
+    "max_cost_usd",
+    "prioritize_quality",
+    "prioritize_speed",
+    "risk_level",
+    "requires_tests",
+    "security_sensitive",
+    "repo_size_bucket",
+    "surface",
+    "is_greenfield",
+    "is_migration",
+    "cross_service",
+    "ui_heavy",
+)
+
+_ROUTER_LEAKAGE_COLUMNS: frozenset[str] = frozenset(
+    {
+        "selected_model",
+        "selected_models",
+        "selected_planner_model",
+        "selected_coder_model",
+        "selected_reviewer_model",
+        "actual_cost_usd",
+        "actual_time_seconds",
+        "intervention_count",
+        "retry_count",
+        "completed_successfully",
+        "intervention_required",
+    }
+)
+
+_DESCRIPTION_SHORT_MAX = 200
+_DESCRIPTION_MEDIUM_MAX = 1000
+_FILES_SMALL_MAX = 5
+_FILES_MEDIUM_MAX = 20
+
+_GREENFIELD_KEYWORDS = re.compile(
+    r"\b(greenfield|from scratch|new project|scaffold|bootstrap)\b",
+    re.I,
+)
+_MIGRATION_KEYWORDS = re.compile(r"\b(migrat\w*|port|upgrade|convert|replatform)\b", re.I)
+_CROSS_SERVICE_KEYWORDS = re.compile(
+    r"\b(cross[-\s]?service|multi[-\s]?service|across services|"
+    r"service boundary|inter[-\s]?service)\b",
+    re.I,
+)
+_UI_KEYWORDS = re.compile(
+    r"\b(ui|frontend|front[-\s]?end|react|vue|angular|css|html|dashboard|"
+    r"component|page|screen)\b",
+    re.I,
+)
 
 _MODEL_30_CACHE: dict[str, Any] = {}
 _MODEL_30_CACHE_LOCK = threading.Lock()
@@ -51,62 +113,106 @@ def validate_nested_model_30_inputs(raw_inputs: dict[str, Any]) -> TechnicalTask
     return TechnicalTaskRouterInputs.model_validate(raw_inputs)
 
 
-def model_30_inputs_to_features(validated_inputs: TechnicalTaskRouterInputs) -> pd.DataFrame:
-    """Map nested public inputs into a flat one-row feature frame for MLflow pyfunc."""
-    task = validated_inputs.task
-    routing = validated_inputs.routing
-    context = validated_inputs.context
-    workflow = validated_inputs.workflow
-    prediction = validated_inputs.prediction
-    metadata = validated_inputs.metadata
+def map_nested_to_router_features(validated: TechnicalTaskRouterInputs) -> dict[str, Any]:
+    """Translate nested public model 30 inputs to the router training schema."""
+    task = validated.task
+    routing = validated.routing
+    context = validated.context
+    workflow = validated.workflow
 
-    task_descriptor = task.model_dump(mode="json", exclude_none=True)
-    if context is not None:
-        task_descriptor["context"] = context.model_dump(mode="json", exclude_none=True)
-    if workflow is not None:
-        task_descriptor["workflow"] = workflow.model_dump(mode="json", exclude_none=True)
-    if metadata is not None:
-        task_descriptor["metadata"] = metadata.model_dump(mode="json", exclude_none=True)
+    description = task.description or ""
+    file_count = context.file_count if context and context.file_count is not None else 0
+    available_models = _sorted_unique(routing.available_models if routing else None)
 
-    row = {
-        "schema_version": MODEL_30_SCHEMA,
-        "task_descriptor": _json_dump(task_descriptor),
-        "task_description": task.description,
+    result: dict[str, Any] = {
         "task_type": task.task_type,
         "language": task.language,
         "framework": task.framework,
         "repo_type": task.repo_type,
-        "allowed_models": _json_dump(routing.available_models if routing else []),
-        "preferred_models": _json_dump(routing.preferred_models if routing else []),
+        "domain": context.domain if context else None,
+        "complexity": _derive_complexity(validated),
+        "description_length_bucket": _bucket_description_length(len(description)),
+        "files_touched_bucket": _bucket_files_touched(file_count),
+        "available_planner_models": available_models,
+        "available_coder_models": available_models,
+        "available_reviewer_models": available_models,
         "max_cost_usd": routing.max_cost_usd if routing else None,
-        "max_latency_seconds": routing.max_latency_seconds if routing else None,
         "prioritize_quality": routing.prioritize_quality if routing else None,
         "prioritize_speed": routing.prioritize_speed if routing else None,
-        "domain": context.domain if context else None,
-        "repo_size_bucket": context.repo_size_bucket if context else None,
-        "requires_tests": context.requires_tests if context else None,
         "risk_level": context.risk_level if context else None,
-        "file_count": context.file_count if context else None,
-        "estimated_complexity": context.estimated_complexity if context else None,
+        "requires_tests": context.requires_tests if context else None,
         "security_sensitive": context.security_sensitive if context else None,
+        "repo_size_bucket": context.repo_size_bucket if context else None,
         "surface": workflow.surface if workflow else None,
-        "workflow_stages": _json_dump(workflow.stages if workflow else []),
-        "execution_environment": workflow.execution_environment if workflow else None,
-        "human_review_required": workflow.human_review_required if workflow else None,
-        "expected_duration_seconds": prediction.expected_duration_seconds if prediction else None,
-        "expected_cost_usd": prediction.expected_cost_usd if prediction else None,
-        "expected_success_probability": (
-            prediction.expected_success_probability if prediction else None
-        ),
-        "external_task_id": metadata.external_task_id if metadata else None,
-        "run_id": metadata.run_id if metadata else None,
-        "integration_version": metadata.integration_version if metadata else None,
-        "idempotency_key": metadata.idempotency_key if metadata else None,
-        "request_metadata": _json_dump(
-            metadata.model_dump(mode="json", exclude_none=True) if metadata else {}
-        ),
+        **_detect_boolean_flags(description),
     }
-    return pd.DataFrame([row])
+
+    if tuple(result) != ROUTER_FEATURE_COLUMNS:
+        missing = set(ROUTER_FEATURE_COLUMNS) - set(result)
+        extra = set(result) - set(ROUTER_FEATURE_COLUMNS)
+        raise ValueError(
+            "Router feature mapper emitted unexpected schema "
+            f"(missing={sorted(missing)}, extra={sorted(extra)})"
+        )
+    leaked = set(result) & _ROUTER_LEAKAGE_COLUMNS
+    if leaked:
+        raise ValueError(f"Router feature mapper emitted leakage columns: {sorted(leaked)}")
+
+    return result
+
+
+def model_30_inputs_to_features(validated_inputs: TechnicalTaskRouterInputs) -> pd.DataFrame:
+    """Map nested public inputs into a flat one-row feature frame for MLflow pyfunc."""
+    router_features = map_nested_to_router_features(validated_inputs)
+    return pd.DataFrame([router_features], columns=ROUTER_FEATURE_COLUMNS)
+
+
+def _bucket_description_length(length: int) -> str:
+    if length <= _DESCRIPTION_SHORT_MAX:
+        return "short"
+    if length <= _DESCRIPTION_MEDIUM_MAX:
+        return "medium"
+    return "long"
+
+
+def _bucket_files_touched(file_count: int) -> str:
+    if file_count <= _FILES_SMALL_MAX:
+        return "small"
+    if file_count <= _FILES_MEDIUM_MAX:
+        return "medium"
+    return "large"
+
+
+def _derive_complexity(validated: TechnicalTaskRouterInputs) -> str:
+    context = validated.context
+    if context and context.estimated_complexity:
+        return context.estimated_complexity
+
+    description = validated.task.description or ""
+    file_count = context.file_count if context and context.file_count is not None else 0
+    description_bucket = _bucket_description_length(len(description))
+    files_bucket = _bucket_files_touched(file_count)
+
+    if description_bucket == "long" or files_bucket == "large":
+        return "high"
+    if description_bucket == "medium" or files_bucket == "medium":
+        return "medium"
+    return "low"
+
+
+def _detect_boolean_flags(description: str) -> dict[str, bool]:
+    return {
+        "is_greenfield": bool(_GREENFIELD_KEYWORDS.search(description)),
+        "is_migration": bool(_MIGRATION_KEYWORDS.search(description)),
+        "cross_service": bool(_CROSS_SERVICE_KEYWORDS.search(description)),
+        "ui_heavy": bool(_UI_KEYWORDS.search(description)),
+    }
+
+
+def _sorted_unique(values: list[str] | None) -> list[str]:
+    if not values:
+        return []
+    return sorted(set(values))
 
 
 def call_mlflow_model_30(
@@ -289,10 +395,6 @@ def _extract_selected_models(normalized: dict[str, Any]) -> list[str]:
     if isinstance(raw_selected_models, list):
         return [str(model_name) for model_name in raw_selected_models if model_name]
     raise ValueError("MLflow output selected_models field had an unsupported shape")
-
-
-def _json_dump(value: Any) -> str:
-    return json.dumps(value, sort_keys=True)
 
 
 def _coerce_float(value: Any, *, default: float) -> float:
