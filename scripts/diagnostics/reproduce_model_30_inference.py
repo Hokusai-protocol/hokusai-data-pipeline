@@ -227,6 +227,13 @@ def _seconds_from_ms(timings: Mapping[str, float], key: str) -> float | None:
     return round(value / 1000, 6)
 
 
+def _new_trace(model_uri: str) -> _FallbackLatencyTrace | Any:
+    """Create a trace helper compatible with both old and new signatures."""
+    if Model30LatencyTrace is None:
+        return _FallbackLatencyTrace()
+    return Model30LatencyTrace(request_id="local-repro", model_uri=model_uri)
+
+
 def _run_payload(
     *,
     label: str,
@@ -335,7 +342,7 @@ def _build_verdict(
 
 def generate_report(args: argparse.Namespace) -> dict[str, Any]:
     """Run the reproduction flow and return the structured diagnostic report."""
-    trace = TraceClass()
+    trace = _new_trace(args.model_uri)
     _, curated_features = _load_payload_features(
         args.curated_payload,
         label="curated",

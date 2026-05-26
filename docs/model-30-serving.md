@@ -149,3 +149,22 @@ Report interpretation:
 - `verdict = "inconclusive"` means the local measurements did not isolate a single bottleneck
 
 The report also includes `timing_source`. On branches that already include the PR 195 adapter timing hooks, the harness uses those directly. On older branches it falls back to wall-clock timing around the same adapter call path.
+
+## Latency comparison: Model 30 vs Model 21
+
+> Generated pending manual benchmark run. Reproduce with:
+> ```bash
+> python -m scripts.diagnostics.compare_model_30_vs_21_latency \
+>   --model both --mode both --warm-iterations 20 --cold-iterations 3 \
+>   --mlflow-uri "$MLFLOW_SERVER_URL"
+> ```
+
+The benchmark is designed to show where model 30 diverges from the known-good model 21 route. The generated report highlights the first warm-path phase where model 30 exceeds either 2x the model 21 p50 or a +100 ms absolute delta, then pairs that with artifact size, cold-load, runtime metadata, and preprocessing complexity.
+
+| Finding | Model 21 | Model 30 | Notes |
+| --- | --- | --- | --- |
+| Warm latency | Pending run | Pending run | Filled from `outputs/model_30_vs_21_latency_report.md` |
+| Cold load | Pending run | Pending run | Uses fresh subprocess isolation per sample |
+| Artifact size | Pending run | Pending run | Best-effort artifact inspection |
+| Runtime/dependencies | Pending run | Pending run | Derived from artifact metadata |
+| Preprocessing complexity | 10 derived features | 30 flattened features | Static comparison from serving code |
