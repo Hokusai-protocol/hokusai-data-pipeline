@@ -127,6 +127,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if not args.model_uri:
         parser.error("--model-uri is required unless MODEL_30_MLFLOW_URI is set")
+    if args.cold_threshold_seconds <= 0:
+        parser.error("--cold-threshold-seconds must be > 0")
+    if args.warm_threshold_seconds <= 0:
+        parser.error("--warm-threshold-seconds must be > 0")
     return args
 
 
@@ -417,6 +421,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     except json.JSONDecodeError as exc:
         print(f"Payload file is not valid JSON: {exc}", file=sys.stderr)  # noqa: T201
+        return 1
+    except Exception as exc:  # noqa: BLE001 - surface model-load and runtime errors cleanly
+        print(f"Reproduction harness failed: {exc}", file=sys.stderr)  # noqa: T201
         return 1
 
     rendered = json.dumps(report, indent=2, sort_keys=True)
