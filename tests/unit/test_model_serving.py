@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -258,7 +259,9 @@ def test_model_30_predict_minimal_payload_uses_adapter_path(client: TestClient) 
     assert body["metadata"]["request_id"] == body["inference_log_id"]
     validate_mock.assert_called_once_with(payload["inputs"])
     feature_mock.assert_called_once_with(payload["inputs"])
-    call_mock.assert_called_once_with("models:/Technical Task Router/1", {"features": "ok"})
+    assert call_mock.call_count == 1
+    assert call_mock.call_args.args[:2] == ("models:/Technical Task Router/1", {"features": "ok"})
+    assert isinstance(call_mock.call_args.args[2], dict)
     normalize_mock.assert_called_once_with({"raw": "output"}, payload["inputs"])
     local_predict_mock.assert_not_called()
 
@@ -392,7 +395,144 @@ def test_model_30_predict_mlflow_timeout_returns_504_without_alb_timeout(
         model_serving.serving_service.prediction_timeout_seconds = original_timeout
 
     assert response.status_code == 504
-    assert "timed out" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert "timed out" in detail["error"]
+    assert detail["request_id"]
+    assert detail["run_id"] is None
+
+
+def test_model_30_predict_emits_warm_latency_trace(client: TestClient, caplog) -> None:
+    payload = {"inputs": _full_model_30_inputs()}
+    validated_inputs = model_serving.validate_nested_model_30_inputs(payload["inputs"])
+
+    def fake_call_mlflow_model_30(
+        model_uri: str,
+        features: object,
+        timings: dict[str, float] | None = None,
+    ) -> dict[str, object]:
+        del model_uri, features
+        if timings is not None:
+            timings["artifact_load_ms"] = 0.2
+            timings["inference_only_ms"] = 4.5
+        return {"raw": "output"}
+
+    with (
+        patch("src.api.endpoints.model_serving.is_model_30_cached", return_value=True),
+        patch(
+            "src.api.endpoints.model_serving.validate_nested_model_30_inputs",
+            return_value=validated_inputs,
+        ),
+        patch(
+            "src.api.endpoints.model_serving.model_30_inputs_to_features",
+            return_value={"features": "ok"},
+        ),
+        patch(
+            "src.api.endpoints.model_serving.call_mlflow_model_30",
+            side_effect=fake_call_mlflow_model_30,
+        ),
+        patch(
+            "src.api.endpoints.model_serving.normalize_model_30_output",
+            return_value={
+                "selected_model": "deep-coder-v2",
+                "selected_models": ["deep-coder-v2"],
+                "confidence": 0.9,
+                "rationale": "best match",
+                "estimated_cost_usd": 0.42,
+            },
+        ),
+        caplog.at_level(logging.INFO),
+    ):
+        response = client.post("/api/v1/models/30/predict", json=payload)
+
+    assert response.status_code == 200
+    trace_record = next(
+        record for record in caplog.records if record.msg == "model_30_latency_trace"
+    )
+    assert trace_record.path_type == "warm"
+    assert trace_record.outcome == "success"
+    assert trace_record.run_id == "run-456"
+    assert trace_record.request_id == response.json()["metadata"]["request_id"]
+    assert trace_record.artifact_load_ms == 0.2
+    assert trace_record.model_inference_ms == 4.5
+    assert trace_record.request_validation_ms >= 0.0
+    assert trace_record.model_cache_lookup_ms >= 0.0
+    assert trace_record.preprocessor_setup_ms >= 0.0
+    assert trace_record.feature_transformation_ms >= 0.0
+    assert trace_record.postprocessing_serialization_ms >= 0.0
+    assert trace_record.timeout_deadline_boundary_ms >= 0.0
+
+
+def test_model_30_predict_emits_cold_latency_trace(client: TestClient, caplog) -> None:
+    payload = {"inputs": _minimal_model_30_inputs()}
+
+    def fake_call_mlflow_model_30(
+        model_uri: str,
+        features: object,
+        timings: dict[str, float] | None = None,
+    ) -> dict[str, object]:
+        del model_uri, features
+        if timings is not None:
+            timings["artifact_load_ms"] = 18.0
+            timings["inference_only_ms"] = 3.0
+        return {"selected_model": "fast-coder-v1"}
+
+    with (
+        patch("src.api.endpoints.model_serving.is_model_30_cached", return_value=False),
+        patch(
+            "src.api.endpoints.model_serving.call_mlflow_model_30",
+            side_effect=fake_call_mlflow_model_30,
+        ),
+        caplog.at_level(logging.INFO),
+    ):
+        response = client.post("/api/v1/models/30/predict", json=payload)
+
+    assert response.status_code == 200
+    trace_record = next(
+        record for record in caplog.records if record.msg == "model_30_latency_trace"
+    )
+    assert trace_record.path_type == "cold"
+    assert trace_record.artifact_load_ms == 18.0
+    assert trace_record.model_inference_ms == 3.0
+
+
+def test_model_30_predict_timeout_emits_correlated_trace(client: TestClient, caplog) -> None:
+    payload = {"inputs": _full_model_30_inputs()}
+
+    def slow_call(
+        model_uri: str,
+        features: object,
+        timings: dict[str, float] | None = None,
+    ) -> dict[str, object]:
+        del model_uri, features, timings
+        time.sleep(0.05)
+        return {"selected_model": "deep-coder-v2"}
+
+    original_timeout = model_serving.serving_service.prediction_timeout_seconds
+    model_serving.serving_service.prediction_timeout_seconds = 0.01
+    try:
+        with (
+            patch("src.api.endpoints.model_serving.is_model_30_cached", return_value=False),
+            patch(
+                "src.api.endpoints.model_serving.call_mlflow_model_30",
+                side_effect=slow_call,
+            ),
+            caplog.at_level(logging.INFO),
+        ):
+            response = client.post("/api/v1/models/30/predict", json=payload)
+    finally:
+        model_serving.serving_service.prediction_timeout_seconds = original_timeout
+
+    assert response.status_code == 504
+    detail = response.json()["detail"]
+    trace_record = next(
+        record for record in caplog.records if record.msg == "model_30_latency_trace"
+    )
+    assert trace_record.outcome == "timeout"
+    assert trace_record.path_type == "cold"
+    assert trace_record.request_id == detail["request_id"]
+    assert trace_record.run_id == detail["run_id"] == "run-456"
+    assert trace_record.timeout_deadline_boundary_ms > 0.0
+    assert trace_record.dominant_phase == "timeout_deadline_boundary"
 
 
 def test_model_21_info_health_predict_regression(client: TestClient) -> None:
