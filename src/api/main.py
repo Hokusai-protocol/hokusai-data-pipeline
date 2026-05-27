@@ -157,7 +157,7 @@ def _prewarm_mlflow_registered_models() -> None:
                     "elapsed_ms": round(elapsed_ms, 2),
                 },
             )
-        except Exception:
+        except Exception as e:
             logger.exception(
                 "MLflow pre-warm failed",
                 extra={
@@ -165,7 +165,9 @@ def _prewarm_mlflow_registered_models() -> None:
                     "registered_model_name": registered_model_name,
                 },
             )
-            raise
+            raise RuntimeError(
+                f"MLflow pre-warm failed for model '{registered_model_name}': {e}"
+            ) from e
 
 
 # Startup event

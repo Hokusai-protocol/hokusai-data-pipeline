@@ -12,6 +12,7 @@ import pytest
 @pytest.fixture
 def api_main_module(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("MLFLOW_SERVER_URL", "https://mlflow.test.local:5000")
+    monkeypatch.setenv("MLFLOW_TRACKING_TOKEN", "test-token")
     monkeypatch.setenv("DB_PASSWORD", "test-password")
     sys.modules.pop("src.api.main", None)
     module = importlib.import_module("src.api.main")
@@ -57,5 +58,5 @@ def test_prewarm_failure_propagates(api_main_module) -> None:
         ),
         patch.object(api_main_module, "MlflowClient", return_value=client),
     ):
-        with pytest.raises(RuntimeError, match="registry down"):
+        with pytest.raises(RuntimeError, match="Technical Task Router"):
             api_main_module._prewarm_mlflow_registered_models()
