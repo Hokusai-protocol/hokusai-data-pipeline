@@ -44,6 +44,8 @@ def test_prewarm_registered_models_only_hits_mlflow_entries(api_main_module) -> 
         (("Technical Task Router",), {}),
         (("Canonical MLflow Name",), {}),
     ]
+    # REQ-F8: pre-warm must not trigger artifact downloads
+    client.download_artifacts.assert_not_called()
 
 
 def test_prewarm_failure_propagates(api_main_module) -> None:
