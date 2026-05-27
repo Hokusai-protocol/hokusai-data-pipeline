@@ -58,8 +58,10 @@ def main() -> None:
             pip_requirements=["mlflow==3.9.0", "pandas"],
         )
 
-    latest_uri = f"models:/{MODEL_NAME}/latest"
-    loaded = mlflow.pyfunc.load_model(latest_uri)
+    version = getattr(model_info, "registered_model_version", None)
+    # Use version number directly; 'latest' is not a built-in in MLflow 3.x.
+    model_uri = f"models:/{MODEL_NAME}/{version}"
+    loaded = mlflow.pyfunc.load_model(model_uri)
     sample = pd.DataFrame(
         [
             {
@@ -71,10 +73,9 @@ def main() -> None:
         ]
     )
     loaded.predict(sample)
-    version = getattr(model_info, "registered_model_version", None)
     print(f"seeded_model_name={MODEL_NAME}")  # noqa: T201
     print(f"seeded_model_version={version}")  # noqa: T201
-    print(f"seeded_model_uri={latest_uri}")  # noqa: T201
+    print(f"seeded_model_uri={model_uri}")  # noqa: T201
 
 
 if __name__ == "__main__":

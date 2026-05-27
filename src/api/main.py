@@ -140,19 +140,10 @@ def _prewarm_mlflow_registered_models() -> None:
     client = MlflowClient(tracking_uri=mlflow_url)
 
     for model_id, config in MODEL_CONFIGS.items():
-        storage_type = getattr(config, "storage_type", None)
-        if storage_type is None and isinstance(config, dict):
-            storage_type = config.get("storage_type")
-        if storage_type != "mlflow":
+        if config.storage_type != "mlflow":
             continue
 
-        registered_model_name = getattr(config, "registered_model_name", None)
-        if registered_model_name is None and isinstance(config, dict):
-            registered_model_name = config.get("registered_model_name")
-        name = getattr(config, "name", None)
-        if name is None and isinstance(config, dict):
-            name = config["name"]
-        registered_model_name = registered_model_name or name
+        registered_model_name = config.registered_model_name or config.name
         started_at = time.perf_counter()
         try:
             client.get_registered_model(registered_model_name)
@@ -191,7 +182,13 @@ async def startup_event() -> None:
     mlflow.set_tracking_uri(get_mlflow_url())
     logger.info("mTLS configuration completed")
 
-    _prewarm_mlflow_registered_models()
+    try:
+        _prewarm_mlflow_registered_models()
+    except Exception as e:
+        logger.error(
+            "MLflow pre-warm failed at startup — non-MLflow endpoints will still serve",
+            extra={"error": str(e)},
+        )
 
     # Initialize database connections, caches, etc.
 

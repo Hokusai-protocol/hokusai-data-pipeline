@@ -107,6 +107,22 @@ def test_detailed_and_connectivity_routes_alias_sdk_probe() -> None:
     assert sdk_probe.await_count == 2
 
 
+def test_sdk_probe_ssl_error_returns_503_with_ssl_error_type(monkeypatch) -> None:
+    """mTLS misconfiguration raises SSLError → health endpoint returns 503 with SSLError type."""
+    import ssl
+
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "https://mlflow.test.local:5000")
+
+    client_mock = Mock()
+    client_mock.search_registered_models.side_effect = ssl.SSLError("CERTIFICATE_VERIFY_FAILED")
+
+    with patch("src.utils.mlflow_health.MlflowClient", return_value=client_mock):
+        result = asyncio.run(check_mlflow_registry_sdk(timeout_seconds=5)).to_dict()
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "SSLError"
+
+
 def test_sdk_probe_sanitizes_cert_paths(monkeypatch) -> None:
     cert_path = "/tmp/secret/client.key"
     monkeypatch.setenv("MLFLOW_TRACKING_URI", "https://mlflow.test.local:5000")
