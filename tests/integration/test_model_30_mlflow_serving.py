@@ -6,9 +6,12 @@ This test expects the environment to provide MLflow auth, typically through
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-from unittest.mock import patch
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -27,6 +30,7 @@ from src.middleware.auth import require_auth
 
 RUN_INTEGRATION = os.getenv("MODEL_30_INTEGRATION_TEST") == "1"
 TRACKING_READY = bool(os.getenv("MLFLOW_TRACKING_URI"))
+FIXTURE_DIR = Path(__file__).resolve().parents[2] / "data" / "test_fixtures"
 
 
 class FakeContributorLogger:
@@ -42,42 +46,11 @@ class FakeContributorLogger:
     not RUN_INTEGRATION or not TRACKING_READY,
     reason="MODEL_30_INTEGRATION_TEST=1 and MLFLOW_TRACKING_URI are required",
 )
+@pytest.mark.live_mlflow
 def test_live_model_30_mlflow_prediction_round_trip() -> None:
     mlflow = pytest.importorskip("mlflow")
-
-    payload = {
-        "task": {
-            "description": "Refactor webhook retry handling in a FastAPI service",
-            "task_type": "refactor",
-            "language": "python",
-            "framework": "fastapi",
-            "repo_type": "monorepo",
-        },
-        "routing": {
-            "available_models": ["fast-coder-v1", "deep-coder-v2"],
-            "preferred_models": ["deep-coder-v2"],
-            "max_cost_usd": 0.5,
-            "prioritize_quality": True,
-        },
-        "context": {
-            "domain": "payments",
-            "estimated_complexity": "medium",
-            "requires_tests": True,
-        },
-        "workflow": {
-            "surface": "wavemill",
-            "stages": ["plan", "code", "review"],
-        },
-        "metadata": {
-            "external_task_id": "integration-smoke-task",
-            "run_id": "integration-smoke-run",
-        },
-    }
-
-    validated_inputs = validate_nested_model_30_inputs(payload)
-    features = model_30_inputs_to_features(validated_inputs)
-    raw_output = mlflow.pyfunc.load_model(get_model_30_uri()).predict(features)
-    normalized = normalize_model_30_output(raw_output, validated_inputs)
+    payload = _load_json_fixture("model_30_curated_payload.json")
+    normalized = _load_predict_and_normalize_model_30(payload, mlflow_module=mlflow)
 
     assert normalized["selected_model"]
     assert normalized["selected_models"]
@@ -137,3 +110,59 @@ def test_model_30_predict_emits_single_latency_trace_record(caplog) -> None:
     assert trace_record.model_inference_ms == 2.0
     assert trace_record.postprocessing_serialization_ms >= 0.0
     assert trace_record.timeout_deadline_boundary_ms >= 0.0
+
+
+def test_model_30_live_path_rejects_mocked_load_model() -> None:
+    payload = _load_json_fixture("model_30_curated_payload.json")
+    fake_mlflow = SimpleNamespace(pyfunc=SimpleNamespace(load_model=lambda _uri: MagicMock()))
+
+    with pytest.raises(
+        AssertionError,
+        match="load_model returned a mock; live_mlflow bypass did not engage",
+    ):
+        _load_predict_and_normalize_model_30(payload, mlflow_module=fake_mlflow)
+
+
+def test_model_30_live_path_rejects_not_implemented_predict() -> None:
+    payload = _load_json_fixture("model_30_curated_payload.json")
+
+    def _predict(_features):
+        raise NotImplementedError("predict not implemented")
+
+    fake_model = SimpleNamespace(predict=_predict)
+    fake_mlflow = SimpleNamespace(pyfunc=SimpleNamespace(load_model=lambda _uri: fake_model))
+
+    with pytest.raises(AssertionError, match="predict\\(\\) raised NotImplementedError"):
+        _load_predict_and_normalize_model_30(payload, mlflow_module=fake_mlflow)
+
+
+def test_model_30_live_path_rejects_non_normalizable_output() -> None:
+    payload = _load_json_fixture("model_30_curated_payload.json")
+    fake_model = SimpleNamespace(predict=lambda _features: [])
+    fake_mlflow = SimpleNamespace(pyfunc=SimpleNamespace(load_model=lambda _uri: fake_model))
+
+    with pytest.raises(ValueError, match="empty"):
+        _load_predict_and_normalize_model_30(payload, mlflow_module=fake_mlflow)
+
+
+def _load_predict_and_normalize_model_30(
+    payload: dict[str, object], *, mlflow_module: object
+) -> dict[str, object]:
+    validated_inputs = validate_nested_model_30_inputs(payload)
+    features = model_30_inputs_to_features(validated_inputs)
+    loaded_model = mlflow_module.pyfunc.load_model(get_model_30_uri())
+
+    assert not isinstance(
+        loaded_model, MagicMock
+    ), "load_model returned a mock; live_mlflow bypass did not engage"
+
+    try:
+        raw_output = loaded_model.predict(features)
+    except NotImplementedError as exc:
+        raise AssertionError(f"predict() raised NotImplementedError: {exc}") from exc
+
+    return normalize_model_30_output(raw_output, validated_inputs)
+
+
+def _load_json_fixture(filename: str) -> dict[str, object]:
+    return json.loads((FIXTURE_DIR / filename).read_text(encoding="utf-8"))
