@@ -88,8 +88,13 @@ _UI_KEYWORDS = re.compile(
 
 _MODEL_30_CACHE: dict[str, Any] = {}
 _MODEL_30_CACHE_LOCK = threading.Lock()
+_MODEL_30_LOAD_LOCKS: dict[str, threading.Lock] = {}
 _MLFLOW_CLIENT_CONFIGURED = False
 _MLFLOW_CLIENT_CONFIG_LOCK = threading.Lock()
+
+
+class Model30LoadInProgressError(RuntimeError):
+    """Raised when a cold load is already running for the model URI."""
 
 
 def get_model_30_uri() -> str:
@@ -101,6 +106,7 @@ def reset_model_30_cache() -> None:
     """Clear the model cache for tests."""
     with _MODEL_30_CACHE_LOCK:
         _MODEL_30_CACHE.clear()
+        _MODEL_30_LOAD_LOCKS.clear()
 
 
 def is_model_30_cached(model_uri: str) -> bool:
@@ -263,16 +269,60 @@ def _configure_mlflow_client_from_environment() -> None:
             if tracking_uri.startswith("https://") and ".local" in tracking_uri:
                 os.environ.setdefault("MLFLOW_TRACKING_INSECURE_TLS", "true")
 
-        if client_cert_path := os.getenv("MLFLOW_CLIENT_CERT_PATH"):
-            os.environ.setdefault("MLFLOW_TRACKING_CLIENT_CERT_PATH", client_cert_path)
-        if client_key_path := os.getenv("MLFLOW_CLIENT_KEY_PATH"):
-            os.environ.setdefault("MLFLOW_TRACKING_CLIENT_KEY_PATH", client_key_path)
+        # MLflow defaults to a 120s request timeout and 7 HTTP retries, which can
+        # keep a timed-out API request retrying in the background. Bound SDK
+        # calls below the API service deadline so failed cold loads return
+        # cleanly and release the single-flight load lock.
+        os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", "5")
+        os.environ.setdefault("MLFLOW_HTTP_REQUEST_MAX_RETRIES", "2")
+        os.environ.setdefault("MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR", "1")
+        os.environ.setdefault("MLFLOW_HTTP_REQUEST_BACKOFF_JITTER", "0")
+        os.environ.setdefault("MLFLOW_ARTIFACT_UPLOAD_DOWNLOAD_TIMEOUT", "10")
+
+        _configure_mlflow_client_certificate()
         if (ca_bundle_path := os.getenv("MLFLOW_CA_BUNDLE_PATH")) and os.getenv(
             "MLFLOW_TRACKING_INSECURE_TLS", ""
         ).lower() != "true":
             os.environ.setdefault("MLFLOW_TRACKING_SERVER_CERT_PATH", ca_bundle_path)
 
         _MLFLOW_CLIENT_CONFIGURED = True
+
+
+def _configure_mlflow_client_certificate() -> None:
+    """Expose mTLS client credentials in the format expected by MLflow SDK."""
+    client_cert_path = os.getenv("MLFLOW_CLIENT_CERT_PATH")
+    client_key_path = os.getenv("MLFLOW_CLIENT_KEY_PATH")
+
+    if not client_cert_path:
+        return
+
+    if client_key_path:
+        os.environ.setdefault("MLFLOW_TRACKING_CLIENT_KEY_PATH", client_key_path)
+
+    if client_key_path and os.path.exists(client_cert_path) and os.path.exists(client_key_path):
+        combined_path = os.getenv(
+            "MLFLOW_TRACKING_COMBINED_CLIENT_CERT_PATH",
+            os.path.join(os.path.dirname(client_cert_path), "mlflow-client.pem"),
+        )
+        with open(client_cert_path, encoding="utf-8") as cert_file:
+            cert_content = cert_file.read().strip()
+        with open(client_key_path, encoding="utf-8") as key_file:
+            key_content = key_file.read().strip()
+
+        combined_content = f"{cert_content}\n{key_content}\n"
+        existing_content = None
+        if os.path.exists(combined_path):
+            with open(combined_path, encoding="utf-8") as combined_file:
+                existing_content = combined_file.read()
+        if existing_content != combined_content:
+            with open(combined_path, "w", encoding="utf-8") as combined_file:
+                combined_file.write(combined_content)
+            os.chmod(combined_path, 0o600)
+
+        os.environ["MLFLOW_TRACKING_CLIENT_CERT_PATH"] = combined_path
+        return
+
+    os.environ.setdefault("MLFLOW_TRACKING_CLIENT_CERT_PATH", client_cert_path)
 
 
 def normalize_model_30_output(
@@ -310,11 +360,28 @@ def _get_or_load_model_30(model_uri: str) -> Any:
         return cached_model
 
     with _MODEL_30_CACHE_LOCK:
+        load_lock = _MODEL_30_LOAD_LOCKS.setdefault(model_uri, threading.Lock())
         cached_model = _MODEL_30_CACHE.get(model_uri)
-        if cached_model is None:
-            cached_model = mlflow.pyfunc.load_model(model_uri)
-            _MODEL_30_CACHE[model_uri] = cached_model
-        return cached_model
+        if cached_model is not None:
+            return cached_model
+
+    if not load_lock.acquire(blocking=False):
+        raise Model30LoadInProgressError(
+            f"Model 30 cold load is already in progress for {model_uri}"
+        )
+
+    try:
+        with _MODEL_30_CACHE_LOCK:
+            cached_model = _MODEL_30_CACHE.get(model_uri)
+            if cached_model is not None:
+                return cached_model
+
+        loaded_model = mlflow.pyfunc.load_model(model_uri)
+        with _MODEL_30_CACHE_LOCK:
+            _MODEL_30_CACHE[model_uri] = loaded_model
+        return loaded_model
+    finally:
+        load_lock.release()
 
 
 def _coerce_model_output(raw_model_output: Any) -> dict[str, Any]:
