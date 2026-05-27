@@ -15,7 +15,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from src.api.endpoints import model_serving
-from src.api.endpoints.model_serving import MODEL_CONFIGS
+from src.api.endpoints.model_registry_entries import MODEL_CONFIGS
 from src.api.routes import (
     benchmarks,
     dataset_arrivals,
@@ -140,10 +140,19 @@ def _prewarm_mlflow_registered_models() -> None:
     client = MlflowClient(tracking_uri=mlflow_url)
 
     for model_id, config in MODEL_CONFIGS.items():
-        if config.get("storage_type") != "mlflow":
+        storage_type = getattr(config, "storage_type", None)
+        if storage_type is None and isinstance(config, dict):
+            storage_type = config.get("storage_type")
+        if storage_type != "mlflow":
             continue
 
-        registered_model_name = config.get("registered_model_name") or config["name"]
+        registered_model_name = getattr(config, "registered_model_name", None)
+        if registered_model_name is None and isinstance(config, dict):
+            registered_model_name = config.get("registered_model_name")
+        name = getattr(config, "name", None)
+        if name is None and isinstance(config, dict):
+            name = config["name"]
+        registered_model_name = registered_model_name or name
         started_at = time.perf_counter()
         try:
             client.get_registered_model(registered_model_name)

@@ -90,7 +90,6 @@ def _full_inputs() -> dict:
 @pytest.fixture(autouse=True)
 def clear_cache() -> None:
     model_30_adapter.reset_model_30_cache()
-    model_30_adapter._MLFLOW_CLIENT_CONFIGURED = False
 
 
 def test_validate_nested_inputs_accepts_minimal_task() -> None:
@@ -522,14 +521,12 @@ def test_call_mlflow_model_30_warm_path_keeps_artifact_load_small() -> None:
     assert timings["inference_only_ms"] >= 0.0
 
 
-def test_call_mlflow_model_30_configures_sdk_from_deployment_env(monkeypatch) -> None:
+def test_call_mlflow_model_30_does_not_mutate_mlflow_environment(monkeypatch) -> None:
     fake_model = MagicMock()
     fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}
-    monkeypatch.setenv("MLFLOW_SERVER_URL", "https://mlflow.hokusai-development.local:5000")
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
-    monkeypatch.setenv("MLFLOW_HTTP_REQUEST_TIMEOUT", "5")
-    monkeypatch.setenv("MLFLOW_HTTP_REQUEST_MAX_RETRIES", "2")
-    monkeypatch.setenv("MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR", "1")
+    monkeypatch.delenv("MLFLOW_HTTP_REQUEST_BACKOFF_JITTER", raising=False)
+    monkeypatch.delenv("MLFLOW_ARTIFACT_UPLOAD_DOWNLOAD_TIMEOUT", raising=False)
 
     with patch(
         "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
@@ -537,12 +534,9 @@ def test_call_mlflow_model_30_configures_sdk_from_deployment_env(monkeypatch) ->
     ):
         model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/4", {"row": 1})
 
-    assert os.environ["MLFLOW_TRACKING_URI"] == "https://mlflow.hokusai-development.local:5000"
-    assert os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] == "5"
-    assert os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"] == "2"
-    assert os.environ["MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR"] == "1"
-    assert os.environ["MLFLOW_HTTP_REQUEST_BACKOFF_JITTER"] == "0"
-    assert os.environ["MLFLOW_ARTIFACT_UPLOAD_DOWNLOAD_TIMEOUT"] == "10"
+    assert "MLFLOW_TRACKING_URI" not in os.environ
+    assert "MLFLOW_HTTP_REQUEST_BACKOFF_JITTER" not in os.environ
+    assert "MLFLOW_ARTIFACT_UPLOAD_DOWNLOAD_TIMEOUT" not in os.environ
 
 
 def test_call_mlflow_model_30_does_not_mutate_global_tracking_uri(monkeypatch) -> None:

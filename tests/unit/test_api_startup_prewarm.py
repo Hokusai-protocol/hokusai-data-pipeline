@@ -9,6 +9,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from src.api.endpoints.model_registry import ModelRegistryEntry
+
 
 @pytest.fixture
 def api_main_module(monkeypatch: pytest.MonkeyPatch):
@@ -23,13 +25,31 @@ def api_main_module(monkeypatch: pytest.MonkeyPatch):
 
 def test_prewarm_registered_models_only_hits_mlflow_entries(api_main_module) -> None:
     model_configs = {
-        "21": {"name": "HF model", "storage_type": "huggingface_private"},
-        "30": {"name": "Technical Task Router", "storage_type": "mlflow"},
-        "31": {
-            "name": "Ignored display name",
-            "storage_type": "mlflow",
-            "registered_model_name": "Canonical MLflow Name",
-        },
+        "21": ModelRegistryEntry(
+            name="HF model",
+            storage_type="huggingface_private",
+            model_type="sklearn",
+            is_private=True,
+            inference_method="local",
+            max_batch_size=1,
+        ),
+        "30": ModelRegistryEntry(
+            name="Technical Task Router",
+            storage_type="mlflow",
+            model_type="router",
+            is_private=False,
+            inference_method="mlflow_pyfunc",
+            max_batch_size=1,
+        ),
+        "31": ModelRegistryEntry(
+            name="Ignored display name",
+            storage_type="mlflow",
+            model_type="router",
+            is_private=False,
+            inference_method="mlflow_pyfunc",
+            max_batch_size=1,
+            registered_model_name="Canonical MLflow Name",
+        ),
     }
     client = Mock()
 
@@ -56,7 +76,16 @@ def test_prewarm_failure_propagates(api_main_module) -> None:
         patch.object(
             api_main_module,
             "MODEL_CONFIGS",
-            {"30": {"name": "Technical Task Router", "storage_type": "mlflow"}},
+            {
+                "30": ModelRegistryEntry(
+                    name="Technical Task Router",
+                    storage_type="mlflow",
+                    model_type="router",
+                    is_private=False,
+                    inference_method="mlflow_pyfunc",
+                    max_batch_size=1,
+                )
+            },
         ),
         patch.object(api_main_module, "MlflowClient", return_value=client),
     ):

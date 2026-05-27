@@ -19,7 +19,6 @@ import numpy as np
 import pandas as pd
 
 from src.api.schemas import TechnicalTaskRouterInputs
-from src.utils.mlflow_url import get_mlflow_url
 
 DEFAULT_MODEL_30_MLFLOW_URI = "models:/Technical Task Router/4"
 MODEL_30_VERSION = "4"
@@ -90,8 +89,6 @@ _UI_KEYWORDS = re.compile(
 _MODEL_30_CACHE: dict[str, Any] = {}
 _MODEL_30_CACHE_LOCK = threading.Lock()
 _MODEL_30_LOAD_LOCKS: dict[str, threading.Lock] = {}
-_MLFLOW_CLIENT_CONFIGURED = False
-_MLFLOW_CLIENT_CONFIG_LOCK = threading.Lock()
 
 
 class Model30LoadInProgressError(RuntimeError):
@@ -230,7 +227,6 @@ def call_mlflow_model_30(
     _timings: dict[str, float] | None = None,
 ) -> Any:
     """Load the cached MLflow model and invoke predict()."""
-    _configure_mlflow_client_from_environment()
     load_started_at = time.perf_counter()
     model = _get_or_load_model_30(model_uri)
     artifact_load_ms = (time.perf_counter() - load_started_at) * 1000
@@ -244,25 +240,6 @@ def call_mlflow_model_30(
         _timings["inference_only_ms"] = inference_only_ms
 
     return result
-
-
-def _configure_mlflow_client_from_environment() -> None:
-    """Apply stable MLflow SDK defaults before first load."""
-    global _MLFLOW_CLIENT_CONFIGURED
-
-    if _MLFLOW_CLIENT_CONFIGURED:
-        return
-
-    with _MLFLOW_CLIENT_CONFIG_LOCK:
-        if _MLFLOW_CLIENT_CONFIGURED:
-            return
-
-        tracking_uri = get_mlflow_url()
-        os.environ.setdefault("MLFLOW_TRACKING_URI", tracking_uri)
-        os.environ.setdefault("MLFLOW_HTTP_REQUEST_BACKOFF_JITTER", "0")
-        os.environ.setdefault("MLFLOW_ARTIFACT_UPLOAD_DOWNLOAD_TIMEOUT", "10")
-
-        _MLFLOW_CLIENT_CONFIGURED = True
 
 
 def normalize_model_30_output(

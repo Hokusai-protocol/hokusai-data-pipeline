@@ -5,6 +5,7 @@ with the APIKeyAuthMiddleware for authentication.
 """
 
 import uuid
+from dataclasses import replace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -28,6 +29,13 @@ class FakeContributorLogger:
         return None
 
 
+def _replace_registry_entry(model_id: str, **changes: object) -> None:
+    model_serving.MODEL_CONFIGS[model_id] = replace(
+        model_serving.MODEL_CONFIGS[model_id],
+        **changes,
+    )
+
+
 @pytest.fixture
 def app(monkeypatch):
     """Create a test FastAPI application with middleware."""
@@ -47,6 +55,14 @@ def app(monkeypatch):
     test_app.dependency_overrides[get_contributor_logger] = lambda: FakeContributorLogger()
 
     return test_app
+
+
+@pytest.fixture(autouse=True)
+def restore_model_configs():
+    original_entries = dict(model_serving.MODEL_CONFIGS)
+    yield
+    model_serving.MODEL_CONFIGS.clear()
+    model_serving.MODEL_CONFIGS.update(original_entries)
 
 
 @pytest.fixture
@@ -199,22 +215,25 @@ class TestModelServingAuth:
 
     def test_model_30_predict_endpoint_accepts_valid_api_key(self, client, mock_auth_service):
         """Test that model 30 predict accepts valid auth with nested inputs."""
-        with patch(
-            "src.api.endpoints.model_serving.call_mlflow_model_30",
-            return_value={"selected_model": "fast-coder-v1", "confidence": 0.8},
-        ):
-            response = client.post(
-                "/api/v1/models/30/predict",
-                headers={"Authorization": "Bearer hk_live_valid_key_123"},
-                json={
-                    "inputs": {
-                        "task": {
-                            "description": "Implement password reset flow",
-                            "task_type": "feature",
-                        }
+        _replace_registry_entry(
+            "30",
+            model_caller=lambda _model_uri, _features, _timings=None: {
+                "selected_model": "fast-coder-v1",
+                "confidence": 0.8,
+            },
+        )
+        response = client.post(
+            "/api/v1/models/30/predict",
+            headers={"Authorization": "Bearer hk_live_valid_key_123"},
+            json={
+                "inputs": {
+                    "task": {
+                        "description": "Implement password reset flow",
+                        "task_type": "feature",
                     }
-                },
-            )
+                }
+            },
+        )
 
         assert response.status_code == 200
         assert response.json()["model_id"] == "30"
