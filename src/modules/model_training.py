@@ -1,5 +1,6 @@
 """Module for model training."""
 
+import os
 from datetime import datetime
 from typing import Any, Optional
 
@@ -23,7 +24,7 @@ class ModelTrainer:
         np.random.seed(random_seed)
 
         if mlflow_tracking_uri:
-            mlflow.set_tracking_uri(mlflow_tracking_uri)
+            os.environ["MLFLOW_TRACKING_URI"] = mlflow_tracking_uri
         if experiment_name:
             mlflow.set_experiment(experiment_name)
 
@@ -37,6 +38,7 @@ class ModelTrainer:
         """Prepare data for training.
 
         Args:
+        ----
             df: Input dataframe
             target_column: Name of target column
             feature_columns: List of feature columns (if None, use all except
@@ -44,6 +46,7 @@ class ModelTrainer:
             test_size: Fraction of data to use for testing
 
         Returns:
+        -------
             X_train, X_test, y_train, y_test
 
         """
@@ -67,11 +70,13 @@ class ModelTrainer:
         """Train a mock model for testing.
 
         Args:
+        ----
             X_train: Training features
             y_train: Training labels
             model_type: Type of mock model
 
         Returns:
+        -------
             Mock trained model
 
         """
@@ -110,12 +115,14 @@ class ModelTrainer:
         """Train a scikit-learn model.
 
         Args:
+        ----
             X_train: Training features
             y_train: Training labels
             model_class: Scikit-learn model class
             model_params: Model hyperparameters
 
         Returns:
+        -------
             Trained model
 
         """
@@ -167,6 +174,7 @@ class ModelTrainer:
         """Log model to MLflow.
 
         Args:
+        ----
             model: Trained model
             model_name: Name for the model
             metrics: Model metrics
@@ -174,6 +182,7 @@ class ModelTrainer:
             artifacts: Additional artifacts to log
 
         Returns:
+        -------
             MLflow run ID
 
         """
@@ -206,12 +215,14 @@ class ModelTrainer:
         """Create a training report.
 
         Args:
+        ----
             model: Trained model
             X_train: Training features
             y_train: Training labels
             training_time: Time taken to train
 
         Returns:
+        -------
             Training report dictionary
 
         """

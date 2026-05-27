@@ -3,6 +3,7 @@
 import hashlib
 import json
 import logging
+import os
 import pickle
 import time
 from datetime import datetime
@@ -28,8 +29,8 @@ class BaselineModelLoader:
     def __init__(self, mlflow_tracking_uri: Optional[str] = None) -> None:
         self.mlflow_tracking_uri = mlflow_tracking_uri
         if mlflow_tracking_uri:
-            mlflow.set_tracking_uri(mlflow_tracking_uri)
-        self.client = MlflowClient()
+            os.environ["MLFLOW_TRACKING_URI"] = mlflow_tracking_uri
+        self.client = MlflowClient(tracking_uri=mlflow_tracking_uri)
         self.cache = {}
 
     def load_from_mlflow(

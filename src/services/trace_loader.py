@@ -10,7 +10,6 @@ import logging
 from datetime import datetime
 from typing import Any, Optional
 
-import mlflow
 import pandas as pd
 from mlflow.tracking import MlflowClient
 
@@ -24,12 +23,12 @@ class TraceLoader:
         """Initialize trace loader.
 
         Args:
+        ----
             tracking_uri: Optional MLflow tracking URI
 
         """
-        if tracking_uri:
-            mlflow.set_tracking_uri(tracking_uri)
-        self.client = MlflowClient()
+        self.tracking_uri = tracking_uri
+        self.client = MlflowClient(tracking_uri=tracking_uri)
 
     def load_traces(
         self,
@@ -44,6 +43,7 @@ class TraceLoader:
         """Load traces from MLflow with filtering.
 
         Args:
+        ----
             program_name: Optional filter by DSPy program name
             start_date: Start date for trace collection
             end_date: End date for trace collection
@@ -53,6 +53,7 @@ class TraceLoader:
             experiment_name: Optional experiment name to search in
 
         Returns:
+        -------
             List of trace dictionaries with inputs, outputs, and metadata
 
         """
@@ -99,12 +100,14 @@ class TraceLoader:
         """Load traces for a specific contributor.
 
         Args:
+        ----
             contributor_id: Contributor ID to filter by
             start_date: Optional start date
             end_date: Optional end date
             limit: Maximum number of traces
 
         Returns:
+        -------
             List of traces from the contributor
 
         """
@@ -137,10 +140,12 @@ class TraceLoader:
         """Aggregate traces into quality buckets.
 
         Args:
+        ----
             traces: List of traces
             buckets: Number of quality buckets
 
         Returns:
+        -------
             Dictionary mapping quality ranges to traces
 
         """
@@ -178,11 +183,13 @@ class TraceLoader:
         """Sample traces using specified strategy.
 
         Args:
+        ----
             traces: List of traces to sample from
             sample_size: Number of traces to sample
             strategy: Sampling strategy ('random', 'stratified', 'top')
 
         Returns:
+        -------
             Sampled list of traces
 
         """
@@ -225,6 +232,7 @@ class TraceLoader:
         """Build MLflow search filter string.
 
         Args:
+        ----
             program_name: Program name filter
             start_date: Start date filter
             end_date: End date filter
@@ -232,6 +240,7 @@ class TraceLoader:
             outcome_metric: Outcome metric name
 
         Returns:
+        -------
             MLflow filter string
 
         """
@@ -260,9 +269,11 @@ class TraceLoader:
         """Get experiment IDs to search.
 
         Args:
+        ----
             experiment_name: Optional specific experiment name
 
         Returns:
+        -------
             List of experiment IDs
 
         """
@@ -290,9 +301,11 @@ class TraceLoader:
         """Extract trace information from MLflow run.
 
         Args:
+        ----
             run: MLflow run object
 
         Returns:
+        -------
             Trace dictionary or None if no valid trace
 
         """
@@ -356,9 +369,11 @@ class TraceLoader:
         """Parse inputs and outputs from MLflow params.
 
         Args:
+        ----
             params: MLflow run params
 
         Returns:
+        -------
             Tuple of (inputs, outputs) dictionaries
 
         """
