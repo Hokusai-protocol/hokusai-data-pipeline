@@ -143,8 +143,12 @@ def sample_model_path(temp_dir):
 
 
 @pytest.fixture(autouse=True)
-def mock_mlflow_globally():
+def mock_mlflow_globally(request):
     """Mock MLflow globally to prevent actual connections in tests."""
+    if request.node.get_closest_marker("live_mlflow"):
+        yield
+        return
+
     # Auth-hook note: all patched MLflow calls here are local test doubles and
     # intentionally avoid live Authorization header/MLFLOW_TRACKING_TOKEN flows.
     with (
