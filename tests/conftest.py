@@ -184,7 +184,10 @@ def mock_mlflow_globally(request):
 def set_test_env_vars():
     """Set environment variables for testing."""
     test_env = {
-        "MLFLOW_TRACKING_URI": "https://mlflow.test.local:5000",
+        "MLFLOW_TRACKING_URI": os.environ.get(
+            "MLFLOW_TRACKING_URI",
+            "https://mlflow.test.local:5000",
+        ),
         "REDIS_HOST": "localhost",
         "REDIS_PORT": "6379",
         "POSTGRES_URI": "postgresql://test:test@localhost:5432/test",

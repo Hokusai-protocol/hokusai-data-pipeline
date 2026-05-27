@@ -11,6 +11,7 @@ on:
       - "scripts/mlflow-entrypoint.sh"
       - "scripts/model_30/seed_ci_mlflow_model.py"
       - "scripts/postgres/init-health-test-databases.sh"
+      - "scripts/postgres/init-health-test-databases.sql"
       - "Dockerfile.api"
       - "Dockerfile.mlflow"
       - "docker-compose.health-test.yml"

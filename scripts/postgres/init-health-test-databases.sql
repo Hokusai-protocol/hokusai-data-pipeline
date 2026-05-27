@@ -1,0 +1,2 @@
+CREATE DATABASE hokusai_db;
+CREATE DATABASE mlflow_db;

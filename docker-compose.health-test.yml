@@ -44,8 +44,18 @@ services:
           -CAcreateserial -out /certs/client.crt -days 2 -sha256
         chmod 644 /certs/ca.crt /certs/server.crt /certs/client.crt
         chmod 600 /certs/server.key /certs/client.key /certs/ca.key
+        tail -f /dev/null
     volumes:
       - mlflow_certs:/certs
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "test -s /certs/ca.crt -a -s /certs/server.crt -a -s /certs/server.key -a -s /certs/client.crt -a -s /certs/client.key",
+        ]
+      interval: 1s
+      timeout: 2s
+      retries: 30
 
   postgres:
     image: postgres:14
@@ -55,7 +65,7 @@ services:
       POSTGRES_DB: postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./scripts/postgres/init-health-test-databases.sh:/docker-entrypoint-initdb.d/init-health-test-databases.sh:ro
+      - ./scripts/postgres/init-health-test-databases.sql:/docker-entrypoint-initdb.d/init-health-test-databases.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
       interval: 10s
@@ -88,7 +98,7 @@ services:
       DEFAULT_ARTIFACT_ROOT: file:///mlflow/artifacts
     depends_on:
       cert-init:
-        condition: service_completed_successfully
+        condition: service_healthy
       postgres:
         condition: service_healthy
     volumes:
@@ -121,13 +131,13 @@ services:
       MLFLOW_MTLS_ENABLED: "true"
       MLFLOW_SERVER_URL: https://mlflow:5000
       MLFLOW_TRACKING_URI: https://mlflow:5000
-      MODEL_30_MLFLOW_URI: models:/Technical Task Router/latest
+      MODEL_30_MLFLOW_URI: models:/Technical Task Router/1
       MLFLOW_CA_BUNDLE_PATH: /certs/ca.crt
       MLFLOW_CLIENT_CERT_PATH: /certs/client.crt
       MLFLOW_CLIENT_KEY_PATH: /certs/client.key
     depends_on:
       cert-init:
-        condition: service_completed_successfully
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -160,8 +170,13 @@ services:
       - -lc
       - |
         set -euo pipefail
-        python -c 'from src.utils.mlflow_config import configure_internal_mtls; configure_internal_mtls()'
+        cat "$$MLFLOW_CLIENT_CERT_PATH" "$$MLFLOW_CLIENT_KEY_PATH" > /tmp/mlflow_client_combined.pem
+        chmod 600 /tmp/mlflow_client_combined.pem
+        export MLFLOW_TRACKING_CLIENT_CERT_PATH=/tmp/mlflow_client_combined.pem
+        export MLFLOW_TRACKING_SERVER_CERT_PATH="$$MLFLOW_CA_BUNDLE_PATH"
         python scripts/model_30/seed_ci_mlflow_model.py
+        touch /tmp/model-seed-ready
+        tail -f /dev/null
     environment:
       ENVIRONMENT: development
       MLFLOW_MTLS_ENABLED: "true"
@@ -170,14 +185,20 @@ services:
       MLFLOW_CA_BUNDLE_PATH: /certs/ca.crt
       MLFLOW_CLIENT_CERT_PATH: /certs/client.crt
       MLFLOW_CLIENT_KEY_PATH: /certs/client.key
-      MODEL_30_MLFLOW_URI: models:/Technical Task Router/latest
+      MODEL_30_MLFLOW_URI: models:/Technical Task Router/1
     depends_on:
       cert-init:
-        condition: service_completed_successfully
+        condition: service_healthy
       mlflow:
         condition: service_healthy
     volumes:
       - mlflow_certs:/certs:ro
+      - mlflow_artifacts:/mlflow/artifacts
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/model-seed-ready"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
     networks:
       - hokusai-network
 
@@ -190,7 +211,12 @@ services:
       - -lc
       - |
         set -euo pipefail
-        python -c 'from src.utils.mlflow_config import configure_internal_mtls; configure_internal_mtls()'
+        cat "$$MLFLOW_CLIENT_CERT_PATH" "$$MLFLOW_CLIENT_KEY_PATH" > /tmp/mlflow_client_combined.pem
+        chmod 600 /tmp/mlflow_client_combined.pem
+        export MLFLOW_TRACKING_CLIENT_CERT_PATH=/tmp/mlflow_client_combined.pem
+        export MLFLOW_TRACKING_SERVER_CERT_PATH="$$MLFLOW_CA_BUNDLE_PATH"
+        export MLFLOW_HTTP_REQUEST_TIMEOUT=30
+        export MLFLOW_HTTP_REQUEST_MAX_RETRIES=1
         pytest tests/integration/test_model_30_mlflow_serving.py -v --maxfail=1 --cov-fail-under=0
     environment:
       ENVIRONMENT: development
@@ -199,19 +225,20 @@ services:
       MLFLOW_MTLS_ENABLED: "true"
       MLFLOW_SERVER_URL: https://mlflow:5000
       MLFLOW_TRACKING_URI: https://mlflow:5000
-      MODEL_30_MLFLOW_URI: models:/Technical Task Router/latest
+      MODEL_30_MLFLOW_URI: models:/Technical Task Router/1
       MLFLOW_CA_BUNDLE_PATH: /certs/ca.crt
       MLFLOW_CLIENT_CERT_PATH: /certs/client.crt
       MLFLOW_CLIENT_KEY_PATH: /certs/client.key
     depends_on:
       cert-init:
-        condition: service_completed_successfully
+        condition: service_healthy
       api:
         condition: service_healthy
       model-seed:
-        condition: service_completed_successfully
+        condition: service_healthy
     volumes:
       - mlflow_certs:/certs:ro
+      - mlflow_artifacts:/mlflow/artifacts
     networks:
       - hokusai-network
 
