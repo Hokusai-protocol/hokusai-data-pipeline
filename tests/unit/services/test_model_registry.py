@@ -13,8 +13,7 @@ class TestHokusaiModelRegistry:
     @pytest.fixture
     def registry(self):
         """Create a registry instance for testing."""
-        with patch("mlflow.set_tracking_uri"):
-            return HokusaiModelRegistry()
+        return HokusaiModelRegistry()
 
     @pytest.fixture
     def mock_model(self):
@@ -23,21 +22,21 @@ class TestHokusaiModelRegistry:
         model.predict = Mock(return_value=[0.8, 0.2])
         return model
 
-    def test_init_default(self):
+    @patch(
+        "src.services.model_registry.get_mlflow_url", return_value="https://mlflow.test.local:5000"
+    )
+    def test_init_default(self, mock_get_mlflow_url):
         """Test HokusaiModelRegistry initialization with default values."""
-        expected_tracking_uri = "http://mlflow.hokusai-development.local:5000"
-        with patch("mlflow.set_tracking_uri") as mock_set_uri:
-            registry = HokusaiModelRegistry()
-            assert registry.tracking_uri == expected_tracking_uri
-            mock_set_uri.assert_called_once_with(expected_tracking_uri)
+        expected_tracking_uri = "https://mlflow.test.local:5000"
+        registry = HokusaiModelRegistry()
+        assert registry.tracking_uri == expected_tracking_uri
+        mock_get_mlflow_url.assert_called_once_with()
 
     def test_init_custom_uri(self):
         """Test HokusaiModelRegistry initialization with custom URI."""
         custom_uri = "http://custom-mlflow:8080"
-        with patch("mlflow.set_tracking_uri") as mock_set_uri:
-            registry = HokusaiModelRegistry(tracking_uri=custom_uri)
-            assert registry.tracking_uri == custom_uri
-            mock_set_uri.assert_called_once_with(custom_uri)
+        registry = HokusaiModelRegistry(tracking_uri=custom_uri)
+        assert registry.tracking_uri == custom_uri
 
     @patch("mlflow.register_model")
     @patch("mlflow.pyfunc.log_model")
@@ -152,6 +151,7 @@ class TestHokusaiModelRegistry:
         call_args = mock_log_params.call_args[0][0]
         assert call_args["baseline_model_id"] == baseline_id
         assert call_args["contributor_address"] == contributor
+        mock_client_class.assert_called_once_with(tracking_uri=registry.tracking_uri)
 
     @patch("mlflow.tracking.MlflowClient")
     def test_get_model_lineage_success(self, mock_client_class, registry):
@@ -198,6 +198,7 @@ class TestHokusaiModelRegistry:
         assert lineage[1]["contributor"] == "0xABC123"
         assert lineage[2]["contributor"] == "0xDEF456"
         assert lineage[2]["cumulative_improvement"]["accuracy"] == 0.04
+        mock_client_class.assert_called_once_with(tracking_uri=registry.tracking_uri)
 
     def test_register_baseline_missing_model(self, registry):
         """Test baseline registration with missing model."""

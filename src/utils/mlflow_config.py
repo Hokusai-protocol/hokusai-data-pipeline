@@ -7,6 +7,7 @@ configure_internal_mtls() which sets MLFLOW_TRACKING_CLIENT_CERT_PATH environmen
 import asyncio
 import logging
 import os
+import tempfile
 import time
 from contextlib import contextmanager
 from datetime import datetime
@@ -15,6 +16,7 @@ from typing import Any, Optional
 import mlflow
 
 from src.utils.dns_resolver import DNSResolutionError, get_dns_resolver
+from src.utils.mlflow_url import get_mlflow_url
 
 logger = logging.getLogger(__name__)
 
@@ -262,9 +264,7 @@ class MLFlowConfig:
     """Configuration manager for MLFlow tracking with DNS resolution."""
 
     def __init__(self) -> None:
-        self.tracking_uri_raw = os.getenv(
-            "MLFLOW_TRACKING_URI", "https://mlflow.hokusai-development.local:5000"
-        )
+        self.tracking_uri_raw = get_mlflow_url()
         self.experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", "hokusai-pipeline")
         self.artifact_root = os.getenv("MLFLOW_ARTIFACT_ROOT", None)
         self._resolved_tracking_uri = None
@@ -334,7 +334,7 @@ class MLFlowConfig:
     def setup_tracking(self) -> None:
         """Initialize MLFlow tracking configuration."""
         try:
-            mlflow.set_tracking_uri(self.tracking_uri)
+            os.environ["MLFLOW_TRACKING_URI"] = self.tracking_uri
             logger.info(f"MLFlow tracking URI set to: {self.tracking_uri}")
 
             # Create or get experiment
@@ -532,9 +532,7 @@ def get_mlflow_status() -> dict:
     dns_health = dns_resolver.health_check()
 
     # Get raw and resolved tracking URIs
-    raw_tracking_uri = os.getenv(
-        "MLFLOW_TRACKING_URI", "https://mlflow.hokusai-development.local:5000"
-    )
+    raw_tracking_uri = get_mlflow_url()
 
     status = {
         "circuit_breaker_state": cb_status["state"],
@@ -576,18 +574,16 @@ def get_mlflow_status() -> dict:
         # Connection test with configurable timeout and enhanced error handling
         start_time = time.time()
 
-        # Set MLflow tracking URI with timeout consideration
-        mlflow.set_tracking_uri(test_uri)
-
         # Test basic connectivity with timeout wrapper
         def _test_connection() -> None:
+            client = mlflow.tracking.MlflowClient(tracking_uri=test_uri)
             # Test basic connectivity
-            mlflow.get_experiment_by_name("default")
+            client.get_experiment_by_name("default")
 
             # Test if we can create/access an experiment (more comprehensive check)
             test_experiment = "health-check-test"
             try:
-                mlflow.get_experiment_by_name(test_experiment)
+                client.get_experiment_by_name(test_experiment)
             except Exception:  # noqa: S110
                 # Experiment doesn't exist, that's fine
                 pass
@@ -646,95 +642,64 @@ def _update_metrics(status: dict) -> None:  # noqa: ANN401
 def configure_internal_mtls() -> None:
     """Configure mTLS for internal MLflow communication.
 
-    Only enabled in staging/production environments.
-    Uses AWS Secrets Manager for certificate management.
-
-    This function provides AUTHENTICATION setup for MLflow via mTLS certificates.
-    In development, this function does nothing and logs that mTLS is not configured.
-    In staging/production, it:
-    1. Retrieves certificates from AWS Secrets Manager (authentication credentials)
-    2. Writes certificates to /tmp/mlflow-certs
-    3. Sets environment variables for MLflow client (MLFLOW_TRACKING_CLIENT_CERT_PATH, etc.)
-    4. Configures SSL context to disable hostname verification for internal .local domains
-
-    Note: This uses certificate-based authentication (mTLS) instead of token-based auth.
+    When `MLFLOW_MTLS_ENABLED=true`, translate entrypoint-staged certificate paths
+    into the environment variables expected by the MLflow SDK and `requests`.
     """
-    environment = os.getenv("ENVIRONMENT", "development")
+    if os.getenv("MLFLOW_MTLS_ENABLED", "").lower() != "true":
+        return
 
-    if environment == "development":
-        # For development, disable SSL verification for self-signed certificates
-        os.environ["MLFLOW_TRACKING_INSECURE_TLS"] = "true"
-        logger.info("Development mode: SSL verification disabled for self-signed certificates")
-    elif environment in ["staging", "production"]:
-        try:
-            # Import required libraries
+    required_paths = {
+        "MLFLOW_CA_BUNDLE_PATH": os.getenv("MLFLOW_CA_BUNDLE_PATH", "").strip(),
+        "MLFLOW_CLIENT_CERT_PATH": os.getenv("MLFLOW_CLIENT_CERT_PATH", "").strip(),
+        "MLFLOW_CLIENT_KEY_PATH": os.getenv("MLFLOW_CLIENT_KEY_PATH", "").strip(),
+    }
+    for env_var, path in required_paths.items():
+        if not path:
+            raise RuntimeError(f"{env_var} must be set when MLFLOW_MTLS_ENABLED=true")
+        if not os.path.isfile(path):
+            raise RuntimeError(f"{env_var} does not reference a file: {path}")
+        if not os.access(path, os.R_OK):
+            raise RuntimeError(f"{env_var} is not readable: {path}")
 
-            import boto3
+    combined_path = "/tmp/mlflow_client_combined.pem"  # noqa: S108
+    temp_path = None
+    try:
+        with open(required_paths["MLFLOW_CLIENT_CERT_PATH"], encoding="utf-8") as cert_file:
+            client_cert = cert_file.read().strip()
+        with open(required_paths["MLFLOW_CLIENT_KEY_PATH"], encoding="utf-8") as key_file:
+            client_key = key_file.read().strip()
 
-            logger.info(f"Configuring mTLS for {environment} environment")
+        combined_content = f"{client_cert}\n{client_key}\n"
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir="/tmp",
+            prefix="mlflow-client-",
+            suffix=".pem",
+            delete=False,
+        ) as temp_file:
+            temp_path = temp_file.name
+            temp_file.write(combined_content)
+        os.chmod(temp_path, 0o600)
+        os.replace(temp_path, combined_path)
+        os.chmod(combined_path, 0o600)
+    except Exception:
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
+        logger.exception("Failed to configure MLflow internal mTLS materials")
+        raise
 
-            # Create Secrets Manager client
-            secrets_client = boto3.client("secretsmanager", region_name="us-east-1")
+    os.environ["MLFLOW_TRACKING_CLIENT_CERT_PATH"] = combined_path
+    os.environ["MLFLOW_TRACKING_CLIENT_KEY_PATH"] = required_paths["MLFLOW_CLIENT_KEY_PATH"]
+    os.environ["MLFLOW_TRACKING_SERVER_CERT_PATH"] = required_paths["MLFLOW_CA_BUNDLE_PATH"]
+    os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] = "5"
+    os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"] = "2"
+    os.environ["MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR"] = "1"
+    os.environ.pop("MLFLOW_TRACKING_INSECURE_TLS", None)
 
-            # Retrieve certificates from Secrets Manager
-            logger.debug("Retrieving client certificate from Secrets Manager")
-            client_cert_response = secrets_client.get_secret_value(
-                SecretId=f"hokusai/{environment}/mlflow/client-cert"
-            )
-            client_cert = client_cert_response["SecretString"]
-
-            logger.debug("Retrieving client key from Secrets Manager")
-            client_key_response = secrets_client.get_secret_value(
-                SecretId=f"hokusai/{environment}/mlflow/client-key"
-            )
-            client_key = client_key_response["SecretString"]
-
-            logger.debug("Retrieving CA certificate from Secrets Manager")
-            ca_cert_response = secrets_client.get_secret_value(
-                SecretId=f"hokusai/{environment}/mlflow/ca-cert"
-            )
-            ca_cert = ca_cert_response["SecretString"]
-
-            # Create certificate directory
-            cert_dir = "/tmp/mlflow-certs"  # noqa: S108
-            os.makedirs(cert_dir, exist_ok=True)
-            logger.debug(f"Created certificate directory: {cert_dir}")
-
-            # Write certificates to files
-            client_cert_path = f"{cert_dir}/client.crt"
-            with open(client_cert_path, "w") as f:
-                f.write(client_cert)
-            logger.debug(f"Wrote client certificate to {client_cert_path}")
-
-            client_key_path = f"{cert_dir}/client.key"
-            with open(client_key_path, "w") as f:
-                f.write(client_key)
-            # Set restrictive permissions on private key
-            os.chmod(client_key_path, 0o600)
-            logger.debug(f"Wrote client key to {client_key_path}")
-
-            ca_cert_path = f"{cert_dir}/ca.crt"
-            with open(ca_cert_path, "w") as f:
-                f.write(ca_cert)
-            logger.debug(f"Wrote CA certificate to {ca_cert_path}")
-
-            # Set environment variables for MLflow client
-            # For internal .local domains, we disable server cert verification due to hostname mismatch
-            # but still provide client certificates for mTLS authentication
-            os.environ["MLFLOW_TRACKING_CLIENT_CERT_PATH"] = client_cert_path
-            os.environ["MLFLOW_TRACKING_CLIENT_KEY_PATH"] = client_key_path
-            # Do NOT set MLFLOW_TRACKING_SERVER_CERT_PATH when using INSECURE_TLS
-            # os.environ["MLFLOW_TRACKING_SERVER_CERT_PATH"] = ca_cert_path
-
-            # Disable TLS verification for internal service discovery
-            # This skips hostname verification which would fail for .local domains
-            os.environ["MLFLOW_TRACKING_INSECURE_TLS"] = "true"
-
-            logger.info(
-                "Configured mTLS for internal MLflow communication "
-                "(TLS verification disabled for .local domains, client cert authentication enabled)"
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to configure mTLS: {e}")
-            raise
+    logger.info(
+        "Configured MLflow SDK mTLS paths: client_cert=%s client_key=%s server_ca=%s",
+        combined_path,
+        required_paths["MLFLOW_CLIENT_KEY_PATH"],
+        required_paths["MLFLOW_CA_BUNDLE_PATH"],
+    )

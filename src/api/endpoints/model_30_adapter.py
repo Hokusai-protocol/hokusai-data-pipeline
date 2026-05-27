@@ -89,8 +89,6 @@ _UI_KEYWORDS = re.compile(
 _MODEL_30_CACHE: dict[str, Any] = {}
 _MODEL_30_CACHE_LOCK = threading.Lock()
 _MODEL_30_LOAD_LOCKS: dict[str, threading.Lock] = {}
-_MLFLOW_CLIENT_CONFIGURED = False
-_MLFLOW_CLIENT_CONFIG_LOCK = threading.Lock()
 
 
 class Model30LoadInProgressError(RuntimeError):
@@ -229,7 +227,6 @@ def call_mlflow_model_30(
     _timings: dict[str, float] | None = None,
 ) -> Any:
     """Load the cached MLflow model and invoke predict()."""
-    _configure_mlflow_client_from_environment()
     load_started_at = time.perf_counter()
     model = _get_or_load_model_30(model_uri)
     artifact_load_ms = (time.perf_counter() - load_started_at) * 1000
@@ -243,86 +240,6 @@ def call_mlflow_model_30(
         _timings["inference_only_ms"] = inference_only_ms
 
     return result
-
-
-def _configure_mlflow_client_from_environment() -> None:
-    """Apply deployment MLflow env vars to the MLflow SDK before first load.
-
-    The API entrypoint fetches mTLS files into MLFLOW_CLIENT_CERT_PATH,
-    MLFLOW_CLIENT_KEY_PATH, and MLFLOW_CA_BUNDLE_PATH for the async proxy. The
-    MLflow SDK expects the TRACKING-prefixed variants, so mirror them here.
-    """
-    global _MLFLOW_CLIENT_CONFIGURED
-
-    if _MLFLOW_CLIENT_CONFIGURED:
-        return
-
-    with _MLFLOW_CLIENT_CONFIG_LOCK:
-        if _MLFLOW_CLIENT_CONFIGURED:
-            return
-
-        tracking_uri = os.getenv("MLFLOW_TRACKING_URI") or os.getenv("MLFLOW_SERVER_URL")
-        if tracking_uri:
-            os.environ.setdefault("MLFLOW_TRACKING_URI", tracking_uri)
-            mlflow.set_tracking_uri(tracking_uri)
-
-            if tracking_uri.startswith("https://") and ".local" in tracking_uri:
-                os.environ.setdefault("MLFLOW_TRACKING_INSECURE_TLS", "true")
-
-        # MLflow defaults to a 120s request timeout and 7 HTTP retries, which can
-        # keep a timed-out API request retrying in the background. Bound SDK
-        # calls below the API service deadline so failed cold loads return
-        # cleanly and release the single-flight load lock.
-        os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", "5")
-        os.environ.setdefault("MLFLOW_HTTP_REQUEST_MAX_RETRIES", "2")
-        os.environ.setdefault("MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR", "1")
-        os.environ.setdefault("MLFLOW_HTTP_REQUEST_BACKOFF_JITTER", "0")
-        os.environ.setdefault("MLFLOW_ARTIFACT_UPLOAD_DOWNLOAD_TIMEOUT", "10")
-
-        _configure_mlflow_client_certificate()
-        if (ca_bundle_path := os.getenv("MLFLOW_CA_BUNDLE_PATH")) and os.getenv(
-            "MLFLOW_TRACKING_INSECURE_TLS", ""
-        ).lower() != "true":
-            os.environ.setdefault("MLFLOW_TRACKING_SERVER_CERT_PATH", ca_bundle_path)
-
-        _MLFLOW_CLIENT_CONFIGURED = True
-
-
-def _configure_mlflow_client_certificate() -> None:
-    """Expose mTLS client credentials in the format expected by MLflow SDK."""
-    client_cert_path = os.getenv("MLFLOW_CLIENT_CERT_PATH")
-    client_key_path = os.getenv("MLFLOW_CLIENT_KEY_PATH")
-
-    if not client_cert_path:
-        return
-
-    if client_key_path:
-        os.environ.setdefault("MLFLOW_TRACKING_CLIENT_KEY_PATH", client_key_path)
-
-    if client_key_path and os.path.exists(client_cert_path) and os.path.exists(client_key_path):
-        combined_path = os.getenv(
-            "MLFLOW_TRACKING_COMBINED_CLIENT_CERT_PATH",
-            os.path.join(os.path.dirname(client_cert_path), "mlflow-client.pem"),
-        )
-        with open(client_cert_path, encoding="utf-8") as cert_file:
-            cert_content = cert_file.read().strip()
-        with open(client_key_path, encoding="utf-8") as key_file:
-            key_content = key_file.read().strip()
-
-        combined_content = f"{cert_content}\n{key_content}\n"
-        existing_content = None
-        if os.path.exists(combined_path):
-            with open(combined_path, encoding="utf-8") as combined_file:
-                existing_content = combined_file.read()
-        if existing_content != combined_content:
-            with open(combined_path, "w", encoding="utf-8") as combined_file:
-                combined_file.write(combined_content)
-            os.chmod(combined_path, 0o600)
-
-        os.environ["MLFLOW_TRACKING_CLIENT_CERT_PATH"] = combined_path
-        return
-
-    os.environ.setdefault("MLFLOW_TRACKING_CLIENT_CERT_PATH", client_cert_path)
 
 
 def normalize_model_30_output(

@@ -10,15 +10,13 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from src.utils.mlflow_mtls import mlflow_mtls_httpx_kwargs
+from src.utils.mlflow_url import get_mlflow_url
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# MLflow server configuration with fallback for local development
-MLFLOW_SERVER_URL = os.getenv(
-    "MLFLOW_SERVER_URL", "http://mlflow.hokusai-development.local:5000"
-)  # Use service discovery DNS
+MLFLOW_SERVER_URL = get_mlflow_url()
 PROXY_TIMEOUT = 30.0  # seconds
 ENABLE_DEBUG_LOGGING = os.getenv("MLFLOW_PROXY_DEBUG", "false").lower() == "true"
 
@@ -94,7 +92,7 @@ def _build_mlflow_response(response: httpx.Response, original_path: str) -> Resp
 
 
 async def proxy_request(
-    request: Request, path: str, mlflow_base_url: str = MLFLOW_SERVER_URL
+    request: Request, path: str, mlflow_base_url: str | None = None
 ) -> Response:
     """Proxy requests to MLflow server with improved routing and logging.
 
@@ -109,13 +107,14 @@ async def proxy_request(
         Response from MLflow server
 
     """
+    resolved_mlflow_base_url = mlflow_base_url or MLFLOW_SERVER_URL
     original_path = path
 
     if ENABLE_DEBUG_LOGGING:
         logger.debug(f"Incoming proxy request: method={request.method}, path={path}")
-        logger.debug(f"MLflow base URL: {mlflow_base_url}")
+        logger.debug(f"MLflow base URL: {resolved_mlflow_base_url}")
 
-    translated = _translate_path(path, mlflow_base_url)
+    translated = _translate_path(path, resolved_mlflow_base_url)
     logger.info(
         f"Converted path for external MLflow: {original_path} -> {translated}"
         if translated != path
@@ -124,7 +123,7 @@ async def proxy_request(
     path = translated
     _check_artifact_serving(path)
 
-    target_url = f"{mlflow_base_url}/{path}"
+    target_url = f"{resolved_mlflow_base_url}/{path}"
     logger.info(f"Proxying request: {request.method} {original_path} -> {target_url}")
 
     method = request.method.lower()
@@ -161,7 +160,8 @@ async def proxy_request(
     except httpx.ConnectError as e:
         logger.error(f"Failed to connect to MLflow server at {target_url}: {e}")
         raise HTTPException(
-            status_code=502, detail=f"Failed to connect to MLflow server at {mlflow_base_url}"
+            status_code=502,
+            detail=f"Failed to connect to MLflow server at {resolved_mlflow_base_url}",
         ) from e
     except Exception as e:
         logger.error(f"Unexpected error proxying request to MLflow: {e}", exc_info=True)

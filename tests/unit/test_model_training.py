@@ -1,5 +1,6 @@
 """Unit tests for model_training module."""
 
+import os
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -25,16 +26,15 @@ class TestModelTrainer:
         trainer = ModelTrainer(random_seed=custom_seed)
         assert trainer.random_seed == custom_seed
 
-    @patch("mlflow.set_tracking_uri")
     @patch("mlflow.set_experiment")
-    def test_init_with_mlflow_config(self, mock_set_experiment, mock_set_tracking_uri):
+    def test_init_with_mlflow_config(self, mock_set_experiment):
         """Test ModelTrainer initialization with MLflow configuration."""
         tracking_uri = "http://localhost:5000"
         experiment_name = "test_experiment"
 
         ModelTrainer(mlflow_tracking_uri=tracking_uri, experiment_name=experiment_name)
 
-        mock_set_tracking_uri.assert_called_once_with(tracking_uri)
+        assert os.environ["MLFLOW_TRACKING_URI"] == tracking_uri
         mock_set_experiment.assert_called_once_with(experiment_name)
 
     def test_prepare_training_data_default_features(self):

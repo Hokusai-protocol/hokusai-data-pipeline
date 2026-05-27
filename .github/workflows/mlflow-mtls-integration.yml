@@ -1,0 +1,46 @@
+name: MLflow mTLS Integration
+
+on:
+  pull_request:
+    paths:
+      - "src/api/endpoints/model_30_adapter.py"
+      - "src/api/endpoints/model_serving.py"
+      - "src/api/routes/health_mlflow.py"
+      - "src/utils/mlflow_*.py"
+      - "scripts/api-entrypoint.sh"
+      - "scripts/mlflow-entrypoint.sh"
+      - "scripts/model_30/seed_ci_mlflow_model.py"
+      - "scripts/postgres/init-health-test-databases.sh"
+      - "scripts/postgres/init-health-test-databases.sql"
+      - "Dockerfile.api"
+      - "Dockerfile.mlflow"
+      - "docker-compose.health-test.yml"
+      - "tests/integration/test_model_30_mlflow_serving.py"
+      - ".github/workflows/mlflow-mtls-integration.yml"
+
+jobs:
+  mlflow-mtls-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run MLflow mTLS integration stack
+        run: docker compose -f docker-compose.health-test.yml up --build --abort-on-container-exit --exit-code-from test-runner
+
+      - name: Collect compose logs
+        if: failure()
+        run: docker compose -f docker-compose.health-test.yml logs --no-color > mlflow-mtls-compose.log
+
+      - name: Upload compose logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-mtls-compose-log
+          path: mlflow-mtls-compose.log
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose -f docker-compose.health-test.yml down -v

@@ -9,9 +9,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -27,8 +28,8 @@ from src.api.endpoints.model_30_adapter import (
     validate_nested_model_30_inputs,
 )
 from src.middleware.auth import require_auth
+from src.utils.mlflow_health import MLflowRegistryHealthResult
 
-RUN_INTEGRATION = os.getenv("MODEL_30_INTEGRATION_TEST") == "1"
 TRACKING_READY = bool(os.getenv("MLFLOW_TRACKING_URI"))
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "data" / "test_fixtures"
 
@@ -42,10 +43,22 @@ class FakeContributorLogger:
         return None
 
 
-@pytest.mark.skipif(
-    not RUN_INTEGRATION or not TRACKING_READY,
-    reason="MODEL_30_INTEGRATION_TEST=1 and MLFLOW_TRACKING_URI are required",
-)
+@pytest.fixture(autouse=True)
+def restore_model_configs():
+    original_entries = dict(model_serving.MODEL_CONFIGS)
+    yield
+    model_serving.MODEL_CONFIGS.clear()
+    model_serving.MODEL_CONFIGS.update(original_entries)
+
+
+def _replace_registry_entry(model_id: str, **changes: object) -> None:
+    model_serving.MODEL_CONFIGS[model_id] = replace(
+        model_serving.MODEL_CONFIGS[model_id],
+        **changes,
+    )
+
+
+@pytest.mark.skipif(not TRACKING_READY, reason="MLFLOW_TRACKING_URI is required")
 @pytest.mark.live_mlflow
 def test_live_model_30_mlflow_prediction_round_trip() -> None:
     mlflow = pytest.importorskip("mlflow")
@@ -69,17 +82,15 @@ def test_model_30_predict_emits_single_latency_trace_record(caplog) -> None:
     app.dependency_overrides[get_contributor_logger] = lambda: FakeContributorLogger()
     client = TestClient(app)
 
-    with (
-        patch("src.api.endpoints.model_serving.is_model_30_cached", return_value=True),
-        patch(
-            "src.api.endpoints.model_serving.call_mlflow_model_30",
-            side_effect=lambda _uri, _features, timings=None: (
-                timings.update({"artifact_load_ms": 0.1, "inference_only_ms": 2.0})
-                or {"selected_model": "fast-coder-v1", "confidence": 0.8}
-            ),
+    _replace_registry_entry(
+        "30",
+        cache_checker=lambda _uri: True,
+        model_caller=lambda _uri, _features, timings=None: (
+            timings.update({"artifact_load_ms": 0.1, "inference_only_ms": 2.0})
+            or {"selected_model": "fast-coder-v1", "confidence": 0.8}
         ),
-        caplog.at_level(logging.INFO),
-    ):
+    )
+    with caplog.at_level(logging.INFO):
         response = client.post(
             "/api/v1/models/30/predict",
             json={
@@ -122,7 +133,17 @@ def test_model_30_health_reports_not_ready_until_cached() -> None:
     }
     client = TestClient(app)
 
-    with patch("src.api.endpoints.model_serving.is_model_30_cached", return_value=False):
+    _replace_registry_entry("30", cache_checker=lambda _uri: False)
+    sdk_result = MLflowRegistryHealthResult(
+        status="ok",
+        tracking_uri="https://mlflow:5000",
+        latency_ms=8.4,
+        sample_model="Technical Task Router",
+    )
+    with patch(
+        "src.api.endpoints.model_serving.check_mlflow_registry_sdk",
+        AsyncMock(return_value=sdk_result),
+    ):
         response = client.get("/api/v1/models/30/health")
 
     assert response.status_code == 200
@@ -131,6 +152,7 @@ def test_model_30_health_reports_not_ready_until_cached() -> None:
     assert body["inference_ready"] is False
     assert body["readiness"]["checked"] is False
     assert body["readiness"]["status"] == "not_cached"
+    assert body["mlflow_sdk"]["reachable"] is True
 
 
 def test_model_30_health_warmup_runs_minimal_prediction() -> None:
@@ -148,15 +170,26 @@ def test_model_30_health_warmup_runs_minimal_prediction() -> None:
     def _is_cached(_uri: str) -> bool:
         return cache_states.pop(0) if cache_states else True
 
-    with (
-        patch("src.api.endpoints.model_serving.is_model_30_cached", side_effect=_is_cached),
-        patch(
-            "src.api.endpoints.model_serving.call_mlflow_model_30",
-            side_effect=lambda _uri, _features, timings=None: (
-                timings.update({"artifact_load_ms": 1.5, "inference_only_ms": 0.5})
-                or {"selected_model": "fast-coder-v1", "confidence": 0.8}
-            ),
-        ) as call_mock,
+    call_count = 0
+
+    def model_caller(_uri, _features, timings=None):
+        nonlocal call_count
+        call_count += 1
+        return timings.update({"artifact_load_ms": 1.5, "inference_only_ms": 0.5}) or {
+            "selected_model": "fast-coder-v1",
+            "confidence": 0.8,
+        }
+
+    _replace_registry_entry("30", cache_checker=_is_cached, model_caller=model_caller)
+    sdk_result = MLflowRegistryHealthResult(
+        status="ok",
+        tracking_uri="https://mlflow:5000",
+        latency_ms=9.1,
+        sample_model="Technical Task Router",
+    )
+    with patch(
+        "src.api.endpoints.model_serving.check_mlflow_registry_sdk",
+        AsyncMock(return_value=sdk_result),
     ):
         response = client.get("/api/v1/models/30/health?warmup=true")
 
@@ -167,7 +200,8 @@ def test_model_30_health_warmup_runs_minimal_prediction() -> None:
     assert body["readiness"]["checked"] is True
     assert body["readiness"]["status"] == "ready"
     assert body["readiness"]["selected_model"] == "fast-coder-v1"
-    call_mock.assert_called_once()
+    assert body["mlflow_sdk"]["reachable"] is True
+    assert call_count == 1
 
 
 def test_model_30_live_path_rejects_mocked_load_model() -> None:

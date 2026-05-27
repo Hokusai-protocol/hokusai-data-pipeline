@@ -226,8 +226,8 @@ class TestModelEndpointsUnit:
     @pytest.fixture
     def mock_registry(self):
         """Mock model registry."""
-        with patch("src.api.routes.models.registry") as mock_reg:
-            yield mock_reg
+        with patch("src.api.routes.models._get_registry") as mock_get_registry:
+            yield mock_get_registry.return_value
 
     @pytest.fixture
     def mock_mlflow(self):

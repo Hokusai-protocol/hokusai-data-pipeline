@@ -2,7 +2,6 @@
 
 import json
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -13,6 +12,7 @@ from src.services.experiment_manager import ExperimentManager
 from src.services.model_registry import HokusaiModelRegistry
 from src.services.performance_tracker import PerformanceTracker
 from src.utils.config import get_config, get_test_config
+from src.utils.mlflow_url import get_mlflow_url
 
 
 class HokusaiEvaluationPipeline(FlowSpec):
@@ -73,7 +73,7 @@ class HokusaiEvaluationPipeline(FlowSpec):
 
         # Initialize services
         if not self.disable_services:
-            mlflow_uri = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
+            mlflow_uri = get_mlflow_url()
             self.registry = HokusaiModelRegistry(tracking_uri=mlflow_uri)
             self.tracker = PerformanceTracker()
             self.experiment_manager = ExperimentManager()
