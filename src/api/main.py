@@ -2,16 +2,20 @@
 
 import logging
 import os
+import time
 from typing import Any
 
+import mlflow
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from mlflow.tracking import MlflowClient
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from src.api.endpoints import model_serving
+from src.api.endpoints.model_serving import MODEL_CONFIGS
 from src.api.routes import (
     benchmarks,
     dataset_arrivals,
@@ -32,6 +36,7 @@ from src.api.routes import mlflow_proxy_improved as mlflow_proxy
 from src.api.utils.config import get_settings
 from src.middleware.auth import APIKeyAuthMiddleware
 from src.middleware.rate_limiter import RateLimitMiddleware
+from src.utils.mlflow_url import get_mlflow_url
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -129,6 +134,40 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
+def _prewarm_mlflow_registered_models() -> None:
+    """Verify MLflow registry connectivity for configured MLflow-backed models."""
+    mlflow_url = get_mlflow_url()
+    mlflow.set_tracking_uri(mlflow_url)
+    client = MlflowClient()
+
+    for model_id, config in MODEL_CONFIGS.items():
+        if config.get("storage_type") != "mlflow":
+            continue
+
+        registered_model_name = config.get("registered_model_name") or config["name"]
+        started_at = time.perf_counter()
+        try:
+            client.get_registered_model(registered_model_name)
+            elapsed_ms = (time.perf_counter() - started_at) * 1000
+            logger.info(
+                "Pre-warmed MLflow registered model",
+                extra={
+                    "model_id": model_id,
+                    "registered_model_name": registered_model_name,
+                    "elapsed_ms": round(elapsed_ms, 2),
+                },
+            )
+        except Exception:
+            logger.exception(
+                "MLflow pre-warm failed",
+                extra={
+                    "model_id": model_id,
+                    "registered_model_name": registered_model_name,
+                },
+            )
+            raise
+
+
 # Startup event
 @app.on_event("startup")
 async def startup_event() -> None:
@@ -144,6 +183,8 @@ async def startup_event() -> None:
     except Exception as e:
         logger.error(f"Failed to configure mTLS: {e}")
         # Don't fail startup - will fall back to API key auth
+
+    _prewarm_mlflow_registered_models()
 
     # Initialize database connections, caches, etc.
 

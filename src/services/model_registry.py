@@ -8,6 +8,8 @@ from typing import Any
 import mlflow
 import mlflow.pyfunc
 
+from src.utils.mlflow_url import get_mlflow_url
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,7 +25,7 @@ class HokusaiModelRegistry:
 
     VALID_MODEL_TYPES = ["lead_scoring", "classification", "regression", "ranking"]
 
-    def __init__(self, tracking_uri: str = "http://mlflow.hokusai-development.local:5000") -> None:
+    def __init__(self, tracking_uri: str | None = None) -> None:
         """Initialize the model registry with MLFlow tracking.
 
         Args:
@@ -31,9 +33,9 @@ class HokusaiModelRegistry:
             tracking_uri: MLFlow tracking server URI
 
         """
-        self.tracking_uri = tracking_uri
-        mlflow.set_tracking_uri(tracking_uri)
-        logger.info(f"Initialized HokusaiModelRegistry with tracking URI: {tracking_uri}")
+        self.tracking_uri = tracking_uri or get_mlflow_url()
+        mlflow.set_tracking_uri(self.tracking_uri)
+        logger.info(f"Initialized HokusaiModelRegistry with tracking URI: {self.tracking_uri}")
 
     def register_baseline(
         self, model: Any, model_type: str, metadata: dict[str, Any]

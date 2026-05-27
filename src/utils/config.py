@@ -7,6 +7,8 @@ from typing import Any, Optional
 
 from dotenv import load_dotenv
 
+from src.utils.mlflow_url import get_mlflow_url
+
 # Load environment variables
 load_dotenv()
 
@@ -46,7 +48,7 @@ class PipelineConfig:
     sample_size: Optional[int] = None
     stratify_column: Optional[str] = None
     test_size: float = 0.2
-    
+
     # Message queue settings
     message_queue_type: str = "redis"
     redis_url: str = "redis://localhost:6379/0"
@@ -63,46 +65,56 @@ class PipelineConfig:
         self.environment = os.getenv("PIPELINE_ENV", self.environment)
         self.log_level = os.getenv("PIPELINE_LOG_LEVEL", self.log_level)
         self.dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
-        
+
         # Paths
         self.data_dir = Path(os.getenv("PIPELINE_DATA_DIR", str(self.data_dir)))
         self.model_dir = Path(os.getenv("PIPELINE_MODEL_DIR", str(self.model_dir)))
-        
+
         # MLflow settings
-        self.mlflow_tracking_uri = os.getenv("MLFLOW_TRACKING_URI", self.mlflow_tracking_uri)
-        self.mlflow_experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", self.mlflow_experiment_name)
-        
+        self.mlflow_tracking_uri = get_mlflow_url()
+        self.mlflow_experiment_name = os.getenv(
+            "MLFLOW_EXPERIMENT_NAME", self.mlflow_experiment_name
+        )
+
         # Metaflow settings
-        self.metaflow_datastore_root = os.getenv("METAFLOW_DATASTORE_ROOT", self.metaflow_datastore_root)
-        
+        self.metaflow_datastore_root = os.getenv(
+            "METAFLOW_DATASTORE_ROOT", self.metaflow_datastore_root
+        )
+
         # Pipeline parameters
         self.random_seed = int(os.getenv("RANDOM_SEED", str(self.random_seed)))
         self.max_workers = int(os.getenv("MAX_WORKERS", str(self.max_workers)))
         self.batch_size = int(os.getenv("BATCH_SIZE", str(self.batch_size)))
-        
+
         # Model evaluation settings
-        self.confidence_threshold = float(os.getenv("CONFIDENCE_THRESHOLD", str(self.confidence_threshold)))
-        
+        self.confidence_threshold = float(
+            os.getenv("CONFIDENCE_THRESHOLD", str(self.confidence_threshold))
+        )
+
         # Message queue settings
         self.message_queue_type = os.getenv("MESSAGE_QUEUE_TYPE", self.message_queue_type)
         self.redis_host = os.getenv("REDIS_HOST", self.redis_host)
         self.redis_port = int(os.getenv("REDIS_PORT", str(self.redis_port)))
         self.redis_auth_token = os.getenv("REDIS_AUTH_TOKEN", self.redis_auth_token)
-        
+
         # Build Redis URL if not explicitly provided
         if os.getenv("REDIS_URL"):
             self.redis_url = os.getenv("REDIS_URL", self.redis_url)
         elif self.redis_auth_token:
             # Use authenticated connection for ElastiCache
-            self.redis_url = f"redis://:{self.redis_auth_token}@{self.redis_host}:{self.redis_port}/0"
+            self.redis_url = (
+                f"redis://:{self.redis_auth_token}@{self.redis_host}:{self.redis_port}/0"
+            )
         else:
             # Use unauthenticated connection for local development
             self.redis_url = f"redis://{self.redis_host}:{self.redis_port}/0"
-            
+
         self.message_queue_name = os.getenv("MESSAGE_QUEUE_NAME", self.message_queue_name)
         self.message_retry_max = int(os.getenv("MESSAGE_RETRY_MAX", str(self.message_retry_max)))
-        self.message_retry_base_delay = float(os.getenv("MESSAGE_RETRY_BASE_DELAY", str(self.message_retry_base_delay)))
-        
+        self.message_retry_base_delay = float(
+            os.getenv("MESSAGE_RETRY_BASE_DELAY", str(self.message_retry_base_delay))
+        )
+
         # Create directories if they don't exist
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.model_dir.mkdir(parents=True, exist_ok=True)
