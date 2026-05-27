@@ -25,7 +25,7 @@ class OpenAIEvalsAdapter:
         self.tracking_token = os.getenv("MLFLOW_TRACKING_TOKEN")
         self.experiment_name = experiment_name
         tracking_uri = get_mlflow_url()
-        mlflow.set_tracking_uri(tracking_uri)
+        os.environ["MLFLOW_TRACKING_URI"] = tracking_uri
         if experiment_name:
             mlflow.set_experiment(experiment_name)
 

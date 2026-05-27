@@ -266,8 +266,7 @@ class TestGetMLFlowStatusDNSIntegration:
             patch("src.utils.mlflow_config._circuit_breaker") as mock_cb,
             patch("src.utils.dns_resolver.get_dns_resolver") as mock_get_resolver,
             patch("src.utils.mlflow_config.resolve_tracking_uri_sync") as mock_resolve,
-            patch("mlflow.set_tracking_uri") as mock_set_uri,
-            patch("mlflow.get_experiment_by_name") as mock_get_exp,
+            patch("mlflow.tracking.MlflowClient") as mock_client_class,
             patch("src.utils.mlflow_config.exponential_backoff_retry") as mock_retry,
         ):
             # Mock circuit breaker
@@ -289,8 +288,9 @@ class TestGetMLFlowStatusDNSIntegration:
             mock_resolve.return_value = "http://10.0.1.221:5000"
 
             # Mock MLflow calls
-            mock_get_exp.return_value = Mock()
-            mock_retry.return_value = Mock()
+            mock_client = Mock()
+            mock_client_class.return_value = mock_client
+            mock_retry.side_effect = lambda func, *args, **kwargs: func()
 
             with patch.dict(
                 "os.environ",
@@ -309,7 +309,7 @@ class TestGetMLFlowStatusDNSIntegration:
                 assert status["dns_resolution"]["health"]["status"] == "healthy"
 
                 # Verify MLflow was called with resolved URI
-                mock_set_uri.assert_called_with("http://10.0.1.221:5000")
+                mock_client_class.assert_called_with(tracking_uri="http://10.0.1.221:5000")
 
     def test_get_mlflow_status_dns_resolution_failure(self):
         """Test get_mlflow_status when DNS resolution fails."""

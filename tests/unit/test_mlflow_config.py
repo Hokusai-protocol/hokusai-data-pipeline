@@ -1,5 +1,6 @@
 """Tests for MLFlow configuration and utilities."""
 
+import os
 import shutil
 import tempfile
 from unittest.mock import MagicMock, patch
@@ -54,13 +55,10 @@ class TestMLFlowConfig:
         assert config.experiment_name == "test-experiment"
         assert config.artifact_root == "/tmp/artifacts"
 
-    @patch("mlflow.set_tracking_uri")
     @patch("mlflow.get_experiment_by_name")
     @patch("mlflow.create_experiment")
     @patch("mlflow.set_experiment")
-    def test_setup_tracking_new_experiment(
-        self, mock_set_exp, mock_create_exp, mock_get_exp, mock_set_uri
-    ):
+    def test_setup_tracking_new_experiment(self, mock_set_exp, mock_create_exp, mock_get_exp):
         """Test setting up tracking with new experiment."""
         mock_get_exp.return_value = None
         mock_create_exp.return_value = "test_id"
@@ -69,14 +67,13 @@ class TestMLFlowConfig:
         config.tracking_uri = self.tracking_uri
         config.setup_tracking()
 
-        mock_set_uri.assert_called_once_with(self.tracking_uri)
+        assert os.environ["MLFLOW_TRACKING_URI"] == self.tracking_uri
         mock_create_exp.assert_called_once()
         mock_set_exp.assert_called_once_with("hokusai-pipeline")
 
-    @patch("mlflow.set_tracking_uri")
     @patch("mlflow.get_experiment_by_name")
     @patch("mlflow.set_experiment")
-    def test_setup_tracking_existing_experiment(self, mock_set_exp, mock_get_exp, mock_set_uri):
+    def test_setup_tracking_existing_experiment(self, mock_set_exp, mock_get_exp):
         """Test setting up tracking with existing experiment."""
         mock_experiment = MagicMock()
         mock_experiment.experiment_id = "existing_id"
@@ -86,7 +83,7 @@ class TestMLFlowConfig:
         config.tracking_uri = self.tracking_uri
         config.setup_tracking()
 
-        mock_set_uri.assert_called_once_with(self.tracking_uri)
+        assert os.environ["MLFLOW_TRACKING_URI"] == self.tracking_uri
         mock_set_exp.assert_called_once_with("hokusai-pipeline")
 
     @patch("mlflow.get_experiment_by_name")

@@ -46,11 +46,14 @@ class TestMLFlowConfig:
         assert config.experiment_name == "test-experiment"
         assert config.artifact_root == "s3://bucket/artifacts"
 
-    @patch.dict("os.environ", {}, clear=True)
-    @patch("mlflow.set_tracking_uri")
+    @patch.dict(
+        "os.environ",
+        {"MLFLOW_SERVER_URL": "https://mlflow.hokusai-development.local:5000"},
+        clear=True,
+    )
     @patch("mlflow.get_experiment_by_name")
     @patch("mlflow.set_experiment")
-    def test_setup_tracking_existing_experiment(self, mock_set_exp, mock_get_exp, mock_set_uri):
+    def test_setup_tracking_existing_experiment(self, mock_set_exp, mock_get_exp):
         """Test setup with existing experiment."""
         mock_experiment = Mock()
         mock_experiment.experiment_id = "123"
@@ -59,18 +62,19 @@ class TestMLFlowConfig:
         config = MLFlowConfig()
         config.setup_tracking()
 
-        mock_set_uri.assert_called_once_with("https://mlflow.hokusai-development.local:5000")
+        assert os.environ["MLFLOW_TRACKING_URI"] == "https://mlflow.hokusai-development.local:5000"
         mock_get_exp.assert_called_once_with("hokusai-pipeline")
         mock_set_exp.assert_called_once_with("hokusai-pipeline")
 
-    @patch.dict("os.environ", {}, clear=True)
-    @patch("mlflow.set_tracking_uri")
+    @patch.dict(
+        "os.environ",
+        {"MLFLOW_SERVER_URL": "https://mlflow.hokusai-development.local:5000"},
+        clear=True,
+    )
     @patch("mlflow.get_experiment_by_name")
     @patch("mlflow.create_experiment")
     @patch("mlflow.set_experiment")
-    def test_setup_tracking_new_experiment(
-        self, mock_set_exp, mock_create_exp, mock_get_exp, mock_set_uri
-    ):
+    def test_setup_tracking_new_experiment(self, mock_set_exp, mock_create_exp, mock_get_exp):
         """Test setup with new experiment creation."""
         mock_get_exp.return_value = None
         mock_create_exp.return_value = "456"
@@ -78,16 +82,15 @@ class TestMLFlowConfig:
         config = MLFlowConfig()
         config.setup_tracking()
 
-        mock_set_uri.assert_called_once_with("https://mlflow.hokusai-development.local:5000")
+        assert os.environ["MLFLOW_TRACKING_URI"] == "https://mlflow.hokusai-development.local:5000"
         mock_get_exp.assert_called_once_with("hokusai-pipeline")
         mock_create_exp.assert_called_once_with(name="hokusai-pipeline", artifact_location=None)
         mock_set_exp.assert_called_once_with("hokusai-pipeline")
 
-    @patch("mlflow.set_tracking_uri")
     @patch("mlflow.get_experiment_by_name")
-    def test_setup_tracking_failure(self, mock_get_exp, mock_set_uri):
+    def test_setup_tracking_failure(self, mock_get_exp):
         """Test setup tracking with failure."""
-        mock_set_uri.side_effect = Exception("Connection failed")
+        mock_get_exp.side_effect = Exception("Connection failed")
 
         config = MLFlowConfig()
         with pytest.raises(Exception, match="Connection failed"):

@@ -137,8 +137,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 def _prewarm_mlflow_registered_models() -> None:
     """Verify MLflow registry connectivity for configured MLflow-backed models."""
     mlflow_url = get_mlflow_url()
-    mlflow.set_tracking_uri(mlflow_url)
-    client = MlflowClient()
+    client = MlflowClient(tracking_uri=mlflow_url)
 
     for model_id, config in MODEL_CONFIGS.items():
         if config.get("storage_type") != "mlflow":
@@ -177,14 +176,11 @@ async def startup_event() -> None:
     logger.info("Starting Hokusai MLOps API...")
 
     # Configure mTLS for internal MLflow communication
-    try:
-        from src.utils.mlflow_config import configure_internal_mtls
+    from src.utils.mlflow_config import configure_internal_mtls
 
-        configure_internal_mtls()
-        logger.info("mTLS configuration completed")
-    except Exception as e:
-        logger.error(f"Failed to configure mTLS: {e}")
-        # Don't fail startup - will fall back to API key auth
+    configure_internal_mtls()
+    mlflow.set_tracking_uri(get_mlflow_url())
+    logger.info("mTLS configuration completed")
 
     _prewarm_mlflow_registered_models()
 

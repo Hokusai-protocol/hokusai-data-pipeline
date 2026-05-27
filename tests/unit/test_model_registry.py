@@ -10,25 +10,21 @@ from src.services.model_registry import HokusaiModelRegistry
 class TestHokusaiModelRegistry:
     """Test suite for HokusaiModelRegistry class."""
 
-    @patch("mlflow.set_tracking_uri")
-    def test_initialization(self, mock_set_tracking):
+    def test_initialization(self):
         """Test model registry initialization."""
         registry = HokusaiModelRegistry("http://test-mlflow:5000")
 
         assert registry.tracking_uri == "http://test-mlflow:5000"
-        mock_set_tracking.assert_called_once_with("http://test-mlflow:5000")
 
-    @patch("mlflow.set_tracking_uri")
     @patch(
         "src.services.model_registry.get_mlflow_url", return_value="https://mlflow.test.local:5000"
     )
-    def test_initialization_default_uri(self, mock_get_mlflow_url, mock_set_tracking):
+    def test_initialization_default_uri(self, mock_get_mlflow_url):
         """Test initialization with default URI."""
         registry = HokusaiModelRegistry()
 
         assert registry.tracking_uri == "https://mlflow.test.local:5000"
         mock_get_mlflow_url.assert_called_once_with()
-        mock_set_tracking.assert_called_once_with("https://mlflow.test.local:5000")
 
     def test_valid_model_types(self):
         """Test valid model types constant."""
@@ -37,7 +33,6 @@ class TestHokusaiModelRegistry:
         assert "regression" in HokusaiModelRegistry.VALID_MODEL_TYPES
         assert "ranking" in HokusaiModelRegistry.VALID_MODEL_TYPES
 
-    @patch("mlflow.set_tracking_uri")
     @patch("mlflow.start_run")
     @patch("mlflow.log_params")
     @patch("mlflow.log_param")
@@ -50,7 +45,6 @@ class TestHokusaiModelRegistry:
         mock_log_param,
         mock_log_params,
         mock_start_run,
-        mock_set_tracking,
     ):
         """Test registering a baseline model."""
         # Setup mocks
@@ -97,16 +91,14 @@ class TestHokusaiModelRegistry:
             registered_model_name="hokusai_classification_baseline",
         )
 
-    @patch("mlflow.set_tracking_uri")
-    def test_register_baseline_invalid_model(self, mock_set_tracking):
+    def test_register_baseline_invalid_model(self):
         """Test registering baseline with invalid model."""
         registry = HokusaiModelRegistry()
 
         with pytest.raises(ValueError, match="Model cannot be None"):
             registry.register_baseline(None, "classification", {})
 
-    @patch("mlflow.set_tracking_uri")
-    def test_register_baseline_invalid_type(self, mock_set_tracking):
+    def test_register_baseline_invalid_type(self):
         """Test registering baseline with invalid model type."""
         registry = HokusaiModelRegistry()
         mock_model = Mock()
@@ -114,7 +106,6 @@ class TestHokusaiModelRegistry:
         with pytest.raises(ValueError, match="Invalid model type"):
             registry.register_baseline(mock_model, "invalid_type", {})
 
-    @patch("mlflow.set_tracking_uri")
     @patch("mlflow.start_run")
     @patch("mlflow.log_params")
     @patch("mlflow.tracking.MlflowClient")
@@ -129,7 +120,6 @@ class TestHokusaiModelRegistry:
         mock_client_class,
         mock_log_params,
         mock_start_run,
-        mock_set_tracking,
     ):
         """Test registering an improved model."""
         # Setup mocks
@@ -173,10 +163,10 @@ class TestHokusaiModelRegistry:
         mock_client.set_model_version_tag.assert_any_call(
             "hokusai_classification_improved", "1", "contributor", contributor_address
         )
+        mock_client_class.assert_called_once_with(tracking_uri=registry.tracking_uri)
 
-    @patch("mlflow.set_tracking_uri")
     @patch("mlflow.tracking.MlflowClient")
-    def test_get_model_lineage(self, mock_client_class, mock_set_tracking):
+    def test_get_model_lineage(self, mock_client_class):
         """Test getting model lineage."""
         # Mock MLflow client
         mock_client = Mock()
@@ -237,10 +227,10 @@ class TestHokusaiModelRegistry:
         assert lineage[2]["version"] == "3"
         assert lineage[2]["contributor"] == "0x456"
         assert lineage[2]["cumulative_improvement"]["accuracy"] == 0.03
+        mock_client_class.assert_called_once_with(tracking_uri=registry.tracking_uri)
 
-    @patch("mlflow.set_tracking_uri")
     @patch("mlflow.search_runs")
-    def test_get_contributor_models(self, mock_search_runs, mock_set_tracking):
+    def test_get_contributor_models(self, mock_search_runs):
         """Test getting models by contributor."""
         import pandas as pd
 
@@ -282,9 +272,8 @@ class TestHokusaiModelRegistry:
         assert models[0]["contributor_address"] == "0x123abc"
         assert models[1]["contributor_address"] == "0x123abc"
 
-    @patch("mlflow.set_tracking_uri")
     @patch("mlflow.tracking.MlflowClient")
-    def test_promote_model_to_production(self, mock_client_class, mock_set_tracking):
+    def test_promote_model_to_production(self, mock_client_class):
         """Test promoting model to production."""
         mock_client = Mock()
         mock_client_class.return_value = mock_client
@@ -307,10 +296,10 @@ class TestHokusaiModelRegistry:
         assert result["model_id"] == "hokusai_classification_improved"
         assert result["version"] == "2"
         assert result["stage"] == "Production"
+        mock_client_class.assert_called_once_with(tracking_uri=registry.tracking_uri)
 
-    @patch("mlflow.set_tracking_uri")
     @patch("mlflow.tracking.MlflowClient")
-    def test_get_production_models(self, mock_client_class, mock_set_tracking):
+    def test_get_production_models(self, mock_client_class):
         """Test getting production models."""
         mock_client = Mock()
         mock_client_class.return_value = mock_client
@@ -339,3 +328,4 @@ class TestHokusaiModelRegistry:
         assert production_models[0]["stage"] == "Production"
         assert production_models[1]["model_name"] == "hokusai_regression_improved"
         assert production_models[1]["stage"] == "Production"
+        mock_client_class.assert_called_once_with(tracking_uri=registry.tracking_uri)

@@ -191,9 +191,9 @@ def register(  # noqa: C901
         # Step 2: Initialize MLflow
         # MLflow auth: set MLFLOW_TRACKING_TOKEN env var to configure Authorization headers.
         if mlflow_uri:
-            mlflow.set_tracking_uri(mlflow_uri)
+            os.environ["MLFLOW_TRACKING_URI"] = mlflow_uri
         else:
-            mlflow.set_tracking_uri(get_mlflow_url())
+            os.environ["MLFLOW_TRACKING_URI"] = get_mlflow_url()
 
         # Step 3: Validate token exists and is in Draft status
         click.echo(f"Validating token {token_id} status...")

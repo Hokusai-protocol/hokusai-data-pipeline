@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import sys
 from unittest.mock import Mock, patch
@@ -34,12 +35,11 @@ def test_prewarm_registered_models_only_hits_mlflow_entries(api_main_module) -> 
 
     with (
         patch.object(api_main_module, "MODEL_CONFIGS", model_configs),
-        patch.object(api_main_module.mlflow, "set_tracking_uri") as set_uri_mock,
-        patch.object(api_main_module, "MlflowClient", return_value=client),
+        patch.object(api_main_module, "MlflowClient", return_value=client) as client_class_mock,
     ):
         api_main_module._prewarm_mlflow_registered_models()
 
-    set_uri_mock.assert_called_once_with("https://mlflow.test.local:5000")
+    client_class_mock.assert_called_once_with(tracking_uri="https://mlflow.test.local:5000")
     assert client.get_registered_model.call_args_list == [
         (("Technical Task Router",), {}),
         (("Canonical MLflow Name",), {}),
@@ -62,3 +62,31 @@ def test_prewarm_failure_propagates(api_main_module) -> None:
     ):
         with pytest.raises(RuntimeError, match="Technical Task Router"):
             api_main_module._prewarm_mlflow_registered_models()
+
+
+def test_startup_event_configures_mtls_then_tracking_uri_then_prewarm(api_main_module) -> None:
+    call_order: list[str] = []
+
+    with (
+        patch(
+            "src.utils.mlflow_config.configure_internal_mtls",
+            side_effect=lambda: call_order.append("mtls"),
+        ),
+        patch.object(
+            api_main_module.mlflow,
+            "set_tracking_uri",
+            side_effect=lambda uri: call_order.append(f"set_uri:{uri}"),
+        ),
+        patch.object(
+            api_main_module,
+            "_prewarm_mlflow_registered_models",
+            side_effect=lambda: call_order.append("prewarm"),
+        ),
+    ):
+        asyncio.run(api_main_module.startup_event())
+
+    assert call_order == [
+        "mtls",
+        "set_uri:https://mlflow.test.local:5000",
+        "prewarm",
+    ]
