@@ -433,6 +433,7 @@ def test_pyfunc_cache_loads_distinct_uris_separately() -> None:
 def test_pyfunc_cache_is_thread_safe_on_cold_start() -> None:
     fake_model = SimpleNamespace(predict=lambda _: {"selected_model": "fast-coder-v1"})
     load_calls: list[str] = []
+    results: list[str] = []
     start_event = threading.Event()
 
     def fake_load_model(uri: str) -> object:
@@ -442,7 +443,11 @@ def test_pyfunc_cache_is_thread_safe_on_cold_start() -> None:
 
     def worker() -> None:
         start_event.wait()
-        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/4", {"row": 1})
+        try:
+            model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/4", {"row": 1})
+            results.append("loaded")
+        except model_30_adapter.Model30LoadInProgressError:
+            results.append("in_progress")
 
     with patch(
         "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
@@ -456,6 +461,7 @@ def test_pyfunc_cache_is_thread_safe_on_cold_start() -> None:
             thread.join()
 
     assert load_calls == ["models:/Technical Task Router/4"]
+    assert sorted(results) == ["in_progress", "in_progress", "loaded"]
 
 
 def test_call_mlflow_model_30_calls_predict() -> None:
@@ -540,6 +546,37 @@ def test_call_mlflow_model_30_configures_sdk_from_deployment_env(monkeypatch) ->
     assert os.environ["MLFLOW_TRACKING_CLIENT_CERT_PATH"] == "/tmp/api-certs/client.crt"
     assert os.environ["MLFLOW_TRACKING_CLIENT_KEY_PATH"] == "/tmp/api-certs/client.key"
     assert os.environ["MLFLOW_TRACKING_INSECURE_TLS"] == "true"
+    assert os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] == "5"
+    assert os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"] == "2"
+    assert os.environ["MLFLOW_ARTIFACT_UPLOAD_DOWNLOAD_TIMEOUT"] == "10"
+
+
+def test_call_mlflow_model_30_combines_mtls_cert_and_key_for_sdk(monkeypatch, tmp_path) -> None:
+    fake_model = MagicMock()
+    fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}
+    cert_path = tmp_path / "client.crt"
+    key_path = tmp_path / "client.key"
+    cert_path.write_text("CERTIFICATE", encoding="utf-8")
+    key_path.write_text("PRIVATE KEY", encoding="utf-8")
+
+    monkeypatch.setenv("MLFLOW_SERVER_URL", "https://mlflow.hokusai-development.local:5000")
+    monkeypatch.setenv("MLFLOW_CLIENT_CERT_PATH", str(cert_path))
+    monkeypatch.setenv("MLFLOW_CLIENT_KEY_PATH", str(key_path))
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    monkeypatch.delenv("MLFLOW_TRACKING_CLIENT_CERT_PATH", raising=False)
+    monkeypatch.delenv("MLFLOW_TRACKING_CLIENT_KEY_PATH", raising=False)
+
+    with patch(
+        "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
+        return_value=fake_model,
+    ):
+        model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/4", {"row": 1})
+
+    combined_path = tmp_path / "mlflow-client.pem"
+    assert os.environ["MLFLOW_TRACKING_CLIENT_CERT_PATH"] == str(combined_path)
+    assert os.environ["MLFLOW_TRACKING_CLIENT_KEY_PATH"] == str(key_path)
+    assert combined_path.read_text(encoding="utf-8") == "CERTIFICATE\nPRIVATE KEY\n"
+    assert oct(combined_path.stat().st_mode & 0o777) == "0o600"
 
 
 def test_call_mlflow_model_30_propagates_predict_errors() -> None:
