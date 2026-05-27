@@ -12,7 +12,10 @@ except ImportError:
     boto3 = None
     botocore = None
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
+
+from src.utils.mlflow_url import get_mlflow_url
 
 
 class Settings(BaseSettings):
@@ -31,9 +34,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["*"]  # In production, specify allowed origins
 
     # MLFlow
-    mlflow_tracking_uri: str = (
-        "http://mlflow.hokusai-development.local:5000"  # Use service discovery DNS
-    )
+    mlflow_tracking_uri: str = Field(default_factory=get_mlflow_url)
 
     # Database Configuration
     # Support both old (mlflow) and new (mlflow_db) database names for backward compatibility

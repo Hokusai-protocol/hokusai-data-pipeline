@@ -14,6 +14,7 @@ import os
 import pickle
 import tempfile
 import time
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, Dict, Optional
 
@@ -24,52 +25,19 @@ from huggingface_hub import hf_hub_download, snapshot_download
 from pydantic import BaseModel, Field, ValidationError
 
 from ...middleware.auth import require_auth
+from ...utils.mlflow_health import check_mlflow_registry_sdk
 from ..dependencies import get_contributor_logger
 from ..services.contributor_logger import ContributorLogger
 from .latency_trace import Model30LatencyTrace
-from .model_30_adapter import (
-    MODEL_30_SCHEMA,
-    MODEL_30_VERSION,
-    Model30LoadInProgressError,
-    call_mlflow_model_30,
-    get_model_30_uri,
-    is_model_30_cached,
-    model_30_inputs_to_features,
-    normalize_model_30_output,
-    validate_nested_model_30_inputs,
-)
+from .model_30_adapter import Model30LoadInProgressError
+from .model_registry import ModelRegistryEntry
+from .model_registry_entries import MODEL_CONFIGS
 
 # Setup logging
 logger = logging.getLogger(__name__)
 
 # Create router
 router = APIRouter(prefix="/api/v1/models", tags=["model-serving"])
-
-MODEL_CONFIGS: dict[str, dict[str, Any]] = {
-    "21": {
-        "name": "Sales Lead Scoring Model",
-        "repository_id": "timogilvie/hokusai-model-21-sales-lead-scorer",
-        "storage_type": "huggingface_private",
-        "model_type": "sklearn",
-        "is_private": True,
-        "inference_method": "local",
-        "cache_duration": 3600,
-        "max_batch_size": 100,
-        "supported_inference_methods": ["api", "local"],
-    },
-    "30": {
-        "name": "Technical Task Router",
-        "storage_type": "mlflow",
-        "model_type": "technical_task_router",
-        "is_private": False,
-        "inference_method": "mlflow_pyfunc",
-        "model_version": MODEL_30_VERSION,
-        "schema": MODEL_30_SCHEMA,
-        "description": "MLflow-backed router for nested technical task inputs.",
-        "max_batch_size": 1,
-        "supported_inference_methods": ["mlflow_pyfunc"],
-    },
-}
 
 
 class PredictionRequest(BaseModel):
@@ -116,20 +84,23 @@ class ModelServingService:
         self.model_30_readiness_timeout_seconds = float(
             os.getenv("MODEL_30_READINESS_TIMEOUT_SECONDS", "22")
         )
+        model_21_entry = MODEL_CONFIGS.get("21")
+        if model_21_entry is not None and model_21_entry.local_predictor is None:
+            MODEL_CONFIGS["21"] = replace(
+                model_21_entry,
+                local_predictor=self._predict_sales_lead_local,
+            )
+
+    def get_registry_entry(self, model_id: str) -> ModelRegistryEntry:
+        """Resolve a typed registry entry for a model id."""
+        entry = MODEL_CONFIGS.get(model_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"Model {model_id} not found")
+        return entry
 
     def get_model_config(self, model_id: str) -> dict[str, Any]:
-        """Get model configuration from database.
-
-        In production, this would query the database.
-        For now, we'll return config for Model ID 21.
-        """
-        config = MODEL_CONFIGS.get(model_id)
-        if not config:
-            raise HTTPException(status_code=404, detail=f"Model {model_id} not found")
-        resolved_config = dict(config)
-        if model_id == "30":
-            resolved_config["model_uri"] = get_model_30_uri()
-        return resolved_config
+        """Return the public JSON-safe model configuration."""
+        return self.get_registry_entry(model_id).as_public_config()
 
     async def load_model_from_huggingface(self, repository_id: str, model_type: str) -> Any:
         """Load a model from HuggingFace Hub.
@@ -237,68 +208,22 @@ class ModelServingService:
 
     async def predict_local(
         self,
-        model_id: str,
+        entry: ModelRegistryEntry,
         model: Any,
         inputs: dict[str, Any],
         options: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Run prediction locally with the loaded model.
 
-        This is for models that are downloaded and run locally,
-        like Model ID 21 (Sales Lead Scoring).
+        This is for models that are downloaded and run locally.
         """
-        # Model ID 21 specific logic
-        if model_id == "21":
-            # Prepare features for sklearn model
-            features = self._prepare_sales_lead_features(inputs)
+        if entry.local_predictor is None:
+            raise NotImplementedError(f"Local prediction not implemented for model {entry.name}")
 
-            # Get model components
-            if isinstance(model, dict):
-                classifier = model.get("model")
-                if classifier is None:
-                    raise ValueError("Model not found in loaded data")
-            else:
-                classifier = model
-
-            # Make prediction
-            prediction, probabilities = await asyncio.wait_for(
-                asyncio.to_thread(self._predict_sales_lead_sync, classifier, features),
-                timeout=self.prediction_timeout_seconds,
-            )
-
-            # Calculate lead score
-            lead_score = int(probabilities[1] * 100)
-
-            # Determine recommendation
-            if lead_score >= 70:
-                recommendation = "Hot"
-            elif lead_score >= 40:
-                recommendation = "Warm"
-            else:
-                recommendation = "Cold"
-
-            # Identify factors
-            factors = []
-            if inputs.get("demo_requested"):
-                factors.append("Demo requested")
-            if inputs.get("budget_confirmed"):
-                factors.append("Budget confirmed")
-            if inputs.get("engagement_score", 0) > 70:
-                factors.append("High engagement")
-
-            return {
-                "lead_score": lead_score,
-                "conversion_probability": float(probabilities[1]),
-                "recommendation": recommendation,
-                "factors": factors,
-                "confidence": float(max(probabilities)),
-            }
-
-        elif model_id == "30":
-            raise NotImplementedError("Model 30 predictions are served through MLflow pyfunc")
-
-        # Generic prediction logic for other models
-        raise NotImplementedError(f"Local prediction not implemented for model {model_id}")
+        return await asyncio.wait_for(
+            asyncio.to_thread(entry.local_predictor, model, inputs, options),
+            timeout=self.prediction_timeout_seconds,
+        )
 
     @staticmethod
     def _predict_sales_lead_sync(classifier: Any, features: np.ndarray) -> tuple[Any, Any]:
@@ -356,6 +281,49 @@ class ModelServingService:
 
         return np.array(features).reshape(1, -1)
 
+    def _predict_sales_lead_local(
+        self,
+        model: Any,
+        inputs: dict[str, Any],
+        options: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Predict using the sales lead local sklearn artifact."""
+        del options
+        features = self._prepare_sales_lead_features(inputs)
+
+        if isinstance(model, dict):
+            classifier = model.get("model")
+            if classifier is None:
+                raise ValueError("Model not found in loaded data")
+        else:
+            classifier = model
+
+        _prediction, probabilities = self._predict_sales_lead_sync(classifier, features)
+        lead_score = int(probabilities[1] * 100)
+
+        if lead_score >= 70:
+            recommendation = "Hot"
+        elif lead_score >= 40:
+            recommendation = "Warm"
+        else:
+            recommendation = "Cold"
+
+        factors = []
+        if inputs.get("demo_requested"):
+            factors.append("Demo requested")
+        if inputs.get("budget_confirmed"):
+            factors.append("Budget confirmed")
+        if inputs.get("engagement_score", 0) > 70:
+            factors.append("High engagement")
+
+        return {
+            "lead_score": lead_score,
+            "conversion_probability": float(probabilities[1]),
+            "recommendation": recommendation,
+            "factors": factors,
+            "confidence": float(max(probabilities)),
+        }
+
     async def serve_prediction(  # noqa: C901
         self,
         model_id: str,
@@ -377,7 +345,8 @@ class ModelServingService:
 
         """
         # Get model configuration
-        config = self.get_model_config(model_id)
+        entry = self.get_registry_entry(model_id)
+        config = entry.as_public_config()
 
         logger.info(f"Serving prediction for model {model_id}")
 
@@ -414,144 +383,19 @@ class ModelServingService:
 
             # Run local prediction
             predictions = await self.predict_local(
-                model_id,
+                entry,
                 cached_model["model"] if cached_model else None,
                 inputs,
                 options,
             )
 
         elif inference_method == "mlflow_pyfunc":
-            if model_id != "30":
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"MLflow pyfunc inference is not configured for model {model_id}",
-                )
-            trace = Model30LatencyTrace(request_id=request_id, model_uri=config["model_uri"])
-            trace_emitted = False
-            try:
-                with trace.phase("model_cache_lookup"):
-                    is_cached = is_model_30_cached(config["model_uri"])
-                trace.set_path_type(is_cached)
-
-                with trace.phase("request_validation"):
-                    validated_inputs = validate_nested_model_30_inputs(inputs)
-                metadata = getattr(validated_inputs, "metadata", None)
-                if metadata is not None:
-                    trace.run_id = getattr(metadata, "run_id", None)
-
-                # Model 30 does not have a separate setup object today; record the
-                # pre-inference preparation boundary explicitly so the schema stays stable.
-                with trace.phase("preprocessor_setup"):
-                    pass
-
-                with trace.phase("feature_transformation"):
-                    features = model_30_inputs_to_features(validated_inputs)
-
-                mlflow_timings: dict[str, float] = {}
-                inference_started_at = time.perf_counter()
-                try:
-                    raw_model_output = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            call_mlflow_model_30,
-                            config["model_uri"],
-                            features,
-                            mlflow_timings,
-                        ),
-                        timeout=self.prediction_timeout_seconds,
-                    )
-                except asyncio.TimeoutError as exc:
-                    trace.outcome = "timeout"
-                    trace.deadline_boundary_ms = (time.perf_counter() - inference_started_at) * 1000
-                    trace.record_ms("artifact_load", mlflow_timings.get("artifact_load_ms", 0.0))
-                    trace.emit(logger)
-                    trace_emitted = True
-                    logger.error(
-                        "Model 30 MLflow inference timed out",
-                        extra={
-                            "model_id": model_id,
-                            "model_uri": config.get("model_uri"),
-                            "timeout_seconds": self.prediction_timeout_seconds,
-                            "request_id": request_id,
-                            "run_id": trace.run_id,
-                        },
-                    )
-                    raise HTTPException(
-                        status_code=504,
-                        detail={
-                            "error": (
-                                "Model 30 inference timed out before the service deadline. "
-                                "Please retry after the model cache has warmed."
-                            ),
-                            "request_id": request_id,
-                            "run_id": trace.run_id,
-                        },
-                    ) from exc
-                except Model30LoadInProgressError as exc:
-                    trace.outcome = "load_in_progress"
-                    trace.deadline_boundary_ms = (time.perf_counter() - inference_started_at) * 1000
-                    trace.emit(logger)
-                    trace_emitted = True
-                    logger.warning(
-                        "Model 30 cold load already in progress",
-                        extra={
-                            "model_id": model_id,
-                            "model_uri": config.get("model_uri"),
-                            "request_id": request_id,
-                            "run_id": trace.run_id,
-                        },
-                    )
-                    raise HTTPException(
-                        status_code=503,
-                        detail={
-                            "error": (
-                                "Model 30 cold load is already in progress. "
-                                "Please retry shortly."
-                            ),
-                            "request_id": request_id,
-                            "run_id": trace.run_id,
-                        },
-                    ) from exc
-
-                trace.deadline_boundary_ms = (time.perf_counter() - inference_started_at) * 1000
-                trace.record_ms("artifact_load", mlflow_timings.get("artifact_load_ms", 0.0))
-                trace.record_ms(
-                    "model_inference",
-                    mlflow_timings.get("inference_only_ms", trace.deadline_boundary_ms),
-                )
-
-                with trace.phase("postprocessing_serialization"):
-                    predictions = normalize_model_30_output(raw_model_output, validated_inputs)
-                trace.outcome = "success"
-                trace.emit(logger)
-                trace_emitted = True
-            except ValidationError as exc:
-                trace.outcome = "validation_error"
-                if not trace_emitted:
-                    trace.emit(logger)
-                raise HTTPException(status_code=422, detail=exc.errors()) from exc
-            except HTTPException:
-                if not trace_emitted:
-                    trace.outcome = "http_error"
-                    trace.emit(logger)
-                raise
-            except Exception as exc:
-                trace.outcome = "error"
-                if not trace_emitted:
-                    trace.emit(logger)
-                logger.error(
-                    "Model 30 MLflow inference failed",
-                    extra={
-                        "model_id": model_id,
-                        "model_uri": config.get("model_uri"),
-                        "request_id": request_id,
-                        "run_id": trace.run_id,
-                    },
-                    exc_info=exc,
-                )
-                raise HTTPException(
-                    status_code=503,
-                    detail=f"Model 30 MLflow inference failed: {exc}",
-                ) from exc
+            predictions = await self._serve_mlflow_prediction(
+                entry=entry,
+                model_id=model_id,
+                inputs=inputs,
+                request_id=request_id,
+            )
 
         else:
             raise HTTPException(
@@ -560,9 +404,156 @@ class ModelServingService:
 
         return predictions
 
-    async def warm_model_30(self, model_uri: str) -> dict[str, Any]:
-        """Load model 30 and run a minimal prediction readiness check."""
-        validated_inputs = validate_nested_model_30_inputs(
+    def _get_required_mlflow_component(self, entry: ModelRegistryEntry, field_name: str) -> Any:
+        value = getattr(entry, field_name)
+        if value is None:
+            raise HTTPException(
+                status_code=500,
+                detail=f"MLflow registry entry for {entry.name} is missing {field_name}",
+            )
+        return value
+
+    async def _serve_mlflow_prediction(
+        self,
+        entry: ModelRegistryEntry,
+        model_id: str,
+        inputs: dict[str, Any],
+        request_id: str,
+    ) -> dict[str, Any]:
+        model_uri = self._get_required_mlflow_component(entry, "model_uri")
+        input_validator = self._get_required_mlflow_component(entry, "input_validator")
+        feature_mapper = self._get_required_mlflow_component(entry, "feature_mapper")
+        model_caller = self._get_required_mlflow_component(entry, "model_caller")
+        output_normalizer = self._get_required_mlflow_component(entry, "output_normalizer")
+        cache_checker = self._get_required_mlflow_component(entry, "cache_checker")
+
+        trace = Model30LatencyTrace(request_id=request_id, model_uri=model_uri)
+        trace_emitted = False
+        try:
+            with trace.phase("model_cache_lookup"):
+                is_cached = cache_checker(model_uri)
+            trace.set_path_type(is_cached)
+
+            with trace.phase("request_validation"):
+                validated_inputs = input_validator(inputs)
+            metadata = getattr(validated_inputs, "metadata", None)
+            if metadata is not None:
+                trace.run_id = getattr(metadata, "run_id", None)
+
+            with trace.phase("preprocessor_setup"):
+                pass
+
+            with trace.phase("feature_transformation"):
+                features = feature_mapper(validated_inputs)
+
+            mlflow_timings: dict[str, float] = {}
+            inference_started_at = time.perf_counter()
+            try:
+                raw_model_output = await asyncio.wait_for(
+                    asyncio.to_thread(model_caller, model_uri, features, mlflow_timings),
+                    timeout=self.prediction_timeout_seconds,
+                )
+            except asyncio.TimeoutError as exc:
+                trace.outcome = "timeout"
+                trace.deadline_boundary_ms = (time.perf_counter() - inference_started_at) * 1000
+                trace.record_ms("artifact_load", mlflow_timings.get("artifact_load_ms", 0.0))
+                trace.emit(logger)
+                trace_emitted = True
+                logger.error(
+                    "%s MLflow inference timed out",
+                    entry.name,
+                    extra={
+                        "model_id": model_id,
+                        "model_uri": model_uri,
+                        "timeout_seconds": self.prediction_timeout_seconds,
+                        "request_id": request_id,
+                        "run_id": trace.run_id,
+                    },
+                )
+                raise HTTPException(
+                    status_code=504,
+                    detail={
+                        "error": (
+                            f"{entry.name} inference timed out before the service deadline. "
+                            "Please retry after the model cache has warmed."
+                        ),
+                        "request_id": request_id,
+                        "run_id": trace.run_id,
+                    },
+                ) from exc
+            except Model30LoadInProgressError as exc:
+                trace.outcome = "load_in_progress"
+                trace.deadline_boundary_ms = (time.perf_counter() - inference_started_at) * 1000
+                trace.emit(logger)
+                trace_emitted = True
+                logger.warning(
+                    "%s cold load already in progress",
+                    entry.name,
+                    extra={
+                        "model_id": model_id,
+                        "model_uri": model_uri,
+                        "request_id": request_id,
+                        "run_id": trace.run_id,
+                    },
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "error": (
+                            f"{entry.name} cold load is already in progress. "
+                            "Please retry shortly."
+                        ),
+                        "request_id": request_id,
+                        "run_id": trace.run_id,
+                    },
+                ) from exc
+
+            trace.deadline_boundary_ms = (time.perf_counter() - inference_started_at) * 1000
+            trace.record_ms("artifact_load", mlflow_timings.get("artifact_load_ms", 0.0))
+            trace.record_ms(
+                "model_inference",
+                mlflow_timings.get("inference_only_ms", trace.deadline_boundary_ms),
+            )
+
+            with trace.phase("postprocessing_serialization"):
+                predictions = output_normalizer(raw_model_output, validated_inputs)
+            trace.outcome = "success"
+            trace.emit(logger)
+            trace_emitted = True
+            return predictions
+        except ValidationError as exc:
+            trace.outcome = "validation_error"
+            if not trace_emitted:
+                trace.emit(logger)
+            raise HTTPException(status_code=422, detail=exc.errors()) from exc
+        except HTTPException:
+            if not trace_emitted:
+                trace.outcome = "http_error"
+                trace.emit(logger)
+            raise
+        except Exception as exc:
+            trace.outcome = "error"
+            if not trace_emitted:
+                trace.emit(logger)
+            logger.error(
+                "%s MLflow inference failed",
+                entry.name,
+                extra={
+                    "model_id": model_id,
+                    "model_uri": model_uri,
+                    "request_id": request_id,
+                    "run_id": trace.run_id,
+                },
+                exc_info=exc,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=f"{entry.name} MLflow inference failed: {exc}",
+            ) from exc
+
+    async def warm_mlflow_model(self, entry: ModelRegistryEntry) -> dict[str, Any]:
+        """Load an MLflow model and run a minimal readiness check."""
+        validated_inputs = self._get_required_mlflow_component(entry, "input_validator")(
             {
                 "task": {
                     "description": "Readiness check for Technical Task Router",
@@ -570,13 +561,22 @@ class ModelServingService:
                 }
             }
         )
-        features = model_30_inputs_to_features(validated_inputs)
+        features = self._get_required_mlflow_component(entry, "feature_mapper")(validated_inputs)
         timings: dict[str, float] = {}
+        model_uri = self._get_required_mlflow_component(entry, "model_uri")
         raw_model_output = await asyncio.wait_for(
-            asyncio.to_thread(call_mlflow_model_30, model_uri, features, timings),
+            asyncio.to_thread(
+                self._get_required_mlflow_component(entry, "model_caller"),
+                model_uri,
+                features,
+                timings,
+            ),
             timeout=self.model_30_readiness_timeout_seconds,
         )
-        normalized = normalize_model_30_output(raw_model_output, validated_inputs)
+        normalized = self._get_required_mlflow_component(entry, "output_normalizer")(
+            raw_model_output,
+            validated_inputs,
+        )
         return {
             "selected_model": normalized["selected_model"],
             "artifact_load_ms": round(timings.get("artifact_load_ms", 0.0), 2),
@@ -636,7 +636,7 @@ async def get_model_info(
         ),
         "max_batch_size": config.get("max_batch_size", 1),
     }
-    if model_id == "30":
+    if config["storage_type"] == "mlflow":
         response["model_type"] = config["model_type"]
         response["storage_type"] = config["storage_type"]
         response["model_uri"] = config["model_uri"]
@@ -713,7 +713,7 @@ async def predict(
             "user_id": user_id,
             "api_key_id": api_key_id,
         }
-        if model_id == "30":
+        if model_config["storage_type"] == "mlflow":
             metadata.update(
                 {
                     "model_uri": model_config["model_uri"],
@@ -793,48 +793,67 @@ async def check_model_health(
     )
 
     try:
-        config = serving_service.get_model_config(model_id)
+        entry = serving_service.get_registry_entry(model_id)
+        config = entry.as_public_config()
 
         # Check if model is cached
         cache_key = f"model_{model_id}"
         is_cached = cache_key in serving_service.model_cache
-        inference_ready = is_cached
-        readiness: dict[str, Any] = {"checked": False}
-        if model_id == "30":
-            is_cached = is_model_30_cached(config["model_uri"])
+        inference_ready = True
+        readiness: dict[str, Any] | None = None
+        mlflow_sdk: dict[str, Any] | None = None
+        if config["storage_type"] == "mlflow":
+            cache_checker = serving_service._get_required_mlflow_component(entry, "cache_checker")
+            model_uri = serving_service._get_required_mlflow_component(entry, "model_uri")
+            is_cached = cache_checker(model_uri)
             inference_ready = is_cached
             readiness = {
                 "checked": False,
-                "model_uri": config["model_uri"],
+                "model_uri": model_uri,
                 "status": "cached" if is_cached else "not_cached",
             }
             if warmup:
                 readiness["checked"] = True
                 try:
-                    readiness.update(await serving_service.warm_model_30(config["model_uri"]))
-                    is_cached = is_model_30_cached(config["model_uri"])
+                    readiness.update(await serving_service.warm_mlflow_model(entry))
+                    is_cached = cache_checker(model_uri)
                     inference_ready = is_cached
                     readiness["status"] = "ready" if is_cached else "not_cached"
                 except Model30LoadInProgressError:
                     readiness["status"] = "warming"
-                    readiness["error"] = "Model 30 cold load is already in progress"
+                    readiness["error"] = f"{entry.name} cold load is already in progress"
                 except asyncio.TimeoutError:
                     readiness["status"] = "timeout"
                     readiness["error"] = (
-                        "Model 30 readiness check timed out before the service deadline"
+                        f"{entry.name} readiness check timed out before the service deadline"
                     )
                 except Exception as exc:  # noqa: BLE001 - health should report readiness errors
                     readiness["status"] = "error"
                     readiness["error"] = str(exc)
 
-        return {
+            sdk_result = (await check_mlflow_registry_sdk()).to_dict()
+            mlflow_sdk = {
+                "reachable": sdk_result["status"] == "ok",
+                "tracking_uri": sdk_result["tracking_uri"],
+                "latency_ms": sdk_result["latency_ms"],
+                "sample_model": sdk_result.get("sample_model"),
+            }
+            if sdk_result["status"] != "ok":
+                mlflow_sdk["error_type"] = sdk_result.get("error_type")
+                mlflow_sdk["error"] = sdk_result.get("error")
+
+        response = {
             "model_id": model_id,
             "status": "healthy",
             "is_cached": is_cached,
             "storage_type": config["storage_type"],
             "inference_ready": inference_ready,
-            "readiness": readiness,
         }
+        if readiness is not None:
+            response["readiness"] = readiness
+        if mlflow_sdk is not None:
+            response["mlflow_sdk"] = mlflow_sdk
+        return response
 
     except Exception as e:
         logger.warning(

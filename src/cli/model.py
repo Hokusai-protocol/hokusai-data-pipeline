@@ -21,6 +21,8 @@ from errors import (  # noqa: E402
 from events import ConsoleHandler, EventPublisher, WebhookHandler  # noqa: E402
 from validation import BaselineComparator, MetricValidator  # noqa: E402
 
+from src.utils.mlflow_url import get_mlflow_url  # noqa: E402
+
 from ._api import BenchmarkSpecLookupError, fetch_benchmark_spec  # noqa: E402
 
 
@@ -189,13 +191,9 @@ def register(  # noqa: C901
         # Step 2: Initialize MLflow
         # MLflow auth: set MLFLOW_TRACKING_TOKEN env var to configure Authorization headers.
         if mlflow_uri:
-            mlflow.set_tracking_uri(mlflow_uri)
-        elif os.getenv("MLFLOW_TRACKING_URI"):
-            mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
+            os.environ["MLFLOW_TRACKING_URI"] = mlflow_uri
         else:
-            click.echo(
-                "Warning: No MLflow tracking URI specified, using local file store", err=True
-            )
+            os.environ["MLFLOW_TRACKING_URI"] = get_mlflow_url()
 
         # Step 3: Validate token exists and is in Draft status
         click.echo(f"Validating token {token_id} status...")

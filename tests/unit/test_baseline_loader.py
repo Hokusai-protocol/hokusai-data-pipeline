@@ -1,6 +1,7 @@
 """Unit tests for baseline_loader module."""
 
 import json
+import os
 import pickle
 from unittest.mock import Mock, patch
 
@@ -20,10 +21,11 @@ class TestBaselineModelLoader:
     def test_init_with_tracking_uri(self):
         """Test BaselineModelLoader initialization with tracking URI."""
         test_uri = "http://localhost:5000"
-        with patch("mlflow.set_tracking_uri") as mock_set_uri:
+        with patch("src.modules.baseline_loader.MlflowClient") as mock_client_class:
             loader = BaselineModelLoader(mlflow_tracking_uri=test_uri)
             assert loader.mlflow_tracking_uri == test_uri
-            mock_set_uri.assert_called_once_with(test_uri)
+            assert os.environ["MLFLOW_TRACKING_URI"] == test_uri
+            mock_client_class.assert_called_once_with(tracking_uri=test_uri)
 
     @patch("src.modules.baseline_loader.mlflow_run_context")
     @patch("src.modules.baseline_loader.log_step_parameters")

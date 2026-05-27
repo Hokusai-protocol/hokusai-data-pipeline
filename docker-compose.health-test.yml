@@ -1,115 +1,251 @@
-version: '3.8'
-
 services:
-  # API service with health check testing
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    ports:
-      - "8001:8001"
-    environment:
-      - ENVIRONMENT=development
-      - POSTGRES_URI=postgresql://hokusai:password@postgres:5432/hokusai_db
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - MLFLOW_SERVER_URL=http://mlflow:5000
-      - API_SECRET_KEY=test-secret-key
-    depends_on:
-      - postgres
-      - redis
-      - mlflow
+  cert-init:
+    image: alpine:3.20
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        set -eu
+        apk add --no-cache openssl
+        mkdir -p /certs
+        openssl genrsa -out /certs/ca.key 2048
+        openssl req -x509 -new -nodes -key /certs/ca.key -sha256 -days 2 \
+          -out /certs/ca.crt -subj "/CN=Hokusai Health Test CA"
+        openssl genrsa -out /certs/server.key 2048
+        cat >/tmp/server.cnf <<'EOF'
+        [req]
+        distinguished_name = req_distinguished_name
+        req_extensions = req_ext
+        prompt = no
+        [req_distinguished_name]
+        CN = mlflow
+        [req_ext]
+        subjectAltName = @alt_names
+        extendedKeyUsage = serverAuth
+        [alt_names]
+        DNS.1 = mlflow
+        DNS.2 = localhost
+        IP.1 = 127.0.0.1
+        EOF
+        openssl req -new -key /certs/server.key -out /tmp/server.csr -config /tmp/server.cnf
+        openssl x509 -req -in /tmp/server.csr -CA /certs/ca.crt -CAkey /certs/ca.key \
+          -CAcreateserial -out /certs/server.crt -days 2 -sha256 \
+          -extensions req_ext -extfile /tmp/server.cnf
+        openssl genrsa -out /certs/client.key 2048
+        cat >/tmp/client.cnf <<'EOF'
+        [req]
+        distinguished_name = req_distinguished_name
+        prompt = no
+        [req_distinguished_name]
+        CN = api-client
+        EOF
+        openssl req -new -key /certs/client.key -out /tmp/client.csr -config /tmp/client.cnf
+        openssl x509 -req -in /tmp/client.csr -CA /certs/ca.crt -CAkey /certs/ca.key \
+          -CAcreateserial -out /certs/client.crt -days 2 -sha256
+        chmod 644 /certs/ca.crt /certs/server.crt /certs/client.crt
+        chmod 600 /certs/server.key /certs/client.key /certs/ca.key
+        tail -f /dev/null
+    volumes:
+      - mlflow_certs:/certs
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 90s
-    networks:
-      - hokusai-network
+      test:
+        [
+          "CMD-SHELL",
+          "test -s /certs/ca.crt -a -s /certs/server.crt -a -s /certs/server.key -a -s /certs/client.crt -a -s /certs/client.key",
+        ]
+      interval: 1s
+      timeout: 2s
+      retries: 30
 
-  # MLflow service with health check testing
-  mlflow:
-    build:
-      context: .
-      dockerfile: Dockerfile.mlflow
-    ports:
-      - "5000:5000"
-    environment:
-      - BACKEND_STORE_URI=postgresql://mlflow:password@postgres:5432/mlflow_db
-      - DEFAULT_ARTIFACT_ROOT=s3://test-bucket/artifacts
-    depends_on:
-      - postgres
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/mlflow"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 90s
-    networks:
-      - hokusai-network
-
-  # PostgreSQL database
   postgres:
     image: postgres:14
     environment:
-      - POSTGRES_USER=hokusai
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=hokusai_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+      - ./scripts/postgres/init-health-test-databases.sql:/docker-entrypoint-initdb.d/init-health-test-databases.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hokusai"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
     networks:
       - hokusai-network
 
-  # Redis cache
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
     networks:
       - hokusai-network
 
-  # Health check monitor - continuously checks service health
-  health-monitor:
-    image: curlimages/curl:latest
+  mlflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.mlflow
+    environment:
+      ENVIRONMENT: development
+      MLFLOW_MTLS_ENABLED: "true"
+      MLFLOW_CA_BUNDLE_PATH: /certs/ca.crt
+      MLFLOW_SERVER_CERT_PATH: /certs/server.crt
+      MLFLOW_SERVER_KEY_PATH: /certs/server.key
+      BACKEND_STORE_URI: postgresql://postgres:password@postgres:5432/mlflow_db
+      DEFAULT_ARTIFACT_ROOT: file:///mlflow/artifacts
     depends_on:
-      - api
-      - mlflow
-    command: |
-      sh -c "
-        echo 'Starting health check monitoring...'
-        sleep 10
-        while true; do
-          echo '=== Health Check Status ==='
-          echo -n 'API Health: '
-          curl -sf http://api:8001/health > /dev/null && echo 'HEALTHY' || echo 'UNHEALTHY'
-          echo -n 'MLflow Health: '
-          curl -sf http://mlflow:5000/mlflow > /dev/null && echo 'HEALTHY' || echo 'UNHEALTHY'
-          echo -n 'API Ready: '
-          curl -sf http://api:8001/ready > /dev/null && echo 'READY' || echo 'NOT READY'
-          echo -n 'API Live: '
-          curl -sf http://api:8001/live > /dev/null && echo 'LIVE' || echo 'NOT LIVE'
-          echo '=========================='
-          sleep 30
-        done
-      "
+      cert-init:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    volumes:
+      - mlflow_certs:/certs:ro
+      - mlflow_artifacts:/mlflow/artifacts
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent --show-error --cacert /certs/ca.crt --cert /certs/client.crt --key /certs/client.key 'https://localhost:5000/api/2.0/mlflow/registered-models/search?max_results=1' >/dev/null",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - hokusai-network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      ENVIRONMENT: development
+      API_SECRET_KEY: test-secret-key
+      DB_PASSWORD: password
+      POSTGRES_URI: postgresql://postgres:password@postgres:5432/hokusai_db
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      MLFLOW_MTLS_ENABLED: "true"
+      MLFLOW_SERVER_URL: https://mlflow:5000
+      MLFLOW_TRACKING_URI: https://mlflow:5000
+      MODEL_30_MLFLOW_URI: models:/Technical Task Router/1
+      MLFLOW_CA_BUNDLE_PATH: /certs/ca.crt
+      MLFLOW_CLIENT_CERT_PATH: /certs/client.crt
+      MLFLOW_CLIENT_KEY_PATH: /certs/client.key
+    depends_on:
+      cert-init:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    volumes:
+      - mlflow_certs:/certs:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl --fail --silent --show-error http://localhost:8001/api/health/mlflow >/dev/null",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 90s
+    networks:
+      - hokusai-network
+
+  model-seed:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        cat "$$MLFLOW_CLIENT_CERT_PATH" "$$MLFLOW_CLIENT_KEY_PATH" > /tmp/mlflow_client_combined.pem
+        chmod 600 /tmp/mlflow_client_combined.pem
+        export MLFLOW_TRACKING_CLIENT_CERT_PATH=/tmp/mlflow_client_combined.pem
+        export MLFLOW_TRACKING_SERVER_CERT_PATH="$$MLFLOW_CA_BUNDLE_PATH"
+        python scripts/model_30/seed_ci_mlflow_model.py
+        touch /tmp/model-seed-ready
+        tail -f /dev/null
+    environment:
+      ENVIRONMENT: development
+      MLFLOW_MTLS_ENABLED: "true"
+      MLFLOW_TRACKING_URI: https://mlflow:5000
+      MLFLOW_SERVER_URL: https://mlflow:5000
+      MLFLOW_CA_BUNDLE_PATH: /certs/ca.crt
+      MLFLOW_CLIENT_CERT_PATH: /certs/client.crt
+      MLFLOW_CLIENT_KEY_PATH: /certs/client.key
+      MODEL_30_MLFLOW_URI: models:/Technical Task Router/1
+    depends_on:
+      cert-init:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+    volumes:
+      - mlflow_certs:/certs:ro
+      - mlflow_artifacts:/mlflow/artifacts
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/model-seed-ready"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+    networks:
+      - hokusai-network
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        cat "$$MLFLOW_CLIENT_CERT_PATH" "$$MLFLOW_CLIENT_KEY_PATH" > /tmp/mlflow_client_combined.pem
+        chmod 600 /tmp/mlflow_client_combined.pem
+        export MLFLOW_TRACKING_CLIENT_CERT_PATH=/tmp/mlflow_client_combined.pem
+        export MLFLOW_TRACKING_SERVER_CERT_PATH="$$MLFLOW_CA_BUNDLE_PATH"
+        export MLFLOW_HTTP_REQUEST_TIMEOUT=30
+        export MLFLOW_HTTP_REQUEST_MAX_RETRIES=1
+        pytest tests/integration/test_model_30_mlflow_serving.py -v --maxfail=1 --cov-fail-under=0
+    environment:
+      ENVIRONMENT: development
+      API_SECRET_KEY: test-secret-key
+      DB_PASSWORD: password
+      MLFLOW_MTLS_ENABLED: "true"
+      MLFLOW_SERVER_URL: https://mlflow:5000
+      MLFLOW_TRACKING_URI: https://mlflow:5000
+      MODEL_30_MLFLOW_URI: models:/Technical Task Router/1
+      MLFLOW_CA_BUNDLE_PATH: /certs/ca.crt
+      MLFLOW_CLIENT_CERT_PATH: /certs/client.crt
+      MLFLOW_CLIENT_KEY_PATH: /certs/client.key
+    depends_on:
+      cert-init:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      model-seed:
+        condition: service_healthy
+    volumes:
+      - mlflow_certs:/certs:ro
+      - mlflow_artifacts:/mlflow/artifacts
     networks:
       - hokusai-network
 
 volumes:
   postgres_data:
+  mlflow_certs:
+  mlflow_artifacts:
 
 networks:
   hokusai-network:

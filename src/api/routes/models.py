@@ -44,8 +44,6 @@ try:
 except ImportError:
     mlflow = None
 
-# Initialize services
-registry = HokusaiModelRegistry(tracking_uri=settings.mlflow_tracking_uri)
 tracker = PerformanceTracker()
 WRITE_SCOPES = {
     "model:write",
@@ -74,6 +72,11 @@ def _collect_registration_metadata_tags(
         if value is not None:
             metadata_tags[tag_key] = value
     return metadata_tags
+
+
+def _get_registry() -> HokusaiModelRegistry:
+    """Create a registry bound to the configured MLflow tracking URI."""
+    return HokusaiModelRegistry(tracking_uri=settings.mlflow_tracking_uri)
 
 
 def _mirror_registration_metadata_tags(
@@ -162,7 +165,7 @@ async def get_model_lineage(
 ) -> ModelLineageResponse:
     """Get complete improvement history of a model."""
     try:
-        lineage = registry.get_model_lineage(model_id)
+        lineage = _get_registry().get_model_lineage(model_id)
 
         return ModelLineageResponse(
             model_id=model_id,
@@ -196,7 +199,7 @@ async def register_model(
     try:
         # For now, we'll assume it's a baseline model
         # In production, you'd determine this based on the request
-        result = registry.register_baseline(
+        result = _get_registry().register_baseline(
             model=registration.model_data,  # This would be loaded from the reference
             model_type=registration.model_type,
             metadata=registration.metadata,
@@ -537,7 +540,7 @@ async def batch_model_operations(batch_request: dict[str, Any]) -> dict[str, Any
 async def get_production_models() -> dict[str, Any]:
     """List all models currently in production."""
     try:
-        production_models = registry.get_production_models()
+        production_models = _get_registry().get_production_models()
         return {"models": production_models}
     except Exception as e:
         logger.error(f"Failed to get production models: {e}")

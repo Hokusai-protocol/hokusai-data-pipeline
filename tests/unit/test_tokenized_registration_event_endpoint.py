@@ -459,8 +459,9 @@ def test_legacy_models_register_route_still_works(app: FastAPI) -> None:
             "src.middleware.auth.APIKeyAuthMiddleware.validate_with_auth_service",
             new=AsyncMock(return_value=_validation_result()),
         ),
-        patch("src.api.routes.models.registry") as mock_registry,
+        patch("src.api.routes.models._get_registry") as mock_get_registry,
     ):
+        mock_registry = mock_get_registry.return_value
         mock_registry.register_baseline.return_value = {
             "model_id": "new_model/1",
             "model_name": "new_model",

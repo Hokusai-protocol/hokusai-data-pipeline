@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from dataclasses import asdict, dataclass
@@ -107,7 +108,7 @@ class DSPyPipelineExecutor:
             # Use configured tracking URI or default
             config = get_config()
             tracking_uri = config.mlflow_tracking_uri
-            mlflow.set_tracking_uri(tracking_uri)
+            os.environ["MLFLOW_TRACKING_URI"] = tracking_uri
 
             # Set experiment name
             experiment_name = config.mlflow_experiment_name or "dspy-execution"

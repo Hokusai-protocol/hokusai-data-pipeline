@@ -196,10 +196,8 @@ class TestDSPyPipelineExecutor:
     @patch("mlflow.log_metrics")
     @patch("mlflow.set_tags")
     @patch("mlflow.set_experiment")
-    @patch("mlflow.set_tracking_uri")
     def test_mlflow_tracking(
         self,
-        mock_set_uri,
         mock_set_exp,
         mock_set_tags,
         mock_log_metrics,
@@ -235,10 +233,8 @@ class TestDSPyPipelineExecutor:
     @patch("mlflow.log_metrics")
     @patch("mlflow.set_tags")
     @patch("mlflow.set_experiment")
-    @patch("mlflow.set_tracking_uri")
     def test_execute_logs_contributor_tags(
         self,
-        mock_set_uri,
         mock_set_exp,
         mock_set_tags,
         mock_log_metrics,
