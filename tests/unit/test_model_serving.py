@@ -1,4 +1,8 @@
-"""Focused unit coverage for live model serving endpoints."""
+"""Focused unit coverage for live model serving endpoints.
+
+MLflow auth in production uses SDK env like `MLFLOW_TRACKING_TOKEN`; health
+probes are patched here so the tests stay offline-safe.
+"""
 
 from __future__ import annotations
 
@@ -22,6 +26,7 @@ from src.api.endpoints.model_30_adapter import (
 )
 from src.api.endpoints.model_registry import ModelRegistryEntry
 from src.middleware.auth import require_auth
+from src.utils.mlflow_health import MLflowRegistryHealthResult
 
 
 class FakeContributorLogger:
@@ -219,7 +224,17 @@ def test_model_30_info_endpoint_returns_mlflow_metadata(client: TestClient) -> N
 
 def test_model_30_health_endpoint_reflects_mlflow_cache(client: TestClient) -> None:
     _replace_registry_entry("30", cache_checker=lambda _: True)
-    response = client.get("/api/v1/models/30/health")
+    sdk_result = MLflowRegistryHealthResult(
+        status="ok",
+        tracking_uri="https://mlflow.test.local:5000",
+        latency_ms=12.5,
+        sample_model="Technical Task Router",
+    )
+    with patch(
+        "src.api.endpoints.model_serving.check_mlflow_registry_sdk",
+        AsyncMock(return_value=sdk_result),
+    ):
+        response = client.get("/api/v1/models/30/health")
 
     assert response.status_code == 200
     assert response.json() == {
@@ -233,6 +248,39 @@ def test_model_30_health_endpoint_reflects_mlflow_cache(client: TestClient) -> N
             "model_uri": "models:/Technical Task Router/4",
             "status": "cached",
         },
+        "mlflow_sdk": {
+            "reachable": True,
+            "tracking_uri": "https://mlflow.test.local:5000",
+            "latency_ms": 12.5,
+            "sample_model": "Technical Task Router",
+        },
+    }
+
+
+def test_model_30_health_endpoint_reports_mlflow_sdk_failure(client: TestClient) -> None:
+    _replace_registry_entry("30", cache_checker=lambda _: False)
+    sdk_result = MLflowRegistryHealthResult(
+        status="error",
+        tracking_uri="https://mlflow.test.local:5000",
+        latency_ms=5000.0,
+        error_type="TimeoutError",
+        error="MLflow registry SDK probe timed out after 5.0s",
+    )
+
+    with patch(
+        "src.api.endpoints.model_serving.check_mlflow_registry_sdk",
+        AsyncMock(return_value=sdk_result),
+    ):
+        response = client.get("/api/v1/models/30/health")
+
+    assert response.status_code == 200
+    assert response.json()["mlflow_sdk"] == {
+        "reachable": False,
+        "tracking_uri": "https://mlflow.test.local:5000",
+        "latency_ms": 5000.0,
+        "sample_model": None,
+        "error_type": "TimeoutError",
+        "error": "MLflow registry SDK probe timed out after 5.0s",
     }
 
 

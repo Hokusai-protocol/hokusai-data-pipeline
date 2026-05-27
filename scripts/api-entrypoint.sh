@@ -13,42 +13,50 @@ echo "MLflow mTLS: $MLFLOW_MTLS_ENABLED"
 # env vars. The MLflow proxy (src/api/routes/mlflow_proxy_improved.py) reads
 # these to configure httpx.
 if [ "$MLFLOW_MTLS_ENABLED" = "true" ]; then
-    echo "Fetching MLflow client certificates from hokusai/$ENVIRONMENT/mlflow/* ..."
-
-    if ! command -v aws &> /dev/null; then
-        echo "Installing AWS CLI..."
-        pip install --quiet awscli
-    fi
-
     CERT_DIR="/tmp/api-certs"
-    mkdir -p "$CERT_DIR"
-    chmod 700 "$CERT_DIR"
+    preloaded_ca=${MLFLOW_CA_BUNDLE_PATH:-}
+    preloaded_cert=${MLFLOW_CLIENT_CERT_PATH:-}
+    preloaded_key=${MLFLOW_CLIENT_KEY_PATH:-}
 
-    aws secretsmanager get-secret-value \
-        --secret-id "hokusai/$ENVIRONMENT/mlflow/ca-cert" \
-        --region us-east-1 \
-        --query 'SecretString' \
-        --output text > "$CERT_DIR/ca.crt"
+    if [ -r "$preloaded_ca" ] && [ -r "$preloaded_cert" ] && [ -r "$preloaded_key" ]; then
+        echo "Using pre-mounted MLflow client certificates"
+    else
+        echo "Fetching MLflow client certificates from hokusai/$ENVIRONMENT/mlflow/* ..."
 
-    aws secretsmanager get-secret-value \
-        --secret-id "hokusai/$ENVIRONMENT/mlflow/client-cert" \
-        --region us-east-1 \
-        --query 'SecretString' \
-        --output text > "$CERT_DIR/client.crt"
+        if ! command -v aws &> /dev/null; then
+            echo "Installing AWS CLI..."
+            pip install --quiet awscli
+        fi
 
-    aws secretsmanager get-secret-value \
-        --secret-id "hokusai/$ENVIRONMENT/mlflow/client-key" \
-        --region us-east-1 \
-        --query 'SecretString' \
-        --output text > "$CERT_DIR/client.key"
+        mkdir -p "$CERT_DIR"
+        chmod 700 "$CERT_DIR"
 
-    chmod 644 "$CERT_DIR/ca.crt"
-    chmod 644 "$CERT_DIR/client.crt"
-    chmod 600 "$CERT_DIR/client.key"
+        aws secretsmanager get-secret-value \
+            --secret-id "hokusai/$ENVIRONMENT/mlflow/ca-cert" \
+            --region us-east-1 \
+            --query 'SecretString' \
+            --output text > "$CERT_DIR/ca.crt"
 
-    export MLFLOW_CA_BUNDLE_PATH="$CERT_DIR/ca.crt"
-    export MLFLOW_CLIENT_CERT_PATH="$CERT_DIR/client.crt"
-    export MLFLOW_CLIENT_KEY_PATH="$CERT_DIR/client.key"
+        aws secretsmanager get-secret-value \
+            --secret-id "hokusai/$ENVIRONMENT/mlflow/client-cert" \
+            --region us-east-1 \
+            --query 'SecretString' \
+            --output text > "$CERT_DIR/client.crt"
+
+        aws secretsmanager get-secret-value \
+            --secret-id "hokusai/$ENVIRONMENT/mlflow/client-key" \
+            --region us-east-1 \
+            --query 'SecretString' \
+            --output text > "$CERT_DIR/client.key"
+
+        chmod 644 "$CERT_DIR/ca.crt"
+        chmod 644 "$CERT_DIR/client.crt"
+        chmod 600 "$CERT_DIR/client.key"
+
+        export MLFLOW_CA_BUNDLE_PATH="$CERT_DIR/ca.crt"
+        export MLFLOW_CLIENT_CERT_PATH="$CERT_DIR/client.crt"
+        export MLFLOW_CLIENT_KEY_PATH="$CERT_DIR/client.key"
+    fi
 
     echo "MLflow client certificates loaded"
 else

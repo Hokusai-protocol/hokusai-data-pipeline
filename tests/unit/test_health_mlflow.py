@@ -1,158 +1,145 @@
-"""Unit tests for MLflow health check endpoints."""
+"""Unit tests for MLflow SDK-path health endpoints.
 
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
-import httpx
-from fastapi.testclient import TestClient
-from src.api.routes.health_mlflow import router
+The production path authenticates via SDK env such as `MLFLOW_TRACKING_TOKEN`;
+these tests patch the probe so no live auth is required.
+"""
 
-# Create test client
+from __future__ import annotations
+
+import asyncio
+from unittest.mock import AsyncMock, Mock, patch
+
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from src.api.routes.health_mlflow import router
+from src.utils.mlflow_health import MLflowRegistryHealthResult, check_mlflow_registry_sdk
+
 app = FastAPI()
 app.include_router(router)
 client = TestClient(app)
 
 
-class TestMLflowHealthEndpoints:
-    """Test cases for MLflow health check endpoints."""
-    
-    def test_health_check_all_healthy(self):
-        """Test health check when all services are healthy."""
-        with patch('httpx.AsyncClient') as mock_client_class:
-            mock_client = Mock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            
-            # Mock responses for health checks
-            mock_response_health = Mock()
-            mock_response_health.status_code = 200
-            
-            mock_response_api = Mock()
-            mock_response_api.status_code = 200
-            
-            mock_client.get = AsyncMock(side_effect=[
-                mock_response_health,  # Basic connectivity
-                mock_response_api      # Experiments API
-            ])
-            
-            mock_client_class.return_value = mock_client
-            
-            response = client.get("/mlflow")
-            
-            assert response.status_code == 200
-            data = response.json()
-            assert data['status'] == 'healthy'
-            assert data['checks']['connectivity']['status'] == 'healthy'
-            assert data['checks']['experiments_api']['status'] == 'healthy'
-    
-    def test_health_check_mlflow_down(self):
-        """Test health check when MLflow is down."""
-        with patch('httpx.AsyncClient') as mock_client_class:
-            mock_client = Mock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            
-            # Mock connection error
-            mock_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
-            
-            mock_client_class.return_value = mock_client
-            
-            response = client.get("/mlflow")
-            
-            assert response.status_code == 503
-            data = response.json()
-            assert data['detail']['status'] == 'unhealthy'
-            assert data['detail']['checks']['connectivity']['status'] == 'unhealthy'
-    
-    def test_connectivity_check_success(self):
-        """Test connectivity check when MLflow is reachable."""
-        with patch('httpx.AsyncClient') as mock_client_class:
-            mock_client = Mock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.elapsed = Mock(total_seconds=Mock(return_value=0.123))
-            
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-            
-            response = client.get("/mlflow/connectivity")
-            
-            assert response.status_code == 200
-            data = response.json()
-            assert data['status'] == 'connected'
-            assert 'response_time_ms' in data
-    
-    def test_connectivity_check_timeout(self):
-        """Test connectivity check timeout."""
-        with patch('httpx.AsyncClient') as mock_client_class:
-            mock_client = Mock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            
-            mock_client.get = AsyncMock(side_effect=httpx.TimeoutException("Timeout"))
-            mock_client_class.return_value = mock_client
-            
-            response = client.get("/mlflow/connectivity")
-            
-            assert response.status_code == 200
-            data = response.json()
-            assert data['status'] == 'timeout'
-            assert 'error' in data
-    
-    def test_detailed_health_check(self):
-        """Test detailed health check."""
-        with patch('httpx.AsyncClient') as mock_client_class:
-            mock_client = Mock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            
-            # Mock successful responses
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_response.elapsed = Mock(total_seconds=Mock(return_value=0.050))
-            
-            mock_client.request = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-            
-            response = client.get("/mlflow/detailed")
-            
-            assert response.status_code == 200
-            data = response.json()
-            assert 'tests' in data
-            assert len(data['tests']) > 0
-            assert data['overall_health'] is True
-            
-            # Check that all tests passed
-            for test in data['tests']:
-                assert test['success'] is True
-                assert 'response_time_ms' in test
-    
-    def test_detailed_health_check_partial_failure(self):
-        """Test detailed health check with some endpoints failing."""
-        with patch('httpx.AsyncClient') as mock_client_class:
-            mock_client = Mock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-            
-            # Mock mixed responses
-            responses = [
-                Mock(status_code=200, elapsed=Mock(total_seconds=Mock(return_value=0.050))),
-                Mock(status_code=500, elapsed=Mock(total_seconds=Mock(return_value=0.100))),
-                Mock(status_code=200, elapsed=Mock(total_seconds=Mock(return_value=0.075)))
-            ]
-            
-            mock_client.request = AsyncMock(side_effect=responses)
-            mock_client_class.return_value = mock_client
-            
-            response = client.get("/mlflow/detailed")
-            
-            assert response.status_code == 200
-            data = response.json()
-            assert data['overall_health'] is False
-            
-            # Check mixed results
-            success_count = sum(1 for test in data['tests'] if test['success'])
-            assert success_count == 2  # Two out of three succeeded
+def test_health_check_mlflow_sdk_success_with_sample_model() -> None:
+    result = MLflowRegistryHealthResult(
+        status="ok",
+        tracking_uri="https://mlflow.test.local:5000",
+        latency_ms=12.34,
+        sample_model="Technical Task Router",
+    )
+
+    with patch(
+        "src.api.routes.health_mlflow.check_mlflow_registry_sdk",
+        AsyncMock(return_value=result),
+    ):
+        response = client.get("/mlflow")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ok",
+        "tracking_uri": "https://mlflow.test.local:5000",
+        "latency_ms": 12.34,
+        "sample_model": "Technical Task Router",
+    }
+
+
+def test_health_check_mlflow_sdk_success_with_empty_registry() -> None:
+    result = MLflowRegistryHealthResult(
+        status="ok",
+        tracking_uri="https://mlflow.test.local:5000",
+        latency_ms=9.87,
+        sample_model=None,
+    )
+
+    with patch(
+        "src.api.routes.health_mlflow.check_mlflow_registry_sdk",
+        AsyncMock(return_value=result),
+    ):
+        response = client.get("/mlflow")
+
+    assert response.status_code == 200
+    assert response.json()["sample_model"] is None
+
+
+def test_health_check_mlflow_sdk_failure_returns_503() -> None:
+    result = MLflowRegistryHealthResult(
+        status="error",
+        tracking_uri="https://mlflow.test.local:5000",
+        latency_ms=44.21,
+        error_type="MlflowException",
+        error="registry down",
+    )
+
+    with patch(
+        "src.api.routes.health_mlflow.check_mlflow_registry_sdk",
+        AsyncMock(return_value=result),
+    ):
+        response = client.get("/mlflow")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "error",
+        "tracking_uri": "https://mlflow.test.local:5000",
+        "latency_ms": 44.21,
+        "sample_model": None,
+        "error_type": "MlflowException",
+        "error": "registry down",
+    }
+
+
+def test_detailed_and_connectivity_routes_alias_sdk_probe() -> None:
+    result = MLflowRegistryHealthResult(
+        status="ok",
+        tracking_uri="https://mlflow.test.local:5000",
+        latency_ms=10.0,
+        sample_model="Technical Task Router",
+    )
+
+    with patch(
+        "src.api.routes.health_mlflow.check_mlflow_registry_sdk",
+        AsyncMock(return_value=result),
+    ) as sdk_probe:
+        detailed = client.get("/mlflow/detailed")
+        connectivity = client.get("/mlflow/connectivity")
+
+    assert detailed.status_code == 200
+    assert connectivity.status_code == 200
+    assert sdk_probe.await_count == 2
+
+
+def test_sdk_probe_sanitizes_cert_paths(monkeypatch) -> None:
+    cert_path = "/tmp/secret/client.key"
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "https://mlflow.test.local:5000")
+    monkeypatch.setenv("MLFLOW_CLIENT_KEY_PATH", cert_path)
+
+    client_mock = Mock()
+    client_mock.search_registered_models.side_effect = RuntimeError(f"bad cert at {cert_path}")
+
+    with patch("src.utils.mlflow_health.MlflowClient", return_value=client_mock):
+        result = asyncio.run(check_mlflow_registry_sdk(timeout_seconds=0.05)).to_dict()
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "RuntimeError"
+    assert cert_path not in result["error"]
+    assert "<redacted-path>" in result["error"]
+
+
+def test_sdk_probe_timeout_returns_bounded_latency(monkeypatch) -> None:
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "https://mlflow.test.local:5000")
+
+    def _slow_search(*args, **kwargs):
+        del args, kwargs
+        import time
+
+        time.sleep(0.03)
+        return []
+
+    client_mock = Mock()
+    client_mock.search_registered_models.side_effect = _slow_search
+
+    with patch("src.utils.mlflow_health.MlflowClient", return_value=client_mock):
+        result = asyncio.run(check_mlflow_registry_sdk(timeout_seconds=0.01)).to_dict()
+
+    assert result["status"] == "error"
+    assert result["error_type"] == "TimeoutError"
+    assert result["latency_ms"] >= 10

@@ -12,7 +12,7 @@ import os
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -28,8 +28,8 @@ from src.api.endpoints.model_30_adapter import (
     validate_nested_model_30_inputs,
 )
 from src.middleware.auth import require_auth
+from src.utils.mlflow_health import MLflowRegistryHealthResult
 
-RUN_INTEGRATION = os.getenv("MODEL_30_INTEGRATION_TEST") == "1"
 TRACKING_READY = bool(os.getenv("MLFLOW_TRACKING_URI"))
 FIXTURE_DIR = Path(__file__).resolve().parents[2] / "data" / "test_fixtures"
 
@@ -58,10 +58,7 @@ def _replace_registry_entry(model_id: str, **changes: object) -> None:
     )
 
 
-@pytest.mark.skipif(
-    not RUN_INTEGRATION or not TRACKING_READY,
-    reason="MODEL_30_INTEGRATION_TEST=1 and MLFLOW_TRACKING_URI are required",
-)
+@pytest.mark.skipif(not TRACKING_READY, reason="MLFLOW_TRACKING_URI is required")
 @pytest.mark.live_mlflow
 def test_live_model_30_mlflow_prediction_round_trip() -> None:
     mlflow = pytest.importorskip("mlflow")
@@ -137,7 +134,17 @@ def test_model_30_health_reports_not_ready_until_cached() -> None:
     client = TestClient(app)
 
     _replace_registry_entry("30", cache_checker=lambda _uri: False)
-    response = client.get("/api/v1/models/30/health")
+    sdk_result = MLflowRegistryHealthResult(
+        status="ok",
+        tracking_uri="https://mlflow:5000",
+        latency_ms=8.4,
+        sample_model="Technical Task Router",
+    )
+    with patch(
+        "src.api.endpoints.model_serving.check_mlflow_registry_sdk",
+        AsyncMock(return_value=sdk_result),
+    ):
+        response = client.get("/api/v1/models/30/health")
 
     assert response.status_code == 200
     body = response.json()
@@ -145,6 +152,7 @@ def test_model_30_health_reports_not_ready_until_cached() -> None:
     assert body["inference_ready"] is False
     assert body["readiness"]["checked"] is False
     assert body["readiness"]["status"] == "not_cached"
+    assert body["mlflow_sdk"]["reachable"] is True
 
 
 def test_model_30_health_warmup_runs_minimal_prediction() -> None:
@@ -173,7 +181,17 @@ def test_model_30_health_warmup_runs_minimal_prediction() -> None:
         }
 
     _replace_registry_entry("30", cache_checker=_is_cached, model_caller=model_caller)
-    response = client.get("/api/v1/models/30/health?warmup=true")
+    sdk_result = MLflowRegistryHealthResult(
+        status="ok",
+        tracking_uri="https://mlflow:5000",
+        latency_ms=9.1,
+        sample_model="Technical Task Router",
+    )
+    with patch(
+        "src.api.endpoints.model_serving.check_mlflow_registry_sdk",
+        AsyncMock(return_value=sdk_result),
+    ):
+        response = client.get("/api/v1/models/30/health?warmup=true")
 
     assert response.status_code == 200
     body = response.json()
@@ -182,6 +200,7 @@ def test_model_30_health_warmup_runs_minimal_prediction() -> None:
     assert body["readiness"]["checked"] is True
     assert body["readiness"]["status"] == "ready"
     assert body["readiness"]["selected_model"] == "fast-coder-v1"
+    assert body["mlflow_sdk"]["reachable"] is True
     assert call_count == 1
 
 

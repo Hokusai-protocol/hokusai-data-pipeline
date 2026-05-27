@@ -25,6 +25,7 @@ from huggingface_hub import hf_hub_download, snapshot_download
 from pydantic import BaseModel, Field, ValidationError
 
 from ...middleware.auth import require_auth
+from ...utils.mlflow_health import check_mlflow_registry_sdk
 from ..dependencies import get_contributor_logger
 from ..services.contributor_logger import ContributorLogger
 from .latency_trace import Model30LatencyTrace
@@ -800,6 +801,7 @@ async def check_model_health(
         is_cached = cache_key in serving_service.model_cache
         inference_ready = True
         readiness: dict[str, Any] | None = None
+        mlflow_sdk: dict[str, Any] | None = None
         if config["storage_type"] == "mlflow":
             cache_checker = serving_service._get_required_mlflow_component(entry, "cache_checker")
             model_uri = serving_service._get_required_mlflow_component(entry, "model_uri")
@@ -829,6 +831,17 @@ async def check_model_health(
                     readiness["status"] = "error"
                     readiness["error"] = str(exc)
 
+            sdk_result = (await check_mlflow_registry_sdk()).to_dict()
+            mlflow_sdk = {
+                "reachable": sdk_result["status"] == "ok",
+                "tracking_uri": sdk_result["tracking_uri"],
+                "latency_ms": sdk_result["latency_ms"],
+                "sample_model": sdk_result.get("sample_model"),
+            }
+            if sdk_result["status"] != "ok":
+                mlflow_sdk["error_type"] = sdk_result.get("error_type")
+                mlflow_sdk["error"] = sdk_result.get("error")
+
         response = {
             "model_id": model_id,
             "status": "healthy",
@@ -838,6 +851,8 @@ async def check_model_health(
         }
         if readiness is not None:
             response["readiness"] = readiness
+        if mlflow_sdk is not None:
+            response["mlflow_sdk"] = mlflow_sdk
         return response
 
     except Exception as e:
