@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import requests
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from huggingface_hub import hf_hub_download, snapshot_download
 from pydantic import BaseModel, Field, ValidationError
 
@@ -30,6 +30,7 @@ from .latency_trace import Model30LatencyTrace
 from .model_30_adapter import (
     MODEL_30_SCHEMA,
     MODEL_30_VERSION,
+    Model30LoadInProgressError,
     call_mlflow_model_30,
     get_model_30_uri,
     is_model_30_cached,
@@ -111,6 +112,9 @@ class ModelServingService:
         )
         self.model_load_timeout_seconds = float(
             os.getenv("MODEL_SERVING_LOAD_TIMEOUT_SECONDS", "25")
+        )
+        self.model_30_readiness_timeout_seconds = float(
+            os.getenv("MODEL_30_READINESS_TIMEOUT_SECONDS", "22")
         )
 
     def get_model_config(self, model_id: str) -> dict[str, Any]:
@@ -482,6 +486,31 @@ class ModelServingService:
                             "run_id": trace.run_id,
                         },
                     ) from exc
+                except Model30LoadInProgressError as exc:
+                    trace.outcome = "load_in_progress"
+                    trace.deadline_boundary_ms = (time.perf_counter() - inference_started_at) * 1000
+                    trace.emit(logger)
+                    trace_emitted = True
+                    logger.warning(
+                        "Model 30 cold load already in progress",
+                        extra={
+                            "model_id": model_id,
+                            "model_uri": config.get("model_uri"),
+                            "request_id": request_id,
+                            "run_id": trace.run_id,
+                        },
+                    )
+                    raise HTTPException(
+                        status_code=503,
+                        detail={
+                            "error": (
+                                "Model 30 cold load is already in progress. "
+                                "Please retry shortly."
+                            ),
+                            "request_id": request_id,
+                            "run_id": trace.run_id,
+                        },
+                    ) from exc
 
                 trace.deadline_boundary_ms = (time.perf_counter() - inference_started_at) * 1000
                 trace.record_ms("artifact_load", mlflow_timings.get("artifact_load_ms", 0.0))
@@ -530,6 +559,29 @@ class ModelServingService:
             )
 
         return predictions
+
+    async def warm_model_30(self, model_uri: str) -> dict[str, Any]:
+        """Load model 30 and run a minimal prediction readiness check."""
+        validated_inputs = validate_nested_model_30_inputs(
+            {
+                "task": {
+                    "description": "Readiness check for Technical Task Router",
+                    "task_type": "health_check",
+                }
+            }
+        )
+        features = model_30_inputs_to_features(validated_inputs)
+        timings: dict[str, float] = {}
+        raw_model_output = await asyncio.wait_for(
+            asyncio.to_thread(call_mlflow_model_30, model_uri, features, timings),
+            timeout=self.model_30_readiness_timeout_seconds,
+        )
+        normalized = normalize_model_30_output(raw_model_output, validated_inputs)
+        return {
+            "selected_model": normalized["selected_model"],
+            "artifact_load_ms": round(timings.get("artifact_load_ms", 0.0), 2),
+            "inference_only_ms": round(timings.get("inference_only_ms", 0.0), 2),
+        }
 
 
 # Initialize service
@@ -710,6 +762,10 @@ async def predict(
 @router.get("/{model_id}/health")
 async def check_model_health(
     model_id: str,
+    warmup: bool = Query(
+        default=False,
+        description="For model 30, load the MLflow artifact and run a minimal prediction.",
+    ),
     auth: Dict[str, Any] = Depends(require_auth),
 ):
     """Check if a model is healthy and ready to serve.
@@ -742,15 +798,42 @@ async def check_model_health(
         # Check if model is cached
         cache_key = f"model_{model_id}"
         is_cached = cache_key in serving_service.model_cache
+        inference_ready = is_cached
+        readiness: dict[str, Any] = {"checked": False}
         if model_id == "30":
             is_cached = is_model_30_cached(config["model_uri"])
+            inference_ready = is_cached
+            readiness = {
+                "checked": False,
+                "model_uri": config["model_uri"],
+                "status": "cached" if is_cached else "not_cached",
+            }
+            if warmup:
+                readiness["checked"] = True
+                try:
+                    readiness.update(await serving_service.warm_model_30(config["model_uri"]))
+                    is_cached = is_model_30_cached(config["model_uri"])
+                    inference_ready = is_cached
+                    readiness["status"] = "ready" if is_cached else "not_cached"
+                except Model30LoadInProgressError:
+                    readiness["status"] = "warming"
+                    readiness["error"] = "Model 30 cold load is already in progress"
+                except asyncio.TimeoutError:
+                    readiness["status"] = "timeout"
+                    readiness["error"] = (
+                        "Model 30 readiness check timed out before the service deadline"
+                    )
+                except Exception as exc:  # noqa: BLE001 - health should report readiness errors
+                    readiness["status"] = "error"
+                    readiness["error"] = str(exc)
 
         return {
             "model_id": model_id,
             "status": "healthy",
             "is_cached": is_cached,
             "storage_type": config["storage_type"],
-            "inference_ready": True,
+            "inference_ready": inference_ready,
+            "readiness": readiness,
         }
 
     except Exception as e:

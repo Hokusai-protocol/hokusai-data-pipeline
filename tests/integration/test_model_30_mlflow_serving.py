@@ -112,6 +112,64 @@ def test_model_30_predict_emits_single_latency_trace_record(caplog) -> None:
     assert trace_record.timeout_deadline_boundary_ms >= 0.0
 
 
+def test_model_30_health_reports_not_ready_until_cached() -> None:
+    app = FastAPI()
+    app.include_router(model_serving.router)
+    app.dependency_overrides[require_auth] = lambda: {
+        "user_id": "integration-user",
+        "api_key_id": "integration-key",
+        "scopes": ["model:read"],
+    }
+    client = TestClient(app)
+
+    with patch("src.api.endpoints.model_serving.is_model_30_cached", return_value=False):
+        response = client.get("/api/v1/models/30/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_cached"] is False
+    assert body["inference_ready"] is False
+    assert body["readiness"]["checked"] is False
+    assert body["readiness"]["status"] == "not_cached"
+
+
+def test_model_30_health_warmup_runs_minimal_prediction() -> None:
+    app = FastAPI()
+    app.include_router(model_serving.router)
+    app.dependency_overrides[require_auth] = lambda: {
+        "user_id": "integration-user",
+        "api_key_id": "integration-key",
+        "scopes": ["model:read"],
+    }
+    client = TestClient(app)
+
+    cache_states = [False, True]
+
+    def _is_cached(_uri: str) -> bool:
+        return cache_states.pop(0) if cache_states else True
+
+    with (
+        patch("src.api.endpoints.model_serving.is_model_30_cached", side_effect=_is_cached),
+        patch(
+            "src.api.endpoints.model_serving.call_mlflow_model_30",
+            side_effect=lambda _uri, _features, timings=None: (
+                timings.update({"artifact_load_ms": 1.5, "inference_only_ms": 0.5})
+                or {"selected_model": "fast-coder-v1", "confidence": 0.8}
+            ),
+        ) as call_mock,
+    ):
+        response = client.get("/api/v1/models/30/health?warmup=true")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_cached"] is True
+    assert body["inference_ready"] is True
+    assert body["readiness"]["checked"] is True
+    assert body["readiness"]["status"] == "ready"
+    assert body["readiness"]["selected_model"] == "fast-coder-v1"
+    call_mock.assert_called_once()
+
+
 def test_model_30_live_path_rejects_mocked_load_model() -> None:
     payload = _load_json_fixture("model_30_curated_payload.json")
     fake_mlflow = SimpleNamespace(pyfunc=SimpleNamespace(load_model=lambda _uri: MagicMock()))
