@@ -8,6 +8,7 @@ on:
       - 'src/api/main.py'
       - 'src/middleware/auth.py'
       - 'tests/integration/test_model_registration*.py'
+      - '.github/workflows/model-registration-test.yml'
   pull_request:
     branches: [ main, develop ]
     paths:
@@ -15,10 +16,18 @@ on:
       - 'src/api/main.py'
       - 'src/middleware/auth.py'
       - 'tests/integration/test_model_registration*.py'
+      - '.github/workflows/model-registration-test.yml'
 
 jobs:
   test-model-registration:
     runs-on: ubuntu-latest
+    env:
+      MLFLOW_SERVER_URL: http://localhost:5000
+      PYTHONPATH: ${{ github.workspace }}
+      DB_PASSWORD: ci_test_password
+      DB_HOST: localhost
+      DB_NAME: ci_test_db
+      DB_USER: ci_test_user
     
     strategy:
       matrix:
@@ -57,13 +66,6 @@ jobs:
           --cov-report=term-missing \
           --cov-report=xml \
           --cov-fail-under=0
-      env:
-        MLFLOW_SERVER_URL: http://localhost:5000
-        PYTHONPATH: ${{ github.workspace }}
-        DB_PASSWORD: ci_test_password
-        DB_HOST: localhost
-        DB_NAME: ci_test_db
-        DB_USER: ci_test_user
     
     - name: Run Auth Header Forwarding Tests
       run: |
@@ -71,12 +73,6 @@ jobs:
           -v \
           --tb=short \
           --cov-fail-under=0
-      env:
-        PYTHONPATH: ${{ github.workspace }}
-        DB_PASSWORD: ci_test_password
-        DB_HOST: localhost
-        DB_NAME: ci_test_db
-        DB_USER: ci_test_user
     
     - name: Upload Coverage Report
       if: matrix.python-version == '3.11'
@@ -106,11 +102,6 @@ jobs:
             if 'mlflow' in route:
                 print(f'  - {route}')
         "
-      env:
-        DB_PASSWORD: ci_test_password
-        DB_HOST: localhost
-        DB_NAME: ci_test_db
-        DB_USER: ci_test_user
     
     - name: Validate Auth Header Configuration
       run: |
