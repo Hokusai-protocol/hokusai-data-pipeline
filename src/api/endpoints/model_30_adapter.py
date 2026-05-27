@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from src.api.schemas import TechnicalTaskRouterInputs
+from src.utils.mlflow_url import get_mlflow_url
 
 DEFAULT_MODEL_30_MLFLOW_URI = "models:/Technical Task Router/4"
 MODEL_30_VERSION = "4"
@@ -261,13 +262,12 @@ def _configure_mlflow_client_from_environment() -> None:
         if _MLFLOW_CLIENT_CONFIGURED:
             return
 
-        tracking_uri = os.getenv("MLFLOW_TRACKING_URI") or os.getenv("MLFLOW_SERVER_URL")
-        if tracking_uri:
-            os.environ.setdefault("MLFLOW_TRACKING_URI", tracking_uri)
-            mlflow.set_tracking_uri(tracking_uri)
+        tracking_uri = get_mlflow_url()
+        os.environ.setdefault("MLFLOW_TRACKING_URI", tracking_uri)
+        mlflow.set_tracking_uri(tracking_uri)
 
-            if tracking_uri.startswith("https://") and ".local" in tracking_uri:
-                os.environ.setdefault("MLFLOW_TRACKING_INSECURE_TLS", "true")
+        if tracking_uri.startswith("https://") and ".local" in tracking_uri:
+            os.environ.setdefault("MLFLOW_TRACKING_INSECURE_TLS", "true")
 
         # MLflow defaults to a 120s request timeout and 7 HTTP retries, which can
         # keep a timed-out API request retrying in the background. Bound SDK

@@ -15,6 +15,7 @@ from typing import Any, Optional
 import mlflow
 
 from src.utils.dns_resolver import DNSResolutionError, get_dns_resolver
+from src.utils.mlflow_url import get_mlflow_url
 
 logger = logging.getLogger(__name__)
 
@@ -262,9 +263,7 @@ class MLFlowConfig:
     """Configuration manager for MLFlow tracking with DNS resolution."""
 
     def __init__(self) -> None:
-        self.tracking_uri_raw = os.getenv(
-            "MLFLOW_TRACKING_URI", "https://mlflow.hokusai-development.local:5000"
-        )
+        self.tracking_uri_raw = get_mlflow_url()
         self.experiment_name = os.getenv("MLFLOW_EXPERIMENT_NAME", "hokusai-pipeline")
         self.artifact_root = os.getenv("MLFLOW_ARTIFACT_ROOT", None)
         self._resolved_tracking_uri = None
@@ -532,9 +531,7 @@ def get_mlflow_status() -> dict:
     dns_health = dns_resolver.health_check()
 
     # Get raw and resolved tracking URIs
-    raw_tracking_uri = os.getenv(
-        "MLFLOW_TRACKING_URI", "https://mlflow.hokusai-development.local:5000"
-    )
+    raw_tracking_uri = get_mlflow_url()
 
     status = {
         "circuit_breaker_state": cb_status["state"],

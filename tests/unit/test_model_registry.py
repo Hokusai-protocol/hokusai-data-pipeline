@@ -19,11 +19,16 @@ class TestHokusaiModelRegistry:
         mock_set_tracking.assert_called_once_with("http://test-mlflow:5000")
 
     @patch("mlflow.set_tracking_uri")
-    def test_initialization_default_uri(self, mock_set_tracking):
+    @patch(
+        "src.services.model_registry.get_mlflow_url", return_value="https://mlflow.test.local:5000"
+    )
+    def test_initialization_default_uri(self, mock_get_mlflow_url, mock_set_tracking):
         """Test initialization with default URI."""
         registry = HokusaiModelRegistry()
 
-        assert registry.tracking_uri == "http://mlflow.hokusai-development.local:5000"
+        assert registry.tracking_uri == "https://mlflow.test.local:5000"
+        mock_get_mlflow_url.assert_called_once_with()
+        mock_set_tracking.assert_called_once_with("https://mlflow.test.local:5000")
 
     def test_valid_model_types(self):
         """Test valid model types constant."""

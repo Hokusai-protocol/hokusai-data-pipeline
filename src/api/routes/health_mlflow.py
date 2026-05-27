@@ -8,15 +8,13 @@ import httpx
 from fastapi import APIRouter, HTTPException
 
 from src.utils.mlflow_mtls import mlflow_mtls_httpx_kwargs
+from src.utils.mlflow_url import get_mlflow_url
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# MLflow server configuration
-MLFLOW_SERVER_URL = os.getenv(
-    "MLFLOW_SERVER_URL", "http://mlflow.hokusai-development.local:5000"
-)  # Use service discovery DNS
+MLFLOW_SERVER_URL = get_mlflow_url()
 ENABLE_DEBUG_LOGGING = os.getenv("MLFLOW_PROXY_DEBUG", "false").lower() == "true"
 
 

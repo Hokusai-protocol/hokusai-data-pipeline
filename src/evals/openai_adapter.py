@@ -11,6 +11,8 @@ from typing import Any
 
 import mlflow
 
+from src.utils.mlflow_url import get_mlflow_url
+
 _UNSAFE_TOKEN_PATTERN = re.compile(r"[;&|`$<>\\\n\r]")
 _TEXT_METRIC_PATTERN = re.compile(r"([A-Za-z][\w\-.]+)\s*[:=]\s*(-?\d+(?:\.\d+)?)")
 
@@ -22,9 +24,7 @@ class OpenAIEvalsAdapter:
         # MLflow SDK reads MLFLOW_TRACKING_TOKEN for Authorization automatically.
         self.tracking_token = os.getenv("MLFLOW_TRACKING_TOKEN")
         self.experiment_name = experiment_name
-        tracking_uri = os.getenv(
-            "MLFLOW_SERVER_URL", "http://mlflow.hokusai-development.local:5000"
-        )
+        tracking_uri = get_mlflow_url()
         mlflow.set_tracking_uri(tracking_uri)
         if experiment_name:
             mlflow.set_experiment(experiment_name)

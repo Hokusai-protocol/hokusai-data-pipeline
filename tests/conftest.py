@@ -15,6 +15,9 @@ import pytest
 
 from src.utils.config import get_test_config
 
+os.environ.setdefault("MLFLOW_SERVER_URL", "https://mlflow.test.local:5000")
+os.environ.setdefault("DB_PASSWORD", "test-password")
+
 
 def pytest_collection_modifyitems(items):
     """Apply standard test marks by directory so default runs stay offline-safe."""
@@ -181,10 +184,11 @@ def mock_mlflow_globally(request):
 def set_test_env_vars():
     """Set environment variables for testing."""
     test_env = {
-        "MLFLOW_TRACKING_URI": "file:///tmp/test_mlruns",
+        "MLFLOW_TRACKING_URI": "https://mlflow.test.local:5000",
         "REDIS_HOST": "localhost",
         "REDIS_PORT": "6379",
         "POSTGRES_URI": "postgresql://test:test@localhost:5432/test",
+        "DB_PASSWORD": "test-password",
         "AWS_ACCESS_KEY_ID": "test_access_key",
         "AWS_SECRET_ACCESS_KEY": "test_secret_key",
         "AWS_SESSION_TOKEN": "test_session_token",

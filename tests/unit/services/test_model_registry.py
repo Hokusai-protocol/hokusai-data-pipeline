@@ -23,12 +23,16 @@ class TestHokusaiModelRegistry:
         model.predict = Mock(return_value=[0.8, 0.2])
         return model
 
-    def test_init_default(self):
+    @patch(
+        "src.services.model_registry.get_mlflow_url", return_value="https://mlflow.test.local:5000"
+    )
+    def test_init_default(self, mock_get_mlflow_url):
         """Test HokusaiModelRegistry initialization with default values."""
-        expected_tracking_uri = "http://mlflow.hokusai-development.local:5000"
+        expected_tracking_uri = "https://mlflow.test.local:5000"
         with patch("mlflow.set_tracking_uri") as mock_set_uri:
             registry = HokusaiModelRegistry()
             assert registry.tracking_uri == expected_tracking_uri
+            mock_get_mlflow_url.assert_called_once_with()
             mock_set_uri.assert_called_once_with(expected_tracking_uri)
 
     def test_init_custom_uri(self):
