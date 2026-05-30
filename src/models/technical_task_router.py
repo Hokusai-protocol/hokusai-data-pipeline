@@ -10,6 +10,7 @@ import json
 import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from itertools import product
 from typing import Any
 
 import mlflow.pyfunc
@@ -29,6 +30,14 @@ AVAILABLE_COLUMNS = {
     "coder": ("available_coder_models", "coder_models", "allowed_models"),
     "reviewer": ("available_reviewer_models", "reviewer_models", "allowed_models"),
 }
+
+ROLE_STAGES = {
+    "planner": "plan",
+    "coder": "code",
+    "reviewer": "review",
+}
+
+STRATEGY_OBJECTIVES = ("lowest_cost", "fastest_completion", "highest_reliability")
 
 FEATURE_DEFAULTS = {
     "task_type": "unknown",
@@ -50,6 +59,39 @@ class RoleChoice:
     support: int
     expected_success: float
     estimated_cost_usd: float | None
+
+
+@dataclass(frozen=True)
+class StrategyCandidate:
+    """Estimated workflow route for one candidate strategy."""
+
+    objective: str
+    planner_model: str | None
+    coder_model: str | None
+    reviewer_model: str | None
+    stages: list[str]
+    estimated_success_under_budget: float
+    estimated_cost_usd: float
+    estimated_duration_seconds: float | None
+    confidence: float
+    support: int
+    rationale: str
+
+    def to_dict(self: StrategyCandidate) -> dict[str, Any]:
+        """Return a public response-friendly strategy mapping."""
+        return {
+            "objective": self.objective,
+            "planner_model": self.planner_model,
+            "coder_model": self.coder_model,
+            "reviewer_model": self.reviewer_model,
+            "stages": self.stages,
+            "estimated_success_under_budget": self.estimated_success_under_budget,
+            "estimated_cost_usd": self.estimated_cost_usd,
+            "estimated_duration_seconds": self.estimated_duration_seconds,
+            "confidence": self.confidence,
+            "support": self.support,
+            "rationale": self.rationale,
+        }
 
 
 class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
@@ -102,23 +144,30 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
     ) -> dict[str, Any]:
         features = _normalize_serving_features(raw_row)
         neighbors = self._nearest_neighbors(features)
+        strategies = self._rank_strategies(neighbors, features)
+        recommended_strategy = _recommended_strategy(strategies, features["routing_objective"])
+        alternatives = _strategy_alternatives(strategies, recommended_strategy)
+        tradeoffs = {
+            objective: strategies[objective][0].to_dict() if strategies[objective] else None
+            for objective in STRATEGY_OBJECTIVES
+        }
+        nearest_neighbors = _nearest_neighbors_summary(neighbors)
 
-        role_choices = {role: self._choose_role(role, neighbors, features) for role in ROLE_COLUMNS}
+        role_choices = {
+            role: self._strategy_role_choice(recommended_strategy, role, neighbors, features)
+            for role in ROLE_COLUMNS
+        }
         selected_models = _unique_ordered(
-            [
-                role_choices["planner"].model_id,
-                role_choices["coder"].model_id,
-                role_choices["reviewer"].model_id,
-            ]
+            [role_choices[role].model_id for role in ROLE_COLUMNS if role_choices[role] is not None]
         )
-        selected_model = role_choices["coder"].model_id
-        estimated_cost = _estimate_route_cost(neighbors, role_choices, features)
-        confidence = _estimate_confidence(neighbors, role_choices)
+        selected_model = recommended_strategy.coder_model or _first_nonempty(selected_models)
+        estimated_cost = recommended_strategy.estimated_cost_usd
+        confidence = recommended_strategy.confidence
 
         rationale = (
             f"Selected coder {selected_model} from {len(neighbors)} nearest Wavemill "
-            f"router row(s); planner={role_choices['planner'].model_id}, "
-            f"reviewer={role_choices['reviewer'].model_id}, estimated_cost_usd="
+            f"router row(s); planner={recommended_strategy.planner_model}, "
+            f"reviewer={recommended_strategy.reviewer_model}, estimated_cost_usd="
             f"{estimated_cost:.6f}."
         )
 
@@ -128,7 +177,113 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             "confidence": confidence,
             "rationale": rationale,
             "estimated_cost_usd": estimated_cost,
+            "recommended_strategy": recommended_strategy.to_dict(),
+            "alternatives": [strategy.to_dict() for strategy in alternatives],
+            "tradeoffs": tradeoffs,
+            "nearest_neighbors": nearest_neighbors,
         }
+
+    def _rank_strategies(
+        self: TechnicalTaskRouterModel,
+        neighbors: pd.DataFrame,
+        features: dict[str, Any],
+    ) -> dict[str, list[StrategyCandidate]]:
+        candidates = self._strategy_candidates(neighbors, features)
+        return {
+            objective: sorted(
+                (candidate for candidate in candidates if candidate.objective == objective),
+                key=lambda candidate: _strategy_sort_key(candidate, objective),
+            )
+            for objective in STRATEGY_OBJECTIVES
+        }
+
+    def _strategy_candidates(
+        self: TechnicalTaskRouterModel,
+        neighbors: pd.DataFrame,
+        features: dict[str, Any],
+    ) -> list[StrategyCandidate]:
+        stages = features["workflow_stages"]
+        role_options: dict[str, list[RoleChoice | None]] = {}
+        for role in ROLE_COLUMNS:
+            if ROLE_STAGES[role] not in stages:
+                role_options[role] = [None]
+                continue
+            allowed_models = _role_allowed_models(role, features)
+            ranked = self._rank_role(role, neighbors, features, allowed_models)
+            if not ranked:
+                ranked = self._rank_role(role, self._dataset, features, allowed_models)
+            if not ranked:
+                ranked = [self._fallback_role_choice(role, features, allowed_models)]
+            role_options[role] = _apply_preference_bonus(
+                ranked,
+                _parse_json_list(features.get("preferred_models")),
+            )[:3]
+
+        candidates: list[StrategyCandidate] = []
+        combinations = product(
+            role_options["planner"],
+            role_options["coder"],
+            role_options["reviewer"],
+        )
+        seen: set[tuple[str | None, str | None, str | None]] = set()
+        for planner_choice, coder_choice, reviewer_choice in combinations:
+            key = _strategy_key(planner_choice, coder_choice, reviewer_choice)
+            if key in seen:
+                continue
+            seen.add(key)
+            for objective in STRATEGY_OBJECTIVES:
+                candidates.append(
+                    _estimate_strategy(
+                        objective,
+                        stages,
+                        neighbors,
+                        features,
+                        planner_choice,
+                        coder_choice,
+                        reviewer_choice,
+                    )
+                )
+        return candidates
+
+    def _fallback_role_choice(
+        self: TechnicalTaskRouterModel,
+        role: str,
+        features: dict[str, Any],
+        allowed_models: list[str],
+    ) -> RoleChoice:
+        preferred_models = _parse_json_list(features.get("preferred_models"))
+        preferred_allowed = [model for model in preferred_models if model in set(allowed_models)]
+        fallback_model = _first_nonempty(preferred_allowed + allowed_models + preferred_models)
+        if fallback_model:
+            return RoleChoice(
+                model_id=fallback_model,
+                score=0.35,
+                support=0,
+                expected_success=0.35,
+                estimated_cost_usd=_feature_float(features, "expected_cost_usd"),
+            )
+        return self._global_defaults[role]
+
+    def _strategy_role_choice(
+        self: TechnicalTaskRouterModel,
+        strategy: StrategyCandidate,
+        role: str,
+        neighbors: pd.DataFrame,
+        features: dict[str, Any],
+    ) -> RoleChoice | None:
+        model_id = getattr(strategy, f"{role}_model")
+        if model_id is None:
+            return None
+        ranked = self._rank_role(role, neighbors, features, [model_id])
+        if ranked:
+            return ranked[0]
+        return RoleChoice(
+            model_id=model_id,
+            score=strategy.confidence,
+            support=strategy.support,
+            expected_success=strategy.estimated_success_under_budget,
+            estimated_cost_usd=strategy.estimated_cost_usd,
+        )
 
     def _nearest_neighbors(
         self: TechnicalTaskRouterModel,
@@ -163,7 +318,8 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
         if ranked:
             return _apply_preference_bonus(ranked, preferred_models)[0]
 
-        fallback_model = _first_nonempty(preferred_models + allowed_models)
+        preferred_allowed = [model for model in preferred_models if model in set(allowed_models)]
+        fallback_model = _first_nonempty(preferred_allowed + allowed_models + preferred_models)
         if fallback_model:
             return RoleChoice(
                 model_id=fallback_model,
@@ -238,6 +394,7 @@ def _prepare_dataset(dataset: pd.DataFrame) -> pd.DataFrame:
         "max_cost_usd",
         "expected_cost_usd",
         "actual_cost_usd",
+        "actual_time_seconds",
         "score",
         "intervention_count",
     ]:
@@ -315,6 +472,8 @@ def _normalize_serving_features(row: dict[str, Any]) -> dict[str, Any]:
         "planner_models": workflow.get("planner_models"),
         "coder_models": workflow.get("coder_models"),
         "reviewer_models": workflow.get("reviewer_models"),
+        "workflow_stages": row.get("workflow_stages") or workflow.get("stages"),
+        "routing_objective": row.get("routing_objective"),
         "max_cost_usd": row.get("max_cost_usd"),
         "expected_cost_usd": row.get("expected_cost_usd"),
     }
@@ -324,6 +483,8 @@ def _normalize_serving_features(row: dict[str, Any]) -> dict[str, Any]:
         or row.get("estimated_complexity")
         or context.get("estimated_complexity")
     )
+    normalized["workflow_stages"] = _normalize_workflow_stages(normalized["workflow_stages"])
+    normalized["routing_objective"] = _normalize_objective(normalized["routing_objective"])
     return normalized
 
 
@@ -414,6 +575,228 @@ def _apply_preference_bonus(
         key=lambda choice: choice.score + (0.08 if choice.model_id in preferred else 0.0),
         reverse=True,
     )
+
+
+def _normalize_workflow_stages(raw_value: Any) -> list[str]:
+    values = _parse_json_list(raw_value)
+    stages = [stage for stage in values if stage in set(ROLE_STAGES.values())]
+    return stages or list(ROLE_STAGES.values())
+
+
+def _normalize_objective(raw_value: Any) -> str:
+    value = str(raw_value or "").strip()
+    return value if value in STRATEGY_OBJECTIVES else "highest_reliability"
+
+
+def _strategy_key(
+    planner_choice: RoleChoice | None,
+    coder_choice: RoleChoice | None,
+    reviewer_choice: RoleChoice | None,
+) -> tuple[str | None, str | None, str | None]:
+    return (
+        planner_choice.model_id if planner_choice else None,
+        coder_choice.model_id if coder_choice else None,
+        reviewer_choice.model_id if reviewer_choice else None,
+    )
+
+
+def _estimate_strategy(
+    objective: str,
+    stages: list[str],
+    neighbors: pd.DataFrame,
+    features: dict[str, Any],
+    planner_choice: RoleChoice | None,
+    coder_choice: RoleChoice | None,
+    reviewer_choice: RoleChoice | None,
+) -> StrategyCandidate:
+    role_choices = {
+        "planner": planner_choice,
+        "coder": coder_choice,
+        "reviewer": reviewer_choice,
+    }
+    matched = _matching_strategy_rows(neighbors, role_choices)
+    support = int(len(matched))
+    evidence = matched if not matched.empty else neighbors
+    success = _estimate_success_under_budget(evidence, role_choices)
+    cost = _estimate_strategy_cost(evidence, role_choices, features)
+    duration = _estimate_strategy_duration(evidence)
+    confidence = _estimate_strategy_confidence(neighbors, role_choices, support)
+    rationale = (
+        f"Estimated {objective} strategy from {support} exact route match(es) "
+        f"across {len(neighbors)} nearest Wavemill router row(s)."
+    )
+    return StrategyCandidate(
+        objective=objective,
+        planner_model=planner_choice.model_id if planner_choice else None,
+        coder_model=coder_choice.model_id if coder_choice else None,
+        reviewer_model=reviewer_choice.model_id if reviewer_choice else None,
+        stages=stages,
+        estimated_success_under_budget=success,
+        estimated_cost_usd=cost,
+        estimated_duration_seconds=duration,
+        confidence=confidence,
+        support=support,
+        rationale=rationale,
+    )
+
+
+def _matching_strategy_rows(
+    rows: pd.DataFrame,
+    role_choices: dict[str, RoleChoice | None],
+) -> pd.DataFrame:
+    if rows.empty:
+        return rows
+    mask = pd.Series(True, index=rows.index)
+    for role, choice in role_choices.items():
+        if choice is None:
+            continue
+        mask &= rows[ROLE_COLUMNS[role]].astype(str) == choice.model_id
+    return rows[mask]
+
+
+def _estimate_success_under_budget(
+    rows: pd.DataFrame,
+    role_choices: dict[str, RoleChoice | None],
+) -> float:
+    if not rows.empty:
+        success_values = rows["completed_successfully"].map(_coerce_bool)
+        if "under_budget" in rows.columns:
+            budget_values = rows["under_budget"].map(_coerce_bool)
+            success_values = success_values & budget_values
+        success = float(success_values.mean()) if len(success_values) else 0.5
+        quality = _mean_number(rows["score"], default=success)
+        return round(_clamp(0.7 * success + 0.3 * quality, 0.0, 1.0), 6)
+
+    choices = [choice for choice in role_choices.values() if choice is not None]
+    if not choices:
+        return 0.35
+    success = sum(choice.expected_success for choice in choices) / len(choices)
+    return round(_clamp(success, 0.0, 1.0), 6)
+
+
+def _estimate_strategy_cost(
+    rows: pd.DataFrame,
+    role_choices: dict[str, RoleChoice | None],
+    features: dict[str, Any],
+) -> float:
+    if not rows.empty:
+        cost = _median_number(rows["actual_cost_usd"])
+        if cost is None:
+            cost = _median_number(rows["expected_cost_usd"])
+        if cost is not None:
+            return round(max(0.0, float(cost)), 6)
+
+    costs = [
+        choice.estimated_cost_usd
+        for choice in role_choices.values()
+        if choice is not None and choice.estimated_cost_usd is not None
+    ]
+    cost = sum(costs) / len(costs) if costs else _feature_float(features, "expected_cost_usd")
+    return round(max(0.0, float(cost or 0.0)), 6)
+
+
+def _estimate_strategy_duration(rows: pd.DataFrame) -> float | None:
+    if rows.empty or "actual_time_seconds" not in rows.columns:
+        return None
+    duration = _median_number(rows["actual_time_seconds"])
+    return round(max(0.0, float(duration)), 6) if duration is not None else None
+
+
+def _estimate_strategy_confidence(
+    neighbors: pd.DataFrame,
+    role_choices: dict[str, RoleChoice | None],
+    support: int,
+) -> float:
+    active_choices = [choice for choice in role_choices.values() if choice is not None]
+    if not active_choices:
+        return 0.35
+    support_ratio = min(support / max(len(neighbors), 1), 1.0)
+    role_support = sum(choice.support for choice in active_choices)
+    role_support_ratio = min(role_support / max(len(neighbors) * len(active_choices), 1), 1.0)
+    mean_score = sum(choice.score for choice in active_choices) / len(active_choices)
+    confidence = 0.20 + 0.35 * support_ratio + 0.25 * role_support_ratio + 0.20 * mean_score
+    return round(_clamp(confidence, 0.0, 0.99), 6)
+
+
+def _strategy_sort_key(candidate: StrategyCandidate, objective: str) -> tuple[float, ...]:
+    duration = candidate.estimated_duration_seconds
+    duration_sort = duration if duration is not None else float("inf")
+    if objective == "lowest_cost":
+        return (
+            candidate.estimated_cost_usd,
+            -candidate.estimated_success_under_budget,
+            -candidate.confidence,
+        )
+    if objective == "fastest_completion":
+        return (
+            duration_sort,
+            candidate.estimated_cost_usd,
+            -candidate.estimated_success_under_budget,
+        )
+    return (
+        -candidate.estimated_success_under_budget,
+        -candidate.confidence,
+        candidate.estimated_cost_usd,
+    )
+
+
+def _recommended_strategy(
+    strategies: dict[str, list[StrategyCandidate]],
+    objective: str,
+) -> StrategyCandidate:
+    selected = strategies.get(objective) or strategies["highest_reliability"]
+    if selected:
+        return selected[0]
+    raise ValueError("No feasible routing strategies could be generated")
+
+
+def _strategy_alternatives(
+    strategies: dict[str, list[StrategyCandidate]],
+    recommended: StrategyCandidate,
+) -> list[StrategyCandidate]:
+    alternatives: list[StrategyCandidate] = []
+    seen = {_public_strategy_key(recommended)}
+    for objective in STRATEGY_OBJECTIVES:
+        for candidate in strategies[objective][:3]:
+            key = _public_strategy_key(candidate)
+            if key in seen:
+                continue
+            alternatives.append(candidate)
+            seen.add(key)
+            break
+    return alternatives[:3]
+
+
+def _public_strategy_key(
+    strategy: StrategyCandidate,
+) -> tuple[str | None, str | None, str | None, tuple[str, ...]]:
+    return (
+        strategy.planner_model,
+        strategy.coder_model,
+        strategy.reviewer_model,
+        tuple(strategy.stages),
+    )
+
+
+def _nearest_neighbors_summary(neighbors: pd.DataFrame) -> dict[str, Any]:
+    success_rate = _mean_bool(neighbors["completed_successfully"], default=0.0)
+    if "under_budget" in neighbors.columns:
+        budget_rate = _mean_bool(neighbors["under_budget"], default=0.0)
+        success_rate = (success_rate + budget_rate) / 2.0
+    mean_cost = _mean_number(neighbors["actual_cost_usd"], default=0.0)
+    mean_duration = (
+        _mean_number(neighbors["actual_time_seconds"], default=0.0)
+        if "actual_time_seconds" in neighbors.columns
+        else None
+    )
+    return {
+        "count": int(len(neighbors)),
+        "success_under_budget_rate": round(_clamp(success_rate, 0.0, 1.0), 6),
+        "mean_cost_usd": round(max(0.0, mean_cost), 6),
+        "mean_duration_seconds": round(max(0.0, mean_duration), 6)
+        if mean_duration is not None
+        else None,
+    }
 
 
 def _estimate_route_cost(

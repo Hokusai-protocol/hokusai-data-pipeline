@@ -87,6 +87,7 @@ def _sample_features() -> pd.DataFrame:
                 "security_sensitive": False,
                 "surface": "wavemill",
                 "workflow_stages": '["plan","code","review"]',
+                "routing_objective": "highest_reliability",
                 "expected_cost_usd": 5.0,
                 "expected_success_probability": 0.8,
             }

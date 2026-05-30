@@ -42,6 +42,11 @@ The schema version sentinel is `"technical_task_router_row/v1"`.
 | Field | Type | Description |
 |---|---|---|
 | `metadata` | object | Additional context that does not affect scoring. |
+| `estimated_cost_usd` | number | Router-estimated workflow cost. Used only by diagnostics. |
+| `actual_time_seconds` | number | Observed workflow duration. Used only by diagnostics. |
+| `estimated_duration_seconds` | number | Router-estimated workflow duration. Used only by diagnostics. |
+| `estimated_success_under_budget` | number | Router-estimated probability of successful completion within budget. Used only by diagnostics. |
+| `routing_objective` | enum | One of `lowest_cost`, `fastest_completion`, or `highest_reliability`. Used only by objective-specific diagnostics. |
 
 ## Two-Stage Scoring
 
@@ -72,9 +77,22 @@ the dataset. Empty scorer input returns `0.0`.
 | `technical_task_router.feasibility/v1` | `technical_task_router.feasibility_v1` | Feasible rows / total rows. |
 | `technical_task_router.success_under_budget/v1` | `technical_task_router.success_under_budget_v1` | Feasible and completed rows / total rows. |
 | `technical_task_router.benchmark_score/v1` | `technical_task_router.benchmark_score_v1` | Primary score; identical computation to success under budget. |
+| `technical_task_router.invalid_selection_rate/v1` | `technical_task_router.invalid_selection_rate_v1` | Rows where `selected_models` is not a subset of `allowed_models` / total rows. Diagnostic; expected to be zero. |
+| `technical_task_router.cost_mae_usd/v1` | `technical_task_router.cost_mae_usd_v1` | Mean absolute error between `estimated_cost_usd` and `actual_cost_usd`. Diagnostic. |
+| `technical_task_router.duration_mae_seconds/v1` | `technical_task_router.duration_mae_seconds_v1` | Mean absolute error between `estimated_duration_seconds` and `actual_time_seconds`. Diagnostic. |
+| `technical_task_router.reliability_brier_score/v1` | `technical_task_router.reliability_brier_score_v1` | Brier score for `estimated_success_under_budget` against observed success under budget. Diagnostic; lower is better. |
+| `technical_task_router.lowest_cost_success_under_budget/v1` | `technical_task_router.lowest_cost_success_under_budget_v1` | Success-under-budget rate for rows with `routing_objective=lowest_cost`. Diagnostic. |
+| `technical_task_router.fastest_completion_success_under_budget/v1` | `technical_task_router.fastest_completion_success_under_budget_v1` | Success-under-budget rate for rows with `routing_objective=fastest_completion`. Diagnostic. |
+| `technical_task_router.highest_reliability_success_under_budget/v1` | `technical_task_router.highest_reliability_success_under_budget_v1` | Success-under-budget rate for rows with `routing_objective=highest_reliability`. Diagnostic. |
 
-All three scorers consume the same full list of `technical_task_router_row/v1` rows. Unlike
-sales outcome rows, task-router rows are not filtered per scorer.
+All task-router scorers consume the same full list of `technical_task_router_row/v1` rows. Unlike
+sales outcome rows, task-router rows are not filtered by `scorer_ref`; objective-specific
+diagnostics filter internally by `routing_objective`.
+
+`technical_task_router.success_under_budget/v1` remains the promotion and reward-gating metric.
+The additional metrics are diagnostics for strategy routing, cost/speed estimates, reliability
+calibration, and API constraint compliance. They can fail a promotion as guardrails, but they do
+not replace the primary benchmark score.
 
 ## EvalSpec Example
 

@@ -92,6 +92,8 @@ Normalization accepts common aliases from the model output:
 
 There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures return `503` with a `Model 30 MLflow inference failed` prefix.
 
+The callable MLflow artifact now also emits the v2 strategy router payload. Until the predict endpoint normalizer is switched, the public API still returns the legacy fields above.
+
 The v2 public response contract for the strategy router is:
 
 ```json

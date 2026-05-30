@@ -70,12 +70,46 @@ def test_load_context_loads_router_dataset_artifact() -> None:
         "confidence",
         "rationale",
         "estimated_cost_usd",
+        "recommended_strategy",
+        "alternatives",
+        "tradeoffs",
+        "nearest_neighbors",
     ]
     assert result.iloc[0]["selected_model"] == "claude-sonnet-4-6"
     assert result.iloc[0]["selected_models"] == ["claude-sonnet-4-6"]
     assert 0.0 <= result.iloc[0]["confidence"] <= 1.0
     assert result.iloc[0]["estimated_cost_usd"] > 0
     assert "nearest Wavemill router row" in result.iloc[0]["rationale"]
+    assert result.iloc[0]["recommended_strategy"]["objective"] == "highest_reliability"
+    assert result.iloc[0]["nearest_neighbors"]["count"] == 2
+
+
+def test_strategy_router_respects_available_models_and_requested_stages() -> None:
+    model = _loaded_model()
+    features = _feature_frame()
+    features.loc[0, "available_planner_models"] = '["gpt-5.4"]'
+    features.loc[0, "available_coder_models"] = '["gpt-5.4"]'
+    features.loc[0, "available_reviewer_models"] = '["claude-sonnet-4-6"]'
+    features.loc[0, "workflow_stages"] = '["code"]'
+    features.loc[0, "routing_objective"] = "lowest_cost"
+
+    result = model.predict(None, features)
+    strategy = result.iloc[0]["recommended_strategy"]
+
+    assert strategy["objective"] == "lowest_cost"
+    assert strategy["stages"] == ["code"]
+    assert strategy["planner_model"] is None
+    assert strategy["reviewer_model"] is None
+    assert strategy["coder_model"] == "gpt-5.4"
+    assert set(result.iloc[0]["selected_models"]) <= {"gpt-5.4"}
+    assert strategy["estimated_cost_usd"] >= 0
+    assert 0 <= strategy["estimated_success_under_budget"] <= 1
+    assert 0 <= strategy["confidence"] <= 1
+    assert set(result.iloc[0]["tradeoffs"]) == {
+        "lowest_cost",
+        "fastest_completion",
+        "highest_reliability",
+    }
 
 
 def test_registration_dataset_validation_accepts_public_model_ids() -> None:

@@ -51,6 +51,18 @@ _TASK_ROUTER_ROW_SCHEMA: dict = {
             },
             "max_cost_usd": {"type": "number", "exclusiveMinimum": 0},
             "actual_cost_usd": {"type": "number", "minimum": 0},
+            "estimated_cost_usd": {"type": "number", "minimum": 0},
+            "actual_time_seconds": {"type": "number", "minimum": 0},
+            "estimated_duration_seconds": {"type": "number", "minimum": 0},
+            "estimated_success_under_budget": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+            },
+            "routing_objective": {
+                "type": "string",
+                "enum": ["lowest_cost", "fastest_completion", "highest_reliability"],
+            },
             "completed_successfully": {"type": "boolean"},
         },
         "required": [
@@ -262,6 +274,93 @@ def _task_router_benchmark_score(rows: list[dict]) -> float:
     return _task_router_success_under_budget(rows)
 
 
+def _task_router_row_is_success_under_budget(row: dict) -> bool:
+    return _task_router_row_is_feasible(row) and row.get("completed_successfully") is True
+
+
+def _task_router_invalid_selection_rate(rows: list[dict]) -> float:
+    """Fraction of rows where one or more selected models are outside the allowed set."""
+    if not rows:
+        return 0.0
+
+    invalid_count = 0
+    for row in rows:
+        selected_models_raw = row.get("selected_models")
+        allowed_models_raw = row.get("allowed_models")
+        if not isinstance(selected_models_raw, list) or not isinstance(allowed_models_raw, list):
+            invalid_count += 1
+            continue
+        if not all(isinstance(model, str) for model in selected_models_raw + allowed_models_raw):
+            invalid_count += 1
+            continue
+        if not set(selected_models_raw).issubset(set(allowed_models_raw)):
+            invalid_count += 1
+    return invalid_count / len(rows)
+
+
+def _task_router_cost_mae_usd(rows: list[dict]) -> float:
+    """Mean absolute error between estimated_cost_usd and actual_cost_usd."""
+    errors = [
+        abs(float(row["estimated_cost_usd"]) - float(row["actual_cost_usd"]))
+        for row in rows
+        if _has_number(row, "estimated_cost_usd") and _has_number(row, "actual_cost_usd")
+    ]
+    return _mean(errors)
+
+
+def _task_router_duration_mae_seconds(rows: list[dict]) -> float:
+    """Mean absolute error between estimated_duration_seconds and actual_time_seconds."""
+    errors = [
+        abs(float(row["estimated_duration_seconds"]) - float(row["actual_time_seconds"]))
+        for row in rows
+        if _has_number(row, "estimated_duration_seconds")
+        and _has_number(row, "actual_time_seconds")
+    ]
+    return _mean(errors)
+
+
+def _task_router_reliability_brier_score(rows: list[dict]) -> float:
+    """Brier score for estimated_success_under_budget against observed benchmark success."""
+    errors = [
+        (
+            float(row["estimated_success_under_budget"])
+            - float(_task_router_row_is_success_under_budget(row))
+        )
+        ** 2
+        for row in rows
+        if _has_number(row, "estimated_success_under_budget")
+    ]
+    return _mean(errors)
+
+
+def _task_router_objective_success_under_budget(rows: list[dict], objective: str) -> float:
+    objective_rows = [row for row in rows if row.get("routing_objective") == objective]
+    return _task_router_success_under_budget(objective_rows)
+
+
+def _task_router_lowest_cost_success_under_budget(rows: list[dict]) -> float:
+    """Success-under-budget rate for rows routed with the lowest-cost objective."""
+    return _task_router_objective_success_under_budget(rows, "lowest_cost")
+
+
+def _task_router_fastest_completion_success_under_budget(rows: list[dict]) -> float:
+    """Success-under-budget rate for rows routed with the fastest-completion objective."""
+    return _task_router_objective_success_under_budget(rows, "fastest_completion")
+
+
+def _task_router_highest_reliability_success_under_budget(rows: list[dict]) -> float:
+    """Success-under-budget rate for rows routed with the highest-reliability objective."""
+    return _task_router_objective_success_under_budget(rows, "highest_reliability")
+
+
+def _has_number(row: dict, key: str) -> bool:
+    try:
+        float(row[key])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return True
+
+
 _OUTCOME_SCORERS = [
     ("mean", _mean, Aggregation.MEAN),
     ("sum", _sum, Aggregation.SUM),
@@ -371,6 +470,8 @@ _TASK_ROUTER_SCORERS = [
             "Fraction of technical task router rows where every selected model is allowed "
             "and actual_cost_usd is less than or equal to max_cost_usd."
         ),
+        Aggregation.PASS_RATE,
+        MetricFamily.OUTCOME,
     ),
     (
         "technical_task_router.success_under_budget/v1",
@@ -379,6 +480,8 @@ _TASK_ROUTER_SCORERS = [
             "Fraction of technical task router rows where the workflow is feasible and "
             "completed_successfully is true."
         ),
+        Aggregation.PASS_RATE,
+        MetricFamily.OUTCOME,
     ),
     (
         "technical_task_router.benchmark_score/v1",
@@ -388,17 +491,86 @@ _TASK_ROUTER_SCORERS = [
             "SuccessfulRunsWithinBudget / TotalRuns, where successful runs must select only "
             "allowed models, stay within max_cost_usd, and complete successfully."
         ),
+        Aggregation.PASS_RATE,
+        MetricFamily.OUTCOME,
+    ),
+    (
+        "technical_task_router.invalid_selection_rate/v1",
+        _task_router_invalid_selection_rate,
+        (
+            "Diagnostic fraction of technical task router rows where selected_models is not "
+            "a subset of allowed_models. Expected value is 0.0 for valid production routes."
+        ),
+        Aggregation.PASS_RATE,
+        MetricFamily.OUTCOME,
+    ),
+    (
+        "technical_task_router.cost_mae_usd/v1",
+        _task_router_cost_mae_usd,
+        (
+            "Diagnostic mean absolute error in USD between estimated_cost_usd and "
+            "actual_cost_usd. Rows without both values are excluded."
+        ),
+        Aggregation.MEAN,
+        MetricFamily.QUALITY,
+    ),
+    (
+        "technical_task_router.duration_mae_seconds/v1",
+        _task_router_duration_mae_seconds,
+        (
+            "Diagnostic mean absolute error in seconds between estimated_duration_seconds "
+            "and actual_time_seconds. Rows without both values are excluded."
+        ),
+        Aggregation.MEAN,
+        MetricFamily.QUALITY,
+    ),
+    (
+        "technical_task_router.reliability_brier_score/v1",
+        _task_router_reliability_brier_score,
+        (
+            "Diagnostic Brier score for estimated_success_under_budget against observed "
+            "success-under-budget. Lower values indicate better reliability calibration."
+        ),
+        Aggregation.MEAN,
+        MetricFamily.QUALITY,
+    ),
+    (
+        "technical_task_router.lowest_cost_success_under_budget/v1",
+        _task_router_lowest_cost_success_under_budget,
+        "Diagnostic success-under-budget rate for rows routed with objective=lowest_cost.",
+        Aggregation.PASS_RATE,
+        MetricFamily.OUTCOME,
+    ),
+    (
+        "technical_task_router.fastest_completion_success_under_budget/v1",
+        _task_router_fastest_completion_success_under_budget,
+        (
+            "Diagnostic success-under-budget rate for rows routed with "
+            "objective=fastest_completion."
+        ),
+        Aggregation.PASS_RATE,
+        MetricFamily.OUTCOME,
+    ),
+    (
+        "technical_task_router.highest_reliability_success_under_budget/v1",
+        _task_router_highest_reliability_success_under_budget,
+        (
+            "Diagnostic success-under-budget rate for rows routed with "
+            "objective=highest_reliability."
+        ),
+        Aggregation.PASS_RATE,
+        MetricFamily.OUTCOME,
     ),
 ]
 
-for _ref, _fn, _desc in _TASK_ROUTER_SCORERS:
+for _ref, _fn, _desc, _agg, _family in _TASK_ROUTER_SCORERS:
     register_scorer(
         _ref,
         callable_=_fn,
         version="1.0.0",
         input_schema=_TASK_ROUTER_ROW_SCHEMA,
         output_metric_keys=(_ref,),
-        metric_family=MetricFamily.OUTCOME,
-        aggregation=Aggregation.PASS_RATE,
+        metric_family=_family,
+        aggregation=_agg,
         description=_desc,
     )

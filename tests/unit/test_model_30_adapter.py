@@ -279,6 +279,8 @@ def test_router_features_curated_fixture() -> None:
         "security_sensitive": True,
         "repo_size_bucket": "large",
         "surface": "wavemill",
+        "workflow_stages": ["plan", "code", "review"],
+        "routing_objective": "highest_reliability",
         "is_greenfield": True,
         "is_migration": True,
         "cross_service": True,

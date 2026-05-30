@@ -43,6 +43,8 @@ ROUTER_FEATURE_COLUMNS: tuple[str, ...] = (
     "security_sensitive",
     "repo_size_bucket",
     "surface",
+    "workflow_stages",
+    "routing_objective",
     "is_greenfield",
     "is_migration",
     "cross_service",
@@ -147,6 +149,10 @@ def map_nested_to_router_features(validated: TechnicalTaskRouterInputs) -> dict[
         "security_sensitive": context.security_sensitive if context else None,
         "repo_size_bucket": context.repo_size_bucket if context else None,
         "surface": workflow.surface if workflow else None,
+        "workflow_stages": [stage.value for stage in workflow.stages]
+        if workflow and workflow.stages
+        else None,
+        "routing_objective": routing.objective.value if routing else None,
         **_detect_boolean_flags(description),
     }
 

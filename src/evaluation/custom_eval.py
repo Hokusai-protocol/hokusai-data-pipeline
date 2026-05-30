@@ -90,6 +90,9 @@ def is_genai_spec(spec: RuntimeAdapterSpec) -> bool:
     """Return True if any scorer ref implies LLM-judge cost."""
     from src.evaluation.scorers.registry import UnknownScorerError, resolve_scorer
 
+    if _has_direct_sales_scorer_refs(spec) or _has_direct_task_router_scorer_refs(spec):
+        return False
+
     refs = _all_scorer_refs(spec)
     for ref in refs:
         if ref.startswith("genai:") or ref.startswith("judge:"):
