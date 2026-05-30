@@ -233,6 +233,50 @@ def test_registration_logs_dataset_provenance_to_mlflow() -> None:
     log_dict.assert_called_once()
 
 
+def test_registration_logs_holdout_evaluation_metrics_to_mlflow() -> None:
+    class RunContext:
+        def __enter__(self: RunContext) -> SimpleNamespace:
+            return SimpleNamespace(info=SimpleNamespace(run_id="run-123"))
+
+        def __exit__(self: RunContext, *args: Any) -> None:
+            return None
+
+    args = SimpleNamespace(
+        router_dataset=str(FIXTURE),
+        holdout_dataset=str(FIXTURE),
+        evaluation_objectives="highest_reliability",
+        tracking_uri=None,
+        experiment_name="technical-task-router-test",
+        run_name="test-run",
+        k_neighbors=2,
+        smoke=False,
+    )
+    model_info = SimpleNamespace(model_uri="runs:/run-123/model", registered_model_version="7")
+
+    with (
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_experiment"),
+        patch("scripts.model_30.register_technical_task_router.mlflow.start_run") as start_run,
+        patch("scripts.model_30.register_technical_task_router.mlflow.log_param"),
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_tag") as set_tag,
+        patch("scripts.model_30.register_technical_task_router.mlflow.log_metric") as log_metric,
+        patch("scripts.model_30.register_technical_task_router.mlflow.log_dict") as log_dict,
+        patch(
+            "scripts.model_30.register_technical_task_router.mlflow.pyfunc.log_model",
+            return_value=model_info,
+        ),
+    ):
+        start_run.return_value = RunContext()
+        result = register_model(args)
+
+    logged_metrics = {call.args[0]: call.args[1] for call in log_metric.call_args_list}
+    logged_tags = {call.args[0]: call.args[1] for call in set_tag.call_args_list}
+    assert result["evaluation_report"]["row_counts"]["evaluated_rows"] == 3
+    assert "technical_task_router.benchmark_score_v1" in logged_metrics
+    assert logged_tags["hokusai.model_30.holdout_rows"] == "3"
+    assert logged_tags["hokusai.model_30.quarantined_rows"] == "0"
+    assert log_dict.call_count == 2
+
+
 def test_clean_router_dataset_merges_removes_available_fakes_and_drops_bad_labels(
     tmp_path: Path,
 ) -> None:

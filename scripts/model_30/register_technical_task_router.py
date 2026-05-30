@@ -29,6 +29,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.model_30.evaluate_technical_task_router import (  # noqa: E402
+    evaluate_model,
+    parse_objectives,
+)
 from src.models.technical_task_router import (  # noqa: E402
     MODEL_NAME,
     ROUTER_DATASET_ARTIFACT,
@@ -215,6 +219,16 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
         )()
     )
     local_model.predict(None, sample_features)
+    evaluation_report = None
+    holdout_dataset = getattr(args, "holdout_dataset", None)
+    if holdout_dataset:
+        holdout_path = Path(holdout_dataset).expanduser().resolve()
+        evaluation_report = evaluate_model(
+            local_model,
+            model_id=MODEL_NAME,
+            holdout_path=holdout_path,
+            objectives=parse_objectives(getattr(args, "evaluation_objectives", "all")),
+        )
 
     with mlflow.start_run(run_name=args.run_name) as run:
         mlflow.log_param("model_name", MODEL_NAME)
@@ -231,6 +245,25 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
         mlflow.set_tag("hokusai.dataset.num_samples", str(dataset_summary.row_count))
         mlflow.set_tag("hokusai.dataset.source", "wavemill-router-export")
         mlflow.log_dict(dataset_summary.to_mlflow_dict(), "router_dataset_summary.json")
+        if evaluation_report is not None:
+            for metric_name, metric_value in evaluation_report["metrics"].items():
+                mlflow.log_metric(metric_name, float(metric_value))
+            mlflow.set_tag(
+                "hokusai.model_30.holdout_hash",
+                evaluation_report["holdout_dataset_sha256"],
+            )
+            mlflow.set_tag(
+                "hokusai.model_30.holdout_rows",
+                str(evaluation_report["row_counts"]["evaluated_rows"]),
+            )
+            mlflow.set_tag(
+                "hokusai.model_30.quarantined_rows",
+                str(evaluation_report["row_counts"]["quarantined_rows"]),
+            )
+            mlflow.log_dict(
+                {key: value for key, value in evaluation_report.items() if key != "benchmark_rows"},
+                "model_30_evaluation_report.json",
+            )
         # Do not log a strict signature: the public adapter sends nullable
         # optional columns, and the router normalizes them inside predict().
         model_info = mlflow.pyfunc.log_model(
@@ -258,6 +291,10 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
         loaded = mlflow.pyfunc.load_model(model_uri)
         prediction = loaded.predict(sample_features)
         result["smoke_prediction"] = prediction.to_dict(orient="records")
+    if evaluation_report is not None:
+        result["evaluation_report"] = {
+            key: value for key, value in evaluation_report.items() if key != "benchmark_rows"
+        }
 
     return result
 
@@ -274,6 +311,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--experiment-name")
     parser.add_argument("--run-name", default="technical-task-router-callable")
     parser.add_argument("--k-neighbors", type=int, default=40)
+    parser.add_argument(
+        "--holdout-dataset",
+        help=(
+            "Optional cleaned holdout CSV. Logs Model 30 benchmark diagnostics "
+            "during registration."
+        ),
+    )
+    parser.add_argument(
+        "--evaluation-objectives",
+        default="all",
+        help="Routing objectives to evaluate: all or comma-separated objective names.",
+    )
     parser.add_argument(
         "--smoke",
         action="store_true",

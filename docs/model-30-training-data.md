@@ -70,6 +70,35 @@ Clean registrations log:
 - `hokusai.dataset.source`
 - `router_dataset_summary.json`
 
+When a validated holdout is available, include it during registration so the run also logs the
+Model 30 baseline metrics:
+
+```sh
+python scripts/model_30/register_technical_task_router.py \
+  --router-dataset data/model_30/hokusai-router-dataset.clean.csv \
+  --holdout-dataset data/model_30/hokusai-router-holdout.clean.csv
+```
+
+The holdout evaluator rejects invalid benchmark rows before scoring. Rows with missing or
+nonpositive `max_cost_usd`, missing observed outcomes, invalid costs, or historical selected
+models outside the row's available model set are quarantined and counted in the evaluation report.
+They are not silently treated as zero-budget failures.
+
+To compare a candidate model against a baseline for contributor reward decisions:
+
+```sh
+python scripts/model_30/evaluate_technical_task_router.py \
+  --holdout-dataset data/model_30/hokusai-router-holdout.clean.csv \
+  --baseline-model-uri "models:/Technical Task Router/4" \
+  --candidate-model-uri "models:/Technical Task Router/5" \
+  --output-report data/model_30/model-30-candidate-comparison.json \
+  --log-mlflow
+```
+
+The comparison report includes baseline metrics, candidate metrics, deltas, the primary
+`technical_task_router.benchmark_score_v1` delta, and diagnostic guardrail deltas for invalid
+selection rate, cost error, duration error, and reliability calibration.
+
 ## Checked-In Clean Fixture
 
 The unit fixture at `tests/unit/models/technical_task_router_fixture.csv` is intentionally small but fully valid:
