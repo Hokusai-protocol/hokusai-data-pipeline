@@ -451,6 +451,62 @@ def test_v2_prediction_response_schema_accepts_strategy_tradeoff_payload() -> No
     assert parsed.nearest_neighbors.count == 40
 
 
+def test_normalize_v2_output_strips_internal_strategy_support() -> None:
+    raw = {
+        "recommended_strategy": {
+            "objective": "highest_reliability",
+            "planner_model": "claude-sonnet-4-6",
+            "coder_model": "gpt-5.4",
+            "reviewer_model": "claude-sonnet-4-6",
+            "stages": ["plan", "code", "review"],
+            "estimated_success_under_budget": 0.82,
+            "estimated_cost_usd": 4.8,
+            "confidence": 0.71,
+            "support": 3,
+        },
+        "alternatives": [
+            {
+                "objective": "lowest_cost",
+                "coder_model": "gpt-5.4",
+                "stages": ["code"],
+                "estimated_success_under_budget": 0.62,
+                "estimated_cost_usd": 1.2,
+                "confidence": 0.54,
+                "support": 1,
+            }
+        ],
+        "tradeoffs": {
+            "lowest_cost": {
+                "objective": "lowest_cost",
+                "coder_model": "gpt-5.4",
+                "stages": ["code"],
+                "estimated_success_under_budget": 0.62,
+                "estimated_cost_usd": 1.2,
+                "confidence": 0.54,
+                "support": 1,
+            },
+            "fastest_completion": None,
+            "highest_reliability": {
+                "objective": "highest_reliability",
+                "coder_model": "gpt-5.4",
+                "stages": ["code"],
+                "estimated_success_under_budget": 0.82,
+                "estimated_cost_usd": 4.8,
+                "confidence": 0.71,
+                "support": 3,
+            },
+        },
+        "nearest_neighbors": {"count": 3},
+    }
+    validated = model_30_adapter.validate_nested_model_30_inputs(_full_inputs())
+
+    normalized = model_30_adapter.normalize_model_30_output(raw, validated)
+
+    assert "support" not in normalized["recommended_strategy"]
+    assert "support" not in normalized["alternatives"][0]
+    assert "support" not in normalized["tradeoffs"]["lowest_cost"]
+
+
 def test_normalize_output_handles_dataframe() -> None:
     raw = pd.DataFrame(
         [
