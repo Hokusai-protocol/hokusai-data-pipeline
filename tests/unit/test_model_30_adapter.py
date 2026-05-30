@@ -468,12 +468,15 @@ def test_normalize_output_handles_dataframe() -> None:
         model_30_adapter.validate_nested_model_30_inputs(_minimal_inputs()),
     )
 
-    assert normalized == {
-        "selected_model": "claude-sonnet-4-6",
-        "selected_models": ["claude-sonnet-4-6"],
-        "confidence": 0.91,
-        "rationale": "best match",
-        "estimated_cost_usd": 0.42,
+    assert normalized["recommended_strategy"]["coder_model"] == "claude-sonnet-4-6"
+    assert normalized["recommended_strategy"]["confidence"] == 0.91
+    assert normalized["recommended_strategy"]["estimated_cost_usd"] == 0.42
+    assert normalized["tradeoffs"]["highest_reliability"] is not None
+    assert normalized["nearest_neighbors"] == {
+        "count": 0,
+        "success_under_budget_rate": None,
+        "mean_cost_usd": None,
+        "mean_duration_seconds": None,
     }
 
 
@@ -483,8 +486,8 @@ def test_normalize_output_handles_list_of_dicts() -> None:
         model_30_adapter.validate_nested_model_30_inputs(_minimal_inputs()),
     )
 
-    assert normalized["selected_model"] == "gpt-5.4"
-    assert normalized["confidence"] == 0.75
+    assert normalized["recommended_strategy"]["coder_model"] == "gpt-5.4"
+    assert normalized["recommended_strategy"]["confidence"] == 0.75
 
 
 def test_normalize_output_handles_single_dict() -> None:
@@ -493,8 +496,8 @@ def test_normalize_output_handles_single_dict() -> None:
         model_30_adapter.validate_nested_model_30_inputs(_minimal_inputs()),
     )
 
-    assert normalized["selected_models"] == ["gpt-5.4"]
-    assert normalized["estimated_cost_usd"] == 0.25
+    assert normalized["recommended_strategy"]["coder_model"] == "gpt-5.4"
+    assert normalized["recommended_strategy"]["estimated_cost_usd"] == 0.25
 
 
 def test_normalize_output_handles_ndarray_or_scalar_model_id() -> None:
@@ -506,8 +509,83 @@ def test_normalize_output_handles_ndarray_or_scalar_model_id() -> None:
     )
     scalar_normalized = model_30_adapter.normalize_model_30_output("gpt-5.4", validated)
 
-    assert array_normalized["selected_model"] == "deepseek-reasoner"
-    assert scalar_normalized["selected_model"] == "gpt-5.4"
+    assert array_normalized["recommended_strategy"]["coder_model"] == "deepseek-reasoner"
+    assert scalar_normalized["recommended_strategy"]["coder_model"] == "gpt-5.4"
+
+
+def test_normalize_output_preserves_v2_strategy_payload() -> None:
+    raw = pd.DataFrame(
+        [
+            {
+                "recommended_strategy": {
+                    "objective": "highest_reliability",
+                    "planner_model": "claude-sonnet-4-6",
+                    "coder_model": "gpt-5.4",
+                    "reviewer_model": "claude-sonnet-4-6",
+                    "stages": ["plan", "code", "review"],
+                    "estimated_success_under_budget": 0.82,
+                    "estimated_cost_usd": 4.8,
+                    "estimated_duration_seconds": 1800,
+                    "confidence": 0.71,
+                },
+                "alternatives": [],
+                "tradeoffs": {
+                    "lowest_cost": None,
+                    "fastest_completion": None,
+                    "highest_reliability": {
+                        "objective": "highest_reliability",
+                        "planner_model": "claude-sonnet-4-6",
+                        "coder_model": "gpt-5.4",
+                        "reviewer_model": "claude-sonnet-4-6",
+                        "stages": ["plan", "code", "review"],
+                        "estimated_success_under_budget": 0.82,
+                        "estimated_cost_usd": 4.8,
+                        "confidence": 0.71,
+                    },
+                },
+                "nearest_neighbors": {
+                    "count": 40,
+                    "success_under_budget_rate": 0.78,
+                    "mean_cost_usd": 4.4,
+                    "mean_duration_seconds": 1650,
+                },
+            }
+        ]
+    )
+
+    normalized = model_30_adapter.normalize_model_30_output(
+        raw,
+        model_30_adapter.validate_nested_model_30_inputs(_full_inputs()),
+    )
+
+    assert normalized["recommended_strategy"]["coder_model"] == "gpt-5.4"
+    assert normalized["alternatives"] == []
+    assert normalized["nearest_neighbors"]["count"] == 40
+
+
+def test_normalize_output_rejects_fake_model_ids() -> None:
+    raw = {
+        "recommended_strategy": {
+            "objective": "highest_reliability",
+            "coder_model": "deep-coder-v2",
+            "stages": ["code"],
+            "estimated_success_under_budget": 0.82,
+            "estimated_cost_usd": 4.8,
+            "confidence": 0.71,
+        },
+        "tradeoffs": {
+            "lowest_cost": None,
+            "fastest_completion": None,
+            "highest_reliability": None,
+        },
+        "nearest_neighbors": {"count": 40},
+    }
+
+    with pytest.raises(ValueError, match="non-public"):
+        model_30_adapter.normalize_model_30_output(
+            raw,
+            model_30_adapter.validate_nested_model_30_inputs(_full_inputs()),
+        )
 
 
 def test_normalize_output_rejects_empty_output() -> None:

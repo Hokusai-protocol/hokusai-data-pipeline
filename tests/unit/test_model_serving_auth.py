@@ -237,7 +237,7 @@ class TestModelServingAuth:
 
         assert response.status_code == 200
         assert response.json()["model_id"] == "30"
-        assert response.json()["predictions"]["selected_model"] == "gpt-5.4"
+        assert response.json()["predictions"]["recommended_strategy"]["coder_model"] == "gpt-5.4"
 
 
 class TestAuthMiddlewareIntegration:

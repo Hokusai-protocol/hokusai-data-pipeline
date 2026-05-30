@@ -65,10 +65,10 @@ def test_live_model_30_mlflow_prediction_round_trip() -> None:
     payload = _load_json_fixture("model_30_curated_payload.json")
     normalized = _load_predict_and_normalize_model_30(payload, mlflow_module=mlflow)
 
-    assert normalized["selected_model"]
-    assert normalized["selected_models"]
-    assert isinstance(normalized["confidence"], float)
-    assert isinstance(normalized["estimated_cost_usd"], float)
+    assert normalized["recommended_strategy"]["coder_model"]
+    assert isinstance(normalized["recommended_strategy"]["confidence"], float)
+    assert isinstance(normalized["recommended_strategy"]["estimated_cost_usd"], float)
+    assert "tradeoffs" in normalized
 
 
 def test_model_30_predict_emits_single_latency_trace_record(caplog) -> None:

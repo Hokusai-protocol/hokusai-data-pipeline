@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from src.api.dependencies import get_contributor_logger
 from src.api.endpoints import model_serving
 from src.api.endpoints.model_30_adapter import (
+    DEFAULT_MODEL_30_MLFLOW_URI,
     MODEL_30_SCHEMA,
     MODEL_30_VERSION,
     reset_model_30_cache,
@@ -144,7 +145,7 @@ def test_get_model_config_model_30_returns_router_config() -> None:
     assert config["inference_method"] == "mlflow_pyfunc"
     assert config["model_version"] == MODEL_30_VERSION
     assert config["schema"] == MODEL_30_SCHEMA
-    assert config["model_uri"] == "models:/Technical Task Router/4"
+    assert config["model_uri"] == DEFAULT_MODEL_30_MLFLOW_URI
 
 
 def test_get_model_config_unknown_model_raises_404() -> None:
@@ -197,7 +198,7 @@ def test_model_30_info_endpoint_returns_mlflow_metadata(client: TestClient) -> N
         "max_batch_size": 1,
         "model_type": "technical_task_router",
         "storage_type": "mlflow",
-        "model_uri": "models:/Technical Task Router/4",
+        "model_uri": DEFAULT_MODEL_30_MLFLOW_URI,
         "model_version": MODEL_30_VERSION,
         "schema": MODEL_30_SCHEMA,
         "description": "MLflow-backed router for nested technical task inputs.",
@@ -227,7 +228,7 @@ def test_model_30_health_endpoint_reflects_mlflow_cache(client: TestClient) -> N
         "inference_ready": True,
         "readiness": {
             "checked": False,
-            "model_uri": "models:/Technical Task Router/4",
+            "model_uri": DEFAULT_MODEL_30_MLFLOW_URI,
             "status": "cached",
         },
         "mlflow_sdk": {
@@ -304,7 +305,7 @@ def test_model_30_predict_minimal_payload_uses_adapter_path(client: TestClient) 
     body = response.json()
     assert body["model_id"] == "30"
     assert body["predictions"] == normalized_output
-    assert body["metadata"]["model_uri"] == "models:/Technical Task Router/4"
+    assert body["metadata"]["model_uri"] == DEFAULT_MODEL_30_MLFLOW_URI
     assert body["metadata"]["model_version"] == MODEL_30_VERSION
     assert body["metadata"]["schema"] == MODEL_30_SCHEMA
     assert body["metadata"]["inference_method"] == "mlflow_pyfunc"

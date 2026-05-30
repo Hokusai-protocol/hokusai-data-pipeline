@@ -63,7 +63,7 @@ Training data validation and provenance requirements are documented in [Model 30
 
 Environment variables:
 
-- `MODEL_30_MLFLOW_URI` defaults to `models:/Technical Task Router/4`
+- `MODEL_30_MLFLOW_URI` defaults to `models:/Technical Task Router@production`
 - `MLFLOW_TRACKING_URI` must point at the registry/tracking server
 - Any auth token or mTLS environment expected by the deployed MLflow stack must also be present
 
@@ -71,30 +71,7 @@ The API startup path already configures MLflow mTLS behavior in `src/api/main.py
 
 ## Adapter Behavior
 
-The current serving path validates the nested request, maps it into a one-row pandas feature frame, calls `mlflow.pyfunc.load_model(model_uri).predict(...)`, then normalizes raw output into the legacy model-30 response:
-
-```json
-{
-  "selected_model": "claude-sonnet-4-6",
-  "selected_models": ["claude-sonnet-4-6"],
-  "confidence": 0.91,
-  "rationale": "Preferred high quality route",
-  "estimated_cost_usd": 0.42
-}
-```
-
-Normalization accepts common aliases from the model output:
-
-- `model`, `selected`, `prediction` -> `selected_model`
-- `models` -> `selected_models`
-- `score`, `probability` -> `confidence`
-- `cost`, `estimated_cost` -> `estimated_cost_usd`
-
-There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures return `503` with a `Model 30 MLflow inference failed` prefix.
-
-The callable MLflow artifact now also emits the v2 strategy router payload. Until the predict endpoint normalizer is switched, the public API still returns the legacy fields above.
-
-The v2 public response contract for the strategy router is:
+The current serving path validates the nested request, maps it into a one-row pandas feature frame, calls `mlflow.pyfunc.load_model(model_uri).predict(...)`, then normalizes raw output into the v2 strategy-router response:
 
 ```json
 {
@@ -123,6 +100,17 @@ The v2 public response contract for the strategy router is:
   }
 }
 ```
+
+The normalizer validates strategy outputs against the public response schema and rejects malformed model identifiers such as `deep-coder-v2`, `fast-coder-v1`, and `<synthetic>`. It keeps a compatibility shim for older smoke artifacts that emit only legacy selected-model fields, but the production Technical Task Router artifact is expected to emit the v2 strategy payload directly.
+
+For legacy smoke artifacts only, normalization accepts common aliases:
+
+- `model`, `selected`, `prediction` -> legacy selected model
+- `models` -> legacy selected models
+- `score`, `probability` -> confidence
+- `cost`, `estimated_cost` -> estimated cost
+
+There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures return `503` with a `Model 30 MLflow inference failed` prefix.
 
 ## Nested API To Router Feature Mapping
 
@@ -200,9 +188,39 @@ MODEL_30_INTEGRATION_TEST=1 pytest tests/integration/test_model_30_mlflow_servin
 
 That integration test requires `MLFLOW_TRACKING_URI` and any registry credentials/certs needed by the environment.
 
-## Follow-Up
+## Production Promotion
 
-After validating `Technical Task Router` version `4`, set the registered model alias `production` and switch `MODEL_30_MLFLOW_URI` to `models:/Technical Task Router@production` when the deployment path is ready for alias-based promotion.
+Use the HOK-1917 promotion script to register the cleaned Wavemill router model, log holdout metrics, set the MLflow `production` alias, and optionally smoke test the public API across all three routing objectives:
+
+```bash
+python scripts/model_30/promote_technical_task_router.py \
+  --router-dataset data/model_30/hokusai-router-dataset.clean.csv \
+  --holdout-dataset data/model_30/hokusai-router-holdout.clean.csv \
+  --tracking-uri "$MLFLOW_TRACKING_URI" \
+  --alias production \
+  --production-smoke \
+  --api-key "$HOKUSAI_API_KEY" \
+  --output-report outputs/model-30-production-promotion.json
+```
+
+To promote an already registered version without retraining:
+
+```bash
+python scripts/model_30/promote_technical_task_router.py \
+  --model-uri 'models:/Technical Task Router/5' \
+  --alias production \
+  --production-smoke \
+  --api-key "$HOKUSAI_API_KEY"
+```
+
+The report captures the previous alias target and prints a rollback command when one exists. Rollback is alias-based, for example:
+
+```bash
+python scripts/model_30/promote_technical_task_router.py \
+  --model-uri 'models:/Technical Task Router/4' \
+  --alias production \
+  --no-production-smoke
+```
 
 ## Local Reproduction Harness
 
