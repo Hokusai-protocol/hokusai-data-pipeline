@@ -18,7 +18,11 @@ import mlflow.pyfunc
 import numpy as np
 import pandas as pd
 
-from src.api.schemas import TechnicalTaskRouterInputs, TechnicalTaskRouterPredictions
+from src.api.schemas import (
+    TechnicalTaskRouterInputs,
+    TechnicalTaskRouterPredictions,
+    TechnicalTaskStrategyRecommendation,
+)
 
 DEFAULT_MODEL_30_MLFLOW_URI = "models:/Technical Task Router@production"
 MODEL_30_VERSION = "production"
@@ -324,9 +328,11 @@ def _legacy_output_to_v2_router_payload(
 
 def _normalize_v2_router_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
     payload = {
-        "recommended_strategy": raw_payload["recommended_strategy"],
-        "alternatives": raw_payload.get("alternatives") or [],
-        "tradeoffs": raw_payload.get("tradeoffs")
+        "recommended_strategy": _public_strategy_payload(raw_payload["recommended_strategy"]),
+        "alternatives": [
+            _public_strategy_payload(strategy) for strategy in raw_payload.get("alternatives") or []
+        ],
+        "tradeoffs": _public_tradeoffs_payload(raw_payload.get("tradeoffs"))
         or {
             "lowest_cost": None,
             "fastest_completion": None,
@@ -338,6 +344,25 @@ def _normalize_v2_router_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
     result = parsed.model_dump(mode="json")
     _validate_public_model_ids(result)
     return result
+
+
+def _public_strategy_payload(strategy: Any) -> Any:
+    if not isinstance(strategy, dict):
+        return strategy
+    return {
+        key: value
+        for key, value in strategy.items()
+        if key in TechnicalTaskStrategyRecommendation.model_fields
+    }
+
+
+def _public_tradeoffs_payload(tradeoffs: Any) -> Any:
+    if not isinstance(tradeoffs, dict):
+        return tradeoffs
+    return {
+        key: _public_strategy_payload(strategy) if strategy is not None else None
+        for key, strategy in tradeoffs.items()
+    }
 
 
 def _get_or_load_model_30(model_uri: str) -> Any:
