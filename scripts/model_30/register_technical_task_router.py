@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import re
 import sys
+from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -41,13 +44,31 @@ MODEL_ID_COLUMNS = (
     "coder_model",
     "reviewer_model",
 )
+SELECTED_MODEL_ID_COLUMNS = ("planner_model", "coder_model", "reviewer_model")
+
+
+@dataclass(frozen=True)
+class RouterDatasetSummary:
+    """Provenance summary for the Wavemill router dataset."""
+
+    row_count: int
+    sha256: str
+    selected_model_distribution: dict[str, dict[str, int]]
+
+    def to_mlflow_dict(self: RouterDatasetSummary) -> dict[str, Any]:
+        """Return a JSON-serializable summary suitable for MLflow artifacts."""
+        return {
+            "row_count": self.row_count,
+            "sha256": f"sha256:{self.sha256}",
+            "selected_model_distribution": self.selected_model_distribution,
+        }
 
 
 def _sample_features() -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
-                "schema_version": "technical_task_router_inputs/v1",
+                "schema_version": "technical_task_router_inputs/v2",
                 "task_descriptor": "{}",
                 "task_description": "Refactor billing webhook retry handling",
                 "task_type": "refactor",
@@ -85,22 +106,64 @@ def _parse_model_values(raw_value: str) -> list[str]:
     return [value]
 
 
-def validate_router_dataset_model_ids(dataset_path: Path) -> None:
+def _dataset_sha256(dataset_path: Path) -> str:
+    digest = hashlib.sha256()
+    with dataset_path.open("rb") as dataset_file:
+        for chunk in iter(lambda: dataset_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _validate_model_columns(fieldnames: list[str] | None) -> None:
+    missing_columns = sorted(set(MODEL_ID_COLUMNS) - set(fieldnames or []))
+    if missing_columns:
+        raise ValueError(
+            "Router dataset is missing model identifier columns: " f"{missing_columns}"
+        )
+
+
+def _validate_model_row(
+    row: dict[str, str],
+    row_number: int,
+    selected_distribution: dict[str, Counter[str]],
+) -> list[str]:
+    invalid: list[str] = []
+    for column in MODEL_ID_COLUMNS:
+        try:
+            model_ids = _parse_model_values(row.get(column, ""))
+        except (json.JSONDecodeError, ValueError) as exc:
+            invalid.append(f"row {row_number} {column}: malformed model list ({exc})")
+            continue
+
+        if column in SELECTED_MODEL_ID_COLUMNS and not model_ids:
+            invalid.append(f"row {row_number} {column}=<empty>")
+
+        for model_id in model_ids:
+            if not MODEL_ID_PATTERN.match(model_id):
+                invalid.append(f"row {row_number} {column}={model_id!r}")
+            elif column in SELECTED_MODEL_ID_COLUMNS:
+                selected_distribution[column][model_id] += 1
+
+    return invalid
+
+
+def validate_router_dataset_model_ids(dataset_path: Path) -> RouterDatasetSummary:
     """Reject router datasets with synthetic or malformed model identifiers."""
     invalid: list[str] = []
+    selected_distribution = {column: Counter() for column in SELECTED_MODEL_ID_COLUMNS}
+    row_count = 0
     with dataset_path.open(newline="", encoding="utf-8") as dataset_file:
         reader = csv.DictReader(dataset_file)
+        _validate_model_columns(reader.fieldnames)
+
         for row_number, row in enumerate(reader, start=2):
-            for column in MODEL_ID_COLUMNS:
-                for model_id in _parse_model_values(row.get(column, "")):
-                    if not MODEL_ID_PATTERN.match(model_id):
-                        invalid.append(f"row {row_number} {column}={model_id!r}")
-                        if len(invalid) >= 10:
-                            break
-                if len(invalid) >= 10:
-                    break
+            row_count += 1
+            invalid.extend(_validate_model_row(row, row_number, selected_distribution))
             if len(invalid) >= 10:
                 break
+
+    if row_count == 0:
+        raise ValueError("Router dataset must contain at least one row")
 
     if invalid:
         details = "; ".join(invalid)
@@ -108,6 +171,15 @@ def validate_router_dataset_model_ids(dataset_path: Path) -> None:
             "Router dataset contains non-public or malformed model identifiers: "
             f"{details}. Regenerate or clean the Wavemill export before registration."
         )
+
+    return RouterDatasetSummary(
+        row_count=row_count,
+        sha256=_dataset_sha256(dataset_path),
+        selected_model_distribution={
+            column: dict(sorted(counter.items()))
+            for column, counter in selected_distribution.items()
+        },
+    )
 
 
 def _registered_model_uri(model_name: str, version: str | None) -> str:
@@ -121,7 +193,7 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
     dataset_path = Path(args.router_dataset).expanduser().resolve()
     if not dataset_path.exists():
         raise FileNotFoundError(f"Router dataset not found: {dataset_path}")
-    validate_router_dataset_model_ids(dataset_path)
+    dataset_summary = validate_router_dataset_model_ids(dataset_path)
 
     if args.tracking_uri:
         mlflow.set_tracking_uri(args.tracking_uri)
@@ -146,7 +218,18 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
     with mlflow.start_run(run_name=args.run_name) as run:
         mlflow.log_param("model_name", MODEL_NAME)
         mlflow.log_param("router_dataset", str(dataset_path))
+        mlflow.log_param("router_dataset_rows", dataset_summary.row_count)
+        mlflow.log_param("router_dataset_sha256", f"sha256:{dataset_summary.sha256}")
+        mlflow.log_param(
+            "router_dataset_model_distribution",
+            json.dumps(dataset_summary.selected_model_distribution, sort_keys=True),
+        )
         mlflow.log_param("k_neighbors", args.k_neighbors)
+        mlflow.set_tag("hokusai.dataset.id", "wavemill-hokusai-router-dataset-v1")
+        mlflow.set_tag("hokusai.dataset.hash", f"sha256:{dataset_summary.sha256}")
+        mlflow.set_tag("hokusai.dataset.num_samples", str(dataset_summary.row_count))
+        mlflow.set_tag("hokusai.dataset.source", "wavemill-router-export")
+        mlflow.log_dict(dataset_summary.to_mlflow_dict(), "router_dataset_summary.json")
         # Do not log a strict signature: the public adapter sends nullable
         # optional columns, and the router normalizes them inside predict().
         model_info = mlflow.pyfunc.log_model(

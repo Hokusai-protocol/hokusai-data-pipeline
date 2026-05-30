@@ -59,6 +59,8 @@ Example v2 request:
 
 ## MLflow Configuration
 
+Training data validation and provenance requirements are documented in [Model 30 Training Data](model-30-training-data.md).
+
 Environment variables:
 
 - `MODEL_30_MLFLOW_URI` defaults to `models:/Technical Task Router/4`
