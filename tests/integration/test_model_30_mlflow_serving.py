@@ -87,7 +87,7 @@ def test_model_30_predict_emits_single_latency_trace_record(caplog) -> None:
         cache_checker=lambda _uri: True,
         model_caller=lambda _uri, _features, timings=None: (
             timings.update({"artifact_load_ms": 0.1, "inference_only_ms": 2.0})
-            or {"selected_model": "fast-coder-v1", "confidence": 0.8}
+            or {"selected_model": "gpt-5.4", "confidence": 0.8}
         ),
     )
     with caplog.at_level(logging.INFO):
@@ -176,7 +176,7 @@ def test_model_30_health_warmup_runs_minimal_prediction() -> None:
         nonlocal call_count
         call_count += 1
         return timings.update({"artifact_load_ms": 1.5, "inference_only_ms": 0.5}) or {
-            "selected_model": "fast-coder-v1",
+            "selected_model": "gpt-5.4",
             "confidence": 0.8,
         }
 
@@ -199,7 +199,7 @@ def test_model_30_health_warmup_runs_minimal_prediction() -> None:
     assert body["inference_ready"] is True
     assert body["readiness"]["checked"] is True
     assert body["readiness"]["status"] == "ready"
-    assert body["readiness"]["selected_model"] == "fast-coder-v1"
+    assert body["readiness"]["selected_model"] == "gpt-5.4"
     assert body["mlflow_sdk"]["reachable"] is True
     assert call_count == 1
 

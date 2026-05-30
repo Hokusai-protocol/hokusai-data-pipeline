@@ -22,7 +22,7 @@ from src.api.schemas import TechnicalTaskRouterInputs
 
 DEFAULT_MODEL_30_MLFLOW_URI = "models:/Technical Task Router/4"
 MODEL_30_VERSION = "4"
-MODEL_30_SCHEMA = "technical_task_router_inputs/v1"
+MODEL_30_SCHEMA = "technical_task_router_inputs/v2"
 ROUTER_FEATURE_COLUMNS: tuple[str, ...] = (
     "task_type",
     "language",
@@ -126,7 +126,6 @@ def map_nested_to_router_features(validated: TechnicalTaskRouterInputs) -> dict[
 
     description = task.description or ""
     file_count = context.file_count if context and context.file_count is not None else 0
-    available_models = _sorted_unique(routing.available_models if routing else None)
 
     result: dict[str, Any] = {
         "task_type": task.task_type,
@@ -137,9 +136,9 @@ def map_nested_to_router_features(validated: TechnicalTaskRouterInputs) -> dict[
         "complexity": _derive_complexity(validated),
         "description_length_bucket": _bucket_description_length(len(description)),
         "files_touched_bucket": _bucket_files_touched(file_count),
-        "available_planner_models": available_models,
-        "available_coder_models": available_models,
-        "available_reviewer_models": available_models,
+        "available_planner_models": _role_available_models(routing, "planner"),
+        "available_coder_models": _role_available_models(routing, "coder"),
+        "available_reviewer_models": _role_available_models(routing, "reviewer"),
         "max_cost_usd": routing.max_cost_usd if routing else None,
         "prioritize_quality": routing.prioritize_quality if routing else None,
         "prioritize_speed": routing.prioritize_speed if routing else None,
@@ -219,6 +218,13 @@ def _sorted_unique(values: list[str] | None) -> list[str]:
     if not values:
         return []
     return sorted(set(values))
+
+
+def _role_available_models(routing: Any, role: str) -> list[str]:
+    if routing is None:
+        return []
+    role_values = getattr(routing, f"available_{role}_models")
+    return _sorted_unique(role_values or routing.available_models)
 
 
 def call_mlflow_model_30(

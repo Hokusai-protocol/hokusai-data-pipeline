@@ -1,6 +1,6 @@
 # Model 30 Serving
 
-`POST /api/v1/models/30/predict` serves the registered MLflow Technical Task Router model through the public nested request contract `technical_task_router_inputs/v1`.
+`POST /api/v1/models/30/predict` serves the registered MLflow Technical Task Router model through the public nested request contract `technical_task_router_inputs/v2`.
 
 ## Public Contract
 
@@ -10,12 +10,52 @@ Accepted `inputs` groups:
 - `routing`
 - `context`
 - `workflow`
-- `prediction`
-- `outcome`
-- `rubric`
 - `metadata`
 
 Top-level flat benchmark-row fields such as `schema_version`, `task_descriptor`, `allowed_models`, `selected_models`, and `max_cost_usd` are rejected with `422`. Those fields belong to the benchmark/evaluation row contract, not the live serving API.
+
+Historical outcome and training-label groups such as `prediction`, `outcome`, and `rubric` are also rejected. Live callers configure the task and routing constraints only; they do not supply observed cost, success, score, or selected model labels.
+
+The v2 routing contract supports three user-facing objectives:
+
+- `lowest_cost`
+- `fastest_completion`
+- `highest_reliability`
+
+Workflow stages are selected with `workflow.stages` and may include `plan`, `code`, and `review`. The caller can restrict the model set globally with `routing.available_models` or per role with `routing.available_planner_models`, `routing.available_coder_models`, and `routing.available_reviewer_models`.
+
+Example v2 request:
+
+```json
+{
+  "inputs": {
+    "task": {
+      "description": "Refactor billing webhook retry handling",
+      "task_type": "refactor",
+      "language": "python",
+      "framework": "fastapi",
+      "repo_type": "monorepo"
+    },
+    "routing": {
+      "available_models": ["claude-sonnet-4-6", "gpt-5.4"],
+      "max_cost_usd": 25,
+      "objective": "highest_reliability"
+    },
+    "workflow": {
+      "stages": ["plan", "code", "review"]
+    },
+    "context": {
+      "domain": "payments",
+      "repo_size_bucket": "large",
+      "requires_tests": true,
+      "risk_level": "medium",
+      "file_count": 6,
+      "estimated_complexity": "medium",
+      "security_sensitive": true
+    }
+  }
+}
+```
 
 ## MLflow Configuration
 
@@ -29,12 +69,12 @@ The API startup path already configures MLflow mTLS behavior in `src/api/main.py
 
 ## Adapter Behavior
 
-The serving path validates the nested request, maps it into a one-row pandas feature frame, calls `mlflow.pyfunc.load_model(model_uri).predict(...)`, then normalizes raw output into:
+The current serving path validates the nested request, maps it into a one-row pandas feature frame, calls `mlflow.pyfunc.load_model(model_uri).predict(...)`, then normalizes raw output into the legacy model-30 response:
 
 ```json
 {
-  "selected_model": "deep-coder-v2",
-  "selected_models": ["deep-coder-v2"],
+  "selected_model": "claude-sonnet-4-6",
+  "selected_models": ["claude-sonnet-4-6"],
   "confidence": 0.91,
   "rationale": "Preferred high quality route",
   "estimated_cost_usd": 0.42
@@ -50,6 +90,36 @@ Normalization accepts common aliases from the model output:
 
 There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures return `503` with a `Model 30 MLflow inference failed` prefix.
 
+The v2 public response contract for the strategy router is:
+
+```json
+{
+  "recommended_strategy": {
+    "objective": "highest_reliability",
+    "planner_model": "claude-sonnet-4-6",
+    "coder_model": "gpt-5.4",
+    "reviewer_model": "claude-sonnet-4-6",
+    "stages": ["plan", "code", "review"],
+    "estimated_success_under_budget": 0.82,
+    "estimated_cost_usd": 4.8,
+    "estimated_duration_seconds": 1800,
+    "confidence": 0.71
+  },
+  "alternatives": [],
+  "tradeoffs": {
+    "lowest_cost": null,
+    "fastest_completion": null,
+    "highest_reliability": null
+  },
+  "nearest_neighbors": {
+    "count": 40,
+    "success_under_budget_rate": 0.78,
+    "mean_cost_usd": 4.4,
+    "mean_duration_seconds": 1650
+  }
+}
+```
+
 ## Nested API To Router Feature Mapping
 
 Model 30 is served from the nested public API contract, but its live prediction frame uses the Wavemill router feature schema it was trained on. `model_30_inputs_to_features()` delegates to `map_nested_to_router_features()` and emits only router input columns:
@@ -57,7 +127,7 @@ Model 30 is served from the nested public API contract, but its live prediction 
 - Direct task/context/workflow fields: `task_type`, `language`, `framework`, `repo_type`, `domain`, `risk_level`, `requires_tests`, `security_sensitive`, `repo_size_bucket`, and `surface`
 - Derived buckets: `description_length_bucket` from task description length and `files_touched_bucket` from `context.file_count`
 - `complexity` from `context.estimated_complexity` when present, otherwise a description/file-count fallback
-- Role availability arrays: `available_planner_models`, `available_coder_models`, and `available_reviewer_models` all use the sorted, deduped `routing.available_models` list because the nested API does not yet provide role annotations
+- Role availability arrays: `available_planner_models`, `available_coder_models`, and `available_reviewer_models` use the role-specific routing lists when provided and otherwise fall back to the sorted, deduped `routing.available_models` list
 - Description-derived booleans: `is_greenfield`, `is_migration`, `cross_service`, and `ui_heavy`
 
 Live prediction inputs intentionally exclude target, outcome, and leakage fields such as selected models, actual cost/time, retry/intervention counts, and completed outcome fields.

@@ -218,7 +218,7 @@ class TestModelServingAuth:
         _replace_registry_entry(
             "30",
             model_caller=lambda _model_uri, _features, _timings=None: {
-                "selected_model": "fast-coder-v1",
+                "selected_model": "gpt-5.4",
                 "confidence": 0.8,
             },
         )
@@ -237,7 +237,7 @@ class TestModelServingAuth:
 
         assert response.status_code == 200
         assert response.json()["model_id"] == "30"
-        assert response.json()["predictions"]["selected_model"] == "fast-coder-v1"
+        assert response.json()["predictions"]["selected_model"] == "gpt-5.4"
 
 
 class TestAuthMiddlewareIntegration:

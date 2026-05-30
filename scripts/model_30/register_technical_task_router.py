@@ -10,7 +10,10 @@ MLflow authentication is provided by the SDK environment, including
 from __future__ import annotations
 
 import argparse
+import csv
+import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -27,6 +30,16 @@ from src.models.technical_task_router import (  # noqa: E402
     MODEL_NAME,
     ROUTER_DATASET_ARTIFACT,
     TechnicalTaskRouterModel,
+)
+
+MODEL_ID_PATTERN = re.compile(r"^(claude-|gpt-|deepseek-)")
+MODEL_ID_COLUMNS = (
+    "available_planner_models",
+    "available_coder_models",
+    "available_reviewer_models",
+    "planner_model",
+    "coder_model",
+    "reviewer_model",
 )
 
 
@@ -60,6 +73,43 @@ def _sample_features() -> pd.DataFrame:
     )
 
 
+def _parse_model_values(raw_value: str) -> list[str]:
+    value = raw_value.strip()
+    if not value:
+        return []
+    if value.startswith("["):
+        parsed = json.loads(value)
+        if not isinstance(parsed, list):
+            raise ValueError(f"Expected model list, got {type(parsed).__name__}")
+        return [str(item).strip() for item in parsed if str(item).strip()]
+    return [value]
+
+
+def validate_router_dataset_model_ids(dataset_path: Path) -> None:
+    """Reject router datasets with synthetic or malformed model identifiers."""
+    invalid: list[str] = []
+    with dataset_path.open(newline="", encoding="utf-8") as dataset_file:
+        reader = csv.DictReader(dataset_file)
+        for row_number, row in enumerate(reader, start=2):
+            for column in MODEL_ID_COLUMNS:
+                for model_id in _parse_model_values(row.get(column, "")):
+                    if not MODEL_ID_PATTERN.match(model_id):
+                        invalid.append(f"row {row_number} {column}={model_id!r}")
+                        if len(invalid) >= 10:
+                            break
+                if len(invalid) >= 10:
+                    break
+            if len(invalid) >= 10:
+                break
+
+    if invalid:
+        details = "; ".join(invalid)
+        raise ValueError(
+            "Router dataset contains non-public or malformed model identifiers: "
+            f"{details}. Regenerate or clean the Wavemill export before registration."
+        )
+
+
 def _registered_model_uri(model_name: str, version: str | None) -> str:
     if version:
         return f"models:/{model_name}/{version}"
@@ -71,6 +121,7 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
     dataset_path = Path(args.router_dataset).expanduser().resolve()
     if not dataset_path.exists():
         raise FileNotFoundError(f"Router dataset not found: {dataset_path}")
+    validate_router_dataset_model_ids(dataset_path)
 
     if args.tracking_uri:
         mlflow.set_tracking_uri(args.tracking_uri)
