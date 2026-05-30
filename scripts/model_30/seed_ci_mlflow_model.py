@@ -36,8 +36,8 @@ class TechnicalTaskRouterSmokeModel(mlflow.pyfunc.PythonModel):
         return pd.DataFrame(
             [
                 {
-                    "selected_model": "fast-coder-v1",
-                    "selected_models": ["fast-coder-v1", "deep-coder-v2"],
+                    "selected_model": "gpt-5.4",
+                    "selected_models": ["gpt-5.4", "claude-sonnet-4-6"],
                     "confidence": 0.91,
                     "rationale": "Seeded smoke model for MLflow mTLS integration coverage",
                     "estimated_cost_usd": 0.42,

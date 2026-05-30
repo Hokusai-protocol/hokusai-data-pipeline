@@ -327,7 +327,20 @@ _TASK_ROUTER_REFS = [
     "technical_task_router.feasibility/v1",
     "technical_task_router.success_under_budget/v1",
     "technical_task_router.benchmark_score/v1",
+    "technical_task_router.invalid_selection_rate/v1",
+    "technical_task_router.cost_mae_usd/v1",
+    "technical_task_router.duration_mae_seconds/v1",
+    "technical_task_router.reliability_brier_score/v1",
+    "technical_task_router.lowest_cost_success_under_budget/v1",
+    "technical_task_router.fastest_completion_success_under_budget/v1",
+    "technical_task_router.highest_reliability_success_under_budget/v1",
 ]
+
+_TASK_ROUTER_QUALITY_REFS = {
+    "technical_task_router.cost_mae_usd/v1",
+    "technical_task_router.duration_mae_seconds/v1",
+    "technical_task_router.reliability_brier_score/v1",
+}
 
 # ---------------------------------------------------------------------------
 # 14. Sales scorer registry availability
@@ -382,10 +395,16 @@ def test_sales_scorer_metadata_fields(ref):
 def test_task_router_scorer_metadata_fields(ref):
     meta = resolve_scorer(ref).metadata
     assert meta.version == "1.0.0"
-    assert meta.metric_family == MetricFamily.OUTCOME
+    expected_family = (
+        MetricFamily.QUALITY if ref in _TASK_ROUTER_QUALITY_REFS else MetricFamily.OUTCOME
+    )
+    expected_aggregation = (
+        Aggregation.MEAN if ref in _TASK_ROUTER_QUALITY_REFS else Aggregation.PASS_RATE
+    )
+    assert meta.metric_family == expected_family
     assert meta.input_schema is not None
     assert meta.output_metric_keys == (ref,)
-    assert meta.aggregation == Aggregation.PASS_RATE
+    assert meta.aggregation == expected_aggregation
     assert len(meta.source_hash) == 64
     assert all(c in "0123456789abcdef" for c in meta.source_hash)
     assert meta.description is not None and len(meta.description) > 0
@@ -439,7 +458,10 @@ def test_sales_scorer_aggregation(ref):
 @pytest.mark.parametrize("ref", _TASK_ROUTER_REFS)
 def test_task_router_scorer_aggregation(ref):
     meta = resolve_scorer(ref).metadata
-    assert meta.aggregation == Aggregation.PASS_RATE
+    if ref in _TASK_ROUTER_QUALITY_REFS:
+        assert meta.aggregation == Aggregation.MEAN
+    else:
+        assert meta.aggregation == Aggregation.PASS_RATE
 
 
 # ---------------------------------------------------------------------------

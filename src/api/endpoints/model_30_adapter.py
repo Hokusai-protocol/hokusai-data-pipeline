@@ -18,11 +18,12 @@ import mlflow.pyfunc
 import numpy as np
 import pandas as pd
 
-from src.api.schemas import TechnicalTaskRouterInputs
+from src.api.schemas import TechnicalTaskRouterInputs, TechnicalTaskRouterPredictions
 
-DEFAULT_MODEL_30_MLFLOW_URI = "models:/Technical Task Router/4"
-MODEL_30_VERSION = "4"
-MODEL_30_SCHEMA = "technical_task_router_inputs/v1"
+DEFAULT_MODEL_30_MLFLOW_URI = "models:/Technical Task Router@production"
+MODEL_30_VERSION = "production"
+MODEL_30_SCHEMA = "technical_task_router_inputs/v2"
+MODEL_ID_PATTERN = re.compile(r"^(claude-|gpt-|deepseek-)")
 ROUTER_FEATURE_COLUMNS: tuple[str, ...] = (
     "task_type",
     "language",
@@ -43,6 +44,8 @@ ROUTER_FEATURE_COLUMNS: tuple[str, ...] = (
     "security_sensitive",
     "repo_size_bucket",
     "surface",
+    "workflow_stages",
+    "routing_objective",
     "is_greenfield",
     "is_migration",
     "cross_service",
@@ -126,7 +129,6 @@ def map_nested_to_router_features(validated: TechnicalTaskRouterInputs) -> dict[
 
     description = task.description or ""
     file_count = context.file_count if context and context.file_count is not None else 0
-    available_models = _sorted_unique(routing.available_models if routing else None)
 
     result: dict[str, Any] = {
         "task_type": task.task_type,
@@ -137,9 +139,9 @@ def map_nested_to_router_features(validated: TechnicalTaskRouterInputs) -> dict[
         "complexity": _derive_complexity(validated),
         "description_length_bucket": _bucket_description_length(len(description)),
         "files_touched_bucket": _bucket_files_touched(file_count),
-        "available_planner_models": available_models,
-        "available_coder_models": available_models,
-        "available_reviewer_models": available_models,
+        "available_planner_models": _role_available_models(routing, "planner"),
+        "available_coder_models": _role_available_models(routing, "coder"),
+        "available_reviewer_models": _role_available_models(routing, "reviewer"),
         "max_cost_usd": routing.max_cost_usd if routing else None,
         "prioritize_quality": routing.prioritize_quality if routing else None,
         "prioritize_speed": routing.prioritize_speed if routing else None,
@@ -148,6 +150,10 @@ def map_nested_to_router_features(validated: TechnicalTaskRouterInputs) -> dict[
         "security_sensitive": context.security_sensitive if context else None,
         "repo_size_bucket": context.repo_size_bucket if context else None,
         "surface": workflow.surface if workflow else None,
+        "workflow_stages": [stage.value for stage in workflow.stages]
+        if workflow and workflow.stages
+        else None,
+        "routing_objective": routing.objective.value if routing else None,
         **_detect_boolean_flags(description),
     }
 
@@ -221,6 +227,13 @@ def _sorted_unique(values: list[str] | None) -> list[str]:
     return sorted(set(values))
 
 
+def _role_available_models(routing: Any, role: str) -> list[str]:
+    if routing is None:
+        return []
+    role_values = getattr(routing, f"available_{role}_models")
+    return _sorted_unique(role_values or routing.available_models)
+
+
 def call_mlflow_model_30(
     model_uri: str,
     features: object,
@@ -246,9 +259,17 @@ def normalize_model_30_output(
     raw_model_output: Any, validated_inputs: TechnicalTaskRouterInputs
 ) -> dict[str, Any]:
     """Normalize raw MLflow output into the public model 30 response contract."""
-    del validated_inputs
     normalized = _coerce_model_output(raw_model_output)
+    if "recommended_strategy" in normalized:
+        return _normalize_v2_router_payload(normalized)
 
+    return _legacy_output_to_v2_router_payload(normalized, validated_inputs)
+
+
+def _legacy_output_to_v2_router_payload(
+    normalized: dict[str, Any],
+    validated_inputs: TechnicalTaskRouterInputs,
+) -> dict[str, Any]:
     selected_models = _extract_selected_models(normalized)
     selected_model = normalized.get("selected_model")
     if selected_model is None and selected_models:
@@ -259,16 +280,64 @@ def normalize_model_30_output(
     if not selected_model:
         raise ValueError("MLflow output did not contain a usable selected model")
 
-    return {
-        "selected_model": str(selected_model),
-        "selected_models": [str(model_name) for model_name in selected_models],
-        "confidence": _coerce_float(normalized.get("confidence"), default=0.0),
-        "rationale": _coerce_string(normalized.get("rationale"), default=""),
+    objective = (
+        validated_inputs.routing.objective.value
+        if validated_inputs.routing is not None
+        else "highest_reliability"
+    )
+    stages = (
+        [stage.value for stage in validated_inputs.workflow.stages]
+        if validated_inputs.workflow is not None and validated_inputs.workflow.stages is not None
+        else ["code"]
+    )
+    strategy = {
+        "objective": objective,
+        "planner_model": str(selected_model) if "plan" in stages else None,
+        "coder_model": str(selected_model) if "code" in stages else None,
+        "reviewer_model": str(selected_model) if "review" in stages else None,
+        "stages": stages,
+        "estimated_success_under_budget": _coerce_float(
+            normalized.get("confidence"),
+            default=0.0,
+        ),
         "estimated_cost_usd": _coerce_float(
             normalized.get("estimated_cost_usd"),
             default=0.0,
         ),
+        "estimated_duration_seconds": None,
+        "confidence": _coerce_float(normalized.get("confidence"), default=0.0),
+        "rationale": _coerce_string(normalized.get("rationale"), default=""),
     }
+    return _normalize_v2_router_payload(
+        {
+            "recommended_strategy": strategy,
+            "alternatives": [],
+            "tradeoffs": {
+                "lowest_cost": strategy if objective == "lowest_cost" else None,
+                "fastest_completion": strategy if objective == "fastest_completion" else None,
+                "highest_reliability": strategy if objective == "highest_reliability" else None,
+            },
+            "nearest_neighbors": {"count": 0},
+        }
+    )
+
+
+def _normalize_v2_router_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "recommended_strategy": raw_payload["recommended_strategy"],
+        "alternatives": raw_payload.get("alternatives") or [],
+        "tradeoffs": raw_payload.get("tradeoffs")
+        or {
+            "lowest_cost": None,
+            "fastest_completion": None,
+            "highest_reliability": None,
+        },
+        "nearest_neighbors": raw_payload.get("nearest_neighbors") or {"count": 0},
+    }
+    parsed = TechnicalTaskRouterPredictions.model_validate(payload)
+    result = parsed.model_dump(mode="json")
+    _validate_public_model_ids(result)
+    return result
 
 
 def _get_or_load_model_30(model_uri: str) -> Any:
@@ -353,6 +422,9 @@ def _coerce_sequence_output(raw_items: list[Any], *, sequence_label: str) -> dic
 
 
 def _normalize_mapping(raw_mapping: dict[str, Any]) -> dict[str, Any]:
+    if "recommended_strategy" in raw_mapping:
+        return raw_mapping
+
     aliases = {
         "selected_model": ("selected_model", "model", "selected", "prediction"),
         "selected_models": ("selected_models", "models"),
@@ -396,3 +468,31 @@ def _coerce_string(value: Any, *, default: str) -> str:
     if value is None:
         return default
     return str(value)
+
+
+def _validate_public_model_ids(payload: dict[str, Any]) -> None:
+    invalid: list[str] = []
+    for strategy in _iter_strategy_payloads(payload):
+        for key in ("planner_model", "coder_model", "reviewer_model"):
+            model_id = strategy.get(key)
+            if model_id and not MODEL_ID_PATTERN.match(str(model_id)):
+                invalid.append(str(model_id))
+    if invalid:
+        raise ValueError(
+            "MLflow output contained non-public or malformed model identifiers: "
+            f"{sorted(set(invalid))}"
+        )
+
+
+def _iter_strategy_payloads(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    strategies: list[dict[str, Any]] = []
+    recommended = payload.get("recommended_strategy")
+    if isinstance(recommended, dict):
+        strategies.append(recommended)
+    alternatives = payload.get("alternatives")
+    if isinstance(alternatives, list):
+        strategies.extend(item for item in alternatives if isinstance(item, dict))
+    tradeoffs = payload.get("tradeoffs")
+    if isinstance(tradeoffs, dict):
+        strategies.extend(item for item in tradeoffs.values() if isinstance(item, dict))
+    return strategies

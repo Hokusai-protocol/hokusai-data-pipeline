@@ -10,8 +10,8 @@
     "language": "typescript",
     "estimated_complexity": "high"
   },
-  "allowed_models": ["fast-coder-v1", "deep-coder-v2"],
-  "selected_models": ["deep-coder-v2"],
+  "allowed_models": ["gpt-5.4", "claude-sonnet-4-6"],
+  "selected_models": ["claude-sonnet-4-6"],
   "max_cost_usd": 0.75,
   "actual_cost_usd": 0.81,
   "completed_successfully": true,

@@ -1,6 +1,6 @@
 # Model 30 Serving
 
-`POST /api/v1/models/30/predict` serves the registered MLflow Technical Task Router model through the public nested request contract `technical_task_router_inputs/v1`.
+`POST /api/v1/models/30/predict` serves the registered MLflow Technical Task Router model through the public nested request contract `technical_task_router_inputs/v2`.
 
 ## Public Contract
 
@@ -10,18 +10,60 @@ Accepted `inputs` groups:
 - `routing`
 - `context`
 - `workflow`
-- `prediction`
-- `outcome`
-- `rubric`
 - `metadata`
 
 Top-level flat benchmark-row fields such as `schema_version`, `task_descriptor`, `allowed_models`, `selected_models`, and `max_cost_usd` are rejected with `422`. Those fields belong to the benchmark/evaluation row contract, not the live serving API.
 
+Historical outcome and training-label groups such as `prediction`, `outcome`, and `rubric` are also rejected. Live callers configure the task and routing constraints only; they do not supply observed cost, success, score, or selected model labels.
+
+The v2 routing contract supports three user-facing objectives:
+
+- `lowest_cost`
+- `fastest_completion`
+- `highest_reliability`
+
+Workflow stages are selected with `workflow.stages` and may include `plan`, `code`, and `review`. The caller can restrict the model set globally with `routing.available_models` or per role with `routing.available_planner_models`, `routing.available_coder_models`, and `routing.available_reviewer_models`.
+
+Example v2 request:
+
+```json
+{
+  "inputs": {
+    "task": {
+      "description": "Refactor billing webhook retry handling",
+      "task_type": "refactor",
+      "language": "python",
+      "framework": "fastapi",
+      "repo_type": "monorepo"
+    },
+    "routing": {
+      "available_models": ["claude-sonnet-4-6", "gpt-5.4"],
+      "max_cost_usd": 25,
+      "objective": "highest_reliability"
+    },
+    "workflow": {
+      "stages": ["plan", "code", "review"]
+    },
+    "context": {
+      "domain": "payments",
+      "repo_size_bucket": "large",
+      "requires_tests": true,
+      "risk_level": "medium",
+      "file_count": 6,
+      "estimated_complexity": "medium",
+      "security_sensitive": true
+    }
+  }
+}
+```
+
 ## MLflow Configuration
+
+Training data validation and provenance requirements are documented in [Model 30 Training Data](model-30-training-data.md).
 
 Environment variables:
 
-- `MODEL_30_MLFLOW_URI` defaults to `models:/Technical Task Router/4`
+- `MODEL_30_MLFLOW_URI` defaults to `models:/Technical Task Router@production`
 - `MLFLOW_TRACKING_URI` must point at the registry/tracking server
 - Any auth token or mTLS environment expected by the deployed MLflow stack must also be present
 
@@ -29,24 +71,44 @@ The API startup path already configures MLflow mTLS behavior in `src/api/main.py
 
 ## Adapter Behavior
 
-The serving path validates the nested request, maps it into a one-row pandas feature frame, calls `mlflow.pyfunc.load_model(model_uri).predict(...)`, then normalizes raw output into:
+The current serving path validates the nested request, maps it into a one-row pandas feature frame, calls `mlflow.pyfunc.load_model(model_uri).predict(...)`, then normalizes raw output into the v2 strategy-router response:
 
 ```json
 {
-  "selected_model": "deep-coder-v2",
-  "selected_models": ["deep-coder-v2"],
-  "confidence": 0.91,
-  "rationale": "Preferred high quality route",
-  "estimated_cost_usd": 0.42
+  "recommended_strategy": {
+    "objective": "highest_reliability",
+    "planner_model": "claude-sonnet-4-6",
+    "coder_model": "gpt-5.4",
+    "reviewer_model": "claude-sonnet-4-6",
+    "stages": ["plan", "code", "review"],
+    "estimated_success_under_budget": 0.82,
+    "estimated_cost_usd": 4.8,
+    "estimated_duration_seconds": 1800,
+    "confidence": 0.71
+  },
+  "alternatives": [],
+  "tradeoffs": {
+    "lowest_cost": null,
+    "fastest_completion": null,
+    "highest_reliability": null
+  },
+  "nearest_neighbors": {
+    "count": 40,
+    "success_under_budget_rate": 0.78,
+    "mean_cost_usd": 4.4,
+    "mean_duration_seconds": 1650
+  }
 }
 ```
 
-Normalization accepts common aliases from the model output:
+The normalizer validates strategy outputs against the public response schema and rejects malformed model identifiers such as `deep-coder-v2`, `fast-coder-v1`, and `<synthetic>`. It keeps a compatibility shim for older smoke artifacts that emit only legacy selected-model fields, but the production Technical Task Router artifact is expected to emit the v2 strategy payload directly.
 
-- `model`, `selected`, `prediction` -> `selected_model`
-- `models` -> `selected_models`
-- `score`, `probability` -> `confidence`
-- `cost`, `estimated_cost` -> `estimated_cost_usd`
+For legacy smoke artifacts only, normalization accepts common aliases:
+
+- `model`, `selected`, `prediction` -> legacy selected model
+- `models` -> legacy selected models
+- `score`, `probability` -> confidence
+- `cost`, `estimated_cost` -> estimated cost
 
 There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures return `503` with a `Model 30 MLflow inference failed` prefix.
 
@@ -57,7 +119,7 @@ Model 30 is served from the nested public API contract, but its live prediction 
 - Direct task/context/workflow fields: `task_type`, `language`, `framework`, `repo_type`, `domain`, `risk_level`, `requires_tests`, `security_sensitive`, `repo_size_bucket`, and `surface`
 - Derived buckets: `description_length_bucket` from task description length and `files_touched_bucket` from `context.file_count`
 - `complexity` from `context.estimated_complexity` when present, otherwise a description/file-count fallback
-- Role availability arrays: `available_planner_models`, `available_coder_models`, and `available_reviewer_models` all use the sorted, deduped `routing.available_models` list because the nested API does not yet provide role annotations
+- Role availability arrays: `available_planner_models`, `available_coder_models`, and `available_reviewer_models` use the role-specific routing lists when provided and otherwise fall back to the sorted, deduped `routing.available_models` list
 - Description-derived booleans: `is_greenfield`, `is_migration`, `cross_service`, and `ui_heavy`
 
 Live prediction inputs intentionally exclude target, outcome, and leakage fields such as selected models, actual cost/time, retry/intervention counts, and completed outcome fields.
@@ -126,9 +188,39 @@ MODEL_30_INTEGRATION_TEST=1 pytest tests/integration/test_model_30_mlflow_servin
 
 That integration test requires `MLFLOW_TRACKING_URI` and any registry credentials/certs needed by the environment.
 
-## Follow-Up
+## Production Promotion
 
-After validating `Technical Task Router` version `4`, set the registered model alias `production` and switch `MODEL_30_MLFLOW_URI` to `models:/Technical Task Router@production` when the deployment path is ready for alias-based promotion.
+Use the HOK-1917 promotion script to register the cleaned Wavemill router model, log holdout metrics, set the MLflow `production` alias, and optionally smoke test the public API across all three routing objectives:
+
+```bash
+python scripts/model_30/promote_technical_task_router.py \
+  --router-dataset data/model_30/hokusai-router-dataset.clean.csv \
+  --holdout-dataset data/model_30/hokusai-router-holdout.clean.csv \
+  --tracking-uri "$MLFLOW_TRACKING_URI" \
+  --alias production \
+  --production-smoke \
+  --api-key "$HOKUSAI_API_KEY" \
+  --output-report outputs/model-30-production-promotion.json
+```
+
+To promote an already registered version without retraining:
+
+```bash
+python scripts/model_30/promote_technical_task_router.py \
+  --model-uri 'models:/Technical Task Router/5' \
+  --alias production \
+  --production-smoke \
+  --api-key "$HOKUSAI_API_KEY"
+```
+
+The report captures the previous alias target and prints a rollback command when one exists. Rollback is alias-based, for example:
+
+```bash
+python scripts/model_30/promote_technical_task_router.py \
+  --model-uri 'models:/Technical Task Router/4' \
+  --alias production \
+  --no-production-smoke
+```
 
 ## Local Reproduction Harness
 

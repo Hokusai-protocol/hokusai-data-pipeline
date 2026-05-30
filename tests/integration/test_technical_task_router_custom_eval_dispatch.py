@@ -141,9 +141,11 @@ def test_task_router_benchmark_spec_scores_all_rows_and_persists_artifact(
     primary_name = "technical_task_router.success_under_budget/v1"
     benchmark_score_name = "technical_task_router.benchmark_score/v1"
     feasibility_name = "technical_task_router.feasibility/v1"
+    invalid_selection_name = "technical_task_router.invalid_selection_rate/v1"
     primary_mlflow_name = derive_mlflow_name(primary_name)
     benchmark_score_mlflow_name = derive_mlflow_name(benchmark_score_name)
     feasibility_mlflow_name = derive_mlflow_name(feasibility_name)
+    invalid_selection_mlflow_name = derive_mlflow_name(invalid_selection_name)
     parquet_path = tmp_path / "per_row.parquet"
 
     assert result["status"] == "success"
@@ -151,9 +153,11 @@ def test_task_router_benchmark_spec_scores_all_rows_and_persists_artifact(
     assert result["metrics"][primary_mlflow_name] == pytest.approx(0.25)
     assert result["metrics"][benchmark_score_mlflow_name] == pytest.approx(0.25)
     assert result["metrics"][feasibility_mlflow_name] == pytest.approx(0.5)
+    assert result["metrics"][invalid_selection_mlflow_name] == pytest.approx(0.25)
     assert fake_mlflow.metrics_logged[primary_mlflow_name] == pytest.approx(0.25)
     assert fake_mlflow.metrics_logged[benchmark_score_mlflow_name] == pytest.approx(0.25)
     assert fake_mlflow.metrics_logged[feasibility_mlflow_name] == pytest.approx(0.5)
+    assert fake_mlflow.metrics_logged[invalid_selection_mlflow_name] == pytest.approx(0.25)
 
     assert fake_mlflow.tags[PRIMARY_METRIC_TAG] == primary_name
     assert fake_mlflow.tags[MLFLOW_NAME_TAG] == primary_mlflow_name
@@ -163,6 +167,13 @@ def test_task_router_benchmark_spec_scores_all_rows_and_persists_artifact(
                 "technical_task_router.success_under_budget/v1",
                 "technical_task_router.benchmark_score/v1",
                 "technical_task_router.feasibility/v1",
+                "technical_task_router.invalid_selection_rate/v1",
+                "technical_task_router.cost_mae_usd/v1",
+                "technical_task_router.duration_mae_seconds/v1",
+                "technical_task_router.reliability_brier_score/v1",
+                "technical_task_router.lowest_cost_success_under_budget/v1",
+                "technical_task_router.fastest_completion_success_under_budget/v1",
+                "technical_task_router.highest_reliability_success_under_budget/v1",
             }
         )
     )
@@ -177,6 +188,7 @@ def test_task_router_benchmark_spec_scores_all_rows_and_persists_artifact(
     assert primary_mlflow_name in written.columns
     assert benchmark_score_mlflow_name in written.columns
     assert feasibility_mlflow_name in written.columns
+    assert invalid_selection_mlflow_name in written.columns
     assert len(written) == 4
 
     UUID(result["benchmark_spec_id"])

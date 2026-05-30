@@ -8,14 +8,15 @@
   },
   "routing": {
     "available_models": [
-      "fast-coder-v1",
-      "deep-coder-v2"
+      "gpt-5.4",
+      "claude-sonnet-4-6"
     ],
     "preferred_models": [
-      "deep-coder-v2"
+      "claude-sonnet-4-6"
     ],
     "max_cost_usd": 0.5,
     "max_latency_seconds": 30,
+    "objective": "highest_reliability",
     "prioritize_quality": true
   },
   "context": {
@@ -36,25 +37,6 @@
     ],
     "execution_environment": "ci",
     "human_review_required": true
-  },
-  "prediction": {
-    "expected_duration_seconds": 1800,
-    "expected_cost_usd": 0.45,
-    "expected_success_probability": 0.8
-  },
-  "outcome": {
-    "completed_successfully": false,
-    "actual_cost_usd": 0.0,
-    "actual_time_seconds": 0.0,
-    "retry_count": 0,
-    "intervention_required": false,
-    "selected_model": "deep-coder-v2"
-  },
-  "rubric": {
-    "quality_score": 0.9,
-    "correctness_score": 0.85,
-    "human_rating": "strong",
-    "benchmark_passed": true
   },
   "metadata": {
     "external_task_id": "task-123",

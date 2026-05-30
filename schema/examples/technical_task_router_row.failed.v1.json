@@ -10,8 +10,8 @@
     "language": "python",
     "estimated_complexity": "low"
   },
-  "allowed_models": ["fast-coder-v1", "test-runner-v1"],
-  "selected_models": ["fast-coder-v1", "test-runner-v1"],
+  "allowed_models": ["gpt-5.4", "claude-haiku-4-5-20251001"],
+  "selected_models": ["gpt-5.4", "claude-haiku-4-5-20251001"],
   "max_cost_usd": 0.35,
   "actual_cost_usd": 0.18,
   "completed_successfully": false,

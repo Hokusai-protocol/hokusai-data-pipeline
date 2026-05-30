@@ -87,6 +87,41 @@
       "type": "number",
       "minimum": 0
     },
+    "estimated_cost_usd": {
+      "title": "Estimated Cost USD",
+      "description": "Router-estimated workflow cost in USD. Used by diagnostic cost error scorers and does not affect the primary promotion metric.",
+      "type": "number",
+      "minimum": 0
+    },
+    "actual_time_seconds": {
+      "title": "Actual Time Seconds",
+      "description": "Observed workflow duration in seconds. Used by diagnostic duration error scorers and does not affect the primary promotion metric.",
+      "type": "number",
+      "minimum": 0
+    },
+    "estimated_duration_seconds": {
+      "title": "Estimated Duration Seconds",
+      "description": "Router-estimated workflow duration in seconds. Used by diagnostic duration error scorers and does not affect the primary promotion metric.",
+      "type": "number",
+      "minimum": 0
+    },
+    "estimated_success_under_budget": {
+      "title": "Estimated Success Under Budget",
+      "description": "Router-estimated probability that the selected strategy will complete successfully within budget. Used by diagnostic reliability calibration scorers.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "routing_objective": {
+      "title": "Routing Objective",
+      "description": "Strategy objective used to produce this row. Used by objective-specific diagnostic scorers.",
+      "type": "string",
+      "enum": [
+        "lowest_cost",
+        "fastest_completion",
+        "highest_reliability"
+      ]
+    },
     "completed_successfully": {
       "title": "Completed Successfully",
       "description": "Whether the workflow completed the task successfully.",
