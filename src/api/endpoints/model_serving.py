@@ -30,12 +30,13 @@ from ...utils.mlflow_health import check_mlflow_registry_sdk
 from ..dependencies import get_contributor_logger
 from ..middleware.validation_logging import (
     classify_client_ip,
+    emit_model_30_inference_failure,
     emit_model_serving_validation_422,
     get_or_generate_request_id,
 )
 from ..services.contributor_logger import ContributorLogger
 from .latency_trace import Model30LatencyTrace
-from .model_30_adapter import Model30LoadInProgressError
+from .model_30_adapter import Model30InferenceError, Model30LoadInProgressError
 from .model_registry import ModelRegistryEntry
 from .model_registry_entries import MODEL_CONFIGS
 
@@ -421,7 +422,7 @@ class ModelServingService:
             )
         return value
 
-    async def _serve_mlflow_prediction(
+    async def _serve_mlflow_prediction(  # noqa: C901
         self,
         entry: ModelRegistryEntry,
         model_id: str,
@@ -525,11 +526,41 @@ class ModelServingService:
             )
 
             with trace.phase("postprocessing_serialization"):
-                predictions = output_normalizer(raw_model_output, validated_inputs)
+                try:
+                    predictions = output_normalizer(raw_model_output, validated_inputs)
+                except Exception as exc:
+                    raise Model30InferenceError(str(exc), phase="response_normalization") from exc
             trace.outcome = "success"
             trace.emit(logger)
             trace_emitted = True
             return predictions
+        except Model30InferenceError as exc:
+            trace.outcome = exc.phase
+            if not trace_emitted:
+                trace.emit(logger)
+                trace_emitted = True
+            cause = exc.__cause__ or exc
+            emit_model_30_inference_failure(
+                logger,
+                request_id=request_id,
+                model_id=model_id,
+                model_uri=model_uri,
+                model_version=entry.model_version or "unknown",
+                phase=exc.phase,
+                path_type=trace.path_type,
+                exception_class=type(cause).__name__,
+                exception_message=str(cause),
+            )
+            status_code = 503 if exc.phase == "mlflow_connectivity" else 500
+            raise HTTPException(
+                status_code=status_code,
+                detail={
+                    "error": f"{entry.name} inference failed ({exc.phase}): {cause}",
+                    "request_id": request_id,
+                    "run_id": trace.run_id,
+                    "phase": exc.phase,
+                },
+            ) from exc
         except ValidationError as exc:
             trace.outcome = "validation_error"
             if not trace_emitted:
@@ -551,20 +582,25 @@ class ModelServingService:
             trace.outcome = "error"
             if not trace_emitted:
                 trace.emit(logger)
-            logger.error(
-                "%s MLflow inference failed",
-                entry.name,
-                extra={
-                    "model_id": model_id,
-                    "model_uri": model_uri,
-                    "request_id": request_id,
-                    "run_id": trace.run_id,
-                },
-                exc_info=exc,
+            emit_model_30_inference_failure(
+                logger,
+                request_id=request_id,
+                model_id=model_id,
+                model_uri=model_uri,
+                model_version=entry.model_version or "unknown",
+                phase="predict_call",
+                path_type=trace.path_type,
+                exception_class=type(exc).__name__,
+                exception_message=str(exc),
             )
             raise HTTPException(
-                status_code=503,
-                detail=f"{entry.name} MLflow inference failed: {exc}",
+                status_code=500,
+                detail={
+                    "error": f"{entry.name} MLflow inference failed: {exc}",
+                    "request_id": request_id,
+                    "run_id": trace.run_id,
+                    "phase": "predict_call",
+                },
             ) from exc
 
     async def warm_mlflow_model(self, entry: ModelRegistryEntry) -> dict[str, Any]:

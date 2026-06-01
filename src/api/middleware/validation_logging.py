@@ -112,6 +112,38 @@ def emit_model_serving_validation_422(
     )
 
 
+_EXCEPTION_MESSAGE_MAX_LEN = 500
+
+
+def emit_model_30_inference_failure(
+    logger_: logging.Logger,
+    *,
+    request_id: str,
+    model_id: str,
+    model_uri: str,
+    model_version: str,
+    phase: str,
+    path_type: str,
+    exception_class: str,
+    exception_message: str,
+) -> None:
+    """Emit a structured inference_failure record for Model 30 serving errors."""
+    logger_.error(
+        "model_30_inference_failure",
+        extra={
+            "event_type": "model_30_inference_failure",
+            "request_id": request_id,
+            "model_id": model_id,
+            "model_uri": model_uri,
+            "model_version": model_version,
+            "phase": phase,
+            "path_type": path_type,
+            "exception_class": exception_class,
+            "exception_message": exception_message[:_EXCEPTION_MESSAGE_MAX_LEN],
+        },
+    )
+
+
 async def validation_422_exception_handler(
     request: Request,
     exc: RequestValidationError,

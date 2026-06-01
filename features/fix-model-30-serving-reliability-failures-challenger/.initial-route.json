@@ -1,0 +1,18 @@
+{
+  "planner": "claude-sonnet-4-6",
+  "coder": "claude-opus-4-7",
+  "reviewer": "claude-haiku-4-5-20251001",
+  "planDepth": "medium",
+  "codeDepth": "medium",
+  "reviewMode": "llm",
+  "reviewRecommended": "llm",
+  "provenance": {
+    "source": "bootstrap",
+    "inputKind": "issue",
+    "inputPath": "features/fix-model-30-serving-reliability-failures-challenger/selected-task.json",
+    "inputHash": "",
+    "routedAt": "2026-06-01T20:43:19Z",
+    "routerMode": "normal"
+  },
+  "maxCostUsd": 25.00
+}

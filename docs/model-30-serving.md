@@ -168,7 +168,66 @@ Normalization accepts common aliases from the model output:
 - `score`, `probability` -> `confidence`
 - `cost`, `estimated_cost` -> `estimated_cost_usd`
 
-There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures return `503` with a `Model 30 MLflow inference failed` prefix.
+There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures are classified into a phase (see Failure Phases below) and returned with the appropriate HTTP status — `503` only for transient MLflow connectivity issues, `500` for deterministic failures.
+
+## Failure Phases
+
+When MLflow inference fails, the serving path classifies the failure into one of five phases and emits a structured `model_30_inference_failure` log record alongside the existing `model_30_latency_trace`.
+
+Phase values:
+
+| Phase | Meaning |
+| --- | --- |
+| `artifact_load` | `mlflow.pyfunc.load_model(model_uri)` raised a non-connectivity exception (registry error, missing artifact, deserialization failure). |
+| `predict_call` | `model.predict(features)` raised — the artifact loaded but inference itself failed. Also the fallback phase for any unclassified exception in the serving path. |
+| `response_normalization` | `normalize_model_30_output` raised — the model returned a shape the normalizer cannot interpret. |
+| `mlflow_connectivity` | The underlying exception was a `requests.exceptions.ConnectionError`/`Timeout` or an `MlflowException` whose message contains connection-related keywords. Transient. |
+| `timeout` | `asyncio.wait_for` tripped before the model returned. Distinct log path; surfaces as `outcome=timeout` on the latency trace. |
+
+Structured log fields on `model_30_inference_failure`:
+
+| Field | Meaning |
+| --- | --- |
+| `event_type` | Always `model_30_inference_failure`. |
+| `request_id` | Matches `metadata.request_id` in the API response and the latency trace. |
+| `model_id` | Always `"30"` for this code path. |
+| `model_uri` | Resolved registry URI used for this request. |
+| `model_version` | Configured registry version, or `"unknown"` if absent from the registry entry. |
+| `phase` | One of the values above. |
+| `path_type` | `cold`, `warm`, or `unknown` — propagated from the latency trace. |
+| `exception_class` | The concrete underlying exception type (unwrapped from `Model30InferenceError`). |
+| `exception_message` | First 500 characters of `str(exc)`; truncated to bound log size and avoid payload echo. |
+
+Phase → HTTP status mapping:
+
+| Phase | HTTP status | Rationale |
+| --- | --- | --- |
+| `mlflow_connectivity` | `503` | Transient — caller should retry. |
+| `artifact_load` | `500` | Deterministic — retry will not help until the registry artifact is fixed. |
+| `predict_call` | `500` | Deterministic — the artifact rejected the request. |
+| `response_normalization` | `500` | Deterministic — the model output shape is unexpected. |
+| `timeout` | `504` | Existing behavior — caller may retry after the cache warms. |
+
+Failure responses return a structured `detail` body with the request id and phase:
+
+```json
+{
+  "detail": {
+    "error": "Technical Task Router inference failed (artifact_load): ...",
+    "request_id": "9b4a1f80-...-...",
+    "run_id": null,
+    "phase": "artifact_load"
+  }
+}
+```
+
+Sample CloudWatch Logs Insights query for failure aggregation:
+
+```sql
+fields @timestamp, request_id, path_type, phase, exception_class, exception_message
+| filter event_type = "model_30_inference_failure"
+| stats count() as failures by phase, path_type
+```
 
 ## Nested API To Router Feature Mapping
 

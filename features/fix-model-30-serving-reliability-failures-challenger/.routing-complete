@@ -1,0 +1,61 @@
+{
+  "planner": "claude-opus-4-7",
+  "coder": "gpt-5.4",
+  "reviewer": "claude-opus-4-7",
+  "planDepth": "medium",
+  "codeDepth": "medium",
+  "reviewMode": "llm",
+  "reviewRecommended": "llm",
+  "provenance": {
+    "source": "expanded",
+    "inputKind": "task-packet",
+    "inputPath": "/Users/timothyogilvie/Dropbox/Hokusai/hokusai-data-pipeline/../worktrees/fix-model-30-serving-reliability-failures-challenger/features/fix-model-30-serving-reliability-failures-challenger/task-packet.md",
+    "inputHash": "409b87e21122cf1f996793a407ff382756775c7318d91ce825eb900db5d188a3",
+    "routedAt": "2026-06-01T20:53:15.325Z",
+    "routerMode": "normal",
+    "appliedFrom": "/Users/timothyogilvie/Dropbox/Hokusai/hokusai-data-pipeline/../worktrees/fix-model-30-serving-reliability-failures-challenger/features/fix-model-30-serving-reliability-failures-challenger/.post-expansion-route.json",
+    "appliedAt": "2026-06-01T20:53:15Z"
+  },
+  "maxCostUsd": 25,
+  "expectedSuccess": 0.284025,
+  "expectedCostPlan": 0.88,
+  "expectedCostCode": 3.49,
+  "expectedCostReview": 0.83,
+  "confidence": 0.614833,
+  "reasoning": [
+    "Adapted from Hokusai Model 30 recommended_strategy.",
+    "Stage costs are apportioned from Hokusai estimated_cost_usd using router token heuristics."
+  ],
+  "signals": {
+    "taskType": "bugfix",
+    "promptLength": "long",
+    "complexityScore": 4,
+    "fileTypes": [
+      ".py",
+      ".md",
+      ".yml",
+      ".json"
+    ],
+    "riskScore": 17
+  },
+  "constraints": {
+    "maxCostUsd": 25
+  },
+  "routingMode": "hokusai",
+  "neighborCount": 0,
+  "neighborSimilarityRange": [
+    0,
+    0
+  ],
+  "expectedCost": 5.2,
+  "challengeRecommendation": {
+    "shouldChallenge": true,
+    "reason": "low-confidence",
+    "defaultModel": "gpt-5.4",
+    "challengerModel": "claude-sonnet-4-6",
+    "priority": 300
+  },
+  "cache_hit": false,
+  "route_source": "single",
+  "packet_hash": "b5be62bcb17f8dd2c04b60cc029a94c3ddafa61b0d6a67a1506e5d0e52d2073d"
+}

@@ -1,0 +1,10 @@
+{
+  "taskId": "HOK-1942_c",
+  "title": "Fix Model 30 serving reliability failures",
+  "description": "From the 2026-05-31 24h CloudWatch service health report.\n\nEvidence:\n\n* /ecs/hokusai-api-development shows 35 Model 30 calls and 4 Model 30 errors.\n* Recent error samples: ERROR:src.api.endpoints.model_serving:Technical Task Router MLflow inference failed.\n* Recent HTTP samples include POST /api/v1/models/30/predict returning 503 Service Unavailable.\n\nWhy this matters:\nThis is user-facing through the Strategy Explorer path and had roughly an 11% 503 rate in the sampled window.\n\nAcceptance criteria:\n\n* Classify the MLflow inference failures: artifact load, predict call, response normalization, timeout, or MLflow connectivity.\n* Add structured context to Model 30 failures: request_id, model_uri/version when available, phase, path_type cold/warm, and exception class/message.\n* Confirm whether failures correlate with cold artifact loads or MLflow service errors.\n* Add or update tests for the failing path once root cause is known.",
+  "labels": [],
+  "workflowType": "feature",
+  "featureName": "fix-model-30-serving-reliability-failures-challenger",
+  "contextPath": "features/fix-model-30-serving-reliability-failures-challenger/selected-task.json",
+  "selectedAt": "2026-06-01T20:43:18Z"
+}

@@ -95,6 +95,32 @@ class Model30LoadInProgressError(RuntimeError):
     """Raised when a cold load is already running for the model URI."""
 
 
+class Model30InferenceError(RuntimeError):
+    """Raised when Model 30 MLflow inference fails at a classified phase."""
+
+    def __init__(self: Model30InferenceError, message: str, *, phase: str) -> None:
+        super().__init__(message)
+        self.phase = phase
+
+
+_CONNECTIVITY_KEYWORDS = ("connection", "timeout", "network", "refused", "unreachable")
+
+
+def _classify_load_exception(exc: BaseException) -> str:
+    """Return 'mlflow_connectivity' or 'artifact_load' for a load-phase exception."""
+    from mlflow.exceptions import MlflowException
+    from requests.exceptions import ConnectionError as RequestsConnectionError
+    from requests.exceptions import Timeout as RequestsTimeout
+
+    if isinstance(exc, (RequestsConnectionError, RequestsTimeout)):
+        return "mlflow_connectivity"
+    if isinstance(exc, MlflowException):
+        msg = str(exc).lower()
+        if any(keyword in msg for keyword in _CONNECTIVITY_KEYWORDS):
+            return "mlflow_connectivity"
+    return "artifact_load"
+
+
 def get_model_30_uri() -> str:
     """Resolve the model 30 URI from environment with a stable default."""
     return os.getenv("MODEL_30_MLFLOW_URI", DEFAULT_MODEL_30_MLFLOW_URI)
@@ -228,11 +254,29 @@ def call_mlflow_model_30(
 ) -> Any:
     """Load the cached MLflow model and invoke predict()."""
     load_started_at = time.perf_counter()
-    model = _get_or_load_model_30(model_uri)
+    try:
+        model = _get_or_load_model_30(model_uri)
+    except Model30LoadInProgressError:
+        if _timings is not None:
+            _timings["artifact_load_ms"] = (time.perf_counter() - load_started_at) * 1000
+        raise
+    except Exception as exc:
+        artifact_load_ms = (time.perf_counter() - load_started_at) * 1000
+        if _timings is not None:
+            _timings["artifact_load_ms"] = artifact_load_ms
+        phase = _classify_load_exception(exc)
+        raise Model30InferenceError(str(exc), phase=phase) from exc
     artifact_load_ms = (time.perf_counter() - load_started_at) * 1000
 
     predict_started_at = time.perf_counter()
-    result = model.predict(features)
+    try:
+        result = model.predict(features)
+    except Exception as exc:
+        inference_only_ms = (time.perf_counter() - predict_started_at) * 1000
+        if _timings is not None:
+            _timings["artifact_load_ms"] = artifact_load_ms
+            _timings["inference_only_ms"] = inference_only_ms
+        raise Model30InferenceError(str(exc), phase="predict_call") from exc
     inference_only_ms = (time.perf_counter() - predict_started_at) * 1000
 
     if _timings is not None:

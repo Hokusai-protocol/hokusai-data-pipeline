@@ -564,8 +564,140 @@ def test_call_mlflow_model_30_propagates_predict_errors() -> None:
         "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
         return_value=fake_model,
     ):
-        with pytest.raises(RuntimeError, match="boom"):
+        with pytest.raises(model_30_adapter.Model30InferenceError, match="boom") as excinfo:
             model_30_adapter.call_mlflow_model_30(
                 "models:/Technical Task Router/4",
                 {"row": 1},
             )
+
+    assert excinfo.value.phase == "predict_call"
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
+
+
+def test_call_mlflow_model_30_load_exception_wraps_as_inference_error() -> None:
+    with patch(
+        "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
+        side_effect=RuntimeError("artifact missing"),
+    ):
+        with pytest.raises(model_30_adapter.Model30InferenceError) as excinfo:
+            model_30_adapter.call_mlflow_model_30(
+                "models:/Technical Task Router/4",
+                {"row": 1},
+            )
+
+    assert excinfo.value.phase == "artifact_load"
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
+
+
+def test_call_mlflow_model_30_connectivity_exception_classified_as_mlflow_connectivity() -> None:
+    import requests.exceptions
+
+    with patch(
+        "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
+        side_effect=requests.exceptions.ConnectionError("unable to reach mlflow"),
+    ):
+        with pytest.raises(model_30_adapter.Model30InferenceError) as excinfo:
+            model_30_adapter.call_mlflow_model_30(
+                "models:/Technical Task Router/4",
+                {"row": 1},
+            )
+
+    assert excinfo.value.phase == "mlflow_connectivity"
+
+
+def test_call_mlflow_model_30_predict_exception_wraps_as_inference_error() -> None:
+    fake_model = MagicMock()
+    fake_model.predict.side_effect = RuntimeError("predict failed")
+
+    with patch(
+        "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
+        return_value=fake_model,
+    ):
+        with pytest.raises(model_30_adapter.Model30InferenceError) as excinfo:
+            model_30_adapter.call_mlflow_model_30(
+                "models:/Technical Task Router/4",
+                {"row": 1},
+            )
+
+    assert excinfo.value.phase == "predict_call"
+
+
+def test_classify_load_exception_connection_error() -> None:
+    import requests.exceptions
+
+    phase = model_30_adapter._classify_load_exception(
+        requests.exceptions.ConnectionError("connection reset")
+    )
+
+    assert phase == "mlflow_connectivity"
+
+
+def test_classify_load_exception_timeout_error() -> None:
+    import requests.exceptions
+
+    phase = model_30_adapter._classify_load_exception(requests.exceptions.Timeout("read timed out"))
+
+    assert phase == "mlflow_connectivity"
+
+
+def test_classify_load_exception_mlflow_exception_connectivity_msg() -> None:
+    from mlflow.exceptions import MlflowException
+
+    phase = model_30_adapter._classify_load_exception(
+        MlflowException("connection refused while contacting registry")
+    )
+
+    assert phase == "mlflow_connectivity"
+
+
+def test_classify_load_exception_mlflow_exception_artifact_msg() -> None:
+    from mlflow.exceptions import MlflowException
+
+    phase = model_30_adapter._classify_load_exception(MlflowException("artifact not found at path"))
+
+    assert phase == "artifact_load"
+
+
+def test_classify_load_exception_generic_error() -> None:
+    phase = model_30_adapter._classify_load_exception(RuntimeError("boom"))
+
+    assert phase == "artifact_load"
+
+
+def test_call_mlflow_model_30_populates_timings_on_load_error() -> None:
+    timings: dict[str, float] = {}
+
+    with patch(
+        "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
+        side_effect=RuntimeError("load failed"),
+    ):
+        with pytest.raises(model_30_adapter.Model30InferenceError):
+            model_30_adapter.call_mlflow_model_30(
+                "models:/Technical Task Router/4",
+                {"row": 1},
+                timings,
+            )
+
+    assert "artifact_load_ms" in timings
+    assert timings["artifact_load_ms"] >= 0.0
+    assert "inference_only_ms" not in timings
+
+
+def test_call_mlflow_model_30_populates_timings_on_predict_error() -> None:
+    fake_model = MagicMock()
+    fake_model.predict.side_effect = RuntimeError("predict failed")
+    timings: dict[str, float] = {}
+
+    with patch(
+        "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
+        return_value=fake_model,
+    ):
+        with pytest.raises(model_30_adapter.Model30InferenceError):
+            model_30_adapter.call_mlflow_model_30(
+                "models:/Technical Task Router/4",
+                {"row": 1},
+                timings,
+            )
+
+    assert "artifact_load_ms" in timings
+    assert "inference_only_ms" in timings

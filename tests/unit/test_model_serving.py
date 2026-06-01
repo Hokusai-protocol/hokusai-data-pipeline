@@ -432,7 +432,7 @@ def test_model_30_predict_missing_task_returns_422(client: TestClient) -> None:
     assert "Field required" in response.text
 
 
-def test_model_30_predict_mlflow_failure_returns_503(client: TestClient) -> None:
+def test_model_30_predict_unclassified_failure_returns_500_with_phase(client: TestClient) -> None:
     def failing_model_caller(_model_uri: str, _features: object, _timings=None) -> object:
         raise RuntimeError("registry unavailable")
 
@@ -445,8 +445,126 @@ def test_model_30_predict_mlflow_failure_returns_503(client: TestClient) -> None
         json={"inputs": _minimal_model_30_inputs()},
     )
 
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert detail["error"].startswith("Technical Task Router MLflow inference failed")
+    assert detail["request_id"]
+    assert detail["phase"] == "predict_call"
+
+
+def test_model_30_predict_mlflow_connectivity_failure_returns_503(client: TestClient) -> None:
+    from src.api.endpoints.model_30_adapter import Model30InferenceError
+
+    def failing_model_caller(_model_uri: str, _features: object, _timings=None) -> object:
+        raise Model30InferenceError("connection refused", phase="mlflow_connectivity")
+
+    _replace_registry_entry("30", model_caller=failing_model_caller)
+    response = client.post(
+        "/api/v1/models/30/predict",
+        json={"inputs": _minimal_model_30_inputs()},
+    )
+
     assert response.status_code == 503
-    assert response.json()["detail"].startswith("Technical Task Router MLflow inference failed")
+    detail = response.json()["detail"]
+    assert detail["phase"] == "mlflow_connectivity"
+    assert detail["request_id"]
+    assert "inference failed (mlflow_connectivity)" in detail["error"]
+
+
+def test_model_30_predict_artifact_load_failure_returns_500_with_phase(client: TestClient) -> None:
+    from src.api.endpoints.model_30_adapter import Model30InferenceError
+
+    def failing_model_caller(_model_uri: str, _features: object, _timings=None) -> object:
+        raise Model30InferenceError("artifact missing", phase="artifact_load")
+
+    _replace_registry_entry("30", model_caller=failing_model_caller)
+    response = client.post(
+        "/api/v1/models/30/predict",
+        json={"inputs": _minimal_model_30_inputs()},
+    )
+
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert detail["phase"] == "artifact_load"
+
+
+def test_model_30_predict_response_normalization_failure_returns_500_with_phase(
+    client: TestClient,
+) -> None:
+    def model_caller(
+        _model_uri: str, _features: object, timings: dict[str, float] | None = None
+    ) -> object:
+        if timings is not None:
+            timings["artifact_load_ms"] = 0.1
+            timings["inference_only_ms"] = 0.2
+        return {"selected_model": "fast-coder-v1"}
+
+    def broken_normalizer(_raw: object, _validated: object) -> dict[str, object]:
+        raise ValueError("output had unexpected shape")
+
+    _replace_registry_entry(
+        "30",
+        model_caller=model_caller,
+        output_normalizer=broken_normalizer,
+    )
+    response = client.post(
+        "/api/v1/models/30/predict",
+        json={"inputs": _minimal_model_30_inputs()},
+    )
+
+    assert response.status_code == 500
+    detail = response.json()["detail"]
+    assert detail["phase"] == "response_normalization"
+
+
+def test_model_30_failure_log_contains_structured_fields(client: TestClient, caplog) -> None:
+    from src.api.endpoints.model_30_adapter import Model30InferenceError
+
+    def failing_model_caller(_model_uri: str, _features: object, _timings=None) -> object:
+        raise Model30InferenceError("artifact missing", phase="artifact_load")
+
+    _replace_registry_entry("30", model_caller=failing_model_caller)
+    with caplog.at_level(logging.ERROR):
+        response = client.post(
+            "/api/v1/models/30/predict",
+            json={"inputs": _minimal_model_30_inputs()},
+        )
+
+    assert response.status_code == 500
+    failure_record = next(
+        record for record in caplog.records if record.msg == "model_30_inference_failure"
+    )
+    assert failure_record.event_type == "model_30_inference_failure"
+    assert failure_record.request_id
+    assert failure_record.model_id == "30"
+    assert failure_record.model_uri
+    assert failure_record.model_version
+    assert failure_record.phase == "artifact_load"
+    assert failure_record.path_type in {"warm", "cold", "unknown"}
+    assert failure_record.exception_class
+    assert failure_record.exception_message
+
+
+def test_model_30_failure_log_truncates_long_exception_message(client: TestClient, caplog) -> None:
+    from src.api.endpoints.model_30_adapter import Model30InferenceError
+
+    long_message = "x" * 800
+
+    def failing_model_caller(_model_uri: str, _features: object, _timings=None) -> object:
+        raise Model30InferenceError(long_message, phase="artifact_load")
+
+    _replace_registry_entry("30", model_caller=failing_model_caller)
+    with caplog.at_level(logging.ERROR):
+        response = client.post(
+            "/api/v1/models/30/predict",
+            json={"inputs": _minimal_model_30_inputs()},
+        )
+
+    assert response.status_code == 500
+    failure_record = next(
+        record for record in caplog.records if record.msg == "model_30_inference_failure"
+    )
+    assert len(failure_record.exception_message) == 500
 
 
 def test_model_30_predict_mlflow_timeout_returns_504_without_alb_timeout(
