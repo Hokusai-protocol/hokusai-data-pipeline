@@ -109,7 +109,7 @@ def _should_enable_sentry_debug_route() -> bool:
 
 _init_sentry()
 
-from src.api.endpoints import model_serving
+from src.api.endpoints import contributions, model_serving
 from src.api.endpoints.model_registry_entries import MODEL_CONFIGS
 from src.api.middleware.validation_logging import validation_422_exception_handler
 from src.api.routes import (
@@ -212,6 +212,7 @@ app.include_router(evaluation_schedule.router)
 app.include_router(outcomes.router)
 app.include_router(dataset_arrivals.router)
 app.include_router(model_serving.router, tags=["model-serving"])  # Model 21 serving endpoint
+app.include_router(contributions.router)
 # TODO: Enable auth router after fixing APIKeyModel dependency
 # app.include_router(auth.router, tags=["authentication"])
 
