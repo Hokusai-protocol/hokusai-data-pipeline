@@ -223,6 +223,7 @@ class ContributionService:
             if existing.body_hash != body_hash:
                 raise ContributionConflictError(submission_id=submission_id)
             response = ContributionAcceptedResponse.model_validate(existing.response_payload)
+            response = response.model_copy(update={"idempotent_replay": True})
             return ContributionAcceptance(response=response, status_code=200)
 
         response = ContributionAcceptedResponse(
