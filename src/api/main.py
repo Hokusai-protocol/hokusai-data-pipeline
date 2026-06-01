@@ -15,6 +15,52 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+try:
+    import sentry_sdk
+except ImportError:
+
+    class _MissingSentrySDK:
+        """Fallback used when sentry-sdk is not installed in the local environment."""
+
+        @staticmethod
+        def init(*args: Any, **kwargs: Any) -> None:
+            raise ModuleNotFoundError("sentry-sdk is not installed")
+
+    sentry_sdk = _MissingSentrySDK()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+def _init_sentry() -> None:
+    """Initialize Sentry for API monitoring when configured."""
+    dsn = os.getenv("SENTRY_DSN")
+    if not dsn:
+        return
+
+    try:
+        sentry_sdk.init(
+            dsn=dsn,
+            environment=os.getenv("ENVIRONMENT", "development"),
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+            profiles_sample_rate=0.0,
+            send_default_pii=True,
+            release=os.getenv("SENTRY_RELEASE") or None,
+        )
+    except Exception:
+        logger.exception("Failed to initialize Sentry")
+
+
+def _should_enable_sentry_debug_route() -> bool:
+    """Avoid exposing the Sentry debug endpoint in production by default."""
+    if os.getenv("SENTRY_DEBUG_ENABLED", "false").lower() == "true":
+        return True
+    return os.getenv("ENVIRONMENT", "development").lower() != "production"
+
+
+_init_sentry()
+
 from src.api.endpoints import model_serving
 from src.api.endpoints.model_registry_entries import MODEL_CONFIGS
 from src.api.middleware.validation_logging import validation_422_exception_handler
@@ -39,10 +85,6 @@ from src.api.utils.config import get_settings
 from src.middleware.auth import APIKeyAuthMiddleware
 from src.middleware.rate_limiter import RateLimitMiddleware
 from src.utils.mlflow_url import get_mlflow_url
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Get settings
 settings = get_settings()
@@ -101,6 +143,14 @@ async def root() -> dict[str, Any]:
         "health_endpoints": ["/health", "/ready", "/live", "/health/mlflow", "/health/status"],
         "documentation": "/docs",
     }
+
+
+if _should_enable_sentry_debug_route():
+
+    @app.get("/sentry-debug")
+    async def trigger_sentry_error() -> None:
+        """Trigger an error to verify Sentry wiring."""
+        _ = 1 / 0
 
 
 app.include_router(models.router, prefix="/models", tags=["models"])
