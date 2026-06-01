@@ -17,6 +17,126 @@ Accepted `inputs` groups:
 
 Top-level flat benchmark-row fields such as `schema_version`, `task_descriptor`, `allowed_models`, `selected_models`, and `max_cost_usd` are rejected with `422`. Those fields belong to the benchmark/evaluation row contract, not the live serving API.
 
+## Accepted Shapes
+
+`inputs` must contain a nested `task` group with both `description` and `task_type`.
+
+Minimal accepted payload (`data/test_fixtures/model_30_minimal_payload.json`):
+
+```json
+{
+  "inputs": {
+    "task": {
+      "description": "Implement password reset flow",
+      "task_type": "feature"
+    }
+  }
+}
+```
+
+Curated accepted payload (`data/test_fixtures/model_30_curated_payload.json`):
+
+```json
+{
+  "inputs": {
+    "task": {
+      "description": "Refactor billing webhook retry handling",
+      "task_type": "refactor",
+      "language": "python",
+      "framework": "fastapi",
+      "repo_type": "monorepo"
+    },
+    "routing": {
+      "available_models": ["fast-coder-v1", "deep-coder-v2"],
+      "preferred_models": ["deep-coder-v2"],
+      "max_cost_usd": 0.5,
+      "max_latency_seconds": 30,
+      "prioritize_quality": true
+    },
+    "context": {
+      "domain": "payments",
+      "repo_size_bucket": "large",
+      "requires_tests": true,
+      "risk_level": "medium",
+      "file_count": 6,
+      "estimated_complexity": "medium",
+      "security_sensitive": true
+    },
+    "workflow": {
+      "surface": "wavemill",
+      "stages": ["plan", "code", "review"],
+      "execution_environment": "ci",
+      "human_review_required": true
+    },
+    "prediction": {
+      "expected_duration_seconds": 1800,
+      "expected_cost_usd": 0.45,
+      "expected_success_probability": 0.8
+    },
+    "outcome": {
+      "completed_successfully": false,
+      "actual_cost_usd": 0.0,
+      "actual_time_seconds": 0.0,
+      "retry_count": 0,
+      "intervention_required": false,
+      "selected_model": "deep-coder-v2"
+    },
+    "rubric": {
+      "quality_score": 0.9,
+      "correctness_score": 0.85,
+      "human_rating": "strong",
+      "benchmark_passed": true
+    },
+    "metadata": {
+      "external_task_id": "task-123",
+      "run_id": "run-456",
+      "integration_version": "2026.05",
+      "idempotency_key": "idem-789"
+    }
+  }
+}
+```
+
+## Rejected Shapes
+
+Flat benchmark-row payloads are rejected because `TechnicalTaskRouterInputs` uses `extra="forbid"` and requires `task`.
+
+Rejected benchmark/evaluation row shape:
+
+```json
+{
+  "inputs": {
+    "schema_version": "technical_task_router_row/v1",
+    "task_descriptor": {"task_type": "feature"},
+    "allowed_models": ["fast-coder-v1"],
+    "max_cost_usd": 0.5
+  }
+}
+```
+
+Expected validation behavior:
+
+- `Extra inputs are not permitted` for flat row fields such as `schema_version`, `task_descriptor`, and `allowed_models`
+- `Field required` for missing `task`
+
+This is the benchmark row contract, not the public serving API contract.
+
+Rejected missing-task shape:
+
+```json
+{
+  "inputs": {
+    "routing": {
+      "max_cost_usd": 0.5
+    }
+  }
+}
+```
+
+Expected validation behavior:
+
+- `Field required` on `task`
+
 ## MLflow Configuration
 
 Environment variables:
