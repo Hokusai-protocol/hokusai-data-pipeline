@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/models", tags=["model-serving"])
 
 
-def _log_model_30_failure_if_model_30(
+def _log_mlflow_inference_failure(
     model_id: str,
     *,
     request_id: str,
@@ -65,18 +65,32 @@ def _log_model_30_failure_if_model_30(
     duration_ms: float,
     level: int = logging.ERROR,
 ) -> None:
-    if model_id != "30":
+    if model_id == "30":
+        log_model_30_failure(
+            logger,
+            request_id=request_id,
+            model_uri=model_uri,
+            model_version=model_version,
+            phase=phase,
+            path_type=getattr(trace, "path_type", "unknown") or "unknown",
+            exc=exc,
+            duration_ms=duration_ms,
+            level=level,
+        )
         return
-    log_model_30_failure(
-        logger,
-        request_id=request_id,
-        model_uri=model_uri,
-        model_version=model_version,
-        phase=phase,
-        path_type=getattr(trace, "path_type", "unknown") or "unknown",
-        exc=exc,
-        duration_ms=duration_ms,
-        level=level,
+    logger.log(
+        level,
+        "mlflow_inference_failure",
+        exc_info=exc,
+        extra={
+            "event": "mlflow_inference_failure",
+            "model_id": model_id,
+            "model_uri": model_uri,
+            "model_version": model_version,
+            "phase": phase.value,
+            "request_id": request_id,
+            "duration_ms": duration_ms,
+        },
     )
 
 
@@ -523,7 +537,7 @@ class ModelServingService:
                 trace.record_ms("artifact_load", mlflow_timings.get("artifact_load_ms", 0.0))
                 trace.emit(logger)
                 trace_emitted = True
-                _log_model_30_failure_if_model_30(
+                _log_mlflow_inference_failure(
                     model_id,
                     request_id=request_id,
                     model_uri=model_uri,
@@ -549,7 +563,7 @@ class ModelServingService:
                 trace.deadline_boundary_ms = (time.perf_counter() - inference_started_at) * 1000
                 trace.emit(logger)
                 trace_emitted = True
-                _log_model_30_failure_if_model_30(
+                _log_mlflow_inference_failure(
                     model_id,
                     request_id=request_id,
                     model_uri=model_uri,
@@ -611,7 +625,7 @@ class ModelServingService:
                 if isinstance(exc, Model30InferenceError)
                 else Model30FailurePhase.PREDICT_CALL
             )
-            _log_model_30_failure_if_model_30(
+            _log_mlflow_inference_failure(
                 model_id,
                 request_id=request_id,
                 model_uri=model_uri,
