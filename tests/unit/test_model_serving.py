@@ -486,7 +486,7 @@ def test_model_30_predict_response_normalization_failure_returns_503_with_phase(
 
 
 def test_model_30_predict_mlflow_timeout_returns_504_without_alb_timeout(
-    client: TestClient,
+    client: TestClient, caplog
 ) -> None:
     def slow_call(*_: object) -> dict[str, str]:
         time.sleep(0.05)
@@ -496,10 +496,11 @@ def test_model_30_predict_mlflow_timeout_returns_504_without_alb_timeout(
     model_serving.serving_service.prediction_timeout_seconds = 0.01
     try:
         _replace_registry_entry("30", model_caller=slow_call)
-        response = client.post(
-            "/api/v1/models/30/predict",
-            json={"inputs": _minimal_model_30_inputs()},
-        )
+        with caplog.at_level(logging.ERROR):
+            response = client.post(
+                "/api/v1/models/30/predict",
+                json={"inputs": _minimal_model_30_inputs()},
+            )
     finally:
         model_serving.serving_service.prediction_timeout_seconds = original_timeout
 
@@ -508,6 +509,15 @@ def test_model_30_predict_mlflow_timeout_returns_504_without_alb_timeout(
     assert "timed out" in detail["error"]
     assert detail["request_id"]
     assert detail["run_id"] is None
+    failure_record = next(
+        record for record in caplog.records if record.msg == "model_30_inference_failure"
+    )
+    assert failure_record.phase == Model30FailurePhase.TIMEOUT.value
+    assert failure_record.request_id == detail["request_id"]
+    assert failure_record.model_version == MODEL_30_VERSION
+    assert failure_record.exception_class == "TimeoutError"
+    assert failure_record.path_type in {"cold", "warm", "unknown"}
+    assert failure_record.duration_ms >= 0.0
 
 
 def test_model_30_predict_emits_warm_latency_trace(client: TestClient, caplog) -> None:

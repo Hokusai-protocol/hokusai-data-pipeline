@@ -170,6 +170,78 @@ Normalization accepts common aliases from the model output:
 
 There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures return `503` with a `Model 30 MLflow inference failed` prefix.
 
+## Failure Classes and Observability
+
+Every inference path that surfaces a non-2xx response also emits exactly one structured `model_30_inference_failure` log record so failures can be classified without reading stack traces. The taxonomy isolates which stage failed so on-call can distinguish artifact-load problems from connectivity blips from model output regressions.
+
+### Failure phases
+
+| `phase`                  | Where it fires                                                          | Typical cause                                                                 | HTTP status |
+|--------------------------|-------------------------------------------------------------------------|-------------------------------------------------------------------------------|-------------|
+| `artifact_load`          | `mlflow.pyfunc.load_model(...)` raised, or another loader holds the lock | Registry returned no artifact, deserialization failed, or cold-load contention | 503         |
+| `mlflow_connectivity`    | Loader raised an `OSError`/`ConnectionError` or matched connectivity keywords | Tracking server unreachable, TLS reset, 503 from MLflow, DNS failure          | 503         |
+| `predict_call`           | `model.predict(features)` raised                                          | Feature/schema mismatch, model code bug, model-internal exception              | 503         |
+| `response_normalization` | `normalize_model_30_output(...)` raised after a successful predict       | Empty MLflow output, unsupported output shape, missing `selected_model`        | 503         |
+| `timeout`                | `asyncio.wait_for(...)` exceeded `MODEL_SERVING_PREDICTION_TIMEOUT_SECONDS` | Slow cold load, slow inference, registry slowdown                              | 504         |
+
+The 503 response body shape is unchanged: `{"detail": "Technical Task Router MLflow inference failed: <exc>"}`. The 504 body keeps its `{error, request_id, run_id}` shape. Strategy Explorer parsing is unaffected.
+
+### `model_30_inference_failure` log fields
+
+Every record carries the same field contract so a single CloudWatch query can pivot across all phases:
+
+| Field               | Type            | Notes                                                                                      |
+|---------------------|-----------------|--------------------------------------------------------------------------------------------|
+| `event_type`        | string (constant) | Always `"model_30_inference_failure"`                                                      |
+| `request_id`        | string          | Same id returned in the API response `metadata.request_id` and persisted with inference logs |
+| `model_uri`         | string          | E.g. `models:/Technical Task Router/4`                                                     |
+| `model_version`     | string \| null  | `MODEL_30_VERSION` when available; `null` if the registry entry has none                   |
+| `phase`             | string enum     | One of the values in the phase table above                                                 |
+| `path_type`         | string          | `cold`, `warm`, or `unknown` if the failure preceded `set_path_type`                       |
+| `exception_class`   | string          | `type(exc).__name__` (e.g. `RuntimeError`, `TimeoutError`, `ConnectionError`)              |
+| `exception_message` | string          | `str(exc)` truncated to 500 chars                                                          |
+| `duration_ms`       | number          | Wall-clock from request entry to the failure, rounded to 2 decimals                        |
+
+Example log line (JSON formatter output):
+
+```json
+{
+  "level": "ERROR",
+  "msg": "model_30_inference_failure",
+  "event_type": "model_30_inference_failure",
+  "request_id": "8b1f4d7e-6c5a-4b8b-9a2e-7c0e7a8d9e10",
+  "model_uri": "models:/Technical Task Router/4",
+  "model_version": "4",
+  "phase": "mlflow_connectivity",
+  "path_type": "cold",
+  "exception_class": "ConnectionError",
+  "exception_message": "HTTPConnectionPool(host='mlflow.hokusai-development.local', port=5000): Max retries exceeded",
+  "duration_ms": 412.37
+}
+```
+
+### CloudWatch Logs Insights queries
+
+Count failures by phase over the recent window:
+
+```sql
+fields @timestamp, request_id, phase, path_type, exception_class, duration_ms
+| filter event_type = "model_30_inference_failure"
+| stats count() as failures by phase
+| sort failures desc
+```
+
+Pull recent failure samples grouped by phase:
+
+```sql
+fields @timestamp, request_id, phase, path_type, exception_class, exception_message, duration_ms
+| filter event_type = "model_30_inference_failure"
+| sort @timestamp desc
+| limit 50
+```
+
+Correlate a 503 sample to its structured record by `request_id` returned in the API response, or join to the matching `model_30_latency_trace` record (same `request_id`) to see which phase dominated wall-clock.
+
 ## Nested API To Router Feature Mapping
 
 Model 30 is served from the nested public API contract, but its live prediction frame uses the Wavemill router feature schema it was trained on. `model_30_inputs_to_features()` delegates to `map_nested_to_router_features()` and emits only router input columns:
