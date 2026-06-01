@@ -76,6 +76,7 @@ ignore = [
 "src/api/models/retention_policy.py" = ["A003"]
 "src/api/models/evaluation_schedule.py" = ["A003"]
 "src/api/schemas/evaluation_schedule.py" = ["A003", "ANN102"]
+"src/api/schemas/contribution_submission.py" = ["ANN102"]
 "src/api/schemas/inference_log.py" = ["ANN", "N805", "N803"]
 "src/api/main.py" = ["E402"]
 "src/api/routes/governance.py" = ["E501"]

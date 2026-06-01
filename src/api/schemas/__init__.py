@@ -11,6 +11,14 @@ from .benchmark_spec import (
     MetricDirection,
     MetricSpec,
 )
+from .contribution_submission import (
+    ContributionMetadata,
+    ContributionSubmissionRequest,
+    ContributionSubmissionResponse,
+    SubmitDataContributionRow,
+    TechnicalTaskRouterContributionRowV1,
+    TechnicalTaskRouterSelectedModels,
+)
 from .evaluation_schedule import (
     EvaluationScheduleCreate,
     EvaluationScheduleResponse,
@@ -48,10 +56,16 @@ __all__ = [
     "BenchmarkSpecListResponse",
     "BenchmarkSpecResponse",
     "BenchmarkSpecUpdate",
+    "ContributionMetadata",
+    "ContributionSubmissionRequest",
+    "ContributionSubmissionResponse",
     "EvalSpec",
     "GuardrailSpec",
     "MetricDirection",
     "MetricSpec",
+    "SubmitDataContributionRow",
+    "TechnicalTaskRouterContributionRowV1",
+    "TechnicalTaskRouterSelectedModels",
     "TokenMintRequest",
     "TokenMintResult",
     "TokenMintVestingDetails",
