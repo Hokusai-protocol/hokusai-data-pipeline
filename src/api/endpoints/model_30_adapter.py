@@ -6,11 +6,13 @@ MLflow authentication is supplied by shared environment configuration such as
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import threading
 import time
 from collections.abc import Mapping
+from enum import Enum
 from typing import Any
 
 import mlflow
@@ -93,6 +95,31 @@ _MODEL_30_LOAD_LOCKS: dict[str, threading.Lock] = {}
 
 class Model30LoadInProgressError(RuntimeError):
     """Raised when a cold load is already running for the model URI."""
+
+
+class Model30FailurePhase(str, Enum):
+    """Structured failure phases for Model 30 MLflow inference."""
+
+    ARTIFACT_LOAD = "artifact_load"
+    PREDICT_CALL = "predict_call"
+    RESPONSE_NORMALIZATION = "response_normalization"
+    TIMEOUT = "timeout"
+    MLFLOW_CONNECTIVITY = "mlflow_connectivity"
+
+
+class Model30InferenceError(RuntimeError):
+    """Typed Model 30 inference error that carries a failure phase."""
+
+    def __init__(
+        self: Model30InferenceError,
+        message: str,
+        *,
+        phase: Model30FailurePhase,
+        original_exc: BaseException,
+    ) -> None:
+        super().__init__(message)
+        self.phase = phase
+        self.original_exc = original_exc
 
 
 def get_model_30_uri() -> str:
@@ -228,11 +255,42 @@ def call_mlflow_model_30(
 ) -> Any:
     """Load the cached MLflow model and invoke predict()."""
     load_started_at = time.perf_counter()
-    model = _get_or_load_model_30(model_uri)
+    try:
+        model = _get_or_load_model_30(model_uri)
+    except Model30LoadInProgressError:
+        artifact_load_ms = (time.perf_counter() - load_started_at) * 1000
+        if _timings is not None:
+            _timings["artifact_load_ms"] = artifact_load_ms
+        raise
+    except Exception as exc:
+        artifact_load_ms = (time.perf_counter() - load_started_at) * 1000
+        if _timings is not None:
+            _timings["artifact_load_ms"] = artifact_load_ms
+        phase = (
+            Model30FailurePhase.MLFLOW_CONNECTIVITY
+            if _is_connectivity_error(exc)
+            else Model30FailurePhase.ARTIFACT_LOAD
+        )
+        raise Model30InferenceError(
+            str(exc)[:500],
+            phase=phase,
+            original_exc=exc,
+        ) from exc
     artifact_load_ms = (time.perf_counter() - load_started_at) * 1000
 
     predict_started_at = time.perf_counter()
-    result = model.predict(features)
+    try:
+        result = model.predict(features)
+    except Exception as exc:
+        inference_only_ms = (time.perf_counter() - predict_started_at) * 1000
+        if _timings is not None:
+            _timings["artifact_load_ms"] = artifact_load_ms
+            _timings["inference_only_ms"] = inference_only_ms
+        raise Model30InferenceError(
+            str(exc)[:500],
+            phase=Model30FailurePhase.PREDICT_CALL,
+            original_exc=exc,
+        ) from exc
     inference_only_ms = (time.perf_counter() - predict_started_at) * 1000
 
     if _timings is not None:
@@ -247,28 +305,85 @@ def normalize_model_30_output(
 ) -> dict[str, Any]:
     """Normalize raw MLflow output into the public model 30 response contract."""
     del validated_inputs
-    normalized = _coerce_model_output(raw_model_output)
+    try:
+        normalized = _coerce_model_output(raw_model_output)
+        selected_models = _extract_selected_models(normalized)
+        selected_model = normalized.get("selected_model")
+        if selected_model is None and selected_models:
+            selected_model = selected_models[0]
+        if selected_model is not None and not selected_models:
+            selected_models = [selected_model]
 
-    selected_models = _extract_selected_models(normalized)
-    selected_model = normalized.get("selected_model")
-    if selected_model is None and selected_models:
-        selected_model = selected_models[0]
-    if selected_model is not None and not selected_models:
-        selected_models = [selected_model]
+        if not selected_model:
+            raise ValueError("MLflow output did not contain a usable selected model")
 
-    if not selected_model:
-        raise ValueError("MLflow output did not contain a usable selected model")
+        return {
+            "selected_model": str(selected_model),
+            "selected_models": [str(model_name) for model_name in selected_models],
+            "confidence": _coerce_float(normalized.get("confidence"), default=0.0),
+            "rationale": _coerce_string(normalized.get("rationale"), default=""),
+            "estimated_cost_usd": _coerce_float(
+                normalized.get("estimated_cost_usd"),
+                default=0.0,
+            ),
+        }
+    except Exception as exc:
+        raise Model30InferenceError(
+            str(exc)[:500],
+            phase=Model30FailurePhase.RESPONSE_NORMALIZATION,
+            original_exc=exc,
+        ) from exc
 
-    return {
-        "selected_model": str(selected_model),
-        "selected_models": [str(model_name) for model_name in selected_models],
-        "confidence": _coerce_float(normalized.get("confidence"), default=0.0),
-        "rationale": _coerce_string(normalized.get("rationale"), default=""),
-        "estimated_cost_usd": _coerce_float(
-            normalized.get("estimated_cost_usd"),
-            default=0.0,
-        ),
-    }
+
+def _is_connectivity_error(exc: BaseException) -> bool:
+    if isinstance(exc, (OSError, ConnectionError)):
+        return True
+    msg = str(exc).lower()
+    return any(
+        kw in msg
+        for kw in (
+            "connection refused",
+            "connection reset",
+            "timeout",
+            "503",
+            "service unavailable",
+            "name or service not known",
+            "max retries",
+            "remote end closed",
+        )
+    )
+
+
+def log_model_30_failure(
+    logger_: logging.Logger,
+    *,
+    request_id: str,
+    model_uri: str,
+    model_version: str | None,
+    phase: Model30FailurePhase | str,
+    path_type: str,
+    exc: BaseException,
+    duration_ms: float,
+    level: int = logging.ERROR,
+) -> None:
+    """Emit a structured Model 30 failure log record."""
+    phase_value = phase.value if isinstance(phase, Model30FailurePhase) else str(phase)
+    logger_.log(
+        level,
+        "model_30_inference_failure",
+        extra={
+            "event_type": "model_30_inference_failure",
+            "request_id": request_id,
+            "model_uri": model_uri,
+            "model_version": model_version,
+            "phase": phase_value,
+            "path_type": path_type,
+            "exception_class": type(exc).__name__,
+            "exception_message": str(exc)[:500],
+            "duration_ms": round(duration_ms, 2),
+        },
+        exc_info=exc,
+    )
 
 
 def _get_or_load_model_30(model_uri: str) -> Any:

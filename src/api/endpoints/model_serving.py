@@ -35,7 +35,12 @@ from ..middleware.validation_logging import (
 )
 from ..services.contributor_logger import ContributorLogger
 from .latency_trace import Model30LatencyTrace
-from .model_30_adapter import Model30LoadInProgressError
+from .model_30_adapter import (
+    Model30FailurePhase,
+    Model30InferenceError,
+    Model30LoadInProgressError,
+    log_model_30_failure,
+)
 from .model_registry import ModelRegistryEntry
 from .model_registry_entries import MODEL_CONFIGS
 
@@ -436,6 +441,7 @@ class ModelServingService:
         output_normalizer = self._get_required_mlflow_component(entry, "output_normalizer")
         cache_checker = self._get_required_mlflow_component(entry, "cache_checker")
 
+        request_started_at = time.perf_counter()
         trace = Model30LatencyTrace(request_id=request_id, model_uri=model_uri)
         trace_emitted = False
         try:
@@ -468,16 +474,15 @@ class ModelServingService:
                 trace.record_ms("artifact_load", mlflow_timings.get("artifact_load_ms", 0.0))
                 trace.emit(logger)
                 trace_emitted = True
-                logger.error(
-                    "%s MLflow inference timed out",
-                    entry.name,
-                    extra={
-                        "model_id": model_id,
-                        "model_uri": model_uri,
-                        "timeout_seconds": self.prediction_timeout_seconds,
-                        "request_id": request_id,
-                        "run_id": trace.run_id,
-                    },
+                log_model_30_failure(
+                    logger,
+                    request_id=request_id,
+                    model_uri=model_uri,
+                    model_version=entry.model_version,
+                    phase=Model30FailurePhase.TIMEOUT,
+                    path_type=getattr(trace, "path_type", "unknown") or "unknown",
+                    exc=exc,
+                    duration_ms=(time.perf_counter() - request_started_at) * 1000,
                 )
                 raise HTTPException(
                     status_code=504,
@@ -495,15 +500,16 @@ class ModelServingService:
                 trace.deadline_boundary_ms = (time.perf_counter() - inference_started_at) * 1000
                 trace.emit(logger)
                 trace_emitted = True
-                logger.warning(
-                    "%s cold load already in progress",
-                    entry.name,
-                    extra={
-                        "model_id": model_id,
-                        "model_uri": model_uri,
-                        "request_id": request_id,
-                        "run_id": trace.run_id,
-                    },
+                log_model_30_failure(
+                    logger,
+                    request_id=request_id,
+                    model_uri=model_uri,
+                    model_version=entry.model_version,
+                    phase=Model30FailurePhase.ARTIFACT_LOAD,
+                    path_type=getattr(trace, "path_type", "unknown") or "unknown",
+                    exc=exc,
+                    duration_ms=(time.perf_counter() - request_started_at) * 1000,
+                    level=logging.WARNING,
                 )
                 raise HTTPException(
                     status_code=503,
@@ -551,16 +557,20 @@ class ModelServingService:
             trace.outcome = "error"
             if not trace_emitted:
                 trace.emit(logger)
-            logger.error(
-                "%s MLflow inference failed",
-                entry.name,
-                extra={
-                    "model_id": model_id,
-                    "model_uri": model_uri,
-                    "request_id": request_id,
-                    "run_id": trace.run_id,
-                },
-                exc_info=exc,
+            phase = (
+                exc.phase
+                if isinstance(exc, Model30InferenceError)
+                else Model30FailurePhase.PREDICT_CALL
+            )
+            log_model_30_failure(
+                logger,
+                request_id=request_id,
+                model_uri=model_uri,
+                model_version=entry.model_version,
+                phase=phase,
+                path_type=getattr(trace, "path_type", "unknown") or "unknown",
+                exc=exc,
+                duration_ms=(time.perf_counter() - request_started_at) * 1000,
             )
             raise HTTPException(
                 status_code=503,
