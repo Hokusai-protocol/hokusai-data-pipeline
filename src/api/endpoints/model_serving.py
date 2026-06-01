@@ -20,13 +20,19 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import requests
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from huggingface_hub import hf_hub_download, snapshot_download
 from pydantic import BaseModel, Field, ValidationError
 
 from ...middleware.auth import require_auth
 from ...utils.mlflow_health import check_mlflow_registry_sdk
 from ..dependencies import get_contributor_logger
+from ..middleware.validation_logging import (
+    classify_client_ip,
+    emit_model_serving_validation_422,
+    get_or_generate_request_id,
+)
 from ..services.contributor_logger import ContributorLogger
 from .latency_trace import Model30LatencyTrace
 from .model_30_adapter import Model30LoadInProgressError
@@ -330,6 +336,7 @@ class ModelServingService:
         inputs: dict[str, Any],
         options: dict[str, Any],
         request_id: str = "",
+        caller_context: dict | None = None,
     ) -> dict[str, Any]:
         """Main method to serve predictions for a model.
 
@@ -395,6 +402,7 @@ class ModelServingService:
                 model_id=model_id,
                 inputs=inputs,
                 request_id=request_id,
+                caller_context=caller_context,
             )
 
         else:
@@ -419,6 +427,7 @@ class ModelServingService:
         model_id: str,
         inputs: dict[str, Any],
         request_id: str,
+        caller_context: dict | None = None,
     ) -> dict[str, Any]:
         model_uri = self._get_required_mlflow_component(entry, "model_uri")
         input_validator = self._get_required_mlflow_component(entry, "input_validator")
@@ -525,6 +534,13 @@ class ModelServingService:
             trace.outcome = "validation_error"
             if not trace_emitted:
                 trace.emit(logger)
+            emit_model_serving_validation_422(
+                logger,
+                request_id=request_id,
+                model_id=model_id,
+                caller_context=caller_context,
+                pydantic_errors=exc.errors(),
+            )
             raise HTTPException(status_code=422, detail=exc.errors()) from exc
         except HTTPException:
             if not trace_emitted:
@@ -649,7 +665,8 @@ async def get_model_info(
 @router.post("/{model_id}/predict")
 async def predict(
     model_id: str,
-    request: PredictionRequest,
+    payload: PredictionRequest,
+    http_request: Request,
     background_tasks: BackgroundTasks,
     auth: Dict[str, Any] = Depends(require_auth),
     contributor_logger: ContributorLogger = Depends(get_contributor_logger),
@@ -662,7 +679,7 @@ async def predict(
     Args:
     ----
         model_id: The ID of the model to use for prediction (e.g., "21")
-        request: Prediction request containing inputs and options
+        payload: Prediction request containing inputs and options
         auth: User authentication context from middleware
 
     Returns:
@@ -687,23 +704,37 @@ async def predict(
         },
     )
 
+    request_id = get_or_generate_request_id(http_request)
+
     try:
         started_at = time.perf_counter()
         model_config = serving_service.get_model_config(model_id)
-        inference_method = request.options.get("inference_method", model_config["inference_method"])
+        inference_method = payload.options.get("inference_method", model_config["inference_method"])
         inference_log_id = contributor_logger.new_inference_log_id()
         request_id = str(inference_log_id)
+        caller_context = {
+            "caller_fingerprint": {
+                "user_id": user_id,
+                "api_key_id": str(api_key_id) if api_key_id else None,
+                "user_agent": (http_request.headers.get("user-agent") or "")[:200] or None,
+                "client_ip_class": classify_client_ip(
+                    http_request.client.host if http_request.client else None
+                ),
+            }
+        }
+        http_request.state.request_id = request_id
 
         # Run prediction
         predictions = await serving_service.serve_prediction(
             model_id=model_id,
-            inputs=request.inputs,
-            options=request.options,
+            inputs=payload.inputs,
+            options=payload.options,
             request_id=request_id,
+            caller_context=caller_context,
         )
         inference_latency_ms = int((time.perf_counter() - started_at) * 1000)
         model_version = str(
-            request.options.get("model_version", model_config.get("model_version", "unknown"))
+            payload.options.get("model_version", model_config.get("model_version", "unknown"))
         )
 
         # Build response
@@ -736,7 +767,7 @@ async def predict(
             api_token_id=str(api_key_id or "unknown"),
             model_name=model_config.get("name", model_id),
             model_version=model_version,
-            input_payload=request.inputs,
+            input_payload=payload.inputs,
             output_payload=predictions,
             trace_metadata={
                 "latency_ms": inference_latency_ms,
@@ -749,7 +780,13 @@ async def predict(
 
         return response
 
-    except HTTPException:
+    except HTTPException as exc:
+        if exc.status_code == 422:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": exc.detail},
+                headers={"X-Request-ID": request_id},
+            )
         raise
     except Exception as e:
         logger.error(
