@@ -22,6 +22,8 @@ from fastapi.testclient import TestClient
 from src.api.dependencies import get_contributor_logger
 from src.api.endpoints import model_serving
 from src.api.endpoints.model_30_adapter import (
+    Model30FailurePhase,
+    Model30InferenceError,
     get_model_30_uri,
     model_30_inputs_to_features,
     normalize_model_30_output,
@@ -233,8 +235,10 @@ def test_model_30_live_path_rejects_non_normalizable_output() -> None:
     fake_model = SimpleNamespace(predict=lambda _features: [])
     fake_mlflow = SimpleNamespace(pyfunc=SimpleNamespace(load_model=lambda _uri: fake_model))
 
-    with pytest.raises(ValueError, match="empty"):
+    with pytest.raises(Model30InferenceError, match="empty") as exc_info:
         _load_predict_and_normalize_model_30(payload, mlflow_module=fake_mlflow)
+    assert exc_info.value.phase == Model30FailurePhase.RESPONSE_NORMALIZATION
+    assert isinstance(exc_info.value.original_exc, ValueError)
 
 
 def _load_predict_and_normalize_model_30(
