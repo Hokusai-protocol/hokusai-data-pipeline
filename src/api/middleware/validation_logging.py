@@ -65,8 +65,9 @@ def build_caller_fingerprint(request: Request) -> dict[str, str | None]:
 
 def get_or_generate_request_id(request: Request) -> str:
     """Return an existing request id or assign a new one."""
-    request_id = request.headers.get("X-Request-ID")
-    if request_id:
+    header_value = request.headers.get("X-Request-ID")
+    if header_value:
+        request_id = header_value[:128]
         request.state.request_id = request_id
         return request_id
 
