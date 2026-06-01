@@ -62,6 +62,23 @@ def _scrub_sensitive_headers(event: dict[str, Any], _hint: dict[str, Any]) -> di
     return event
 
 
+def _parse_traces_sample_rate() -> float:
+    """Parse SENTRY_TRACES_SAMPLE_RATE, falling back to 0.1 on bad input."""
+    raw = os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        logger.warning("Invalid SENTRY_TRACES_SAMPLE_RATE value %r; falling back to 0.1", raw)
+        return 0.1
+    if not 0.0 <= value <= 1.0:
+        logger.warning(
+            "SENTRY_TRACES_SAMPLE_RATE %r out of range [0.0, 1.0]; falling back to 0.1",
+            raw,
+        )
+        return 0.1
+    return value
+
+
 def _init_sentry() -> None:
     """Initialize Sentry for API monitoring when configured."""
     dsn = os.getenv("SENTRY_DSN")
@@ -72,7 +89,7 @@ def _init_sentry() -> None:
         sentry_sdk.init(
             dsn=dsn,
             environment=os.getenv("ENVIRONMENT", "development"),
-            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
+            traces_sample_rate=_parse_traces_sample_rate(),
             profiles_sample_rate=0.0,
             send_default_pii=True,
             release=os.getenv("SENTRY_RELEASE") or None,

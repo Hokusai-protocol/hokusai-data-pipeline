@@ -174,3 +174,49 @@ def test_scrub_sensitive_headers_handles_missing_request(
     result = module._scrub_sensitive_headers(event, {})
 
     assert result is event
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("0.25", 0.25), ("0.0", 0.0), ("1.0", 1.0)],
+)
+def test_parse_traces_sample_rate_accepts_valid_values(
+    monkeypatch: pytest.MonkeyPatch, raw: str, expected: float
+) -> None:
+    """In-range floats should be passed through unchanged."""
+    module = _load_api_main(monkeypatch, SENTRY_TRACES_SAMPLE_RATE=raw, SENTRY_DSN=None)
+
+    assert module._parse_traces_sample_rate() == expected
+
+
+@pytest.mark.parametrize("raw", ["not-a-number", "1.5", "-0.1"])
+def test_parse_traces_sample_rate_falls_back_on_bad_input(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, raw: str
+) -> None:
+    """Invalid or out-of-range values should fall back to 0.1 with a warning."""
+    module = _load_api_main(monkeypatch, SENTRY_TRACES_SAMPLE_RATE=raw, SENTRY_DSN=None)
+
+    with caplog.at_level("WARNING", logger=module.logger.name):
+        result = module._parse_traces_sample_rate()
+
+    assert result == 0.1
+    assert any(
+        "SENTRY_TRACES_SAMPLE_RATE" in record.getMessage() and raw in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_init_sentry_uses_fallback_traces_rate_when_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Init should not raise when SENTRY_TRACES_SAMPLE_RATE is invalid."""
+    module = _load_api_main(
+        monkeypatch,
+        SENTRY_DSN="https://examplePublicKey@o0.ingest.sentry.io/0",
+        SENTRY_TRACES_SAMPLE_RATE="not-a-number",
+    )
+
+    with patch.object(module.sentry_sdk, "init") as init_mock:
+        module._init_sentry()
+
+    assert init_mock.call_args.kwargs["traces_sample_rate"] == 0.1
