@@ -133,6 +133,10 @@ class TestDebitUsage:
             excluded_paths=["/health"],
         )
 
+    @staticmethod
+    def _warning_payload(mock_logger):
+        return json.loads(mock_logger.warning.call_args[0][0])
+
     @pytest.mark.asyncio
     async def test_debit_called_after_successful_prediction(self, middleware):
         """Test that _debit_usage is called after a successful response."""
@@ -287,6 +291,169 @@ class TestDebitUsage:
             assert "3 attempts" in warning_msg
 
     @pytest.mark.asyncio
+    async def test_debit_logs_warning_on_422(self, middleware):
+        """Test that debit logs 422 responses and does not retry them."""
+        mock_response = MagicMock()
+        mock_response.status_code = 422
+        mock_response.text = '{"error":"invalid model_id"}'
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+            mock_client.post.assert_called_once()
+            mock_sleep.assert_not_called()
+            mock_logger.warning.assert_called_once()
+
+            payload = self._warning_payload(mock_logger)
+            assert payload["event"] == "usage_debit_failure"
+            assert payload["status_code"] == 422
+            assert payload["response_body"] == '{"error":"invalid model_id"}'
+            assert payload["key_id"] == "key123"
+            assert payload["model_id"] == "model-1"
+            assert payload["endpoint"] == "/predict"
+            assert payload["idempotency_key"].startswith("key123-")
+
+    @pytest.mark.asyncio
+    async def test_debit_logs_warning_on_402(self, middleware):
+        """Test that debit logs 402 responses and does not retry them."""
+        mock_response = MagicMock()
+        mock_response.status_code = 402
+        mock_response.text = '{"error":"insufficient_balance"}'
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+            mock_client.post.assert_called_once()
+            mock_sleep.assert_not_called()
+            mock_logger.warning.assert_called_once()
+
+            payload = self._warning_payload(mock_logger)
+            assert payload["event"] == "usage_debit_failure"
+            assert payload["status_code"] == 402
+            assert payload["response_body"] == '{"error":"insufficient_balance"}'
+            assert payload["key_id"] == "key123"
+            assert payload["model_id"] == "model-1"
+            assert payload["endpoint"] == "/predict"
+            assert payload["idempotency_key"].startswith("key123-")
+
+    @pytest.mark.asyncio
+    async def test_debit_no_failure_log_on_2xx(self, middleware):
+        """Test that successful debit responses are not logged as failures."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+            mock_logger.warning.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_debit_response_body_truncated(self, middleware):
+        """Test that logged debit failure bodies are truncated."""
+        mock_response = MagicMock()
+        mock_response.status_code = 422
+        mock_response.text = "x" * 5000
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+            payload = self._warning_payload(mock_logger)
+            assert len(payload["response_body"]) == 2048
+
+    @pytest.mark.asyncio
+    async def test_debit_key_id_is_opaque_in_logs(self, middleware):
+        """Test that the debit log includes only the opaque key_id."""
+        mock_response = MagicMock()
+        mock_response.status_code = 422
+        mock_response.text = "invalid"
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+            payload = self._warning_payload(mock_logger)
+            assert payload["key_id"] == "key123"
+            assert "Bearer test-api-key" not in mock_logger.warning.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_debit_5xx_logs_warning_each_attempt(self, middleware):
+        """Test that 5xx debit failures are logged on each retry attempt."""
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+        mock_response.text = '{"error":"upstream unavailable"}'
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+            assert mock_client.post.call_count == 3
+            assert mock_logger.warning.call_count == 3
+            assert mock_sleep.call_count == 3
+            mock_sleep.assert_any_call(1)
+            mock_sleep.assert_any_call(2)
+            mock_sleep.assert_any_call(4)
+
+            for call in mock_logger.warning.call_args_list:
+                payload = json.loads(call.args[0])
+                assert payload["event"] == "usage_debit_failure"
+                assert payload["status_code"] == 503
+
+    @pytest.mark.asyncio
     async def test_debit_endpoint_url(self, middleware):
         """Test that debit calls the correct endpoint URL."""
         mock_response = MagicMock()
@@ -309,6 +476,7 @@ class TestDebitUsage:
         """Test that debit does not retry on 4xx (client error) responses."""
         mock_response = MagicMock()
         mock_response.status_code = 400
+        mock_response.text = '{"error":"bad request"}'
 
         with (
             patch("httpx.AsyncClient") as mock_client_cls,
