@@ -443,15 +443,25 @@ class TestDebitUsage:
 
             assert mock_client.post.call_count == 3
             assert mock_logger.warning.call_count == 3
-            assert mock_sleep.call_count == 3
+            # Sleeps only happen between attempts; retry-exhausted returns immediately.
+            assert mock_sleep.call_count == 2
             mock_sleep.assert_any_call(1)
             mock_sleep.assert_any_call(2)
-            mock_sleep.assert_any_call(4)
 
             for call in mock_logger.warning.call_args_list:
                 payload = json.loads(call.args[0])
                 assert payload["event"] == "usage_debit_failure"
                 assert payload["status_code"] == 503
+
+            mock_logger.error.assert_called_once()
+            error_payload = json.loads(mock_logger.error.call_args[0][0])
+            assert error_payload["event"] == "usage_debit_retry_exhausted"
+            assert error_payload["status_code"] == 503
+            assert error_payload["attempts"] == 3
+            assert error_payload["key_id"] == "key123"
+            assert error_payload["model_id"] == "model-1"
+            assert error_payload["endpoint"] == "/predict"
+            assert error_payload["idempotency_key"].startswith("key123-")
 
     @pytest.mark.asyncio
     async def test_debit_endpoint_url(self, middleware):
