@@ -673,6 +673,50 @@ def test_model_30_predict_emits_cold_latency_trace(client: TestClient, caplog) -
     assert trace_record.model_inference_ms == 3.0
 
 
+def test_model_30_predict_path_type_transitions_cold_to_warm(client: TestClient, caplog) -> None:
+    payload = {"inputs": _minimal_model_30_inputs()}
+    cached: set[str] = set()
+
+    def stateful_cache_checker(model_uri: str) -> bool:
+        return model_uri in cached
+
+    def fake_call_mlflow_model_30(
+        model_uri: str,
+        features: object,
+        timings: dict[str, float] | None = None,
+    ) -> dict[str, object]:
+        del features
+        cached.add(model_uri)
+        if timings is not None:
+            timings["artifact_load_ms"] = 0.1
+            timings["inference_only_ms"] = 1.0
+        return {"selected_model": "fast-coder-v1"}
+
+    _replace_registry_entry(
+        "30",
+        cache_checker=stateful_cache_checker,
+        model_caller=fake_call_mlflow_model_30,
+    )
+
+    with caplog.at_level(logging.INFO):
+        first_response = client.post("/api/v1/models/30/predict", json=payload)
+    assert first_response.status_code == 200
+    first_trace = next(
+        record for record in caplog.records if record.msg == "model_30_latency_trace"
+    )
+    assert first_trace.path_type == "cold"
+
+    caplog.clear()
+
+    with caplog.at_level(logging.INFO):
+        second_response = client.post("/api/v1/models/30/predict", json=payload)
+    assert second_response.status_code == 200
+    second_trace = next(
+        record for record in caplog.records if record.msg == "model_30_latency_trace"
+    )
+    assert second_trace.path_type == "warm"
+
+
 def test_model_30_predict_timeout_emits_correlated_trace(client: TestClient, caplog) -> None:
     payload = {"inputs": _full_model_30_inputs()}
 

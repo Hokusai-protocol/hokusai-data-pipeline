@@ -521,6 +521,26 @@ def test_call_mlflow_model_30_warm_path_keeps_artifact_load_small() -> None:
     assert timings["inference_only_ms"] >= 0.0
 
 
+def test_is_model_30_cached_transitions_cold_to_warm_for_same_uri() -> None:
+    model_uri = "models:/Technical Task Router/4"
+    fake_model = MagicMock()
+    fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}
+
+    assert model_30_adapter.is_model_30_cached(model_uri) is False
+
+    with patch(
+        "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
+        return_value=fake_model,
+    ):
+        model_30_adapter.call_mlflow_model_30(model_uri, {"row": 1})
+
+        assert model_30_adapter.is_model_30_cached(model_uri) is True
+
+        model_30_adapter.call_mlflow_model_30(model_uri, {"row": 2})
+
+        assert model_30_adapter.is_model_30_cached(model_uri) is True
+
+
 def test_call_mlflow_model_30_does_not_mutate_mlflow_environment(monkeypatch) -> None:
     fake_model = MagicMock()
     fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}
