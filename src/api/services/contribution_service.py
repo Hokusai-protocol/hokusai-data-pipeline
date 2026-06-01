@@ -9,7 +9,6 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
-from uuid import uuid4
 
 import boto3
 from botocore.exceptions import ClientError
@@ -174,7 +173,18 @@ class ContributionService:
 
     def __init__(self: ContributionService, store: ContributionStore | None = None) -> None:
         self.max_body_bytes = int(os.getenv("CONTRIBUTIONS_MAX_BODY_BYTES", str(1024 * 1024)))
-        self.store = store or self._build_default_store()
+        self._store: ContributionStore | None = store
+
+    @property
+    def store(self: ContributionService) -> ContributionStore:
+        """Return the configured store, building the default lazily on first use."""
+        if self._store is None:
+            self._store = self._build_default_store()
+        return self._store
+
+    @store.setter
+    def store(self: ContributionService, value: ContributionStore) -> None:
+        self._store = value
 
     @staticmethod
     def canonicalize_body(request: ContributionRequest, path_model_id: str) -> dict[str, Any]:
@@ -290,4 +300,4 @@ class ContributionService:
         metadata_key = request.metadata.idempotency_key
         if metadata_key:
             return metadata_key.strip()
-        return f"bodyhash-{body_hash[:24]}-{uuid4().hex[:8]}"
+        return f"bodyhash-{body_hash[:32]}"
