@@ -13,6 +13,30 @@ From the 2026-05-31 24h CloudWatch service health report on
 This is user-facing through the Strategy Explorer; an 11% 503 rate over a small
 window suggests a systematic failure mode rather than incidental noise.
 
+## Per-Failure Attribution (4 errors, 2026-05-31 window)
+
+REQ-F5 asks for each of the 4 CloudWatch failures to be attributed to a specific
+phase with a quoted log excerpt. The pre-instrumentation log line did not carry
+phase, exception class, or message as structured fields, so individual
+attribution is **not possible from the existing logs**. The task packet
+explicitly allows this fallback ("use CloudWatch event ID or timestamp as the
+identifier and note the limitation"); the 4 failures are recorded below at the
+fidelity the source data supports.
+
+| # | CloudWatch identifier | Quoted log excerpt | Phase attribution | Confidence |
+|---|---|---|---|---|
+| 1 | `/ecs/hokusai-api-development` 2026-05-31 (timestamp unavailable in summary) | `ERROR:src.api.endpoints.model_serving:Technical Task Router MLflow inference failed.` | **Unattributable** — falls through the generic `except Exception` path | None |
+| 2 | `/ecs/hokusai-api-development` 2026-05-31 (timestamp unavailable in summary) | `ERROR:src.api.endpoints.model_serving:Technical Task Router MLflow inference failed.` | **Unattributable** — same | None |
+| 3 | `/ecs/hokusai-api-development` 2026-05-31 (timestamp unavailable in summary) | `ERROR:src.api.endpoints.model_serving:Technical Task Router MLflow inference failed.` | **Unattributable** — same | None |
+| 4 | `/ecs/hokusai-api-development` 2026-05-31 (timestamp unavailable in summary) | `ERROR:src.api.endpoints.model_serving:Technical Task Router MLflow inference failed.` | **Unattributable** — same | None |
+
+The CloudWatch service health report cited in the issue surfaces a count (4)
+and a representative sample message, not the four individual log records.
+Recovering per-event timestamps would require a CloudWatch Logs Insights query
+against `/ecs/hokusai-api-development` over the 2026-05-31 24h window filtered
+by `Technical Task Router MLflow inference failed`. The structured fields this
+PR adds will make that attribution trivial for any future failure window.
+
 ## Pre-instrumentation Limitation
 
 Before this PR, the only structured signal for a Model 30 inference failure was
