@@ -230,6 +230,8 @@ class TestDebitUsage:
             assert "idempotency_key" in payload
             assert payload["idempotency_key"].startswith("key123-")
             assert payload["model_id"] == "model-1"
+            assert payload["compute_ms"] == 100
+            assert payload["predictions_count"] == 1
 
     @pytest.mark.asyncio
     async def test_debit_retries_on_transient_failure(self, middleware):
@@ -323,6 +325,79 @@ class TestDebitUsage:
             # Should only call once (no retry on 4xx)
             mock_client.post.assert_called_once()
             mock_sleep.assert_not_called()
+
+
+class TestDebitPayloadShape:
+    """Test the exact debit payload sent to auth-service."""
+
+    @pytest.fixture
+    def mock_app(self):
+        async def app(scope, receive, send):
+            pass
+
+        return app
+
+    @pytest.fixture
+    def middleware(self, mock_app):
+        return APIKeyAuthMiddleware(
+            app=mock_app,
+            auth_service_url="http://test-auth-service",
+            cache=None,
+            excluded_paths=["/health"],
+        )
+
+    @pytest.fixture
+    def mock_client(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+            yield mock_client
+
+    @pytest.mark.asyncio
+    async def test_payload_includes_compute_ms(self, middleware, mock_client):
+        await middleware._debit_usage("key123", "model-1", "/api/v1/models/30/predict", 100, 200)
+
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["compute_ms"] == 100
+
+    @pytest.mark.asyncio
+    async def test_payload_includes_predictions_count(self, middleware, mock_client):
+        await middleware._debit_usage("key123", "model-1", "/api/v1/models/30/predict", 100, 200)
+
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["predictions_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_exact_payload_shape(self, middleware, mock_client):
+        with patch("src.middleware.auth.time.time", return_value=1234.567):
+            await middleware._debit_usage(
+                "key123", "model-30", "/api/v1/models/30/predict", 321, 200
+            )
+
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload == {
+            "model_id": "model-30",
+            "endpoint": "/api/v1/models/30/predict",
+            "response_time_ms": 321,
+            "status_code": 200,
+            "service_id": middleware.settings.auth_service_id,
+            "idempotency_key": "key123-1234567",
+            "compute_ms": 321,
+            "predictions_count": 1,
+        }
+
+    @pytest.mark.asyncio
+    async def test_compute_ms_when_response_time_is_zero(self, middleware, mock_client):
+        await middleware._debit_usage("key123", "model-1", "/api/v1/models/30/predict", 0, 200)
+
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["compute_ms"] == 0
 
 
 class TestExtractModelId:
