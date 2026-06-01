@@ -6,13 +6,17 @@ MLflow authentication is supplied by shared environment configuration such as
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
 import re
 import threading
 import time
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 import mlflow
@@ -21,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from src.api.schemas import TechnicalTaskRouterInputs
+from src.api.utils.config import get_settings
 
 DEFAULT_MODEL_30_MLFLOW_URI = "models:/Technical Task Router/4"
 MODEL_30_VERSION = "4"
@@ -91,6 +96,10 @@ _UI_KEYWORDS = re.compile(
 _MODEL_30_CACHE: dict[str, Any] = {}
 _MODEL_30_CACHE_LOCK = threading.Lock()
 _MODEL_30_LOAD_LOCKS: dict[str, threading.Lock] = {}
+_MODEL_30_WARMUP_LOCK: asyncio.Lock | None = None
+_MODEL_30_WARMUP_ERROR: str | None = None
+_MODEL_30_WARMED_AT: str | None = None
+_MODEL_30_WARM_DURATION_MS: int | None = None
 
 
 class Model30LoadInProgressError(RuntimeError):
@@ -105,6 +114,15 @@ class Model30FailurePhase(str, Enum):
     RESPONSE_NORMALIZATION = "response_normalization"
     TIMEOUT = "timeout"
     MLFLOW_CONNECTIVITY = "mlflow_connectivity"
+
+
+class Model30WarmupState(str, Enum):
+    """Observed warmup state for the in-process model 30 cache."""
+
+    NOT_STARTED = "not_started"
+    WARMING = "warming"
+    WARMED = "warmed"
+    FAILED = "failed"
 
 
 class Model30InferenceError(RuntimeError):
@@ -122,6 +140,9 @@ class Model30InferenceError(RuntimeError):
         self.original_exc = original_exc
 
 
+_MODEL_30_WARMUP_STATE = Model30WarmupState.NOT_STARTED
+
+
 def get_model_30_uri() -> str:
     """Resolve the model 30 URI from environment with a stable default."""
     return os.getenv("MODEL_30_MLFLOW_URI", DEFAULT_MODEL_30_MLFLOW_URI)
@@ -129,14 +150,48 @@ def get_model_30_uri() -> str:
 
 def reset_model_30_cache() -> None:
     """Clear the model cache for tests."""
+    global _MODEL_30_WARMUP_STATE, _MODEL_30_WARMUP_LOCK, _MODEL_30_WARMUP_ERROR
+    global _MODEL_30_WARMED_AT, _MODEL_30_WARM_DURATION_MS
     with _MODEL_30_CACHE_LOCK:
         _MODEL_30_CACHE.clear()
         _MODEL_30_LOAD_LOCKS.clear()
+    _MODEL_30_WARMUP_STATE = Model30WarmupState.NOT_STARTED
+    _MODEL_30_WARMUP_LOCK = None
+    _MODEL_30_WARMUP_ERROR = None
+    _MODEL_30_WARMED_AT = None
+    _MODEL_30_WARM_DURATION_MS = None
 
 
 def is_model_30_cached(model_uri: str) -> bool:
     """Return whether a model URI is already loaded into process cache."""
     return model_uri in _MODEL_30_CACHE
+
+
+def set_model_30_warmup_state(
+    state: Model30WarmupState,
+    *,
+    error: str | None = None,
+    warmed_at: str | None = None,
+    duration_ms: int | None = None,
+) -> None:
+    """Set the model 30 warmup state for readiness checks and tests."""
+    global _MODEL_30_WARMUP_STATE, _MODEL_30_WARMUP_ERROR, _MODEL_30_WARMED_AT
+    global _MODEL_30_WARM_DURATION_MS
+    _MODEL_30_WARMUP_STATE = state
+    _MODEL_30_WARMUP_ERROR = error
+    _MODEL_30_WARMED_AT = warmed_at
+    _MODEL_30_WARM_DURATION_MS = duration_ms
+
+
+def get_model_30_warmup_state() -> dict[str, Any]:
+    """Return public warmup status for readiness and serving gates."""
+    return {
+        "warmed": _MODEL_30_WARMUP_STATE == Model30WarmupState.WARMED,
+        "state": _MODEL_30_WARMUP_STATE.value,
+        "warmed_at": _MODEL_30_WARMED_AT,
+        "last_error": _MODEL_30_WARMUP_ERROR,
+        "duration_ms": _MODEL_30_WARM_DURATION_MS,
+    }
 
 
 def validate_nested_model_30_inputs(raw_inputs: dict[str, Any]) -> TechnicalTaskRouterInputs:
@@ -298,6 +353,110 @@ def call_mlflow_model_30(
         _timings["inference_only_ms"] = inference_only_ms
 
     return result
+
+
+def _get_model_30_warmup_lock() -> asyncio.Lock:
+    global _MODEL_30_WARMUP_LOCK
+    if _MODEL_30_WARMUP_LOCK is None:
+        _MODEL_30_WARMUP_LOCK = asyncio.Lock()
+    return _MODEL_30_WARMUP_LOCK
+
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _resolve_model_30_warm_fixture_path(configured_path: str) -> Path:
+    candidate = Path(configured_path)
+    if candidate.is_absolute():
+        return candidate
+    return _PROJECT_ROOT / candidate
+
+
+def _load_model_30_warm_fixture() -> dict[str, Any]:
+    settings = get_settings()
+    fixture_path = _resolve_model_30_warm_fixture_path(settings.model_30_warm_fixture_path)
+    with fixture_path.open(encoding="utf-8") as fixture_file:
+        payload = json.load(fixture_file)
+    if not isinstance(payload, dict):
+        raise ValueError("Model 30 warm fixture must contain a JSON object")
+    return payload
+
+
+async def warm_model_30(model_uri: str, timeout_s: float) -> dict[str, Any]:
+    """Load the artifact into cache and run a minimal valid prediction."""
+    logger = logging.getLogger(__name__)
+    async with _get_model_30_warmup_lock():
+        current_state = get_model_30_warmup_state()
+        if current_state["warmed"]:
+            return current_state
+
+        set_model_30_warmup_state(Model30WarmupState.WARMING)
+        started_at = time.perf_counter()
+        logger.info(
+            "model_30_warm_started",
+            extra={"event": "model_30_warm_started", "model_uri": model_uri},
+        )
+
+        try:
+            validated_inputs = validate_nested_model_30_inputs(_load_model_30_warm_fixture())
+            features = model_30_inputs_to_features(validated_inputs)
+            raw_output = await asyncio.wait_for(
+                asyncio.to_thread(call_mlflow_model_30, model_uri, features, {}),
+                timeout=timeout_s,
+            )
+            normalize_model_30_output(raw_output, validated_inputs)
+        except asyncio.TimeoutError:
+            duration_ms = int((time.perf_counter() - started_at) * 1000)
+            error_message = f"warm timed out after {timeout_s:.1f}s"
+            set_model_30_warmup_state(
+                Model30WarmupState.FAILED,
+                error=error_message,
+                duration_ms=duration_ms,
+            )
+            logger.exception(
+                "model_30_warm_failed",
+                extra={
+                    "event": "model_30_warm_failed",
+                    "model_uri": model_uri,
+                    "duration_ms": duration_ms,
+                    "error": error_message,
+                },
+            )
+            return get_model_30_warmup_state()
+        except Exception as exc:  # noqa: BLE001 - warmup should capture and report all failures
+            duration_ms = int((time.perf_counter() - started_at) * 1000)
+            error_message = str(exc)[:500]
+            set_model_30_warmup_state(
+                Model30WarmupState.FAILED,
+                error=error_message,
+                duration_ms=duration_ms,
+            )
+            logger.exception(
+                "model_30_warm_failed",
+                extra={
+                    "event": "model_30_warm_failed",
+                    "model_uri": model_uri,
+                    "duration_ms": duration_ms,
+                    "error": error_message,
+                },
+            )
+            return get_model_30_warmup_state()
+
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        set_model_30_warmup_state(
+            Model30WarmupState.WARMED,
+            warmed_at=datetime.now(UTC).isoformat(),
+            duration_ms=duration_ms,
+        )
+        logger.info(
+            "model_30_warm_completed",
+            extra={
+                "event": "model_30_warm_completed",
+                "model_uri": model_uri,
+                "duration_ms": duration_ms,
+            },
+        )
+        return get_model_30_warmup_state()
 
 
 def normalize_model_30_output(

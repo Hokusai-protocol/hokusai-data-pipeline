@@ -35,6 +35,9 @@ class Settings(BaseSettings):
 
     # MLFlow
     mlflow_tracking_uri: str = Field(default_factory=get_mlflow_url)
+    model_30_prewarm_enabled: bool = True
+    model_30_warm_timeout_s: float = 60.0
+    model_30_warm_fixture_path: str = "data/test_fixtures/model_30_minimal_payload.json"
 
     # Database Configuration
     # Support both old (mlflow) and new (mlflow_db) database names for backward compatibility

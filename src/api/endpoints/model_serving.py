@@ -39,6 +39,8 @@ from .model_30_adapter import (
     Model30FailurePhase,
     Model30InferenceError,
     Model30LoadInProgressError,
+    Model30WarmupState,
+    get_model_30_warmup_state,
     log_model_30_failure,
 )
 from .model_registry import ModelRegistryEntry
@@ -49,6 +51,65 @@ logger = logging.getLogger(__name__)
 
 # Create router
 router = APIRouter(prefix="/api/v1/models", tags=["model-serving"])
+
+
+def _log_mlflow_inference_failure(
+    model_id: str,
+    *,
+    request_id: str,
+    model_uri: str,
+    model_version: str | None,
+    phase: Model30FailurePhase,
+    trace: "Model30LatencyTrace",
+    exc: BaseException,
+    duration_ms: float,
+    level: int = logging.ERROR,
+) -> None:
+    if model_id == "30":
+        log_model_30_failure(
+            logger,
+            request_id=request_id,
+            model_uri=model_uri,
+            model_version=model_version,
+            phase=phase,
+            path_type=getattr(trace, "path_type", "unknown") or "unknown",
+            exc=exc,
+            duration_ms=duration_ms,
+            level=level,
+        )
+        return
+    logger.log(
+        level,
+        "mlflow_inference_failure",
+        exc_info=exc,
+        extra={
+            "event": "mlflow_inference_failure",
+            "model_id": model_id,
+            "model_uri": model_uri,
+            "model_version": model_version,
+            "phase": phase.value,
+            "request_id": request_id,
+            "duration_ms": duration_ms,
+        },
+    )
+
+
+def _enforce_model_30_warmup_gate(model_id: str) -> None:
+    if model_id != "30":
+        return
+    warmup = get_model_30_warmup_state()
+    if warmup["warmed"] or warmup["state"] == Model30WarmupState.NOT_STARTED.value:
+        return
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "error": "model_not_ready",
+            "model_id": model_id,
+            "warmup_state": warmup["state"],
+            "retry_after_s": 30,
+        },
+        headers={"Retry-After": "30"},
+    )
 
 
 class PredictionRequest(BaseModel):
@@ -441,6 +502,8 @@ class ModelServingService:
         output_normalizer = self._get_required_mlflow_component(entry, "output_normalizer")
         cache_checker = self._get_required_mlflow_component(entry, "cache_checker")
 
+        _enforce_model_30_warmup_gate(model_id)
+
         request_started_at = time.perf_counter()
         trace = Model30LatencyTrace(request_id=request_id, model_uri=model_uri)
         trace_emitted = False
@@ -474,13 +537,13 @@ class ModelServingService:
                 trace.record_ms("artifact_load", mlflow_timings.get("artifact_load_ms", 0.0))
                 trace.emit(logger)
                 trace_emitted = True
-                log_model_30_failure(
-                    logger,
+                _log_mlflow_inference_failure(
+                    model_id,
                     request_id=request_id,
                     model_uri=model_uri,
                     model_version=entry.model_version,
                     phase=Model30FailurePhase.TIMEOUT,
-                    path_type=getattr(trace, "path_type", "unknown") or "unknown",
+                    trace=trace,
                     exc=exc,
                     duration_ms=(time.perf_counter() - request_started_at) * 1000,
                 )
@@ -500,13 +563,13 @@ class ModelServingService:
                 trace.deadline_boundary_ms = (time.perf_counter() - inference_started_at) * 1000
                 trace.emit(logger)
                 trace_emitted = True
-                log_model_30_failure(
-                    logger,
+                _log_mlflow_inference_failure(
+                    model_id,
                     request_id=request_id,
                     model_uri=model_uri,
                     model_version=entry.model_version,
                     phase=Model30FailurePhase.ARTIFACT_LOAD,
-                    path_type=getattr(trace, "path_type", "unknown") or "unknown",
+                    trace=trace,
                     exc=exc,
                     duration_ms=(time.perf_counter() - request_started_at) * 1000,
                     level=logging.WARNING,
@@ -562,13 +625,13 @@ class ModelServingService:
                 if isinstance(exc, Model30InferenceError)
                 else Model30FailurePhase.PREDICT_CALL
             )
-            log_model_30_failure(
-                logger,
+            _log_mlflow_inference_failure(
+                model_id,
                 request_id=request_id,
                 model_uri=model_uri,
                 model_version=entry.model_version,
                 phase=phase,
-                path_type=getattr(trace, "path_type", "unknown") or "unknown",
+                trace=trace,
                 exc=exc,
                 duration_ms=(time.perf_counter() - request_started_at) * 1000,
             )

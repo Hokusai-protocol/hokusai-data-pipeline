@@ -1,5 +1,6 @@
 """Main FastAPI application for Hokusai MLOps services."""
 
+import asyncio
 import logging
 import os
 import time
@@ -271,6 +272,19 @@ def _prewarm_mlflow_registered_models() -> None:
             ) from e
 
 
+async def _startup_warm_model_30() -> None:
+    """Warm the model 30 artifact after MLflow transport is configured."""
+    from src.api.endpoints.model_30_adapter import get_model_30_uri, warm_model_30
+
+    entry = MODEL_CONFIGS.get("30")
+    if entry is None:
+        logger.warning("model_30_prewarm_skipped", extra={"event": "model_30_prewarm_skipped"})
+        return
+
+    model_uri = entry.model_uri or get_model_30_uri()
+    await warm_model_30(model_uri=model_uri, timeout_s=settings.model_30_warm_timeout_s)
+
+
 # Startup event
 @app.on_event("startup")
 async def startup_event() -> None:
@@ -290,6 +304,14 @@ async def startup_event() -> None:
         logger.error(
             "MLflow pre-warm failed at startup — non-MLflow endpoints will still serve",
             extra={"error": str(e)},
+        )
+
+    if settings.model_30_prewarm_enabled:
+        app.state.model_30_warmup_task = asyncio.create_task(_startup_warm_model_30())
+    else:
+        logger.info(
+            "model_30_prewarm_disabled",
+            extra={"event": "model_30_prewarm_disabled"},
         )
 
     # Initialize database connections, caches, etc.
