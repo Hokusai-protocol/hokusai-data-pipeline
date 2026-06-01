@@ -194,6 +194,42 @@ Normalization accepts common aliases from the model output:
 
 There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures return `503` with a `Model 30 MLflow inference failed` prefix.
 
+## Startup Lifecycle
+
+At process startup the API now performs two separate MLflow steps:
+
+- `_prewarm_mlflow_registered_models()` verifies registry connectivity for all MLflow-backed models.
+- `warm_model_30()` then loads the model 30 artifact into the in-process cache and runs a minimal valid prediction using `data/test_fixtures/model_30_minimal_payload.json`.
+
+The model 30 warm runs in a background task after MLflow mTLS and tracking URI setup complete. The process can come up quickly, but `/ready` does not report traffic-ready until the warm path finishes successfully.
+
+Set `MODEL_30_PREWARM_ENABLED=false` to disable startup warm during rollback. In that mode, `/ready` no longer blocks on `not_started` and model 30 falls back to the existing on-demand cold-load path.
+
+## Readiness Contract
+
+`GET /ready` now exposes model 30 warm state separately from lightweight liveness:
+
+- `warming` or `not_started` while prewarm is enabled: HTTP `503`, `can_serve_traffic=false`
+- `warmed`: HTTP `200`, `ready=true`, `model_30.warmed=true`
+- `failed`: HTTP `200`, degraded mode, with `model_30.state="failed"` and `last_error`
+
+Response payloads include:
+
+- `model_30.warmed`
+- `model_30.state`
+- `model_30.warmed_at`
+- `model_30.last_error`
+- `model_30.duration_ms`
+
+This lets ALB or clients distinguish "process alive" from "inference ready".
+
+## SLOs
+
+- Cold-start readiness target: model 30 should reach `/ready` `200` within 30 seconds of process startup.
+- Warm prediction target: repeated valid predictions should stay within a p95 of 2000 ms.
+
+The startup warm timeout is controlled by `MODEL_30_WARM_TIMEOUT_S`.
+
 ## Failure Classes and Observability
 
 Every inference path that surfaces a non-2xx response also emits exactly one structured `model_30_inference_failure` log record so failures can be classified without reading stack traces. The taxonomy isolates which stage failed so on-call can distinguish artifact-load problems from connectivity blips from model output regressions.

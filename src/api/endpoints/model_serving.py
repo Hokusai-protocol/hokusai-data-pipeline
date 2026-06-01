@@ -39,6 +39,8 @@ from .model_30_adapter import (
     Model30FailurePhase,
     Model30InferenceError,
     Model30LoadInProgressError,
+    Model30WarmupState,
+    get_model_30_warmup_state,
     log_model_30_failure,
 )
 from .model_registry import ModelRegistryEntry
@@ -440,6 +442,20 @@ class ModelServingService:
         model_caller = self._get_required_mlflow_component(entry, "model_caller")
         output_normalizer = self._get_required_mlflow_component(entry, "output_normalizer")
         cache_checker = self._get_required_mlflow_component(entry, "cache_checker")
+
+        if model_id == "30":
+            warmup = get_model_30_warmup_state()
+            if not warmup["warmed"] and warmup["state"] != Model30WarmupState.NOT_STARTED.value:
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "error": "model_not_ready",
+                        "model_id": model_id,
+                        "warmup_state": warmup["state"],
+                        "retry_after_s": 30,
+                    },
+                    headers={"Retry-After": "30"},
+                )
 
         request_started_at = time.perf_counter()
         trace = Model30LatencyTrace(request_id=request_id, model_uri=model_uri)

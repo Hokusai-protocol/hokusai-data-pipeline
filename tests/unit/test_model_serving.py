@@ -22,7 +22,9 @@ from src.api.endpoints.model_30_adapter import (
     MODEL_30_SCHEMA,
     MODEL_30_VERSION,
     Model30FailurePhase,
+    Model30WarmupState,
     reset_model_30_cache,
+    set_model_30_warmup_state,
     validate_nested_model_30_inputs,
 )
 from src.api.endpoints.model_registry import ModelRegistryEntry
@@ -518,6 +520,56 @@ def test_model_30_predict_mlflow_timeout_returns_504_without_alb_timeout(
     assert failure_record.exception_class == "TimeoutError"
     assert failure_record.path_type in {"cold", "warm", "unknown"}
     assert failure_record.duration_ms >= 0.0
+
+
+def test_predict_returns_503_not_504_when_warming(client: TestClient) -> None:
+    set_model_30_warmup_state(Model30WarmupState.WARMING)
+
+    response = client.post("/api/v1/models/30/predict", json={"inputs": _minimal_model_30_inputs()})
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "30"
+    assert response.json()["detail"] == {
+        "error": "model_not_ready",
+        "model_id": "30",
+        "warmup_state": Model30WarmupState.WARMING.value,
+        "retry_after_s": 30,
+    }
+
+
+def test_predict_succeeds_when_warmed(client: TestClient) -> None:
+    set_model_30_warmup_state(Model30WarmupState.WARMED)
+    _replace_registry_entry(
+        "30",
+        model_caller=lambda _model_uri, _features, _timings=None: {
+            "selected_model": "fast-coder-v1"
+        },
+    )
+
+    response = client.post(
+        "/api/v1/models/30/predict",
+        json={"inputs": _minimal_model_30_inputs()},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["predictions"]["selected_model"] == "fast-coder-v1"
+
+
+def test_predict_allows_on_demand_when_prewarm_disabled(client: TestClient) -> None:
+    set_model_30_warmup_state(Model30WarmupState.NOT_STARTED)
+    _replace_registry_entry(
+        "30",
+        model_caller=lambda _model_uri, _features, _timings=None: {
+            "selected_model": "fast-coder-v1"
+        },
+    )
+
+    response = client.post(
+        "/api/v1/models/30/predict",
+        json={"inputs": _minimal_model_30_inputs()},
+    )
+
+    assert response.status_code == 200
 
 
 def test_model_30_predict_emits_warm_latency_trace(client: TestClient, caplog) -> None:
