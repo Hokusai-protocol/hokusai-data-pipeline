@@ -15,6 +15,100 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
+try:
+    import sentry_sdk
+except ImportError:
+
+    class _MissingSentrySDK:
+        """Fallback used when sentry-sdk is not installed in the local environment."""
+
+        @staticmethod
+        def init(*args: Any, **kwargs: Any) -> None:
+            raise ModuleNotFoundError("sentry-sdk is not installed")
+
+    sentry_sdk = _MissingSentrySDK()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+_SENSITIVE_HEADER_NAMES = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+        "x-api-key",
+        "x-auth-token",
+        "x-csrf-token",
+    }
+)
+
+
+def _scrub_sensitive_headers(event: dict[str, Any], _hint: dict[str, Any]) -> dict[str, Any]:
+    """Strip credential-bearing headers before events leave the process."""
+    request = event.get("request") if isinstance(event, dict) else None
+    headers = request.get("headers") if isinstance(request, dict) else None
+    if isinstance(headers, dict):
+        for key in list(headers.keys()):
+            if key.lower() in _SENSITIVE_HEADER_NAMES:
+                headers[key] = "[Filtered]"
+    elif isinstance(headers, list):
+        for index, item in enumerate(headers):
+            if isinstance(item, (list, tuple)) and len(item) == 2 and isinstance(item[0], str):
+                if item[0].lower() in _SENSITIVE_HEADER_NAMES:
+                    headers[index] = [item[0], "[Filtered]"]
+    return event
+
+
+def _parse_traces_sample_rate() -> float:
+    """Parse SENTRY_TRACES_SAMPLE_RATE, falling back to 0.1 on bad input."""
+    raw = os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        logger.warning("Invalid SENTRY_TRACES_SAMPLE_RATE value %r; falling back to 0.1", raw)
+        return 0.1
+    if not 0.0 <= value <= 1.0:
+        logger.warning(
+            "SENTRY_TRACES_SAMPLE_RATE %r out of range [0.0, 1.0]; falling back to 0.1",
+            raw,
+        )
+        return 0.1
+    return value
+
+
+def _init_sentry() -> None:
+    """Initialize Sentry for API monitoring when configured."""
+    dsn = os.getenv("SENTRY_DSN")
+    if not dsn:
+        logger.info("Sentry disabled: SENTRY_DSN not set")
+        return
+
+    try:
+        sentry_sdk.init(
+            dsn=dsn,
+            environment=os.getenv("ENVIRONMENT", "development"),
+            traces_sample_rate=_parse_traces_sample_rate(),
+            profiles_sample_rate=0.0,
+            send_default_pii=True,
+            release=os.getenv("SENTRY_RELEASE") or None,
+            before_send=_scrub_sensitive_headers,
+        )
+    except Exception:
+        logger.exception("Failed to initialize Sentry")
+
+
+def _should_enable_sentry_debug_route() -> bool:
+    """Avoid exposing the Sentry debug endpoint in production by default."""
+    if os.getenv("SENTRY_DEBUG_ENABLED", "false").lower() == "true":
+        return True
+    return os.getenv("ENVIRONMENT", "development").lower() != "production"
+
+
+_init_sentry()
+
 from src.api.endpoints import model_serving
 from src.api.endpoints.model_registry_entries import MODEL_CONFIGS
 from src.api.middleware.validation_logging import validation_422_exception_handler
@@ -39,10 +133,6 @@ from src.api.utils.config import get_settings
 from src.middleware.auth import APIKeyAuthMiddleware
 from src.middleware.rate_limiter import RateLimitMiddleware
 from src.utils.mlflow_url import get_mlflow_url
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Get settings
 settings = get_settings()
@@ -101,6 +191,14 @@ async def root() -> dict[str, Any]:
         "health_endpoints": ["/health", "/ready", "/live", "/health/mlflow", "/health/status"],
         "documentation": "/docs",
     }
+
+
+if _should_enable_sentry_debug_route():
+
+    @app.get("/sentry-debug")
+    async def trigger_sentry_error() -> None:
+        """Trigger an error to verify Sentry wiring."""
+        _ = 1 / 0
 
 
 app.include_router(models.router, prefix="/models", tags=["models"])
