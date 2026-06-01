@@ -21,6 +21,7 @@ from src.api.endpoints import model_serving
 from src.api.endpoints.model_30_adapter import (
     MODEL_30_SCHEMA,
     MODEL_30_VERSION,
+    Model30FailurePhase,
     reset_model_30_cache,
     validate_nested_model_30_inputs,
 )
@@ -432,7 +433,7 @@ def test_model_30_predict_missing_task_returns_422(client: TestClient) -> None:
     assert "Field required" in response.text
 
 
-def test_model_30_predict_mlflow_failure_returns_503(client: TestClient) -> None:
+def test_model_30_predict_mlflow_failure_returns_503(client: TestClient, caplog) -> None:
     def failing_model_caller(_model_uri: str, _features: object, _timings=None) -> object:
         raise RuntimeError("registry unavailable")
 
@@ -440,13 +441,48 @@ def test_model_30_predict_mlflow_failure_returns_503(client: TestClient) -> None
         "30",
         model_caller=failing_model_caller,
     )
-    response = client.post(
-        "/api/v1/models/30/predict",
-        json={"inputs": _minimal_model_30_inputs()},
-    )
+    with caplog.at_level(logging.ERROR):
+        response = client.post(
+            "/api/v1/models/30/predict",
+            json={"inputs": _minimal_model_30_inputs()},
+        )
 
     assert response.status_code == 503
     assert response.json()["detail"].startswith("Technical Task Router MLflow inference failed")
+    failure_records = [
+        record for record in caplog.records if record.msg == "model_30_inference_failure"
+    ]
+    assert len(failure_records) == 1
+    failure_record = failure_records[0]
+    assert failure_record.event_type == "model_30_inference_failure"
+    assert failure_record.request_id
+    assert failure_record.phase == Model30FailurePhase.PREDICT_CALL.value
+    assert failure_record.path_type in {"cold", "warm", "unknown"}
+    assert failure_record.exception_class == "RuntimeError"
+    assert failure_record.exception_message == "registry unavailable"
+    assert failure_record.model_version == MODEL_30_VERSION
+    assert failure_record.duration_ms >= 0.0
+
+
+def test_model_30_predict_response_normalization_failure_returns_503_with_phase(
+    client: TestClient, caplog
+) -> None:
+    _replace_registry_entry(
+        "30",
+        model_caller=lambda _model_uri, _features, _timings=None: None,
+    )
+    with caplog.at_level(logging.ERROR):
+        response = client.post(
+            "/api/v1/models/30/predict",
+            json={"inputs": _minimal_model_30_inputs()},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"].startswith("Technical Task Router MLflow inference failed")
+    failure_record = next(
+        record for record in caplog.records if record.msg == "model_30_inference_failure"
+    )
+    assert failure_record.phase == Model30FailurePhase.RESPONSE_NORMALIZATION.value
 
 
 def test_model_30_predict_mlflow_timeout_returns_504_without_alb_timeout(
