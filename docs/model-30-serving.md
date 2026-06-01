@@ -2,6 +2,30 @@
 
 `POST /api/v1/models/30/predict` serves the registered MLflow Technical Task Router model through the public nested request contract `technical_task_router_inputs/v1`.
 
+`POST /api/v1/models/30/contributions` accepts contribution batches from Wavemill and `hokusai-site` for persistence and downstream processing.
+
+## Contribution Endpoint
+
+Authentication is required. Clients may submit either:
+
+- Wavemill batch shape: `{"rows":[...],"metadata":{"idempotency_key":"..."}}`
+- Site shape: `{"modelId":"30","benchmarkSpecId":null,"rows":[...],"schemaVersion":null,"templateId":null}`
+
+Behavior:
+
+- Path: `/api/v1/models/{model_id}/contributions`
+- Method: `POST`
+- `Idempotency-Key` header takes precedence over `metadata.idempotency_key`
+- `rows` is required, must contain 1 to 10000 JSON objects
+- `modelId` in the body must match the path when present
+- First acceptance returns `201`; identical idempotent replay returns `200`
+- Reusing an idempotency key with a different payload returns `409`
+- Missing persistence configuration returns `503`
+
+Response fields include `accepted`, `modelId`, `submissionId`, `jobId`, `jobIds`, `rowsAccepted`, `submittedRows`, and `tokenReward`.
+
+Persistence is S3-backed and controlled by `HOKUSAI_CONTRIBUTIONS_BUCKET`, optional `HOKUSAI_CONTRIBUTIONS_PREFIX`, and `CONTRIBUTIONS_MAX_BODY_BYTES`.
+
 ## Public Contract
 
 Accepted `inputs` groups:
