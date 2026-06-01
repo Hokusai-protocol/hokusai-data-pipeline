@@ -54,14 +54,15 @@ def test_init_sentry_uses_expected_settings(monkeypatch: pytest.MonkeyPatch) -> 
     with patch.object(module.sentry_sdk, "init") as init_mock:
         module._init_sentry()
 
-    init_mock.assert_called_once_with(
-        dsn="https://examplePublicKey@o0.ingest.sentry.io/0",
-        environment="staging",
-        traces_sample_rate=0.25,
-        profiles_sample_rate=0.0,
-        send_default_pii=True,
-        release="hokusai-data-pipeline@test",
-    )
+    init_mock.assert_called_once()
+    kwargs = init_mock.call_args.kwargs
+    assert kwargs["dsn"] == "https://examplePublicKey@o0.ingest.sentry.io/0"
+    assert kwargs["environment"] == "staging"
+    assert kwargs["traces_sample_rate"] == 0.25
+    assert kwargs["profiles_sample_rate"] == 0.0
+    assert kwargs["send_default_pii"] is True
+    assert kwargs["release"] == "hokusai-data-pipeline@test"
+    assert kwargs["before_send"] is module._scrub_sensitive_headers
 
 
 def test_init_sentry_logs_and_does_not_raise_on_sdk_failure(
@@ -112,3 +113,64 @@ def test_sentry_debug_route_can_be_enabled_explicitly(
     assert route is not None
     with pytest.raises(ZeroDivisionError):
         run(route.endpoint())
+
+
+def test_scrub_sensitive_headers_filters_dict_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dict-shaped request headers should have credential fields filtered."""
+    module = _load_api_main(monkeypatch, SENTRY_DSN=None)
+
+    event = {
+        "request": {
+            "headers": {
+                "Authorization": "Bearer secret-token",
+                "Cookie": "session=abc",
+                "X-Api-Key": "live-key",
+                "User-Agent": "pytest",
+            },
+        },
+    }
+
+    result = module._scrub_sensitive_headers(event, {})
+
+    headers = result["request"]["headers"]
+    assert headers["Authorization"] == "[Filtered]"
+    assert headers["Cookie"] == "[Filtered]"
+    assert headers["X-Api-Key"] == "[Filtered]"
+    assert headers["User-Agent"] == "pytest"
+
+
+def test_scrub_sensitive_headers_filters_list_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """List-shaped request headers should also have credential fields filtered."""
+    module = _load_api_main(monkeypatch, SENTRY_DSN=None)
+
+    event = {
+        "request": {
+            "headers": [
+                ["authorization", "Bearer secret-token"],
+                ["user-agent", "pytest"],
+            ],
+        },
+    }
+
+    result = module._scrub_sensitive_headers(event, {})
+
+    headers = result["request"]["headers"]
+    assert headers[0] == ["authorization", "[Filtered]"]
+    assert headers[1] == ["user-agent", "pytest"]
+
+
+def test_scrub_sensitive_headers_handles_missing_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Events without request data should pass through untouched."""
+    module = _load_api_main(monkeypatch, SENTRY_DSN=None)
+
+    event: dict = {"message": "boom"}
+
+    result = module._scrub_sensitive_headers(event, {})
+
+    assert result is event

@@ -33,6 +33,35 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+_SENSITIVE_HEADER_NAMES = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+        "x-api-key",
+        "x-auth-token",
+        "x-csrf-token",
+    }
+)
+
+
+def _scrub_sensitive_headers(event: dict[str, Any], _hint: dict[str, Any]) -> dict[str, Any]:
+    """Strip credential-bearing headers before events leave the process."""
+    request = event.get("request") if isinstance(event, dict) else None
+    headers = request.get("headers") if isinstance(request, dict) else None
+    if isinstance(headers, dict):
+        for key in list(headers.keys()):
+            if key.lower() in _SENSITIVE_HEADER_NAMES:
+                headers[key] = "[Filtered]"
+    elif isinstance(headers, list):
+        for index, item in enumerate(headers):
+            if isinstance(item, (list, tuple)) and len(item) == 2 and isinstance(item[0], str):
+                if item[0].lower() in _SENSITIVE_HEADER_NAMES:
+                    headers[index] = [item[0], "[Filtered]"]
+    return event
+
+
 def _init_sentry() -> None:
     """Initialize Sentry for API monitoring when configured."""
     dsn = os.getenv("SENTRY_DSN")
@@ -47,6 +76,7 @@ def _init_sentry() -> None:
             profiles_sample_rate=0.0,
             send_default_pii=True,
             release=os.getenv("SENTRY_RELEASE") or None,
+            before_send=_scrub_sensitive_headers,
         )
     except Exception:
         logger.exception("Failed to initialize Sentry")
