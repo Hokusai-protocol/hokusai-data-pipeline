@@ -590,8 +590,34 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                         f"{self.auth_service_url}/api/v1/usage/{key_id}/debit",
                         json=payload,
                     )
+                    if response.status_code < 300:
+                        return
+
+                    failure_fields = {
+                        "event": "usage_debit_failure",
+                        "status_code": response.status_code,
+                        "response_body": (response.text or "")[:2048],
+                        "key_id": key_id,
+                        "model_id": model_id,
+                        "endpoint": endpoint,
+                        "idempotency_key": idempotency_key,
+                    }
+                    logger.warning(json.dumps(failure_fields))
+
                     if response.status_code < 500:
-                        return  # Success or client error — don't retry
+                        return  # Client error — don't retry
+
+                    if attempt == max_retries - 1:
+                        logger.error(
+                            json.dumps(
+                                {
+                                    **failure_fields,
+                                    "event": "usage_debit_retry_exhausted",
+                                    "attempts": max_retries,
+                                }
+                            )
+                        )
+                        return
             except Exception as e:
                 if attempt == max_retries - 1:
                     logger.warning(
