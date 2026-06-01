@@ -579,6 +579,8 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             "status_code": status_code,
             "service_id": self.settings.auth_service_id,
             "idempotency_key": idempotency_key,
+            "compute_ms": response_time_ms,
+            "predictions_count": 1,
         }
 
         for attempt in range(max_retries):
