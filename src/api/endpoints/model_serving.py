@@ -31,6 +31,7 @@ from ..dependencies import get_contributor_logger
 from ..middleware.validation_logging import (
     classify_client_ip,
     emit_model_serving_validation_422,
+    get_or_generate_request_id,
 )
 from ..services.contributor_logger import ContributorLogger
 from .latency_trace import Model30LatencyTrace
@@ -702,6 +703,8 @@ async def predict(
             "scopes": scopes,
         },
     )
+
+    request_id = get_or_generate_request_id(http_request)
 
     try:
         started_at = time.perf_counter()

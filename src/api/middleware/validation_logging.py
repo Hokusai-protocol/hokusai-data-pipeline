@@ -124,6 +124,8 @@ async def validation_422_exception_handler(
             "event_type": "validation_422",
             "request_id": request_id,
             "endpoint": request.url.path,
+            "method": request.method,
+            "path_params": dict(request.path_params),
             "validation_errors": validation_errors,
             "validation_error_summary": _summarize_validation_errors(validation_errors),
             "caller_fingerprint": build_caller_fingerprint(request),
