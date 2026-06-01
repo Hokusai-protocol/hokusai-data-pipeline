@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 TECHNICAL_TASK_ROUTER_ROW_SCHEMA_VERSION = "technical_task_router_row/v1"
 
 MAX_CONTRIBUTION_ROWS = 10_000
-MAX_CONTRIBUTION_PAYLOAD_BYTES = 10 * 1024 * 1024  # 10 MB, mirrors hokusai-site cap
 
 FORBIDDEN_ROW_KEYS = frozenset(
     {
@@ -168,7 +167,6 @@ def classify_row(row: dict[str, Any]) -> str:
 __all__ = [
     "TECHNICAL_TASK_ROUTER_ROW_SCHEMA_VERSION",
     "MAX_CONTRIBUTION_ROWS",
-    "MAX_CONTRIBUTION_PAYLOAD_BYTES",
     "FORBIDDEN_ROW_KEYS",
     "ContributionMetadata",
     "ContributionScalar",
