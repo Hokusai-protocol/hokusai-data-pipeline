@@ -83,6 +83,7 @@ def _init_sentry() -> None:
     """Initialize Sentry for API monitoring when configured."""
     dsn = os.getenv("SENTRY_DSN")
     if not dsn:
+        logger.info("Sentry disabled: SENTRY_DSN not set")
         return
 
     try:
