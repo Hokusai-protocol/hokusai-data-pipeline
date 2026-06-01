@@ -362,9 +362,19 @@ def _get_model_30_warmup_lock() -> asyncio.Lock:
     return _MODEL_30_WARMUP_LOCK
 
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _resolve_model_30_warm_fixture_path(configured_path: str) -> Path:
+    candidate = Path(configured_path)
+    if candidate.is_absolute():
+        return candidate
+    return _PROJECT_ROOT / candidate
+
+
 def _load_model_30_warm_fixture() -> dict[str, Any]:
     settings = get_settings()
-    fixture_path = Path(settings.model_30_warm_fixture_path)
+    fixture_path = _resolve_model_30_warm_fixture_path(settings.model_30_warm_fixture_path)
     with fixture_path.open(encoding="utf-8") as fixture_file:
         payload = json.load(fixture_file)
     if not isinstance(payload, dict):
@@ -395,6 +405,24 @@ async def warm_model_30(model_uri: str, timeout_s: float) -> dict[str, Any]:
                 timeout=timeout_s,
             )
             normalize_model_30_output(raw_output, validated_inputs)
+        except asyncio.TimeoutError:
+            duration_ms = int((time.perf_counter() - started_at) * 1000)
+            error_message = f"warm timed out after {timeout_s:.1f}s"
+            set_model_30_warmup_state(
+                Model30WarmupState.FAILED,
+                error=error_message,
+                duration_ms=duration_ms,
+            )
+            logger.exception(
+                "model_30_warm_failed",
+                extra={
+                    "event": "model_30_warm_failed",
+                    "model_uri": model_uri,
+                    "duration_ms": duration_ms,
+                    "error": error_message,
+                },
+            )
+            return get_model_30_warmup_state()
         except Exception as exc:  # noqa: BLE001 - warmup should capture and report all failures
             duration_ms = int((time.perf_counter() - started_at) * 1000)
             error_message = str(exc)[:500]
