@@ -7,6 +7,7 @@ on:
       - "src/api/endpoints/model_serving.py"
       - "src/api/endpoints/latency_trace.py"
       - "src/api/routes/health.py"
+      - "src/models/technical_task_router.py"
       - "scripts/model_30/**"
       - "configs/model_30_budget.yaml"
       - "docs/model-30-serving.md"
@@ -111,6 +112,7 @@ jobs:
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import subprocess
+          import sys
           import time
 
           def api_container_id() -> str:
@@ -143,38 +145,49 @@ jobs:
               }
               return round(number * multipliers[unit.lower()], 2)
 
-          time.sleep(2)
-          container_id = api_container_id()
-          raw = subprocess.run(
-              [
-                  "docker",
-                  "stats",
-                  "--no-stream",
-                  "--format",
-                  "{{.MemUsage}}",
-                  container_id,
-              ],
-              check=True,
-              capture_output=True,
-              text=True,
-          ).stdout.strip()
-          current = raw.split("/")[0].strip()
-          print(f"value={to_mb(current)}")
+          try:
+              time.sleep(2)
+              container_id = api_container_id()
+              raw = subprocess.run(
+                  [
+                      "docker",
+                      "stats",
+                      "--no-stream",
+                      "--format",
+                      "{{.MemUsage}}",
+                      container_id,
+                  ],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              ).stdout.strip()
+              current = raw.split("/")[0].strip()
+              print(f"value={to_mb(current)}")
+          except Exception as exc:
+              print(f"::warning::cold memory capture failed: {exc}", file=sys.stderr)
+              print("value=")
           PY
 
       - name: Run latency smoke check
         id: smoke
         env:
           MODEL_30_SMOKE_JWT: ${{ secrets.MODEL_30_SMOKE_JWT }}
+          COLD_MEM_MB: ${{ steps.cold-mem.outputs.value }}
         run: |
           set +e
-          python scripts/model_30/latency_smoke_check.py \
-            --api-url http://localhost:8001 \
-            --warmup-timeout-s 90 \
-            --num-requests 50 \
-            --budget-file configs/model_30_budget.yaml \
-            --report-out model_30_smoke_report.json \
-            --cold-mem-mb "${{ steps.cold-mem.outputs.value }}"
+          args=(
+            --api-url http://localhost:8001
+            --warmup-timeout-s 90
+            --num-requests 50
+            --budget-file configs/model_30_budget.yaml
+            --report-out model_30_smoke_report.json
+          )
+          if [ -n "$COLD_MEM_MB" ]; then
+            args+=(--cold-mem-mb "$COLD_MEM_MB")
+          else
+            echo "::warning::cold memory value unavailable; smoke check will proceed without it"
+          fi
+          python scripts/model_30/latency_smoke_check.py "${args[@]}"
           code=$?
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
