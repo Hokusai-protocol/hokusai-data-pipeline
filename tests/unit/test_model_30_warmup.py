@@ -28,7 +28,7 @@ def _fixture_path() -> str:
 @pytest.mark.asyncio
 async def test_warm_model_30_sets_warmed_state() -> None:
     fake_model = MagicMock()
-    fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}
+    fake_model.predict.return_value = {"selected_model": "gpt-5.4"}
 
     with (
         patch.object(
@@ -50,7 +50,7 @@ async def test_warm_model_30_sets_warmed_state() -> None:
 @pytest.mark.asyncio
 async def test_warm_model_30_is_idempotent() -> None:
     fake_model = MagicMock()
-    fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}
+    fake_model.predict.return_value = {"selected_model": "gpt-5.4"}
 
     with (
         patch.object(
@@ -77,7 +77,7 @@ async def test_warm_model_30_concurrent_calls_only_load_once() -> None:
         started.set()
         load_calls.append(uri)
         release.wait()
-        return SimpleNamespace(predict=lambda _features: {"selected_model": "fast-coder-v1"})
+        return SimpleNamespace(predict=lambda _features: {"selected_model": "gpt-5.4"})
 
     async def unblock() -> None:
         await asyncio.to_thread(started.wait)

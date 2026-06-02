@@ -9,6 +9,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import boto3
+import botocore.exceptions
 import httpx
 import redis
 from fastapi import Request
@@ -18,7 +20,20 @@ from starlette.types import ASGIApp
 
 from src.api.utils.config import get_settings
 
+try:
+    import sentry_sdk
+except ImportError:
+    sentry_sdk = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
+
+_UPSTREAM_SCHEMA_ERROR_MARKERS = (
+    "psycopg2.errors.UndefinedTable",
+    "UndefinedTable",
+    "psycopg2.ProgrammingError",
+)
+_LOG_RESPONSE_BODY_LIMIT = 2048
+_DEBIT_REJECTED_HTTP_STATUS = 402
 
 
 @dataclass
@@ -155,6 +170,45 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             "/api/v1/dspy/health",
             "/api/health/mlflow",
         ]
+        self._cloudwatch_disabled = False
+
+    def _truncate_response_body(self, body: Optional[str]) -> str:  # noqa: ANN101
+        """Keep logged upstream bodies bounded."""
+        return (body or "")[:_LOG_RESPONSE_BODY_LIMIT]
+
+    def _get_upstream_schema_error_marker(self, body: Optional[str]) -> Optional[str]:  # noqa: ANN101
+        """Return the first matching schema-error marker from an upstream response body."""
+        if not body:
+            return None
+        for marker in _UPSTREAM_SCHEMA_ERROR_MARKERS:
+            if marker in body:
+                return marker
+        return None
+
+    def _log_auth_service_schema_error(
+        self: "APIKeyAuthMiddleware",
+        *,
+        status_code: int,
+        endpoint: str,
+        response_body: Optional[str],
+        error_marker: str,
+        key_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> None:
+        """Emit structured attribution for deterministic upstream schema failures."""
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "auth_service_schema_error",
+                    "status_code": status_code,
+                    "endpoint": endpoint,
+                    "response_body": self._truncate_response_body(response_body),
+                    "error_marker": error_marker,
+                    "key_id": key_id,
+                    "idempotency_key": idempotency_key,
+                }
+            )
+        )
 
     async def validate_with_auth_service(
         self,  # noqa: ANN101
@@ -206,6 +260,15 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 elif response.status_code == 429:
                     return ValidationResult(is_valid=False, error="Rate limit exceeded")
                 else:
+                    if response.status_code >= 500:
+                        error_marker = self._get_upstream_schema_error_marker(response.text)
+                        if error_marker:
+                            self._log_auth_service_schema_error(
+                                status_code=response.status_code,
+                                endpoint="/api/v1/keys/validate",
+                                response_body=response.text,
+                                error_marker=error_marker,
+                            )
                     logger.error(f"Auth service returned {response.status_code}")
                     return ValidationResult(is_valid=False, error="Authentication service error")
 
@@ -511,27 +574,31 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         request.state.scopes = validation_result.scopes
         request.state.rate_limit_per_hour = validation_result.rate_limit_per_hour
 
-        # Track request start time
-        start_time = time.time()
+        # Debit usage before the model handler runs so 402 can be returned to the client.
+        if validation_result.key_id:
+            model_id = self._extract_model_id(request.url.path)
+            debit_outcome = await self._debit_usage(
+                validation_result.key_id,
+                model_id,
+                request.url.path,
+                0,
+                0,
+                request_id=request.headers.get("x-request-id"),
+                account_id=validation_result.user_id,
+                request_state=request.state,
+            )
+            if debit_outcome == "rejected":
+                return JSONResponse(
+                    status_code=_DEBIT_REJECTED_HTTP_STATUS,
+                    content={
+                        "error": "usage_debit_rejected",
+                        "reason": getattr(request.state, "_debit_reject_reason", None),
+                        "reason_code": getattr(request.state, "_debit_reject_reason_code", None),
+                    },
+                )
 
         # Process request
         response = await call_next(request)
-
-        # Calculate response time
-        response_time_ms = int((time.time() - start_time) * 1000)
-
-        # Debit usage asynchronously for non-5xx responses
-        if validation_result.key_id and response.status_code < 500:
-            model_id = self._extract_model_id(request.url.path)
-            asyncio.create_task(
-                self._debit_usage(
-                    validation_result.key_id,
-                    model_id,
-                    request.url.path,
-                    response_time_ms,
-                    response.status_code,
-                )
-            )
 
         return response
 
@@ -550,15 +617,65 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         match = re.search(r"/api/v1/models/([^/]+)", path)
         return match.group(1) if match else None
 
-    async def _debit_usage(
+    def _emit_usage_debit_rejected_metric(  # noqa: ANN101
+        self,  # noqa: ANN101
+        model_id: Optional[str],
+        rejection_reason: str,
+    ) -> None:
+        """Emit UsageDebitRejected metric to CloudWatch without affecting requests."""
+        if self._cloudwatch_disabled:
+            return
+
+        try:
+            region = os.getenv("AWS_REGION", "us-east-1")
+            client = boto3.client("cloudwatch", region_name=region)
+            client.put_metric_data(
+                Namespace="Hokusai/API",
+                MetricData=[
+                    {
+                        "MetricName": "UsageDebitRejected",
+                        "Dimensions": [
+                            {"Name": "RejectionReason", "Value": rejection_reason},
+                            {"Name": "ModelId", "Value": model_id or "unknown"},
+                        ],
+                        "Value": 1.0,
+                        "Unit": "Count",
+                    }
+                ],
+            )
+        except (
+            botocore.exceptions.NoCredentialsError,
+            botocore.exceptions.PartialCredentialsError,
+        ):
+            self._cloudwatch_disabled = True
+            is_deployed = bool(os.getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")) or os.getenv(
+                "ENVIRONMENT", ""
+            ).lower() in ("development", "staging", "production")
+            if is_deployed:
+                logger.warning(
+                    "UsageDebitRejected metric: AWS credentials unavailable; "
+                    "check ECS task IAM role for cloudwatch:PutMetricData"
+                )
+            else:
+                logger.debug("UsageDebitRejected metric: no AWS credentials (local/test env)")
+        except botocore.exceptions.ClientError as exc:
+            error_code = exc.response["Error"]["Code"]
+            logger.warning(f"UsageDebitRejected metric: CloudWatch error {error_code}: {exc}")
+        except Exception as exc:
+            logger.warning(f"UsageDebitRejected metric: unexpected error: {exc}")
+
+    async def _debit_usage(  # noqa: C901
         self,  # noqa: ANN101
         key_id: str,
         model_id: Optional[str],
         endpoint: str,
         response_time_ms: int,
         status_code: int,
-        max_retries: int = 3,
-    ) -> None:
+        max_retries: int = 1,
+        request_id: Optional[str] = None,
+        account_id: Optional[str] = None,
+        request_state: Any = None,
+    ) -> str:
         """Debit usage to auth service with retry logic.
 
         Args:
@@ -569,6 +686,9 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             response_time_ms: Response time in milliseconds
             status_code: HTTP status code of the response
             max_retries: Maximum number of retry attempts
+            request_id: Request identifier for logging
+            account_id: Account/user identifier for logging
+            request_state: Request state object to store rejection details for the response
 
         """
         idempotency_key = f"{key_id}-{int(time.time() * 1000)}"
@@ -591,21 +711,92 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                         json=payload,
                     )
                     if response.status_code < 300:
-                        return
+                        return "accepted"
+
+                    if response.status_code == _DEBIT_REJECTED_HTTP_STATUS:
+                        try:
+                            response_data = response.json()
+                        except Exception:
+                            response_data = {}
+
+                        detail = (
+                            response_data.get("detail", {})
+                            if isinstance(response_data, dict)
+                            else response_data
+                        )
+                        if isinstance(detail, dict):
+                            reason = detail.get("message") or detail.get("reason")
+                            reason_code = detail.get("error")
+                        elif detail:
+                            reason = None
+                            reason_code = str(detail)
+                        else:
+                            reason = None
+                            reason_code = None
+
+                        if request_state is not None:
+                            request_state._debit_reject_reason = reason
+                            request_state._debit_reject_reason_code = reason_code
+
+                        logger.warning(
+                            "usage debit rejected",
+                            extra={
+                                "event": "usage.debit.rejected",
+                                "account_id": account_id,
+                                "model_id": model_id,
+                                "reason_code": reason_code,
+                                "request_id": request_id,
+                            },
+                        )
+                        if sentry_sdk:
+                            sentry_sdk.set_context(
+                                "usage_debit",
+                                {
+                                    "account_id": account_id,
+                                    "model_id": model_id,
+                                    "reason": reason,
+                                    "reason_code": reason_code,
+                                    "request_id": request_id,
+                                },
+                            )
+                            sentry_sdk.capture_message("usage.debit.rejected", level="warning")
+                        self._emit_usage_debit_rejected_metric(
+                            model_id, rejection_reason="InsufficientBalance"
+                        )
+                        return "rejected"
+
+                    response_body = self._truncate_response_body(response.text)
 
                     failure_fields = {
                         "event": "usage_debit_failure",
                         "status_code": response.status_code,
-                        "response_body": (response.text or "")[:2048],
+                        "response_body": response_body,
                         "key_id": key_id,
                         "model_id": model_id,
                         "endpoint": endpoint,
                         "idempotency_key": idempotency_key,
                     }
-                    logger.warning(json.dumps(failure_fields))
 
                     if response.status_code < 500:
-                        return  # Client error — don't retry
+                        logger.warning(json.dumps(failure_fields))
+                        return "error"  # Client error — don't retry
+
+                    error_marker = self._get_upstream_schema_error_marker(response.text)
+                    if error_marker:
+                        self._log_auth_service_schema_error(
+                            status_code=response.status_code,
+                            endpoint=endpoint,
+                            response_body=response.text,
+                            error_marker=error_marker,
+                            key_id=key_id,
+                            idempotency_key=idempotency_key,
+                        )
+                        self._emit_usage_debit_rejected_metric(
+                            model_id, rejection_reason="UpstreamSchemaError"
+                        )
+                        return "error"
+
+                    logger.warning(json.dumps(failure_fields))
 
                     if attempt == max_retries - 1:
                         logger.error(
@@ -617,16 +808,19 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                                 }
                             )
                         )
-                        return
+                        return "error"
             except Exception as e:
                 if attempt == max_retries - 1:
                     logger.warning(
                         f"Failed to debit usage after {max_retries} attempts "
                         f"for key_id={key_id}: {e}"
                     )
-                    return
+                    return "error"
             # Exponential backoff: 1s, 2s, 4s
-            await asyncio.sleep(2**attempt)
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2**attempt)
+
+        return "error"
 
 
 # Compatibility functions for routes that expect these functions

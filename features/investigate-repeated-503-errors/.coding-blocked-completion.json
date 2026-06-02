@@ -1,0 +1,16 @@
+{
+  "stage": "coding",
+  "implementationComplete": true,
+  "committed": true,
+  "commit": "217ec17",
+  "passingChecks": [
+    "pytest tests/unit/test_contributions_endpoint.py -q --no-cov",
+    "grep -E '^## ' features/investigate-repeated-503-errors/INVESTIGATION.md"
+  ],
+  "blockingChecks": [
+    "Linear issue fetch/comment access for HOK-1958, HOK-1876, HOK-1959, and HOK-1982 returned UNAUTHORIZED (session expired)"
+  ],
+  "blockingReason": "external_auth_unavailable",
+  "evidence": "The investigation artifact is complete and committed, and scoped endpoint tests passed. Remaining requirements depend on re-authenticating Linear to recover exact issue-side timestamps and post the required HOK-1982 summary comment.",
+  "recommendedAction": "advance_to_review"
+}
