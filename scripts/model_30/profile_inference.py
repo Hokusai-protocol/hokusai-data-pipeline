@@ -272,9 +272,12 @@ def profile_warm_path(
     profiler.disable()
 
     stats = pstats.Stats(profiler, stream=io.StringIO()).sort_stats("cumulative")
+    # sort_stats populates fcn_list with the sorted order; stats.stats is an
+    # unordered dict, so we iterate fcn_list to get the true top N by cumulative time.
     top_rows: list[dict[str, Any]] = []
-    for func, stat in list(stats.stats.items())[:top_n]:
-        cc, nc, tt, ct, callers = stat
+    sorted_funcs = stats.fcn_list or list(stats.stats.keys())
+    for func in sorted_funcs[:top_n]:
+        cc, nc, tt, ct, callers = stats.stats[func]
         top_rows.append(
             {
                 "function": pstats.func_std_string(func),
@@ -285,7 +288,6 @@ def profile_warm_path(
                 "callers": len(callers),
             }
         )
-    top_rows.sort(key=lambda row: row["cumulative_time_s"], reverse=True)
     return top_rows
 
 

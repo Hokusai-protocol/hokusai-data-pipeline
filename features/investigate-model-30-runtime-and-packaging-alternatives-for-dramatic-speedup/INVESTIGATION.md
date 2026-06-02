@@ -13,11 +13,12 @@ Date: 2026-06-02
 - Deployed ECS task definition inspected: `hokusai-api-development:312`
 - Deployed image tag inspected: `932100697590.dkr.ecr.us-east-1.amazonaws.com/hokusai-api:eaec11d83dab55256c850583fa49346546892ad6`
 - ECS runtime allocation from Terraform and task definition: `cpu = "512"`, `memory = "1024"`
-- Local replay host: macOS / Python `3.11.8` / `mlflow 3.11.1` / `pandas 2.3.2` / `numpy 1.26.4`
+- Local replay host: macOS on Apple Silicon (ARM64) / Python `3.11.8` / `mlflow 3.11.1` / `pandas 2.3.2` / `numpy 1.26.4`
 - Artifact inspected from S3: `s3://hokusai-mlflow-artifacts-development/3/models/m-32c82e80c2264d6c980dd3c6fe763cfb/artifacts/`
 
 Important caveat:
 
+- All warm/cold timings below were measured on ARM64 macOS, not the AMD64 Linux ECS runtime. Treat them as directional only. CloudWatch trace fields on the deployed AMD64 ECS task are the source of truth for production latency once structured logging is restored.
 - CloudWatch retained only the `model_30_latency_trace` message string, not the structured phase fields, so production p50/p95/p99 could not be reconstructed directly from logs.
 - The only nested-contract-compatible artifact reachable from S3 (`m-f02cea...`) is a smoke artifact and is not representative for performance work.
 - The runtime measurements below therefore use the real `TechnicalTaskRouterModel` implementation in [src/models/technical_task_router.py](/Users/timothyogilvie/Dropbox/Hokusai/worktrees/investigate-model-30-runtime-and-packaging-alternatives-for-dramatic-speedup/src/models/technical_task_router.py:82) with the real 696-row router dataset extracted from the MLflow artifact. Treat them as directional local measurements, not production latency promises.
