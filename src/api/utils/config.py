@@ -166,6 +166,10 @@ class Settings(BaseSettings):
     rate_limit_requests: int = 100
     rate_limit_period: int = 60  # seconds
 
+    # Scanner/noise filtering
+    scanner_filter_enabled: bool = True
+    scanner_filter_extra_patterns: str = ""
+
     # Authentication Service
     auth_service_url: str = "https://auth.hokus.ai"
     auth_service_timeout: float = 10.0  # Increased from 5 seconds
