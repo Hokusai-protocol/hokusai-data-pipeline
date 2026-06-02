@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 _UPSTREAM_SCHEMA_ERROR_MARKERS = (
     "psycopg2.errors.UndefinedTable",
     "UndefinedTable",
-    "ProgrammingError",
+    "psycopg2.ProgrammingError",
 )
 _LOG_RESPONSE_BODY_LIMIT = 2048
 
