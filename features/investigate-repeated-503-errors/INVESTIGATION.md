@@ -98,7 +98,7 @@ Interpretation:
 - The running API service cannot build the default S3 contribution store.
 - That matches the deterministic `503` branch in the code.
 
-## Local Code Analysis
+## Code-path Analysis
 
 Direct `503` mapping:
 
@@ -128,7 +128,7 @@ Justification:
 - The router maps that exception to HTTP `503`.
 - ALB metrics prove the `5xx` responses came from the target, while target health stayed green.
 
-## Retry-Safety Assessment
+## Retry-safety Assessment
 
 Verdict: retries will NOT succeed until `HOKUSAI_CONTRIBUTIONS_BUCKET` is configured in the deployed `hokusai-api-development` service.
 
