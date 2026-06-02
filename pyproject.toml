@@ -77,6 +77,7 @@ ignore = [
 "src/api/models/evaluation_schedule.py" = ["A003"]
 "src/api/schemas/evaluation_schedule.py" = ["A003", "ANN102"]
 "src/api/schemas/inference_log.py" = ["ANN", "N805", "N803"]
+"src/api/main.py" = ["E402"]
 "src/api/routes/governance.py" = ["E501"]
 "src/api/services/governance/audit_logger.py" = ["ANN", "A003", "D401", "E501"]
 "src/api/services/governance/gdpr.py" = ["ANN"]

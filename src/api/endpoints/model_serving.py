@@ -20,16 +20,29 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import requests
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from huggingface_hub import hf_hub_download, snapshot_download
 from pydantic import BaseModel, Field, ValidationError
 
 from ...middleware.auth import require_auth
 from ...utils.mlflow_health import check_mlflow_registry_sdk
 from ..dependencies import get_contributor_logger
+from ..middleware.validation_logging import (
+    classify_client_ip,
+    emit_model_serving_validation_422,
+    get_or_generate_request_id,
+)
 from ..services.contributor_logger import ContributorLogger
 from .latency_trace import Model30LatencyTrace
-from .model_30_adapter import Model30LoadInProgressError
+from .model_30_adapter import (
+    Model30FailurePhase,
+    Model30InferenceError,
+    Model30LoadInProgressError,
+    Model30WarmupState,
+    get_model_30_warmup_state,
+    log_model_30_failure,
+)
 from .model_registry import ModelRegistryEntry
 from .model_registry_entries import MODEL_CONFIGS
 
@@ -38,6 +51,65 @@ logger = logging.getLogger(__name__)
 
 # Create router
 router = APIRouter(prefix="/api/v1/models", tags=["model-serving"])
+
+
+def _log_mlflow_inference_failure(
+    model_id: str,
+    *,
+    request_id: str,
+    model_uri: str,
+    model_version: str | None,
+    phase: Model30FailurePhase,
+    trace: "Model30LatencyTrace",
+    exc: BaseException,
+    duration_ms: float,
+    level: int = logging.ERROR,
+) -> None:
+    if model_id == "30":
+        log_model_30_failure(
+            logger,
+            request_id=request_id,
+            model_uri=model_uri,
+            model_version=model_version,
+            phase=phase,
+            path_type=getattr(trace, "path_type", "unknown") or "unknown",
+            exc=exc,
+            duration_ms=duration_ms,
+            level=level,
+        )
+        return
+    logger.log(
+        level,
+        "mlflow_inference_failure",
+        exc_info=exc,
+        extra={
+            "event": "mlflow_inference_failure",
+            "model_id": model_id,
+            "model_uri": model_uri,
+            "model_version": model_version,
+            "phase": phase.value,
+            "request_id": request_id,
+            "duration_ms": duration_ms,
+        },
+    )
+
+
+def _enforce_model_30_warmup_gate(model_id: str) -> None:
+    if model_id != "30":
+        return
+    warmup = get_model_30_warmup_state()
+    if warmup["warmed"] or warmup["state"] == Model30WarmupState.NOT_STARTED.value:
+        return
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "error": "model_not_ready",
+            "model_id": model_id,
+            "warmup_state": warmup["state"],
+            "retry_after_s": 30,
+        },
+        headers={"Retry-After": "30"},
+    )
 
 
 class PredictionRequest(BaseModel):
@@ -330,6 +402,7 @@ class ModelServingService:
         inputs: dict[str, Any],
         options: dict[str, Any],
         request_id: str = "",
+        caller_context: dict | None = None,
     ) -> dict[str, Any]:
         """Main method to serve predictions for a model.
 
@@ -395,6 +468,7 @@ class ModelServingService:
                 model_id=model_id,
                 inputs=inputs,
                 request_id=request_id,
+                caller_context=caller_context,
             )
 
         else:
@@ -419,6 +493,7 @@ class ModelServingService:
         model_id: str,
         inputs: dict[str, Any],
         request_id: str,
+        caller_context: dict | None = None,
     ) -> dict[str, Any]:
         model_uri = self._get_required_mlflow_component(entry, "model_uri")
         input_validator = self._get_required_mlflow_component(entry, "input_validator")
@@ -427,6 +502,9 @@ class ModelServingService:
         output_normalizer = self._get_required_mlflow_component(entry, "output_normalizer")
         cache_checker = self._get_required_mlflow_component(entry, "cache_checker")
 
+        _enforce_model_30_warmup_gate(model_id)
+
+        request_started_at = time.perf_counter()
         trace = Model30LatencyTrace(request_id=request_id, model_uri=model_uri)
         trace_emitted = False
         try:
@@ -459,16 +537,15 @@ class ModelServingService:
                 trace.record_ms("artifact_load", mlflow_timings.get("artifact_load_ms", 0.0))
                 trace.emit(logger)
                 trace_emitted = True
-                logger.error(
-                    "%s MLflow inference timed out",
-                    entry.name,
-                    extra={
-                        "model_id": model_id,
-                        "model_uri": model_uri,
-                        "timeout_seconds": self.prediction_timeout_seconds,
-                        "request_id": request_id,
-                        "run_id": trace.run_id,
-                    },
+                _log_mlflow_inference_failure(
+                    model_id,
+                    request_id=request_id,
+                    model_uri=model_uri,
+                    model_version=entry.model_version,
+                    phase=Model30FailurePhase.TIMEOUT,
+                    trace=trace,
+                    exc=exc,
+                    duration_ms=(time.perf_counter() - request_started_at) * 1000,
                 )
                 raise HTTPException(
                     status_code=504,
@@ -486,15 +563,16 @@ class ModelServingService:
                 trace.deadline_boundary_ms = (time.perf_counter() - inference_started_at) * 1000
                 trace.emit(logger)
                 trace_emitted = True
-                logger.warning(
-                    "%s cold load already in progress",
-                    entry.name,
-                    extra={
-                        "model_id": model_id,
-                        "model_uri": model_uri,
-                        "request_id": request_id,
-                        "run_id": trace.run_id,
-                    },
+                _log_mlflow_inference_failure(
+                    model_id,
+                    request_id=request_id,
+                    model_uri=model_uri,
+                    model_version=entry.model_version,
+                    phase=Model30FailurePhase.ARTIFACT_LOAD,
+                    trace=trace,
+                    exc=exc,
+                    duration_ms=(time.perf_counter() - request_started_at) * 1000,
+                    level=logging.WARNING,
                 )
                 raise HTTPException(
                     status_code=503,
@@ -525,6 +603,13 @@ class ModelServingService:
             trace.outcome = "validation_error"
             if not trace_emitted:
                 trace.emit(logger)
+            emit_model_serving_validation_422(
+                logger,
+                request_id=request_id,
+                model_id=model_id,
+                caller_context=caller_context,
+                pydantic_errors=exc.errors(),
+            )
             raise HTTPException(status_code=422, detail=exc.errors()) from exc
         except HTTPException:
             if not trace_emitted:
@@ -535,16 +620,20 @@ class ModelServingService:
             trace.outcome = "error"
             if not trace_emitted:
                 trace.emit(logger)
-            logger.error(
-                "%s MLflow inference failed",
-                entry.name,
-                extra={
-                    "model_id": model_id,
-                    "model_uri": model_uri,
-                    "request_id": request_id,
-                    "run_id": trace.run_id,
-                },
-                exc_info=exc,
+            phase = (
+                exc.phase
+                if isinstance(exc, Model30InferenceError)
+                else Model30FailurePhase.PREDICT_CALL
+            )
+            _log_mlflow_inference_failure(
+                model_id,
+                request_id=request_id,
+                model_uri=model_uri,
+                model_version=entry.model_version,
+                phase=phase,
+                trace=trace,
+                exc=exc,
+                duration_ms=(time.perf_counter() - request_started_at) * 1000,
             )
             raise HTTPException(
                 status_code=503,
@@ -652,7 +741,8 @@ async def get_model_info(
 @router.post("/{model_id}/predict")
 async def predict(
     model_id: str,
-    request: PredictionRequest,
+    payload: PredictionRequest,
+    http_request: Request,
     background_tasks: BackgroundTasks,
     auth: Dict[str, Any] = Depends(require_auth),
     contributor_logger: ContributorLogger = Depends(get_contributor_logger),
@@ -665,7 +755,7 @@ async def predict(
     Args:
     ----
         model_id: The ID of the model to use for prediction (e.g., "21")
-        request: Prediction request containing inputs and options
+        payload: Prediction request containing inputs and options
         auth: User authentication context from middleware
 
     Returns:
@@ -690,23 +780,37 @@ async def predict(
         },
     )
 
+    request_id = get_or_generate_request_id(http_request)
+
     try:
         started_at = time.perf_counter()
         model_config = serving_service.get_model_config(model_id)
-        inference_method = request.options.get("inference_method", model_config["inference_method"])
+        inference_method = payload.options.get("inference_method", model_config["inference_method"])
         inference_log_id = contributor_logger.new_inference_log_id()
         request_id = str(inference_log_id)
+        caller_context = {
+            "caller_fingerprint": {
+                "user_id": user_id,
+                "api_key_id": str(api_key_id) if api_key_id else None,
+                "user_agent": (http_request.headers.get("user-agent") or "")[:200] or None,
+                "client_ip_class": classify_client_ip(
+                    http_request.client.host if http_request.client else None
+                ),
+            }
+        }
+        http_request.state.request_id = request_id
 
         # Run prediction
         predictions = await serving_service.serve_prediction(
             model_id=model_id,
-            inputs=request.inputs,
-            options=request.options,
+            inputs=payload.inputs,
+            options=payload.options,
             request_id=request_id,
+            caller_context=caller_context,
         )
         inference_latency_ms = int((time.perf_counter() - started_at) * 1000)
         model_version = str(
-            request.options.get("model_version", model_config.get("model_version", "unknown"))
+            payload.options.get("model_version", model_config.get("model_version", "unknown"))
         )
 
         # Build response
@@ -739,7 +843,7 @@ async def predict(
             api_token_id=str(api_key_id or "unknown"),
             model_name=model_config.get("name", model_id),
             model_version=model_version,
-            input_payload=request.inputs,
+            input_payload=payload.inputs,
             output_payload=predictions,
             trace_metadata={
                 "latency_ms": inference_latency_ms,
@@ -752,7 +856,13 @@ async def predict(
 
         return response
 
-    except HTTPException:
+    except HTTPException as exc:
+        if exc.status_code == 422:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": exc.detail},
+                headers={"X-Request-ID": request_id},
+            )
         raise
     except Exception as e:
         logger.error(

@@ -9,6 +9,7 @@ import redis
 from fastapi import Depends, Request
 from redis import Redis
 
+from src.api.services.contribution_service import ContributionService
 from src.api.services.contributor_logger import ContributorLogger
 from src.api.services.dataset_validator import DatasetValidator
 from src.api.services.evaluation_service import EvaluationService
@@ -104,6 +105,12 @@ def get_evaluation_service(
 def get_contributor_logger() -> ContributorLogger:
     """Return shared contributor logger instance."""
     return ContributorLogger()
+
+
+@lru_cache(maxsize=1)
+def get_contribution_service() -> ContributionService:
+    """Return shared contribution ingestion service."""
+    return ContributionService()
 
 
 @lru_cache(maxsize=1)

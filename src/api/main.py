@@ -1,5 +1,6 @@
 """Main FastAPI application for Hokusai MLOps services."""
 
+import asyncio
 import logging
 import os
 import time
@@ -7,6 +8,7 @@ from typing import Any
 
 import mlflow
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from mlflow.tracking import MlflowClient
@@ -14,8 +16,103 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from src.api.endpoints import model_serving
+try:
+    import sentry_sdk
+except ImportError:
+
+    class _MissingSentrySDK:
+        """Fallback used when sentry-sdk is not installed in the local environment."""
+
+        @staticmethod
+        def init(*args: Any, **kwargs: Any) -> None:
+            raise ModuleNotFoundError("sentry-sdk is not installed")
+
+    sentry_sdk = _MissingSentrySDK()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+_SENSITIVE_HEADER_NAMES = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+        "x-api-key",
+        "x-auth-token",
+        "x-csrf-token",
+    }
+)
+
+
+def _scrub_sensitive_headers(event: dict[str, Any], _hint: dict[str, Any]) -> dict[str, Any]:
+    """Strip credential-bearing headers before events leave the process."""
+    request = event.get("request") if isinstance(event, dict) else None
+    headers = request.get("headers") if isinstance(request, dict) else None
+    if isinstance(headers, dict):
+        for key in list(headers.keys()):
+            if key.lower() in _SENSITIVE_HEADER_NAMES:
+                headers[key] = "[Filtered]"
+    elif isinstance(headers, list):
+        for index, item in enumerate(headers):
+            if isinstance(item, (list, tuple)) and len(item) == 2 and isinstance(item[0], str):
+                if item[0].lower() in _SENSITIVE_HEADER_NAMES:
+                    headers[index] = [item[0], "[Filtered]"]
+    return event
+
+
+def _parse_traces_sample_rate() -> float:
+    """Parse SENTRY_TRACES_SAMPLE_RATE, falling back to 0.1 on bad input."""
+    raw = os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        logger.warning("Invalid SENTRY_TRACES_SAMPLE_RATE value %r; falling back to 0.1", raw)
+        return 0.1
+    if not 0.0 <= value <= 1.0:
+        logger.warning(
+            "SENTRY_TRACES_SAMPLE_RATE %r out of range [0.0, 1.0]; falling back to 0.1",
+            raw,
+        )
+        return 0.1
+    return value
+
+
+def _init_sentry() -> None:
+    """Initialize Sentry for API monitoring when configured."""
+    dsn = os.getenv("SENTRY_DSN")
+    if not dsn:
+        logger.info("Sentry disabled: SENTRY_DSN not set")
+        return
+
+    try:
+        sentry_sdk.init(
+            dsn=dsn,
+            environment=os.getenv("ENVIRONMENT", "development"),
+            traces_sample_rate=_parse_traces_sample_rate(),
+            profiles_sample_rate=0.0,
+            send_default_pii=True,
+            release=os.getenv("SENTRY_RELEASE") or None,
+            before_send=_scrub_sensitive_headers,
+        )
+    except Exception:
+        logger.exception("Failed to initialize Sentry")
+
+
+def _should_enable_sentry_debug_route() -> bool:
+    """Avoid exposing the Sentry debug endpoint in production by default."""
+    if os.getenv("SENTRY_DEBUG_ENABLED", "false").lower() == "true":
+        return True
+    return os.getenv("ENVIRONMENT", "development").lower() != "production"
+
+
+_init_sentry()
+
+from src.api.endpoints import contributions, model_serving
 from src.api.endpoints.model_registry_entries import MODEL_CONFIGS
+from src.api.middleware.validation_logging import validation_422_exception_handler
 from src.api.routes import (
     benchmarks,
     dataset_arrivals,
@@ -37,10 +134,6 @@ from src.api.utils.config import get_settings
 from src.middleware.auth import APIKeyAuthMiddleware
 from src.middleware.rate_limiter import RateLimitMiddleware
 from src.utils.mlflow_url import get_mlflow_url
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Get settings
 settings = get_settings()
@@ -73,6 +166,7 @@ app.add_middleware(RateLimitMiddleware)
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RequestValidationError, validation_422_exception_handler)
 
 # Include routers
 app.include_router(health.router, tags=["health"])
@@ -100,6 +194,14 @@ async def root() -> dict[str, Any]:
     }
 
 
+if _should_enable_sentry_debug_route():
+
+    @app.get("/sentry-debug")
+    async def trigger_sentry_error() -> None:
+        """Trigger an error to verify Sentry wiring."""
+        _ = 1 / 0
+
+
 app.include_router(models.router, prefix="/models", tags=["models"])
 app.include_router(models.router, prefix="/api/models", tags=["models"])
 app.include_router(dspy.router, tags=["dspy"])
@@ -111,6 +213,7 @@ app.include_router(evaluation_schedule.router)
 app.include_router(outcomes.router)
 app.include_router(dataset_arrivals.router)
 app.include_router(model_serving.router, tags=["model-serving"])  # Model 21 serving endpoint
+app.include_router(contributions.router)
 # TODO: Enable auth router after fixing APIKeyModel dependency
 # app.include_router(auth.router, tags=["authentication"])
 
@@ -169,6 +272,19 @@ def _prewarm_mlflow_registered_models() -> None:
             ) from e
 
 
+async def _startup_warm_model_30() -> None:
+    """Warm the model 30 artifact after MLflow transport is configured."""
+    from src.api.endpoints.model_30_adapter import get_model_30_uri, warm_model_30
+
+    entry = MODEL_CONFIGS.get("30")
+    if entry is None:
+        logger.warning("model_30_prewarm_skipped", extra={"event": "model_30_prewarm_skipped"})
+        return
+
+    model_uri = entry.model_uri or get_model_30_uri()
+    await warm_model_30(model_uri=model_uri, timeout_s=settings.model_30_warm_timeout_s)
+
+
 # Startup event
 @app.on_event("startup")
 async def startup_event() -> None:
@@ -188,6 +304,14 @@ async def startup_event() -> None:
         logger.error(
             "MLflow pre-warm failed at startup — non-MLflow endpoints will still serve",
             extra={"error": str(e)},
+        )
+
+    if settings.model_30_prewarm_enabled:
+        app.state.model_30_warmup_task = asyncio.create_task(_startup_warm_model_30())
+    else:
+        logger.info(
+            "model_30_prewarm_disabled",
+            extra={"event": "model_30_prewarm_disabled"},
         )
 
     # Initialize database connections, caches, etc.

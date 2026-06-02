@@ -2,6 +2,30 @@
 
 `POST /api/v1/models/30/predict` serves the registered MLflow Technical Task Router model through the public nested request contract `technical_task_router_inputs/v2`.
 
+`POST /api/v1/models/30/contributions` accepts contribution batches from Wavemill and `hokusai-site` for persistence and downstream processing.
+
+## Contribution Endpoint
+
+Authentication is required. Clients may submit either:
+
+- Wavemill batch shape: `{"rows":[...],"metadata":{"idempotency_key":"..."}}`
+- Site shape: `{"modelId":"30","benchmarkSpecId":null,"rows":[...],"schemaVersion":null,"templateId":null}`
+
+Behavior:
+
+- Path: `/api/v1/models/{model_id}/contributions`
+- Method: `POST`
+- `Idempotency-Key` header takes precedence over `metadata.idempotency_key`
+- `rows` is required, must contain 1 to 10000 JSON objects
+- `modelId` in the body must match the path when present
+- First acceptance returns `201`; identical idempotent replay returns `200`
+- Reusing an idempotency key with a different payload returns `409`
+- Missing persistence configuration returns `503`
+
+Response fields include `accepted`, `modelId`, `submissionId`, `jobId`, `jobIds`, `rowsAccepted`, `submittedRows`, and `tokenReward`.
+
+Persistence is S3-backed and controlled by `HOKUSAI_CONTRIBUTIONS_BUCKET`, optional `HOKUSAI_CONTRIBUTIONS_PREFIX`, and `CONTRIBUTIONS_MAX_BODY_BYTES`.
+
 ## Public Contract
 
 Accepted `inputs` groups:
@@ -14,6 +38,23 @@ Accepted `inputs` groups:
 
 Top-level flat benchmark-row fields such as `schema_version`, `task_descriptor`, `allowed_models`, `selected_models`, and `max_cost_usd` are rejected with `422`. Those fields belong to the benchmark/evaluation row contract, not the live serving API.
 
+## Accepted Shapes
+
+`inputs` must contain a nested `task` group with both `description` and `task_type`.
+
+Minimal accepted payload (`data/test_fixtures/model_30_minimal_payload.json`):
+
+```json
+{
+  "inputs": {
+    "task": {
+      "description": "Implement password reset flow",
+      "task_type": "feature"
+    }
+  }
+}
+```
+
 Historical outcome and training-label groups such as `prediction`, `outcome`, and `rubric` are also rejected. Live callers configure the task and routing constraints only; they do not supply observed cost, success, score, or selected model labels.
 
 The v2 routing contract supports three user-facing objectives:
@@ -24,7 +65,7 @@ The v2 routing contract supports three user-facing objectives:
 
 Workflow stages are selected with `workflow.stages` and may include `plan`, `code`, and `review`. The caller can restrict the model set globally with `routing.available_models` or per role with `routing.available_planner_models`, `routing.available_coder_models`, and `routing.available_reviewer_models`.
 
-Example v2 request:
+Curated accepted payload (`data/test_fixtures/model_30_curated_payload.json`):
 
 ```json
 {
@@ -56,6 +97,46 @@ Example v2 request:
   }
 }
 ```
+
+## Rejected Shapes
+
+Flat benchmark-row payloads are rejected because `TechnicalTaskRouterInputs` uses `extra="forbid"` and requires `task`.
+
+Rejected benchmark/evaluation row shape:
+
+```json
+{
+  "inputs": {
+    "schema_version": "technical_task_router_row/v1",
+    "task_descriptor": {"task_type": "feature"},
+    "allowed_models": ["gpt-5.4"],
+    "max_cost_usd": 0.5
+  }
+}
+```
+
+Expected validation behavior:
+
+- `Extra inputs are not permitted` for flat row fields such as `schema_version`, `task_descriptor`, and `allowed_models`
+- `Field required` for missing `task`
+
+This is the benchmark row contract, not the public serving API contract.
+
+Rejected missing-task shape:
+
+```json
+{
+  "inputs": {
+    "routing": {
+      "max_cost_usd": 0.5
+    }
+  }
+}
+```
+
+Expected validation behavior:
+
+- `Field required` on `task`
 
 ## MLflow Configuration
 
@@ -111,6 +192,114 @@ For legacy smoke artifacts only, normalization accepts common aliases:
 - `cost`, `estimated_cost` -> estimated cost
 
 There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures return `503` with a `Model 30 MLflow inference failed` prefix.
+
+## Startup Lifecycle
+
+At process startup the API now performs two separate MLflow steps:
+
+- `_prewarm_mlflow_registered_models()` verifies registry connectivity for all MLflow-backed models.
+- `warm_model_30()` then loads the model 30 artifact into the in-process cache and runs a minimal valid prediction using `data/test_fixtures/model_30_minimal_payload.json`.
+
+The model 30 warm runs in a background task after MLflow mTLS and tracking URI setup complete. The process can come up quickly, but `/ready` does not report traffic-ready until the warm path finishes successfully.
+
+Set `MODEL_30_PREWARM_ENABLED=false` to disable startup warm during rollback. In that mode, `/ready` no longer blocks on `not_started` and model 30 falls back to the existing on-demand cold-load path.
+
+## Readiness Contract
+
+`GET /ready` now exposes model 30 warm state separately from lightweight liveness:
+
+- `warming` or `not_started` while prewarm is enabled: HTTP `503`, `can_serve_traffic=false`
+- `warmed`: HTTP `200`, `ready=true`, `model_30.warmed=true`
+- `failed`: HTTP `200`, degraded mode, with `model_30.state="failed"` and `last_error`
+
+Response payloads include:
+
+- `model_30.warmed`
+- `model_30.state`
+- `model_30.warmed_at`
+- `model_30.last_error`
+- `model_30.duration_ms`
+
+This lets ALB or clients distinguish "process alive" from "inference ready".
+
+## SLOs
+
+- Cold-start readiness target: model 30 should reach `/ready` `200` within 30 seconds of process startup.
+- Warm prediction target: repeated valid predictions should stay within a p95 of 2000 ms.
+
+The startup warm timeout is controlled by `MODEL_30_WARM_TIMEOUT_S`.
+
+## Failure Classes and Observability
+
+Every inference path that surfaces a non-2xx response also emits exactly one structured `model_30_inference_failure` log record so failures can be classified without reading stack traces. The taxonomy isolates which stage failed so on-call can distinguish artifact-load problems from connectivity blips from model output regressions.
+
+### Failure phases
+
+| `phase`                  | Where it fires                                                          | Typical cause                                                                 | HTTP status |
+|--------------------------|-------------------------------------------------------------------------|-------------------------------------------------------------------------------|-------------|
+| `artifact_load`          | `mlflow.pyfunc.load_model(...)` raised, or another loader holds the lock | Registry returned no artifact, deserialization failed, or cold-load contention | 503         |
+| `mlflow_connectivity`    | Loader raised an `OSError`/`ConnectionError` or matched connectivity keywords | Tracking server unreachable, TLS reset, 503 from MLflow, DNS failure          | 503         |
+| `predict_call`           | `model.predict(features)` raised                                          | Feature/schema mismatch, model code bug, model-internal exception              | 503         |
+| `response_normalization` | `normalize_model_30_output(...)` raised after a successful predict       | Empty MLflow output, unsupported output shape, missing `selected_model`        | 503         |
+| `timeout`                | `asyncio.wait_for(...)` exceeded `MODEL_SERVING_PREDICTION_TIMEOUT_SECONDS` | Slow cold load, slow inference, registry slowdown                              | 504         |
+
+The 503 response body shape is unchanged: `{"detail": "Technical Task Router MLflow inference failed: <exc>"}`. The 504 body keeps its `{error, request_id, run_id}` shape. Strategy Explorer parsing is unaffected.
+
+### `model_30_inference_failure` log fields
+
+Every record carries the same field contract so a single CloudWatch query can pivot across all phases:
+
+| Field               | Type            | Notes                                                                                      |
+|---------------------|-----------------|--------------------------------------------------------------------------------------------|
+| `event_type`        | string (constant) | Always `"model_30_inference_failure"`                                                      |
+| `request_id`        | string          | Same id returned in the API response `metadata.request_id` and persisted with inference logs |
+| `model_uri`         | string          | E.g. `models:/Technical Task Router/4`                                                     |
+| `model_version`     | string \| null  | `MODEL_30_VERSION` when available; `null` if the registry entry has none                   |
+| `phase`             | string enum     | One of the values in the phase table above                                                 |
+| `path_type`         | string          | `cold`, `warm`, or `unknown` if the failure preceded `set_path_type`                       |
+| `exception_class`   | string          | `type(exc).__name__` (e.g. `RuntimeError`, `TimeoutError`, `ConnectionError`)              |
+| `exception_message` | string          | `str(exc)` truncated to 500 chars                                                          |
+| `duration_ms`       | number          | Wall-clock from request entry to the failure, rounded to 2 decimals                        |
+
+Example log line (JSON formatter output):
+
+```json
+{
+  "level": "ERROR",
+  "msg": "model_30_inference_failure",
+  "event_type": "model_30_inference_failure",
+  "request_id": "8b1f4d7e-6c5a-4b8b-9a2e-7c0e7a8d9e10",
+  "model_uri": "models:/Technical Task Router/4",
+  "model_version": "4",
+  "phase": "mlflow_connectivity",
+  "path_type": "cold",
+  "exception_class": "ConnectionError",
+  "exception_message": "HTTPConnectionPool(host='mlflow.hokusai-development.local', port=5000): Max retries exceeded",
+  "duration_ms": 412.37
+}
+```
+
+### CloudWatch Logs Insights queries
+
+Count failures by phase over the recent window:
+
+```sql
+fields @timestamp, request_id, phase, path_type, exception_class, duration_ms
+| filter event_type = "model_30_inference_failure"
+| stats count() as failures by phase
+| sort failures desc
+```
+
+Pull recent failure samples grouped by phase:
+
+```sql
+fields @timestamp, request_id, phase, path_type, exception_class, exception_message, duration_ms
+| filter event_type = "model_30_inference_failure"
+| sort @timestamp desc
+| limit 50
+```
+
+Correlate a 503 sample to its structured record by `request_id` returned in the API response, or join to the matching `model_30_latency_trace` record (same `request_id`) to see which phase dominated wall-clock.
 
 ## Nested API To Router Feature Mapping
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import sys
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -13,11 +13,15 @@ from src.api.endpoints.model_registry import ModelRegistryEntry
 
 
 @pytest.fixture
-def api_main_module(monkeypatch: pytest.MonkeyPatch):
+def api_main_module(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setenv("MLFLOW_SERVER_URL", "https://mlflow.test.local:5000")
     monkeypatch.setenv("MLFLOW_TRACKING_TOKEN", "test-token")
     monkeypatch.setenv("DB_PASSWORD", "test-password")
+    monkeypatch.setenv("DSPY_CACHEDIR", str(tmp_path / "dspy-cache"))
     sys.modules.pop("src.api.main", None)
+    for module_name in list(sys.modules):
+        if module_name == "dspy" or module_name.startswith("dspy."):
+            sys.modules.pop(module_name, None)
     module = importlib.import_module("src.api.main")
     yield module
     sys.modules.pop("src.api.main", None)
@@ -95,6 +99,12 @@ def test_prewarm_failure_propagates(api_main_module) -> None:
 
 def test_startup_event_configures_mtls_then_tracking_uri_then_prewarm(api_main_module) -> None:
     call_order: list[str] = []
+    fake_task = object()
+
+    def capture_task(coro):
+        call_order.append("startup_warm")
+        coro.close()
+        return fake_task
 
     with (
         patch(
@@ -111,6 +121,16 @@ def test_startup_event_configures_mtls_then_tracking_uri_then_prewarm(api_main_m
             "_prewarm_mlflow_registered_models",
             side_effect=lambda: call_order.append("prewarm"),
         ),
+        patch.object(
+            api_main_module,
+            "_startup_warm_model_30",
+            new=AsyncMock(),
+        ),
+        patch.object(
+            api_main_module.asyncio,
+            "create_task",
+            side_effect=capture_task,
+        ),
     ):
         asyncio.run(api_main_module.startup_event())
 
@@ -118,4 +138,38 @@ def test_startup_event_configures_mtls_then_tracking_uri_then_prewarm(api_main_m
         "mtls",
         "set_uri:https://mlflow.test.local:5000",
         "prewarm",
+        "startup_warm",
     ]
+    assert api_main_module.app.state.model_30_warmup_task is fake_task
+
+
+def test_startup_creates_warmup_task_when_enabled(api_main_module) -> None:
+    fake_task = object()
+
+    def capture_task(coro):
+        coro.close()
+        return fake_task
+
+    with (
+        patch.object(api_main_module.settings, "model_30_prewarm_enabled", True),
+        patch.object(api_main_module, "_prewarm_mlflow_registered_models"),
+        patch.object(api_main_module, "_startup_warm_model_30", new=AsyncMock()),
+        patch.object(
+            api_main_module.asyncio, "create_task", side_effect=capture_task
+        ) as create_task,
+    ):
+        asyncio.run(api_main_module.startup_event())
+
+    create_task.assert_called_once()
+    assert api_main_module.app.state.model_30_warmup_task is fake_task
+
+
+def test_startup_skips_warmup_when_prewarm_disabled(api_main_module) -> None:
+    with (
+        patch.object(api_main_module.settings, "model_30_prewarm_enabled", False),
+        patch.object(api_main_module, "_prewarm_mlflow_registered_models"),
+        patch.object(api_main_module.asyncio, "create_task") as create_task,
+    ):
+        asyncio.run(api_main_module.startup_event())
+
+    create_task.assert_not_called()

@@ -12,6 +12,7 @@ import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import mlflow
 import numpy as np
 import pandas as pd
 import pytest
@@ -637,19 +638,23 @@ def test_normalize_output_rejects_fake_model_ids() -> None:
         "nearest_neighbors": {"count": 40},
     }
 
-    with pytest.raises(ValueError, match="non-public"):
+    with pytest.raises(model_30_adapter.Model30InferenceError, match="non-public") as excinfo:
         model_30_adapter.normalize_model_30_output(
             raw,
             model_30_adapter.validate_nested_model_30_inputs(_full_inputs()),
         )
+    assert isinstance(excinfo.value.original_exc, ValueError)
 
 
 def test_normalize_output_rejects_empty_output() -> None:
-    with pytest.raises(ValueError, match="empty"):
+    with pytest.raises(model_30_adapter.Model30InferenceError, match="empty") as excinfo:
         model_30_adapter.normalize_model_30_output(
             [],
             model_30_adapter.validate_nested_model_30_inputs(_minimal_inputs()),
         )
+
+    assert excinfo.value.phase == model_30_adapter.Model30FailurePhase.RESPONSE_NORMALIZATION
+    assert isinstance(excinfo.value.original_exc, ValueError)
 
 
 def test_pyfunc_cache_loads_once_per_uri() -> None:
@@ -813,8 +818,81 @@ def test_call_mlflow_model_30_propagates_predict_errors() -> None:
         "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
         return_value=fake_model,
     ):
-        with pytest.raises(RuntimeError, match="boom"):
+        with pytest.raises(model_30_adapter.Model30InferenceError, match="boom") as excinfo:
             model_30_adapter.call_mlflow_model_30(
                 "models:/Technical Task Router/4",
                 {"row": 1},
             )
+
+    assert excinfo.value.phase == model_30_adapter.Model30FailurePhase.PREDICT_CALL
+    assert isinstance(excinfo.value.original_exc, RuntimeError)
+
+
+def test_failure_classification_artifact_load() -> None:
+    with patch(
+        "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
+        side_effect=mlflow.exceptions.MlflowException("Artifact not found"),
+    ):
+        with pytest.raises(model_30_adapter.Model30InferenceError) as excinfo:
+            model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/4", {"row": 1})
+
+    assert excinfo.value.phase == model_30_adapter.Model30FailurePhase.ARTIFACT_LOAD
+    assert isinstance(excinfo.value.original_exc, mlflow.exceptions.MlflowException)
+
+
+def test_failure_classification_mlflow_connectivity() -> None:
+    with patch(
+        "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
+        side_effect=ConnectionError("Connection refused"),
+    ):
+        with pytest.raises(model_30_adapter.Model30InferenceError) as excinfo:
+            model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/4", {"row": 1})
+
+    assert excinfo.value.phase == model_30_adapter.Model30FailurePhase.MLFLOW_CONNECTIVITY
+    assert isinstance(excinfo.value.original_exc, ConnectionError)
+
+
+def test_failure_classification_predict_call() -> None:
+    fake_model = MagicMock()
+    fake_model.predict.side_effect = RuntimeError("shape mismatch")
+
+    with patch(
+        "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
+        return_value=fake_model,
+    ):
+        with pytest.raises(model_30_adapter.Model30InferenceError) as excinfo:
+            model_30_adapter.call_mlflow_model_30("models:/Technical Task Router/4", {"row": 1})
+
+    assert excinfo.value.phase == model_30_adapter.Model30FailurePhase.PREDICT_CALL
+    assert isinstance(excinfo.value.original_exc, RuntimeError)
+
+
+def test_failure_classification_response_normalization() -> None:
+    validated_inputs = model_30_adapter.validate_nested_model_30_inputs(_minimal_inputs())
+
+    with pytest.raises(model_30_adapter.Model30InferenceError) as excinfo:
+        model_30_adapter.normalize_model_30_output(None, validated_inputs)
+
+    assert excinfo.value.phase == model_30_adapter.Model30FailurePhase.RESPONSE_NORMALIZATION
+    assert isinstance(excinfo.value.original_exc, ValueError)
+
+
+def test_failure_classification_predict_call_on_warm_path() -> None:
+    fake_model = MagicMock()
+    fake_model.predict.side_effect = RuntimeError("shape mismatch")
+    model_uri = "models:/Technical Task Router/4"
+
+    with patch(
+        "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
+        return_value=fake_model,
+    ):
+        with pytest.raises(model_30_adapter.Model30InferenceError) as cold_excinfo:
+            model_30_adapter.call_mlflow_model_30(model_uri, {"row": 1})
+
+        assert model_30_adapter.is_model_30_cached(model_uri) is True
+
+        with pytest.raises(model_30_adapter.Model30InferenceError) as warm_excinfo:
+            model_30_adapter.call_mlflow_model_30(model_uri, {"row": 2})
+
+    assert cold_excinfo.value.phase == model_30_adapter.Model30FailurePhase.PREDICT_CALL
+    assert warm_excinfo.value.phase == model_30_adapter.Model30FailurePhase.PREDICT_CALL

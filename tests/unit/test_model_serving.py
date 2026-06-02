@@ -22,7 +22,10 @@ from src.api.endpoints.model_30_adapter import (
     DEFAULT_MODEL_30_MLFLOW_URI,
     MODEL_30_SCHEMA,
     MODEL_30_VERSION,
+    Model30FailurePhase,
+    Model30WarmupState,
     reset_model_30_cache,
+    set_model_30_warmup_state,
     validate_nested_model_30_inputs,
 )
 from src.api.endpoints.model_registry import ModelRegistryEntry
@@ -415,7 +418,7 @@ def test_model_30_predict_missing_task_returns_422(client: TestClient) -> None:
     assert "Field required" in response.text
 
 
-def test_model_30_predict_mlflow_failure_returns_503(client: TestClient) -> None:
+def test_model_30_predict_mlflow_failure_returns_503(client: TestClient, caplog) -> None:
     def failing_model_caller(_model_uri: str, _features: object, _timings=None) -> object:
         raise RuntimeError("registry unavailable")
 
@@ -423,17 +426,52 @@ def test_model_30_predict_mlflow_failure_returns_503(client: TestClient) -> None
         "30",
         model_caller=failing_model_caller,
     )
-    response = client.post(
-        "/api/v1/models/30/predict",
-        json={"inputs": _minimal_model_30_inputs()},
-    )
+    with caplog.at_level(logging.ERROR):
+        response = client.post(
+            "/api/v1/models/30/predict",
+            json={"inputs": _minimal_model_30_inputs()},
+        )
 
     assert response.status_code == 503
     assert response.json()["detail"].startswith("Technical Task Router MLflow inference failed")
+    failure_records = [
+        record for record in caplog.records if record.msg == "model_30_inference_failure"
+    ]
+    assert len(failure_records) == 1
+    failure_record = failure_records[0]
+    assert failure_record.event_type == "model_30_inference_failure"
+    assert failure_record.request_id
+    assert failure_record.phase == Model30FailurePhase.PREDICT_CALL.value
+    assert failure_record.path_type in {"cold", "warm", "unknown"}
+    assert failure_record.exception_class == "RuntimeError"
+    assert failure_record.exception_message == "registry unavailable"
+    assert failure_record.model_version == MODEL_30_VERSION
+    assert failure_record.duration_ms >= 0.0
+
+
+def test_model_30_predict_response_normalization_failure_returns_503_with_phase(
+    client: TestClient, caplog
+) -> None:
+    _replace_registry_entry(
+        "30",
+        model_caller=lambda _model_uri, _features, _timings=None: None,
+    )
+    with caplog.at_level(logging.ERROR):
+        response = client.post(
+            "/api/v1/models/30/predict",
+            json={"inputs": _minimal_model_30_inputs()},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["detail"].startswith("Technical Task Router MLflow inference failed")
+    failure_record = next(
+        record for record in caplog.records if record.msg == "model_30_inference_failure"
+    )
+    assert failure_record.phase == Model30FailurePhase.RESPONSE_NORMALIZATION.value
 
 
 def test_model_30_predict_mlflow_timeout_returns_504_without_alb_timeout(
-    client: TestClient,
+    client: TestClient, caplog
 ) -> None:
     def slow_call(*_: object) -> dict[str, str]:
         time.sleep(0.05)
@@ -443,10 +481,11 @@ def test_model_30_predict_mlflow_timeout_returns_504_without_alb_timeout(
     model_serving.serving_service.prediction_timeout_seconds = 0.01
     try:
         _replace_registry_entry("30", model_caller=slow_call)
-        response = client.post(
-            "/api/v1/models/30/predict",
-            json={"inputs": _minimal_model_30_inputs()},
-        )
+        with caplog.at_level(logging.ERROR):
+            response = client.post(
+                "/api/v1/models/30/predict",
+                json={"inputs": _minimal_model_30_inputs()},
+            )
     finally:
         model_serving.serving_service.prediction_timeout_seconds = original_timeout
 
@@ -455,6 +494,61 @@ def test_model_30_predict_mlflow_timeout_returns_504_without_alb_timeout(
     assert "timed out" in detail["error"]
     assert detail["request_id"]
     assert detail["run_id"] is None
+    failure_record = next(
+        record for record in caplog.records if record.msg == "model_30_inference_failure"
+    )
+    assert failure_record.phase == Model30FailurePhase.TIMEOUT.value
+    assert failure_record.request_id == detail["request_id"]
+    assert failure_record.model_version == MODEL_30_VERSION
+    assert failure_record.exception_class == "TimeoutError"
+    assert failure_record.path_type in {"cold", "warm", "unknown"}
+    assert failure_record.duration_ms >= 0.0
+
+
+def test_predict_returns_503_not_504_when_warming(client: TestClient) -> None:
+    set_model_30_warmup_state(Model30WarmupState.WARMING)
+
+    response = client.post("/api/v1/models/30/predict", json={"inputs": _minimal_model_30_inputs()})
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "30"
+    assert response.json()["detail"] == {
+        "error": "model_not_ready",
+        "model_id": "30",
+        "warmup_state": Model30WarmupState.WARMING.value,
+        "retry_after_s": 30,
+    }
+
+
+def test_predict_succeeds_when_warmed(client: TestClient) -> None:
+    set_model_30_warmup_state(Model30WarmupState.WARMED)
+    _replace_registry_entry(
+        "30",
+        model_caller=lambda _model_uri, _features, _timings=None: {"selected_model": "gpt-5.4"},
+    )
+
+    response = client.post(
+        "/api/v1/models/30/predict",
+        json={"inputs": _minimal_model_30_inputs()},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["predictions"]["recommended_strategy"]["coder_model"] == "gpt-5.4"
+
+
+def test_predict_allows_on_demand_when_prewarm_disabled(client: TestClient) -> None:
+    set_model_30_warmup_state(Model30WarmupState.NOT_STARTED)
+    _replace_registry_entry(
+        "30",
+        model_caller=lambda _model_uri, _features, _timings=None: {"selected_model": "gpt-5.4"},
+    )
+
+    response = client.post(
+        "/api/v1/models/30/predict",
+        json={"inputs": _minimal_model_30_inputs()},
+    )
+
+    assert response.status_code == 200
 
 
 def test_model_30_predict_emits_warm_latency_trace(client: TestClient, caplog) -> None:

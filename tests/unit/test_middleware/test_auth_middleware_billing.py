@@ -133,6 +133,10 @@ class TestDebitUsage:
             excluded_paths=["/health"],
         )
 
+    @staticmethod
+    def _warning_payload(mock_logger):
+        return json.loads(mock_logger.warning.call_args[0][0])
+
     @pytest.mark.asyncio
     async def test_debit_called_after_successful_prediction(self, middleware):
         """Test that _debit_usage is called after a successful response."""
@@ -230,6 +234,8 @@ class TestDebitUsage:
             assert "idempotency_key" in payload
             assert payload["idempotency_key"].startswith("key123-")
             assert payload["model_id"] == "model-1"
+            assert payload["compute_ms"] == 100
+            assert payload["predictions_count"] == 1
 
     @pytest.mark.asyncio
     async def test_debit_retries_on_transient_failure(self, middleware):
@@ -285,6 +291,179 @@ class TestDebitUsage:
             assert "3 attempts" in warning_msg
 
     @pytest.mark.asyncio
+    async def test_debit_logs_warning_on_422(self, middleware):
+        """Test that debit logs 422 responses and does not retry them."""
+        mock_response = MagicMock()
+        mock_response.status_code = 422
+        mock_response.text = '{"error":"invalid model_id"}'
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+            mock_client.post.assert_called_once()
+            mock_sleep.assert_not_called()
+            mock_logger.warning.assert_called_once()
+
+            payload = self._warning_payload(mock_logger)
+            assert payload["event"] == "usage_debit_failure"
+            assert payload["status_code"] == 422
+            assert payload["response_body"] == '{"error":"invalid model_id"}'
+            assert payload["key_id"] == "key123"
+            assert payload["model_id"] == "model-1"
+            assert payload["endpoint"] == "/predict"
+            assert payload["idempotency_key"].startswith("key123-")
+
+    @pytest.mark.asyncio
+    async def test_debit_logs_warning_on_402(self, middleware):
+        """Test that debit logs 402 responses and does not retry them."""
+        mock_response = MagicMock()
+        mock_response.status_code = 402
+        mock_response.text = '{"error":"insufficient_balance"}'
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+            mock_client.post.assert_called_once()
+            mock_sleep.assert_not_called()
+            mock_logger.warning.assert_called_once()
+
+            payload = self._warning_payload(mock_logger)
+            assert payload["event"] == "usage_debit_failure"
+            assert payload["status_code"] == 402
+            assert payload["response_body"] == '{"error":"insufficient_balance"}'
+            assert payload["key_id"] == "key123"
+            assert payload["model_id"] == "model-1"
+            assert payload["endpoint"] == "/predict"
+            assert payload["idempotency_key"].startswith("key123-")
+
+    @pytest.mark.asyncio
+    async def test_debit_no_failure_log_on_2xx(self, middleware):
+        """Test that successful debit responses are not logged as failures."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+            mock_logger.warning.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_debit_response_body_truncated(self, middleware):
+        """Test that logged debit failure bodies are truncated."""
+        mock_response = MagicMock()
+        mock_response.status_code = 422
+        mock_response.text = "x" * 5000
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+            payload = self._warning_payload(mock_logger)
+            assert len(payload["response_body"]) == 2048
+
+    @pytest.mark.asyncio
+    async def test_debit_key_id_is_opaque_in_logs(self, middleware):
+        """Test that the debit log includes only the opaque key_id."""
+        mock_response = MagicMock()
+        mock_response.status_code = 422
+        mock_response.text = "invalid"
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+            payload = self._warning_payload(mock_logger)
+            assert payload["key_id"] == "key123"
+            assert "Bearer test-api-key" not in mock_logger.warning.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_debit_5xx_logs_warning_each_attempt(self, middleware):
+        """Test that 5xx debit failures are logged on each retry attempt."""
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+        mock_response.text = '{"error":"upstream unavailable"}'
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+            assert mock_client.post.call_count == 3
+            assert mock_logger.warning.call_count == 3
+            # Sleeps only happen between attempts; retry-exhausted returns immediately.
+            assert mock_sleep.call_count == 2
+            mock_sleep.assert_any_call(1)
+            mock_sleep.assert_any_call(2)
+
+            for call in mock_logger.warning.call_args_list:
+                payload = json.loads(call.args[0])
+                assert payload["event"] == "usage_debit_failure"
+                assert payload["status_code"] == 503
+
+            mock_logger.error.assert_called_once()
+            error_payload = json.loads(mock_logger.error.call_args[0][0])
+            assert error_payload["event"] == "usage_debit_retry_exhausted"
+            assert error_payload["status_code"] == 503
+            assert error_payload["attempts"] == 3
+            assert error_payload["key_id"] == "key123"
+            assert error_payload["model_id"] == "model-1"
+            assert error_payload["endpoint"] == "/predict"
+            assert error_payload["idempotency_key"].startswith("key123-")
+
+    @pytest.mark.asyncio
     async def test_debit_endpoint_url(self, middleware):
         """Test that debit calls the correct endpoint URL."""
         mock_response = MagicMock()
@@ -307,6 +486,7 @@ class TestDebitUsage:
         """Test that debit does not retry on 4xx (client error) responses."""
         mock_response = MagicMock()
         mock_response.status_code = 400
+        mock_response.text = '{"error":"bad request"}'
 
         with (
             patch("httpx.AsyncClient") as mock_client_cls,
@@ -323,6 +503,79 @@ class TestDebitUsage:
             # Should only call once (no retry on 4xx)
             mock_client.post.assert_called_once()
             mock_sleep.assert_not_called()
+
+
+class TestDebitPayloadShape:
+    """Test the exact debit payload sent to auth-service."""
+
+    @pytest.fixture
+    def mock_app(self):
+        async def app(scope, receive, send):
+            pass
+
+        return app
+
+    @pytest.fixture
+    def middleware(self, mock_app):
+        return APIKeyAuthMiddleware(
+            app=mock_app,
+            auth_service_url="http://test-auth-service",
+            cache=None,
+            excluded_paths=["/health"],
+        )
+
+    @pytest.fixture
+    def mock_client(self):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+            yield mock_client
+
+    @pytest.mark.asyncio
+    async def test_payload_includes_compute_ms(self, middleware, mock_client):
+        await middleware._debit_usage("key123", "model-1", "/api/v1/models/30/predict", 100, 200)
+
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["compute_ms"] == 100
+
+    @pytest.mark.asyncio
+    async def test_payload_includes_predictions_count(self, middleware, mock_client):
+        await middleware._debit_usage("key123", "model-1", "/api/v1/models/30/predict", 100, 200)
+
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["predictions_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_exact_payload_shape(self, middleware, mock_client):
+        with patch("src.middleware.auth.time.time", return_value=1234.567):
+            await middleware._debit_usage(
+                "key123", "model-30", "/api/v1/models/30/predict", 321, 200
+            )
+
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload == {
+            "model_id": "model-30",
+            "endpoint": "/api/v1/models/30/predict",
+            "response_time_ms": 321,
+            "status_code": 200,
+            "service_id": middleware.settings.auth_service_id,
+            "idempotency_key": "key123-1234567",
+            "compute_ms": 321,
+            "predictions_count": 1,
+        }
+
+    @pytest.mark.asyncio
+    async def test_compute_ms_when_response_time_is_zero(self, middleware, mock_client):
+        await middleware._debit_usage("key123", "model-1", "/api/v1/models/30/predict", 0, 200)
+
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["compute_ms"] == 0
 
 
 class TestExtractModelId:
