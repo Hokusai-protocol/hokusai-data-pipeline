@@ -84,6 +84,7 @@ def test_ready_returns_200_when_model_30_warmed(health_module) -> None:
 
     assert response.status_code == 200
     assert response.json()["ready"] is True
+    assert response.json()["warmup_duration_ms"] == 100
 
 
 def test_ready_returns_degraded_when_model_30_failed(health_module) -> None:

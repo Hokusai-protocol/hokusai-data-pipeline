@@ -515,6 +515,7 @@ async def readiness_check():
         "checks": checks,
         "degraded_mode": not ready and can_serve_traffic,
         "model_30": warmup,
+        "warmup_duration_ms": warmup.get("duration_ms"),
     }
 
     # Return 503 only if we cannot serve any traffic (critical services down)

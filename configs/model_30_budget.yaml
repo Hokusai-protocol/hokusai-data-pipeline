@@ -1,0 +1,26 @@
+# Model 30 (Technical Task Router) latency and reliability budget
+# See docs/model-30-serving.md for semantics and how these are enforced.
+cold_readiness_ms:
+  soft: 30000
+  hard: 60000
+artifact_load_ms:
+  soft: 15000
+  hard: 25000
+warm_p50_ms:
+  soft: 300
+  hard: 600
+warm_p95_ms:
+  soft: 800
+  hard: 1500
+warm_p99_ms:
+  soft: 1500
+  hard: 3000
+timeout_rate:
+  soft: 0.0
+  hard: 0.02
+warm_memory_mb:
+  soft: 800
+  hard: 1200
+cold_memory_mb:
+  soft: 1200
+  hard: 1800

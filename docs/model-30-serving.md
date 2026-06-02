@@ -193,6 +193,20 @@ For legacy smoke artifacts only, normalization accepts common aliases:
 
 There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures return `503` with a `Model 30 MLflow inference failed` prefix.
 
+## Usage Debit Rejection
+
+When the auth service rejects a usage debit, the API returns `402 Payment Required` before the model runs:
+
+```json
+{
+  "error": "usage_debit_rejected",
+  "reason": "Settled balance 0.00 insufficient. Pending: 0.00 (not yet spendable).",
+  "reason_code": "insufficient_settled_balance"
+}
+```
+
+The downstream handler is not invoked. Clients should top up their balance and retry.
+
 ## Startup Lifecycle
 
 At process startup the API now performs two separate MLflow steps:
@@ -203,6 +217,11 @@ At process startup the API now performs two separate MLflow steps:
 The model 30 warm runs in a background task after MLflow mTLS and tracking URI setup complete. The process can come up quickly, but `/ready` does not report traffic-ready until the warm path finishes successfully.
 
 Set `MODEL_30_PREWARM_ENABLED=false` to disable startup warm during rollback. In that mode, `/ready` no longer blocks on `not_started` and model 30 falls back to the existing on-demand cold-load path.
+
+Operational note from HOK-1876:
+
+- The ECS API task currently runs with `cpu = "512"` and `memory = "1024"` and does not set `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, or `OPENBLAS_NUM_THREADS`.
+- The recommended first operational experiment is to pin those thread env vars to `1` before attempting heavier Model 30 runtime changes.
 
 ## Readiness Contract
 
@@ -219,13 +238,43 @@ Response payloads include:
 - `model_30.warmed_at`
 - `model_30.last_error`
 - `model_30.duration_ms`
+- `warmup_duration_ms`
 
 This lets ALB or clients distinguish "process alive" from "inference ready".
 
-## SLOs
+## Latency & Reliability Budget
 
-- Cold-start readiness target: model 30 should reach `/ready` `200` within 30 seconds of process startup.
-- Warm prediction target: repeated valid predictions should stay within a p95 of 2000 ms.
+`configs/model_30_budget.yaml` is the canonical source for the thresholds below. The table reflects the same values and is what `scripts/model_30/latency_smoke_check.py` enforces in CI.
+
+| Metric | Soft threshold | Hard threshold | Baseline (observed) | How measured |
+|--------|----------------|----------------|---------------------|--------------|
+| `cold_readiness_ms` | 30000 ms | 60000 ms | Pending CI capture | Wall-clock time from smoke-check start until `/ready` reports `ready=true` and `model_30.warmed=true` |
+| `artifact_load_ms` | 15000 ms | 25000 ms | Pending CI capture | `GET /ready` `warmup_duration_ms`, which aliases `model_30.duration_ms` and reflects startup artifact load plus warm prediction |
+| `warm_p50_ms` | 300 ms | 600 ms | Pending CI capture | Client-observed p50 for sequential curated `POST /api/v1/models/30/predict` requests |
+| `warm_p95_ms` | 800 ms | 1500 ms | Pending CI capture | Client-observed p95 for the same warm request sample |
+| `warm_p99_ms` | 1500 ms | 3000 ms | Pending CI capture | Client-observed p99 for the same warm request sample |
+| `timeout_rate` | 0.00 | 0.02 | Pending CI capture | `model_30_timeout` responses divided by `success + model_30_timeout` samples |
+| `warm_memory_mb` | 800 MB | 1200 MB | Pending CI capture | API container RSS after the warm request run |
+| `cold_memory_mb` | 1200 MB | 1800 MB | Pending CI capture | API container RSS immediately after container startup, before the latency sample finishes |
+
+Soft threshold breaches annotate CI but do not fail the job. Hard threshold breaches fail the budget check and block the PR.
+
+Exit codes used by the smoke check:
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | Pass, or soft-only breaches |
+| `10` | Model 30 latency or timeout hard breach |
+| `11` | Model 30 route-specific error excess |
+| `20` | Infra inconclusive (for example auth, shared route, or network failures dominate the sample) |
+
+### Responding to a budget regression
+
+Fetch the `model-30-smoke-report` workflow artifact and inspect `model_30_smoke_report.json`. The report includes raw metrics, soft and hard breach lists, infra classification counts, and per-request sample classifications.
+
+If the report shows a real regression, fix the underlying warm path, artifact load, or inference latency issue and rerun the workflow. If the threshold is wrong after reviewing the baseline, update `configs/model_30_budget.yaml` in the same change so the source of truth and the gate stay aligned.
+
+When the report classifies the run as `infra_inconclusive`, treat it as a shared route, auth, or network issue first. Those failures are intentionally separated from Model 30-specific regressions so the latency budget does not mask a broken environment.
 
 The startup warm timeout is controlled by `MODEL_30_WARM_TIMEOUT_S`.
 
