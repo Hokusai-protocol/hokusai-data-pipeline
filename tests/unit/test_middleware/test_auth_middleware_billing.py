@@ -1,6 +1,8 @@
 """Unit tests for 402 balance check and debit usage in auth middleware."""
 
 import json
+import logging
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import httpx
@@ -39,13 +41,18 @@ class TestBalanceCheck:
         request.headers = {"authorization": "Bearer test-api-key"}
         request.query_params = {}
         request.client = MagicMock(host="127.0.0.1")
-        request.state = MagicMock()
+        request.state = SimpleNamespace()
         return request
 
     @pytest.mark.asyncio
     async def test_402_when_insufficient_balance(self, middleware, mock_request):
         """Test that 402 is returned when has_sufficient_balance is False."""
-        with patch.object(middleware, "validate_with_auth_service") as mock_validate:
+        with (
+            patch.object(middleware, "validate_with_auth_service") as mock_validate,
+            patch.object(
+                middleware, "_debit_usage", new_callable=AsyncMock, return_value="accepted"
+            ),
+        ):
             mock_validate.return_value = ValidationResult(
                 is_valid=True,
                 user_id="user123",
@@ -74,7 +81,12 @@ class TestBalanceCheck:
     @pytest.mark.asyncio
     async def test_request_passes_with_sufficient_balance(self, middleware, mock_request):
         """Test that requests pass through when has_sufficient_balance is True."""
-        with patch.object(middleware, "validate_with_auth_service") as mock_validate:
+        with (
+            patch.object(middleware, "validate_with_auth_service") as mock_validate,
+            patch.object(
+                middleware, "_debit_usage", new_callable=AsyncMock, return_value="accepted"
+            ),
+        ):
             mock_validate.return_value = ValidationResult(
                 is_valid=True,
                 user_id="user123",
@@ -95,7 +107,12 @@ class TestBalanceCheck:
     @pytest.mark.asyncio
     async def test_default_balance_fields_allow_requests(self, middleware, mock_request):
         """Test that default ValidationResult fields (backwards compat) allow requests."""
-        with patch.object(middleware, "validate_with_auth_service") as mock_validate:
+        with (
+            patch.object(middleware, "validate_with_auth_service") as mock_validate,
+            patch.object(
+                middleware, "_debit_usage", new_callable=AsyncMock, return_value="accepted"
+            ),
+        ):
             # Simulate auth service that hasn't been updated yet (no balance fields)
             mock_validate.return_value = ValidationResult(
                 is_valid=True,
@@ -134,20 +151,16 @@ class TestDebitUsage:
             excluded_paths=["/health"],
         )
 
-    @staticmethod
-    def _warning_payload(mock_logger):
-        return json.loads(mock_logger.warning.call_args[0][0])
-
     @pytest.mark.asyncio
-    async def test_debit_called_after_successful_prediction(self, middleware):
-        """Test that _debit_usage is called after a successful response."""
+    async def test_debit_called_before_successful_prediction(self, middleware):
+        """Test that _debit_usage is awaited before the downstream handler."""
         request = MagicMock(spec=Request)
         request.url.path = "/api/v1/models/my-model/predict"
         request.method = "POST"
         request.headers = {"authorization": "Bearer test-key"}
         request.query_params = {}
         request.client = MagicMock(host="127.0.0.1")
-        request.state = MagicMock()
+        request.state = SimpleNamespace()
 
         with (
             patch.object(middleware, "validate_with_auth_service") as mock_validate,
@@ -164,36 +177,50 @@ class TestDebitUsage:
                 balance=10.0,
             )
 
+            call_order = []
+
+            async def debit_side_effect(*args, **kwargs):
+                call_order.append("debit")
+                return "accepted"
+
+            mock_debit.side_effect = debit_side_effect
+
             async def mock_call_next(req):
+                call_order.append("call_next")
                 return Response(content="OK", status_code=200)
 
-            # Patch asyncio.create_task to run the coroutine immediately
-            with patch("src.middleware.auth.asyncio.create_task") as mock_create_task:
-                response = await middleware.dispatch(request, mock_call_next)
+            response = await middleware.dispatch(request, mock_call_next)
 
             assert response.status_code == 200
-            mock_create_task.assert_called_once()
-            # The coroutine should have been created from _debit_usage
             mock_debit.assert_called_once_with(
                 "key123",
                 "my-model",
                 "/api/v1/models/my-model/predict",
-                pytest.approx(0, abs=1000),  # response_time_ms is approximate
-                200,
+                0,
+                0,
+                request_id=None,
+                account_id="user123",
+                request_state=request.state,
             )
+            assert call_order == ["debit", "call_next"]
 
     @pytest.mark.asyncio
-    async def test_debit_not_called_for_5xx_response(self, middleware):
-        """Test that _debit_usage is NOT called for 5xx responses."""
+    async def test_debit_called_even_when_downstream_returns_5xx(self, middleware):
+        """Test that pre-request debit still runs when the handler returns 5xx."""
         request = MagicMock(spec=Request)
         request.url.path = "/api/v1/models/my-model/predict"
         request.method = "POST"
         request.headers = {"authorization": "Bearer test-key"}
         request.query_params = {}
         request.client = MagicMock(host="127.0.0.1")
-        request.state = MagicMock()
+        request.state = SimpleNamespace()
 
-        with patch.object(middleware, "validate_with_auth_service") as mock_validate:
+        with (
+            patch.object(middleware, "validate_with_auth_service") as mock_validate,
+            patch.object(
+                middleware, "_debit_usage", new_callable=AsyncMock, return_value="accepted"
+            ) as mock_debit,
+        ):
             mock_validate.return_value = ValidationResult(
                 is_valid=True,
                 user_id="user123",
@@ -208,11 +235,10 @@ class TestDebitUsage:
             async def mock_call_next(req):
                 return Response(content="Internal Error", status_code=500)
 
-            with patch("src.middleware.auth.asyncio.create_task") as mock_create_task:
-                response = await middleware.dispatch(request, mock_call_next)
+            response = await middleware.dispatch(request, mock_call_next)
 
             assert response.status_code == 500
-            mock_create_task.assert_not_called()
+            mock_debit.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_debit_includes_idempotency_key(self, middleware):
@@ -227,9 +253,10 @@ class TestDebitUsage:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client_cls.return_value = mock_client
 
-            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+            outcome = await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
 
             mock_client.post.assert_called_once()
+            assert outcome == "accepted"
             call_args = mock_client.post.call_args
             payload = call_args[1]["json"]
             assert "idempotency_key" in payload
@@ -240,39 +267,27 @@ class TestDebitUsage:
 
     @pytest.mark.asyncio
     async def test_debit_retries_on_transient_failure(self, middleware):
-        """Test that debit retries up to 3 times with exponential backoff."""
-        call_count = 0
-
-        async def mock_post(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count < 3:
-                raise httpx.ConnectError("Connection failed")
-            response = MagicMock()
-            response.status_code = 200
-            return response
+        """Test that pre-request debit does not retry transport failures."""
 
         with (
             patch("httpx.AsyncClient") as mock_client_cls,
             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         ):
             mock_client = AsyncMock()
-            mock_client.post.side_effect = mock_post
+            mock_client.post.side_effect = httpx.ConnectError("Connection failed")
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client_cls.return_value = mock_client
 
-            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+            outcome = await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
 
-            assert call_count == 3
-            # Check exponential backoff: sleep(1), sleep(2)
-            assert mock_sleep.call_count == 2
-            mock_sleep.assert_any_call(1)  # 2^0
-            mock_sleep.assert_any_call(2)  # 2^1
+            assert outcome == "error"
+            mock_client.post.assert_called_once()
+            mock_sleep.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_debit_logs_warning_after_all_retries_fail(self, middleware):
-        """Test that a warning is logged after all retry attempts fail."""
+        """Test that transport failures log once and fail open."""
         with (
             patch("httpx.AsyncClient") as mock_client_cls,
             patch("asyncio.sleep", new_callable=AsyncMock),
@@ -284,12 +299,13 @@ class TestDebitUsage:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client_cls.return_value = mock_client
 
-            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+            outcome = await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
 
+            assert outcome == "error"
             mock_logger.warning.assert_called_once()
             warning_msg = mock_logger.warning.call_args[0][0]
             assert "key_id=key123" in warning_msg
-            assert "3 attempts" in warning_msg
+            assert "1 attempts" in warning_msg
 
     @pytest.mark.asyncio
     async def test_debit_logs_warning_on_422(self, middleware):
@@ -310,13 +326,14 @@ class TestDebitUsage:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client_cls.return_value = mock_client
 
-            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+            outcome = await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
 
             mock_client.post.assert_called_once()
             mock_sleep.assert_not_called()
+            assert outcome == "error"
             mock_logger.warning.assert_called_once()
 
-            payload = self._warning_payload(mock_logger)
+            payload = json.loads(mock_logger.warning.call_args[0][0])
             assert payload["event"] == "usage_debit_failure"
             assert payload["status_code"] == 422
             assert payload["response_body"] == '{"error":"invalid model_id"}'
@@ -327,16 +344,23 @@ class TestDebitUsage:
             mock_emit_metric.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_debit_logs_warning_on_402(self, middleware):
-        """Test that debit logs 402 responses and does not retry them."""
+    async def test_debit_logs_rejection_on_402(self, middleware):
+        """Test that debit emits a structured rejection log on 402."""
         mock_response = MagicMock()
         mock_response.status_code = 402
-        mock_response.text = '{"error":"insufficient_balance"}'
+        mock_response.json.return_value = {
+            "detail": {
+                "error": "insufficient_balance",
+                "message": "Balance too low",
+            }
+        }
+        request_state = SimpleNamespace()
 
         with (
             patch("httpx.AsyncClient") as mock_client_cls,
             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
             patch("src.middleware.auth.logger") as mock_logger,
+            patch("src.middleware.auth.sentry_sdk") as mock_sentry,
             patch.object(middleware, "_emit_usage_debit_rejected_metric") as mock_emit_metric,
         ):
             mock_client = AsyncMock()
@@ -345,20 +369,44 @@ class TestDebitUsage:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client_cls.return_value = mock_client
 
-            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+            outcome = await middleware._debit_usage(
+                "key123",
+                "model-1",
+                "/predict",
+                100,
+                200,
+                request_id="req-123",
+                account_id="user-123",
+                request_state=request_state,
+            )
 
             mock_client.post.assert_called_once()
             mock_sleep.assert_not_called()
+            assert outcome == "rejected"
             mock_logger.warning.assert_called_once()
-
-            payload = self._warning_payload(mock_logger)
-            assert payload["event"] == "usage_debit_failure"
-            assert payload["status_code"] == 402
-            assert payload["response_body"] == '{"error":"insufficient_balance"}'
-            assert payload["key_id"] == "key123"
-            assert payload["model_id"] == "model-1"
-            assert payload["endpoint"] == "/predict"
-            assert payload["idempotency_key"].startswith("key123-")
+            assert mock_logger.warning.call_args.args[0] == "usage debit rejected"
+            assert mock_logger.warning.call_args.kwargs["extra"] == {
+                "event": "usage.debit.rejected",
+                "account_id": "user-123",
+                "model_id": "model-1",
+                "reason_code": "insufficient_balance",
+                "request_id": "req-123",
+            }
+            assert request_state._debit_reject_reason == "Balance too low"
+            assert request_state._debit_reject_reason_code == "insufficient_balance"
+            mock_sentry.capture_message.assert_called_once_with(
+                "usage.debit.rejected", level="warning"
+            )
+            mock_sentry.set_context.assert_called_once_with(
+                "usage_debit",
+                {
+                    "account_id": "user-123",
+                    "model_id": "model-1",
+                    "reason": "Balance too low",
+                    "reason_code": "insufficient_balance",
+                    "request_id": "req-123",
+                },
+            )
             mock_emit_metric.assert_called_once_with(
                 "model-1", rejection_reason="InsufficientBalance"
             )
@@ -379,8 +427,9 @@ class TestDebitUsage:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client_cls.return_value = mock_client
 
-            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+            outcome = await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
 
+            assert outcome == "accepted"
             mock_logger.warning.assert_not_called()
 
     @pytest.mark.asyncio
@@ -400,9 +449,10 @@ class TestDebitUsage:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client_cls.return_value = mock_client
 
-            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+            outcome = await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
 
-            payload = self._warning_payload(mock_logger)
+            assert outcome == "error"
+            payload = json.loads(mock_logger.warning.call_args[0][0])
             assert len(payload["response_body"]) == 2048
 
     @pytest.mark.asyncio
@@ -422,15 +472,16 @@ class TestDebitUsage:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client_cls.return_value = mock_client
 
-            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+            outcome = await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
 
-            payload = self._warning_payload(mock_logger)
+            assert outcome == "error"
+            payload = json.loads(mock_logger.warning.call_args[0][0])
             assert payload["key_id"] == "key123"
             assert "Bearer test-api-key" not in mock_logger.warning.call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_debit_5xx_logs_warning_each_attempt(self, middleware):
-        """Test that 5xx debit failures are logged on each retry attempt."""
+        """Test that 5xx debit failures log once with no retries."""
         mock_response = MagicMock()
         mock_response.status_code = 503
         mock_response.text = '{"error":"upstream unavailable"}'
@@ -446,25 +497,22 @@ class TestDebitUsage:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client_cls.return_value = mock_client
 
-            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+            outcome = await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
 
-            assert mock_client.post.call_count == 3
-            assert mock_logger.warning.call_count == 3
-            # Sleeps only happen between attempts; retry-exhausted returns immediately.
-            assert mock_sleep.call_count == 2
-            mock_sleep.assert_any_call(1)
-            mock_sleep.assert_any_call(2)
+            assert outcome == "error"
+            assert mock_client.post.call_count == 1
+            assert mock_logger.warning.call_count == 1
+            mock_sleep.assert_not_called()
 
-            for call in mock_logger.warning.call_args_list:
-                payload = json.loads(call.args[0])
-                assert payload["event"] == "usage_debit_failure"
-                assert payload["status_code"] == 503
+            payload = json.loads(mock_logger.warning.call_args.args[0])
+            assert payload["event"] == "usage_debit_failure"
+            assert payload["status_code"] == 503
 
             mock_logger.error.assert_called_once()
             error_payload = json.loads(mock_logger.error.call_args[0][0])
             assert error_payload["event"] == "usage_debit_retry_exhausted"
             assert error_payload["status_code"] == 503
-            assert error_payload["attempts"] == 3
+            assert error_payload["attempts"] == 1
             assert error_payload["key_id"] == "key123"
             assert error_payload["model_id"] == "model-1"
             assert error_payload["endpoint"] == "/predict"
@@ -505,11 +553,184 @@ class TestDebitUsage:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client_cls.return_value = mock_client
 
-            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+            outcome = await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
 
-            # Should only call once (no retry on 4xx)
+            assert outcome == "error"
             mock_client.post.assert_called_once()
             mock_sleep.assert_not_called()
+
+
+class TestDebitRejected:
+    """Test 402 rejection behavior in dispatch and debit logging."""
+
+    @pytest.fixture
+    def mock_app(self):
+        async def app(scope, receive, send):
+            pass
+
+        return app
+
+    @pytest.fixture
+    def middleware(self, mock_app):
+        return APIKeyAuthMiddleware(
+            app=mock_app,
+            auth_service_url="http://test-auth-service",
+            cache=None,
+            excluded_paths=["/health"],
+        )
+
+    @pytest.fixture
+    def mock_request(self):
+        request = MagicMock(spec=Request)
+        request.url.path = "/api/v1/models/my-model/predict"
+        request.method = "POST"
+        request.headers = {"authorization": "Bearer test-key"}
+        request.query_params = {}
+        request.client = MagicMock(host="127.0.0.1")
+        request.state = SimpleNamespace()
+        return request
+
+    @pytest.fixture
+    def validation_result(self):
+        return ValidationResult(
+            is_valid=True,
+            user_id="user123",
+            key_id="key123",
+            service_id="platform",
+            scopes=["model:read"],
+            rate_limit_per_hour=1000,
+            has_sufficient_balance=True,
+            balance=10.0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_usage_debit_rejected_returns_402_with_structured_body(
+        self, middleware, mock_request, validation_result
+    ):
+        with (
+            patch.object(middleware, "validate_with_auth_service", return_value=validation_result),
+            patch.object(middleware, "_debit_usage", new_callable=AsyncMock) as mock_debit,
+        ):
+
+            async def debit_side_effect(*args, **kwargs):
+                mock_request.state._debit_reject_reason = "Balance too low"
+                mock_request.state._debit_reject_reason_code = "insufficient_balance"
+                return "rejected"
+
+            mock_debit.side_effect = debit_side_effect
+
+            response = await middleware.dispatch(mock_request, AsyncMock())
+
+        assert response.status_code == 402
+        assert json.loads(response.body.decode()) == {
+            "error": "usage_debit_rejected",
+            "reason": "Balance too low",
+            "reason_code": "insufficient_balance",
+        }
+
+    @pytest.mark.asyncio
+    async def test_usage_debit_rejected_does_not_invoke_downstream_handler(
+        self, middleware, mock_request, validation_result
+    ):
+        call_next = AsyncMock(return_value=Response(content="OK", status_code=200))
+
+        with (
+            patch.object(middleware, "validate_with_auth_service", return_value=validation_result),
+            patch.object(
+                middleware, "_debit_usage", new_callable=AsyncMock, return_value="rejected"
+            ),
+        ):
+            response = await middleware.dispatch(mock_request, call_next)
+
+        assert response.status_code == 402
+        call_next.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_usage_debit_rejected_emits_structured_log(self, middleware, caplog):
+        mock_response = MagicMock()
+        mock_response.status_code = 402
+        mock_response.json.return_value = {
+            "detail": {
+                "error": "insufficient_settled_balance",
+                "message": "Settled balance 0.00 insufficient.",
+            }
+        }
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("src.middleware.auth.sentry_sdk") as mock_sentry,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            with caplog.at_level(logging.WARNING):
+                outcome = await middleware._debit_usage(
+                    "key123",
+                    "model-1",
+                    "/predict",
+                    0,
+                    0,
+                    request_id="req-1",
+                    account_id="user-1",
+                    request_state=SimpleNamespace(),
+                )
+
+        assert outcome == "rejected"
+        record = next(record for record in caplog.records if record.msg == "usage debit rejected")
+        assert record.event == "usage.debit.rejected"
+        assert record.model_id == "model-1"
+        assert record.reason_code == "insufficient_settled_balance"
+        assert record.request_id == "req-1"
+        mock_sentry.capture_message.assert_called_once_with("usage.debit.rejected", level="warning")
+
+    @pytest.mark.asyncio
+    async def test_dispatch_fails_open_when_debit_returns_error(
+        self, middleware, mock_request, validation_result
+    ):
+        """Transport failures (5xx, ConnectError) must not block the request — dispatch
+        calls downstream and returns its response (REQ-F6 fail-open contract)."""
+        downstream_response = Response(content="OK", status_code=200)
+        call_next = AsyncMock(return_value=downstream_response)
+
+        with (
+            patch.object(middleware, "validate_with_auth_service", return_value=validation_result),
+            patch.object(middleware, "_debit_usage", new_callable=AsyncMock, return_value="error"),
+        ):
+            response = await middleware.dispatch(mock_request, call_next)
+
+        call_next.assert_awaited_once_with(mock_request)
+        assert response is downstream_response
+
+    @pytest.mark.asyncio
+    async def test_usage_debit_rejected_with_missing_reason_fields(
+        self, middleware, mock_request, validation_result
+    ):
+        mock_response = MagicMock()
+        mock_response.status_code = 402
+        mock_response.json.return_value = {}
+
+        with (
+            patch.object(middleware, "validate_with_auth_service", return_value=validation_result),
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("src.middleware.auth.sentry_sdk"),
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            response = await middleware.dispatch(mock_request, AsyncMock())
+
+        assert response.status_code == 402
+        assert json.loads(response.body.decode()) == {
+            "error": "usage_debit_rejected",
+            "reason": None,
+            "reason_code": None,
+        }
 
 
 class TestUsageDebitRejectedMetric:
@@ -818,9 +1039,14 @@ class TestCacheTTL:
         request.headers = {"authorization": "Bearer test-key"}
         request.query_params = {}
         request.client = MagicMock(host="127.0.0.1")
-        request.state = MagicMock()
+        request.state = SimpleNamespace()
 
-        with patch.object(middleware, "validate_with_auth_service") as mock_validate:
+        with (
+            patch.object(middleware, "validate_with_auth_service") as mock_validate,
+            patch.object(
+                middleware, "_debit_usage", new_callable=AsyncMock, return_value="accepted"
+            ),
+        ):
             mock_validate.return_value = ValidationResult(
                 is_valid=True,
                 user_id="user123",
@@ -835,8 +1061,7 @@ class TestCacheTTL:
             async def mock_call_next(req):
                 return Response(content="OK", status_code=200)
 
-            with patch("src.middleware.auth.asyncio.create_task"):
-                await middleware.dispatch(request, mock_call_next)
+            await middleware.dispatch(request, mock_call_next)
 
         mock_cache.setex.assert_called_once()
         cache_call_args = mock_cache.setex.call_args
@@ -851,9 +1076,14 @@ class TestCacheTTL:
         request.headers = {"authorization": "Bearer test-key"}
         request.query_params = {}
         request.client = MagicMock(host="127.0.0.1")
-        request.state = MagicMock()
+        request.state = SimpleNamespace()
 
-        with patch.object(middleware, "validate_with_auth_service") as mock_validate:
+        with (
+            patch.object(middleware, "validate_with_auth_service") as mock_validate,
+            patch.object(
+                middleware, "_debit_usage", new_callable=AsyncMock, return_value="accepted"
+            ),
+        ):
             mock_validate.return_value = ValidationResult(
                 is_valid=True,
                 user_id="user123",
@@ -868,8 +1098,7 @@ class TestCacheTTL:
             async def mock_call_next(req):
                 return Response(content="OK", status_code=200)
 
-            with patch("src.middleware.auth.asyncio.create_task"):
-                await middleware.dispatch(request, mock_call_next)
+            await middleware.dispatch(request, mock_call_next)
 
         cache_call_args = mock_cache.setex.call_args
         cached_json = json.loads(cache_call_args[0][2])

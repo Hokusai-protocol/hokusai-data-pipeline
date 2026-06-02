@@ -193,6 +193,20 @@ For legacy smoke artifacts only, normalization accepts common aliases:
 
 There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures return `503` with a `Model 30 MLflow inference failed` prefix.
 
+## Usage Debit Rejection
+
+When the auth service rejects a usage debit, the API returns `402 Payment Required` before the model runs:
+
+```json
+{
+  "error": "usage_debit_rejected",
+  "reason": "Settled balance 0.00 insufficient. Pending: 0.00 (not yet spendable).",
+  "reason_code": "insufficient_settled_balance"
+}
+```
+
+The downstream handler is not invoked. Clients should top up their balance and retry.
+
 ## Startup Lifecycle
 
 At process startup the API now performs two separate MLflow steps:
