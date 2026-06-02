@@ -26,6 +26,12 @@ Response fields include `accepted`, `modelId`, `submissionId`, `jobId`, `jobIds`
 
 Persistence is S3-backed and controlled by `HOKUSAI_CONTRIBUTIONS_BUCKET`, optional `HOKUSAI_CONTRIBUTIONS_PREFIX`, and `CONTRIBUTIONS_MAX_BODY_BYTES`.
 
+## Deploy Contract
+
+`hokusai-infrastructure` provisions the contributions bucket and includes `HOKUSAI_CONTRIBUTIONS_BUCKET` in the Terraform-rendered API task definition. That task definition is only a fallback template: the live ECS API revision is registered by [`deploy.yml`](../.github/workflows/deploy.yml), and the ECS service ignores Terraform `task_definition` drift.
+
+The deploy workflow must therefore inject `HOKUSAI_CONTRIBUTIONS_BUCKET` every time it registers a new API-family revision. If that CI variable is omitted, the next API image deploy can drop the env var from the running task definition and `POST /api/v1/models/{model_id}/contributions` will fail with the missing-persistence `503` path.
+
 ## Public Contract
 
 Accepted `inputs` groups:
