@@ -218,6 +218,11 @@ The model 30 warm runs in a background task after MLflow mTLS and tracking URI s
 
 Set `MODEL_30_PREWARM_ENABLED=false` to disable startup warm during rollback. In that mode, `/ready` no longer blocks on `not_started` and model 30 falls back to the existing on-demand cold-load path.
 
+Operational note from HOK-1876:
+
+- The ECS API task currently runs with `cpu = "512"` and `memory = "1024"` and does not set `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, or `OPENBLAS_NUM_THREADS`.
+- The recommended first operational experiment is to pin those thread env vars to `1` before attempting heavier Model 30 runtime changes.
+
 ## Readiness Contract
 
 `GET /ready` now exposes model 30 warm state separately from lightweight liveness:
