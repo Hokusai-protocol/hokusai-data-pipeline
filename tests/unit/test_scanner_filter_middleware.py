@@ -75,6 +75,10 @@ def _register_probe_routes(app: FastAPI) -> None:
     async def jsonws_invoke() -> tuple[str, int]:
         return ("teapot", 418)
 
+    @app.get("/api/v1/foo")
+    async def api_v1_foo() -> tuple[str, int]:
+        return ("teapot", 418)
+
 
 def _build_app(*, register_validation_handler: bool = False) -> FastAPI:
     app = FastAPI()
@@ -136,7 +140,9 @@ def test_overlap_deny_and_allowlist() -> None:
     client = TestClient(_build_app())
 
     assert client.post("/api/jsonws/invoke").status_code == 404
-    assert client.get("/api/v1/foo").status_code == 404
+    foo_response = client.get("/api/v1/foo")
+    assert foo_response.status_code == 200
+    assert foo_response.json() == ["teapot", 418]
     assert client.get("/api/v1/__ping").status_code == 200
 
 
