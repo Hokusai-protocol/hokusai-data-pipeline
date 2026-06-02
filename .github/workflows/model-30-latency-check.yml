@@ -1,0 +1,322 @@
+name: Model 30 Latency Budget Check
+
+on:
+  pull_request:
+    paths:
+      - "src/api/endpoints/model_30_adapter.py"
+      - "src/api/endpoints/model_serving.py"
+      - "src/api/endpoints/latency_trace.py"
+      - "src/api/routes/health.py"
+      - "scripts/model_30/**"
+      - "configs/model_30_budget.yaml"
+      - "docs/model-30-serving.md"
+      - "Dockerfile.api"
+      - "Dockerfile.mlflow"
+      - "docker-compose.health-test.yml"
+      - ".github/workflows/model-30-latency-check.yml"
+  workflow_dispatch:
+
+env:
+  DOCKER_DEFAULT_PLATFORM: linux/amd64
+
+jobs:
+  latency-budget-check:
+    name: Model 30 Latency Budget
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install smoke-check dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests pyyaml
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        run: docker build --platform linux/amd64 -f Dockerfile.api -t hokusai-api-latency-check .
+
+      - name: Build MLflow image
+        run: docker build --platform linux/amd64 -f Dockerfile.mlflow -t hokusai-mlflow-latency-check .
+
+      - name: Start infra and seed model
+        run: docker compose -f docker-compose.health-test.yml up -d cert-init postgres redis mlflow model-seed
+
+      - name: Wait for seed stack healthy
+        run: |
+          python - <<'PY'
+          import subprocess
+          import time
+
+          services = ["cert-init", "postgres", "redis", "mlflow", "model-seed"]
+          deadline = time.time() + 240
+
+          while time.time() < deadline:
+              healthy = True
+              for service in services:
+                  result = subprocess.run(
+                      [
+                          "docker",
+                          "compose",
+                          "-f",
+                          "docker-compose.health-test.yml",
+                          "ps",
+                          "-q",
+                          service,
+                      ],
+                      check=True,
+                      capture_output=True,
+                      text=True,
+                  )
+                  container_id = result.stdout.strip()
+                  if not container_id:
+                      healthy = False
+                      break
+                  inspect = subprocess.run(
+                      [
+                          "docker",
+                          "inspect",
+                          "--format",
+                          "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}",
+                          container_id,
+                      ],
+                      check=True,
+                      capture_output=True,
+                      text=True,
+                  )
+                  if inspect.stdout.strip() != "healthy":
+                      healthy = False
+                      break
+              if healthy:
+                  raise SystemExit(0)
+              time.sleep(2)
+
+          raise SystemExit("Timed out waiting for seed stack health")
+          PY
+
+      - name: Start API container
+        run: docker compose -f docker-compose.health-test.yml up -d api
+
+      - name: Capture cold memory
+        id: cold-mem
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import subprocess
+          import time
+
+          def api_container_id() -> str:
+              return subprocess.run(
+                  [
+                      "docker",
+                      "compose",
+                      "-f",
+                      "docker-compose.health-test.yml",
+                      "ps",
+                      "-q",
+                      "api",
+                  ],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              ).stdout.strip()
+
+          def to_mb(raw: str) -> float:
+              value, unit = raw.strip().split()
+              number = float(value)
+              multipliers = {
+                  "b": 1 / (1024 * 1024),
+                  "kib": 1 / 1024,
+                  "kb": 1 / 1000,
+                  "mib": 1,
+                  "mb": 1,
+                  "gib": 1024,
+                  "gb": 1000,
+              }
+              return round(number * multipliers[unit.lower()], 2)
+
+          time.sleep(2)
+          container_id = api_container_id()
+          raw = subprocess.run(
+              [
+                  "docker",
+                  "stats",
+                  "--no-stream",
+                  "--format",
+                  "{{.MemUsage}}",
+                  container_id,
+              ],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.strip()
+          current = raw.split("/")[0].strip()
+          print(f"value={to_mb(current)}")
+          PY
+
+      - name: Run latency smoke check
+        id: smoke
+        env:
+          MODEL_30_SMOKE_JWT: ${{ secrets.MODEL_30_SMOKE_JWT }}
+        run: |
+          set +e
+          python scripts/model_30/latency_smoke_check.py \
+            --api-url http://localhost:8001 \
+            --warmup-timeout-s 90 \
+            --num-requests 50 \
+            --budget-file configs/model_30_budget.yaml \
+            --report-out model_30_smoke_report.json \
+            --cold-mem-mb "${{ steps.cold-mem.outputs.value }}"
+          code=$?
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Capture warm memory
+        id: warm-mem
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import subprocess
+          from pathlib import Path
+
+          from scripts.model_30 import latency_smoke_check as smoke
+
+          def api_container_id() -> str:
+              return subprocess.run(
+                  [
+                      "docker",
+                      "compose",
+                      "-f",
+                      "docker-compose.health-test.yml",
+                      "ps",
+                      "-q",
+                      "api",
+                  ],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              ).stdout.strip()
+
+          report_path = Path("model_30_smoke_report.json")
+          if not report_path.exists():
+              print("value=")
+              raise SystemExit(0)
+
+          container_id = api_container_id()
+          raw = subprocess.run(
+              [
+                  "docker",
+                  "stats",
+                  "--no-stream",
+                  "--format",
+                  "{{.MemUsage}}",
+                  container_id,
+              ],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.strip()
+          current = raw.split("/")[0].strip()
+          value, unit = current.split()
+          number = float(value)
+          multipliers = {
+              "b": 1 / (1024 * 1024),
+              "kib": 1 / 1024,
+              "kb": 1 / 1000,
+              "mib": 1,
+              "mb": 1,
+              "gib": 1024,
+              "gb": 1000,
+          }
+          warm_mb = round(number * multipliers[unit.lower()], 2)
+
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          report["metrics"]["warm_memory_mb"] = warm_mb
+          exit_code, classification, breaches, infra_summary, model_error_count = smoke.evaluate_budgets(
+              metrics=report["metrics"],
+              budget=report["budget"],
+              samples=report["samples"],
+          )
+          report["exit_code"] = exit_code
+          report["classification"] = classification
+          report["breaches"] = breaches
+          report["infra_summary"] = infra_summary
+          report["model_30_error_count"] = model_error_count
+          report_path.write_text(
+              f"{json.dumps(report, indent=2, sort_keys=True)}\n",
+              encoding="utf-8",
+          )
+          print(f"value={warm_mb}")
+          PY
+
+      - name: Upload smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: ignore
+          name: model-30-smoke-report
+          path: model_30_smoke_report.json
+
+      - name: Interpret smoke result
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report_path = Path("model_30_smoke_report.json")
+          if not report_path.exists():
+              raise SystemExit("Smoke check did not produce model_30_smoke_report.json")
+
+          report = json.loads(report_path.read_text(encoding="utf-8"))
+          code = int(report["exit_code"])
+          hard = ", ".join(report["breaches"]["hard"]) or "none"
+          soft = ", ".join(report["breaches"]["soft"]) or "none"
+          summary_lines = [
+              "## Model 30 Latency Budget",
+              f"- Classification: `{report['classification']}`",
+              f"- Exit code: `{report['exit_code']}`",
+              f"- Hard breaches: `{hard}`",
+              f"- Soft breaches: `{soft}`",
+              f"- Infra summary: `{report['infra_summary']}`",
+          ]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("\n".join(summary_lines) + "\n")
+
+          if code == 0:
+              raise SystemExit(0)
+          if code == 20:
+              print("::warning::infra_inconclusive; not a Model 30 regression")
+              raise SystemExit(0)
+          if code in {10, 11}:
+              print(
+                  f"::error::Model 30 budget check failed; "
+                  f"hard breaches={hard}; soft breaches={soft}"
+              )
+              raise SystemExit(code)
+          raise SystemExit(code)
+          PY
+
+      - name: Collect compose logs
+        if: failure()
+        run: docker compose -f docker-compose.health-test.yml logs --no-color > model-30-latency-check.log
+
+      - name: Upload compose logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-30-latency-check-log
+          path: model-30-latency-check.log
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose -f docker-compose.health-test.yml down -v
