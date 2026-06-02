@@ -393,6 +393,16 @@ class TestDebitUsage:
             mock_sentry.capture_message.assert_called_once_with(
                 "usage.debit.rejected", level="warning"
             )
+            mock_sentry.set_context.assert_called_once_with(
+                "usage_debit",
+                {
+                    "account_id": "user-123",
+                    "model_id": "model-1",
+                    "reason": "Balance too low",
+                    "reason_code": "insufficient_balance",
+                    "request_id": "req-123",
+                },
+            )
 
     @pytest.mark.asyncio
     async def test_debit_no_failure_log_on_2xx(self, middleware):
@@ -668,6 +678,24 @@ class TestDebitRejected:
         assert record.reason_code == "insufficient_settled_balance"
         assert record.request_id == "req-1"
         mock_sentry.capture_message.assert_called_once_with("usage.debit.rejected", level="warning")
+
+    @pytest.mark.asyncio
+    async def test_dispatch_fails_open_when_debit_returns_error(
+        self, middleware, mock_request, validation_result
+    ):
+        """Transport failures (5xx, ConnectError) must not block the request — dispatch
+        calls downstream and returns its response (REQ-F6 fail-open contract)."""
+        downstream_response = Response(content="OK", status_code=200)
+        call_next = AsyncMock(return_value=downstream_response)
+
+        with (
+            patch.object(middleware, "validate_with_auth_service", return_value=validation_result),
+            patch.object(middleware, "_debit_usage", new_callable=AsyncMock, return_value="error"),
+        ):
+            response = await middleware.dispatch(mock_request, call_next)
+
+        call_next.assert_awaited_once_with(mock_request)
+        assert response is downstream_response
 
     @pytest.mark.asyncio
     async def test_usage_debit_rejected_with_missing_reason_fields(

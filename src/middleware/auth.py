@@ -646,6 +646,16 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                             },
                         )
                         if sentry_sdk:
+                            sentry_sdk.set_context(
+                                "usage_debit",
+                                {
+                                    "account_id": account_id,
+                                    "model_id": model_id,
+                                    "reason": reason,
+                                    "reason_code": reason_code,
+                                    "request_id": request_id,
+                                },
+                            )
                             sentry_sdk.capture_message("usage.debit.rejected", level="warning")
                         return "rejected"
 
