@@ -37,6 +37,7 @@ def test_task_router_scorers_against_all_outcome_fixtures() -> None:
     assert _score("technical_task_router.feasibility/v1", rows) == pytest.approx(0.5)
     assert _score("technical_task_router.success_under_budget/v1", rows) == pytest.approx(0.25)
     assert _score("technical_task_router.benchmark_score/v1", rows) == pytest.approx(0.25)
+    assert _score("technical_task_router.invalid_selection_rate/v1", rows) == pytest.approx(0.25)
 
 
 def test_task_router_exact_budget_is_feasible_and_successful() -> None:
@@ -85,6 +86,13 @@ def test_task_router_scorers_return_zero_for_empty_rows() -> None:
         "technical_task_router.feasibility/v1",
         "technical_task_router.success_under_budget/v1",
         "technical_task_router.benchmark_score/v1",
+        "technical_task_router.invalid_selection_rate/v1",
+        "technical_task_router.cost_mae_usd/v1",
+        "technical_task_router.duration_mae_seconds/v1",
+        "technical_task_router.reliability_brier_score/v1",
+        "technical_task_router.lowest_cost_success_under_budget/v1",
+        "technical_task_router.fastest_completion_success_under_budget/v1",
+        "technical_task_router.highest_reliability_success_under_budget/v1",
     ]:
         assert _score(ref, []) == 0.0
 
@@ -104,3 +112,61 @@ def test_task_router_scorers_are_deterministic() -> None:
     ]
 
     assert values == [pytest.approx(0.25)] * 100
+
+
+def test_task_router_prediction_error_diagnostics() -> None:
+    success = copy.deepcopy(_load_example("technical_task_router_row.success.v1.json"))
+    failure = copy.deepcopy(_load_example("technical_task_router_row.failed.v1.json"))
+    success.update(
+        {
+            "estimated_cost_usd": 0.8,
+            "actual_time_seconds": 110.0,
+            "estimated_duration_seconds": 100.0,
+            "estimated_success_under_budget": 0.9,
+        }
+    )
+    failure.update(
+        {
+            "estimated_cost_usd": 0.4,
+            "actual_time_seconds": 80.0,
+            "estimated_duration_seconds": 100.0,
+            "estimated_success_under_budget": 0.2,
+        }
+    )
+    rows = [success, failure]
+
+    assert _score("technical_task_router.cost_mae_usd/v1", rows) == pytest.approx(0.3)
+    assert _score("technical_task_router.duration_mae_seconds/v1", rows) == pytest.approx(15.0)
+    assert _score("technical_task_router.reliability_brier_score/v1", rows) == pytest.approx(0.025)
+
+
+def test_task_router_prediction_error_diagnostics_skip_missing_prediction_fields() -> None:
+    row = copy.deepcopy(_load_example("technical_task_router_row.success.v1.json"))
+
+    assert _score("technical_task_router.cost_mae_usd/v1", [row]) == 0.0
+    assert _score("technical_task_router.duration_mae_seconds/v1", [row]) == 0.0
+    assert _score("technical_task_router.reliability_brier_score/v1", [row]) == 0.0
+
+
+def test_task_router_objective_specific_success_rates() -> None:
+    lowest_success = copy.deepcopy(_load_example("technical_task_router_row.success.v1.json"))
+    lowest_failure = copy.deepcopy(_load_example("technical_task_router_row.failed.v1.json"))
+    fastest_success = copy.deepcopy(_load_example("technical_task_router_row.success.v1.json"))
+    reliability_over_budget = copy.deepcopy(
+        _load_example("technical_task_router_row.over_budget.v1.json")
+    )
+    lowest_success["routing_objective"] = "lowest_cost"
+    lowest_failure["routing_objective"] = "lowest_cost"
+    fastest_success["routing_objective"] = "fastest_completion"
+    reliability_over_budget["routing_objective"] = "highest_reliability"
+    rows = [lowest_success, lowest_failure, fastest_success, reliability_over_budget]
+
+    assert _score("technical_task_router.lowest_cost_success_under_budget/v1", rows) == (
+        pytest.approx(0.5)
+    )
+    assert _score("technical_task_router.fastest_completion_success_under_budget/v1", rows) == (
+        pytest.approx(1.0)
+    )
+    assert _score("technical_task_router.highest_reliability_success_under_budget/v1", rows) == (
+        pytest.approx(0.0)
+    )

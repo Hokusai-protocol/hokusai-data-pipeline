@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from src.api.dependencies import get_contributor_logger
 from src.api.endpoints import model_serving
 from src.api.endpoints.model_30_adapter import (
+    DEFAULT_MODEL_30_MLFLOW_URI,
     MODEL_30_SCHEMA,
     MODEL_30_VERSION,
     Model30FailurePhase,
@@ -62,10 +63,11 @@ def _full_model_30_inputs() -> dict:
             "repo_type": "monorepo",
         },
         "routing": {
-            "available_models": ["fast-coder-v1", "deep-coder-v2", "db-specialist-v1"],
-            "preferred_models": ["deep-coder-v2", "db-specialist-v1"],
+            "available_models": ["gpt-5.4", "claude-sonnet-4-6", "deepseek-reasoner"],
+            "preferred_models": ["claude-sonnet-4-6", "deepseek-reasoner"],
             "max_cost_usd": 0.5,
             "max_latency_seconds": 30,
+            "objective": "highest_reliability",
             "prioritize_quality": True,
             "prioritize_speed": False,
         },
@@ -83,25 +85,6 @@ def _full_model_30_inputs() -> dict:
             "stages": ["plan", "code", "review"],
             "execution_environment": "ci",
             "human_review_required": True,
-        },
-        "prediction": {
-            "expected_duration_seconds": 1800,
-            "expected_cost_usd": 0.45,
-            "expected_success_probability": 0.8,
-        },
-        "outcome": {
-            "completed_successfully": False,
-            "actual_cost_usd": 0.0,
-            "actual_time_seconds": 0.0,
-            "retry_count": 0,
-            "intervention_required": False,
-            "selected_model": "deep-coder-v2",
-        },
-        "rubric": {
-            "quality_score": 0.9,
-            "correctness_score": 0.85,
-            "human_rating": "strong",
-            "benchmark_passed": True,
         },
         "metadata": {
             "external_task_id": "task-123",
@@ -165,7 +148,7 @@ def test_get_model_config_model_30_returns_router_config() -> None:
     assert config["inference_method"] == "mlflow_pyfunc"
     assert config["model_version"] == MODEL_30_VERSION
     assert config["schema"] == MODEL_30_SCHEMA
-    assert config["model_uri"] == "models:/Technical Task Router/4"
+    assert config["model_uri"] == DEFAULT_MODEL_30_MLFLOW_URI
 
 
 def test_get_model_config_unknown_model_raises_404() -> None:
@@ -218,7 +201,7 @@ def test_model_30_info_endpoint_returns_mlflow_metadata(client: TestClient) -> N
         "max_batch_size": 1,
         "model_type": "technical_task_router",
         "storage_type": "mlflow",
-        "model_uri": "models:/Technical Task Router/4",
+        "model_uri": DEFAULT_MODEL_30_MLFLOW_URI,
         "model_version": MODEL_30_VERSION,
         "schema": MODEL_30_SCHEMA,
         "description": "MLflow-backed router for nested technical task inputs.",
@@ -248,7 +231,7 @@ def test_model_30_health_endpoint_reflects_mlflow_cache(client: TestClient) -> N
         "inference_ready": True,
         "readiness": {
             "checked": False,
-            "model_uri": "models:/Technical Task Router/4",
+            "model_uri": DEFAULT_MODEL_30_MLFLOW_URI,
             "status": "cached",
         },
         "mlflow_sdk": {
@@ -290,8 +273,8 @@ def test_model_30_health_endpoint_reports_mlflow_sdk_failure(client: TestClient)
 def test_model_30_predict_minimal_payload_uses_adapter_path(client: TestClient) -> None:
     payload = {"inputs": _minimal_model_30_inputs()}
     normalized_output = {
-        "selected_model": "fast-coder-v1",
-        "selected_models": ["fast-coder-v1"],
+        "selected_model": "gpt-5.4",
+        "selected_models": ["gpt-5.4"],
         "confidence": 0.83,
         "rationale": "Budget-friendly choice",
         "estimated_cost_usd": 0.25,
@@ -325,7 +308,7 @@ def test_model_30_predict_minimal_payload_uses_adapter_path(client: TestClient) 
     body = response.json()
     assert body["model_id"] == "30"
     assert body["predictions"] == normalized_output
-    assert body["metadata"]["model_uri"] == "models:/Technical Task Router/4"
+    assert body["metadata"]["model_uri"] == DEFAULT_MODEL_30_MLFLOW_URI
     assert body["metadata"]["model_version"] == MODEL_30_VERSION
     assert body["metadata"]["schema"] == MODEL_30_SCHEMA
     assert body["metadata"]["inference_method"] == "mlflow_pyfunc"
@@ -339,8 +322,8 @@ def test_model_30_predict_full_payload_passes_validated_inputs_to_adapter(
     payload = {"inputs": _full_model_30_inputs()}
     validated_inputs = object()
     normalized_output = {
-        "selected_model": "deep-coder-v2",
-        "selected_models": ["deep-coder-v2"],
+        "selected_model": "claude-sonnet-4-6",
+        "selected_models": ["claude-sonnet-4-6"],
         "confidence": 0.91,
         "rationale": "Preferred high quality route",
         "estimated_cost_usd": 0.42,
@@ -385,8 +368,8 @@ def test_model_30_predict_old_flat_payload_returns_422_and_skips_mlflow(client: 
                     "language": "python",
                     "estimated_complexity": "medium",
                 },
-                "allowed_models": ["fast-coder-v1"],
-                "selected_models": ["fast-coder-v1"],
+                "allowed_models": ["gpt-5.4"],
+                "selected_models": ["gpt-5.4"],
                 "max_cost_usd": 0.5,
             }
         },
@@ -411,7 +394,7 @@ def test_model_30_predict_rejects_mixed_nested_and_flat_payload(client: TestClie
         json={
             "inputs": {
                 **_minimal_model_30_inputs(),
-                "allowed_models": ["fast-coder-v1"],
+                "allowed_models": ["gpt-5.4"],
             }
         },
     )
@@ -492,7 +475,7 @@ def test_model_30_predict_mlflow_timeout_returns_504_without_alb_timeout(
 ) -> None:
     def slow_call(*_: object) -> dict[str, str]:
         time.sleep(0.05)
-        return {"selected_model": "fast-coder-v1"}
+        return {"selected_model": "gpt-5.4"}
 
     original_timeout = model_serving.serving_service.prediction_timeout_seconds
     model_serving.serving_service.prediction_timeout_seconds = 0.01
@@ -541,9 +524,7 @@ def test_predict_succeeds_when_warmed(client: TestClient) -> None:
     set_model_30_warmup_state(Model30WarmupState.WARMED)
     _replace_registry_entry(
         "30",
-        model_caller=lambda _model_uri, _features, _timings=None: {
-            "selected_model": "fast-coder-v1"
-        },
+        model_caller=lambda _model_uri, _features, _timings=None: {"selected_model": "gpt-5.4"},
     )
 
     response = client.post(
@@ -552,16 +533,14 @@ def test_predict_succeeds_when_warmed(client: TestClient) -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["predictions"]["selected_model"] == "fast-coder-v1"
+    assert response.json()["predictions"]["recommended_strategy"]["coder_model"] == "gpt-5.4"
 
 
 def test_predict_allows_on_demand_when_prewarm_disabled(client: TestClient) -> None:
     set_model_30_warmup_state(Model30WarmupState.NOT_STARTED)
     _replace_registry_entry(
         "30",
-        model_caller=lambda _model_uri, _features, _timings=None: {
-            "selected_model": "fast-coder-v1"
-        },
+        model_caller=lambda _model_uri, _features, _timings=None: {"selected_model": "gpt-5.4"},
     )
 
     response = client.post(
@@ -594,8 +573,8 @@ def test_model_30_predict_emits_warm_latency_trace(client: TestClient, caplog) -
         feature_mapper=lambda _validated: {"features": "ok"},
         model_caller=fake_call_mlflow_model_30,
         output_normalizer=lambda _raw, _validated: {
-            "selected_model": "deep-coder-v2",
-            "selected_models": ["deep-coder-v2"],
+            "selected_model": "claude-sonnet-4-6",
+            "selected_models": ["claude-sonnet-4-6"],
             "confidence": 0.9,
             "rationale": "best match",
             "estimated_cost_usd": 0.42,
@@ -634,7 +613,7 @@ def test_model_30_predict_emits_cold_latency_trace(client: TestClient, caplog) -
         if timings is not None:
             timings["artifact_load_ms"] = 18.0
             timings["inference_only_ms"] = 3.0
-        return {"selected_model": "fast-coder-v1"}
+        return {"selected_model": "gpt-5.4"}
 
     _replace_registry_entry(
         "30",
@@ -663,7 +642,7 @@ def test_model_30_predict_timeout_emits_correlated_trace(client: TestClient, cap
     ) -> dict[str, object]:
         del model_uri, features, timings
         time.sleep(0.05)
-        return {"selected_model": "deep-coder-v2"}
+        return {"selected_model": "claude-sonnet-4-6"}
 
     original_timeout = model_serving.serving_service.prediction_timeout_seconds
     model_serving.serving_service.prediction_timeout_seconds = 0.01
@@ -711,12 +690,12 @@ def test_registry_added_mlflow_model_predicts_without_endpoint_changes(client: T
         if timings is not None:
             timings["artifact_load_ms"] = 1.0
             timings["inference_only_ms"] = 2.0
-        return {"winner": "model-31-coder"}
+        return {"winner": "gpt-5.5"}
 
     def output_normalizer(raw_output: object, validated: dict[str, object]) -> dict[str, object]:
         called_with["raw_output"] = raw_output
         called_with["normalized_validated"] = validated
-        return {"selected_model": "model-31-coder", "selected_models": ["model-31-coder"]}
+        return {"selected_model": "gpt-5.5", "selected_models": ["gpt-5.5"]}
 
     model_serving.MODEL_CONFIGS["31"] = ModelRegistryEntry(
         name="Hypothetical Router",
@@ -728,7 +707,7 @@ def test_registry_added_mlflow_model_predicts_without_endpoint_changes(client: T
         supported_inference_methods=("mlflow_pyfunc",),
         model_uri="models:/Hypothetical Router/1",
         model_version="1",
-        schema="technical_task_router_inputs/v1",
+        schema=MODEL_30_SCHEMA,
         input_validator=input_validator,
         feature_mapper=feature_mapper,
         output_normalizer=output_normalizer,
@@ -741,7 +720,7 @@ def test_registry_added_mlflow_model_predicts_without_endpoint_changes(client: T
     assert response.status_code == 200
     body = response.json()
     assert body["model_id"] == "31"
-    assert body["predictions"]["selected_model"] == "model-31-coder"
+    assert body["predictions"]["selected_model"] == "gpt-5.5"
     assert body["metadata"]["model_uri"] == "models:/Hypothetical Router/1"
     assert called_with["validated"] == {"validated": _minimal_model_30_inputs()}
     assert called_with["features"] == {"features": {"validated": _minimal_model_30_inputs()}}

@@ -666,8 +666,11 @@ class ModelServingService:
             raw_model_output,
             validated_inputs,
         )
+        recommended = normalized.get("recommended_strategy", {})
         return {
-            "selected_model": normalized["selected_model"],
+            "selected_model": recommended.get("coder_model")
+            or recommended.get("planner_model")
+            or recommended.get("reviewer_model"),
             "artifact_load_ms": round(timings.get("artifact_load_ms", 0.0), 2),
             "inference_only_ms": round(timings.get("inference_only_ms", 0.0), 2),
         }

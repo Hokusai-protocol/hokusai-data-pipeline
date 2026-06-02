@@ -18,6 +18,7 @@ import pandas as pd
 import pytest
 
 from src.api.endpoints import model_30_adapter
+from src.api.schemas.technical_task_router_inputs import TechnicalTaskRouterPredictions
 
 
 def _minimal_inputs() -> dict:
@@ -39,10 +40,11 @@ def _full_inputs() -> dict:
             "repo_type": "monorepo",
         },
         "routing": {
-            "available_models": ["fast-coder-v1", "deep-coder-v2"],
-            "preferred_models": ["deep-coder-v2"],
+            "available_models": ["gpt-5.4", "claude-sonnet-4-6"],
+            "preferred_models": ["claude-sonnet-4-6"],
             "max_cost_usd": 0.5,
             "max_latency_seconds": 30,
+            "objective": "highest_reliability",
             "prioritize_quality": True,
         },
         "context": {
@@ -59,25 +61,6 @@ def _full_inputs() -> dict:
             "stages": ["plan", "code", "review"],
             "execution_environment": "ci",
             "human_review_required": True,
-        },
-        "prediction": {
-            "expected_duration_seconds": 1800,
-            "expected_cost_usd": 0.45,
-            "expected_success_probability": 0.8,
-        },
-        "outcome": {
-            "completed_successfully": False,
-            "actual_cost_usd": 0.0,
-            "actual_time_seconds": 0.0,
-            "retry_count": 0,
-            "intervention_required": False,
-            "selected_model": "deep-coder-v2",
-        },
-        "rubric": {
-            "quality_score": 0.9,
-            "correctness_score": 0.85,
-            "human_rating": "strong",
-            "benchmark_passed": True,
         },
         "metadata": {
             "external_task_id": "task-123",
@@ -105,6 +88,8 @@ def test_validate_nested_inputs_accepts_all_allowed_groups() -> None:
 
     assert validated.workflow is not None
     assert validated.metadata is not None
+    assert validated.routing is not None
+    assert validated.routing.objective.value == "highest_reliability"
 
 
 def test_validate_nested_inputs_rejects_missing_task() -> None:
@@ -120,8 +105,8 @@ def test_validate_nested_inputs_rejects_flat_benchmark_row() -> None:
             {
                 "schema_version": "technical_task_router_row/v1",
                 "task_descriptor": {"task_type": "feature"},
-                "allowed_models": ["fast-coder-v1"],
-                "selected_models": ["fast-coder-v1"],
+                "allowed_models": ["gpt-5.4"],
+                "selected_models": ["gpt-5.4"],
                 "max_cost_usd": 0.5,
             }
         )
@@ -134,11 +119,65 @@ def test_validate_nested_inputs_rejects_mixed_nested_and_flat_payload() -> None:
         model_30_adapter.validate_nested_model_30_inputs(
             {
                 **_minimal_inputs(),
-                "allowed_models": ["fast-coder-v1"],
+                "allowed_models": ["gpt-5.4"],
             }
         )
 
     assert "Extra inputs are not permitted" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "obsolete_group",
+    [
+        {"prediction": {"expected_cost_usd": 0.45}},
+        {"outcome": {"completed_successfully": True}},
+        {"rubric": {"quality_score": 0.9}},
+    ],
+)
+def test_validate_nested_inputs_rejects_historical_outcome_groups(
+    obsolete_group: dict,
+) -> None:
+    with pytest.raises(Exception) as excinfo:
+        model_30_adapter.validate_nested_model_30_inputs(
+            {
+                **_minimal_inputs(),
+                **obsolete_group,
+            }
+        )
+
+    assert "Extra inputs are not permitted" in str(excinfo.value)
+
+
+def test_validate_nested_inputs_rejects_unknown_objective() -> None:
+    with pytest.raises(Exception) as excinfo:
+        model_30_adapter.validate_nested_model_30_inputs(
+            {
+                **_minimal_inputs(),
+                "routing": {"objective": "balanced"},
+            }
+        )
+
+    assert "lowest_cost" in str(excinfo.value)
+
+
+def test_validate_nested_inputs_rejects_unknown_or_duplicate_stages() -> None:
+    with pytest.raises(Exception) as unknown_exc:
+        model_30_adapter.validate_nested_model_30_inputs(
+            {
+                **_minimal_inputs(),
+                "workflow": {"stages": ["plan", "deploy"]},
+            }
+        )
+    with pytest.raises(Exception) as duplicate_exc:
+        model_30_adapter.validate_nested_model_30_inputs(
+            {
+                **_minimal_inputs(),
+                "workflow": {"stages": ["plan", "plan"]},
+            }
+        )
+
+    assert "review" in str(unknown_exc.value)
+    assert "must not contain duplicates" in str(duplicate_exc.value)
 
 
 def test_model_30_inputs_to_features_maps_nested_payload_to_signature_shape() -> None:
@@ -149,14 +188,29 @@ def test_model_30_inputs_to_features_maps_nested_payload_to_signature_shape() ->
     assert isinstance(features, pd.DataFrame)
     assert list(features.columns) == list(model_30_adapter.ROUTER_FEATURE_COLUMNS)
     row = features.iloc[0].to_dict()
-    assert row["available_planner_models"] == ["deep-coder-v2", "fast-coder-v1"]
-    assert row["available_coder_models"] == ["deep-coder-v2", "fast-coder-v1"]
-    assert row["available_reviewer_models"] == ["deep-coder-v2", "fast-coder-v1"]
+    assert row["available_planner_models"] == ["claude-sonnet-4-6", "gpt-5.4"]
+    assert row["available_coder_models"] == ["claude-sonnet-4-6", "gpt-5.4"]
+    assert row["available_reviewer_models"] == ["claude-sonnet-4-6", "gpt-5.4"]
     assert row["complexity"] == "medium"
     assert row["files_touched_bucket"] == "6_15"
     assert row["max_cost_usd"] == 0.5
     assert row["task_type"] == "refactor"
     assert row["surface"] == "wavemill"
+
+
+def test_model_30_inputs_to_features_honors_role_specific_available_models() -> None:
+    payload = _full_inputs()
+    payload["routing"]["available_planner_models"] = ["claude-sonnet-4-6"]
+    payload["routing"]["available_coder_models"] = ["gpt-5.4"]
+    payload["routing"]["available_reviewer_models"] = ["claude-haiku-4-5-20251001"]
+    validated = model_30_adapter.validate_nested_model_30_inputs(payload)
+
+    features = model_30_adapter.model_30_inputs_to_features(validated)
+    row = features.iloc[0].to_dict()
+
+    assert row["available_planner_models"] == ["claude-sonnet-4-6"]
+    assert row["available_coder_models"] == ["gpt-5.4"]
+    assert row["available_reviewer_models"] == ["claude-haiku-4-5-20251001"]
 
 
 def test_model_30_inputs_to_features_does_not_require_post_routing_outcomes() -> None:
@@ -196,9 +250,9 @@ def test_router_features_curated_fixture() -> None:
         "Migrate legacy auth across services into a new React dashboard from scratch"
     )
     payload["routing"]["available_models"] = [
-        "fast-coder-v1",
-        "deep-coder-v2",
-        "fast-coder-v1",
+        "gpt-5.4",
+        "claude-sonnet-4-6",
+        "gpt-5.4",
     ]
     payload["context"]["file_count"] = 24
     payload["context"]["estimated_complexity"] = "high"
@@ -215,9 +269,9 @@ def test_router_features_curated_fixture() -> None:
         "complexity": "high",
         "description_length_bucket": "short",
         "files_touched_bucket": "16_plus",
-        "available_planner_models": ["deep-coder-v2", "fast-coder-v1"],
-        "available_coder_models": ["deep-coder-v2", "fast-coder-v1"],
-        "available_reviewer_models": ["deep-coder-v2", "fast-coder-v1"],
+        "available_planner_models": ["claude-sonnet-4-6", "gpt-5.4"],
+        "available_coder_models": ["claude-sonnet-4-6", "gpt-5.4"],
+        "available_reviewer_models": ["claude-sonnet-4-6", "gpt-5.4"],
         "max_cost_usd": 0.5,
         "prioritize_quality": True,
         "prioritize_speed": None,
@@ -226,6 +280,8 @@ def test_router_features_curated_fixture() -> None:
         "security_sensitive": True,
         "repo_size_bucket": "large",
         "surface": "wavemill",
+        "workflow_stages": ["plan", "code", "review"],
+        "routing_objective": "highest_reliability",
         "is_greenfield": True,
         "is_migration": True,
         "cross_service": True,
@@ -337,11 +393,126 @@ def test_features_frame_maps_nested_payload_to_router_schema() -> None:
     assert set(features.iloc[0].to_dict()) == set(model_30_adapter.ROUTER_FEATURE_COLUMNS)
 
 
+def test_v2_prediction_response_schema_accepts_strategy_tradeoff_payload() -> None:
+    payload = {
+        "recommended_strategy": {
+            "objective": "highest_reliability",
+            "planner_model": "claude-sonnet-4-6",
+            "coder_model": "gpt-5.4",
+            "reviewer_model": "claude-sonnet-4-6",
+            "stages": ["plan", "code", "review"],
+            "estimated_success_under_budget": 0.82,
+            "estimated_cost_usd": 4.8,
+            "estimated_duration_seconds": 1800,
+            "confidence": 0.71,
+        },
+        "alternatives": [
+            {
+                "objective": "lowest_cost",
+                "coder_model": "gpt-5.4",
+                "stages": ["code"],
+                "estimated_success_under_budget": 0.62,
+                "estimated_cost_usd": 1.2,
+                "estimated_duration_seconds": 900,
+                "confidence": 0.54,
+            }
+        ],
+        "tradeoffs": {
+            "lowest_cost": {
+                "objective": "lowest_cost",
+                "coder_model": "gpt-5.4",
+                "stages": ["code"],
+                "estimated_success_under_budget": 0.62,
+                "estimated_cost_usd": 1.2,
+                "confidence": 0.54,
+            },
+            "fastest_completion": None,
+            "highest_reliability": {
+                "objective": "highest_reliability",
+                "planner_model": "claude-sonnet-4-6",
+                "coder_model": "gpt-5.4",
+                "reviewer_model": "claude-sonnet-4-6",
+                "stages": ["plan", "code", "review"],
+                "estimated_success_under_budget": 0.82,
+                "estimated_cost_usd": 4.8,
+                "confidence": 0.71,
+            },
+        },
+        "nearest_neighbors": {
+            "count": 40,
+            "success_under_budget_rate": 0.78,
+            "mean_cost_usd": 4.4,
+            "mean_duration_seconds": 1650,
+        },
+    }
+
+    parsed = TechnicalTaskRouterPredictions.model_validate(payload)
+
+    assert parsed.recommended_strategy.objective.value == "highest_reliability"
+    assert parsed.nearest_neighbors.count == 40
+
+
+def test_normalize_v2_output_strips_internal_strategy_support() -> None:
+    raw = {
+        "recommended_strategy": {
+            "objective": "highest_reliability",
+            "planner_model": "claude-sonnet-4-6",
+            "coder_model": "gpt-5.4",
+            "reviewer_model": "claude-sonnet-4-6",
+            "stages": ["plan", "code", "review"],
+            "estimated_success_under_budget": 0.82,
+            "estimated_cost_usd": 4.8,
+            "confidence": 0.71,
+            "support": 3,
+        },
+        "alternatives": [
+            {
+                "objective": "lowest_cost",
+                "coder_model": "gpt-5.4",
+                "stages": ["code"],
+                "estimated_success_under_budget": 0.62,
+                "estimated_cost_usd": 1.2,
+                "confidence": 0.54,
+                "support": 1,
+            }
+        ],
+        "tradeoffs": {
+            "lowest_cost": {
+                "objective": "lowest_cost",
+                "coder_model": "gpt-5.4",
+                "stages": ["code"],
+                "estimated_success_under_budget": 0.62,
+                "estimated_cost_usd": 1.2,
+                "confidence": 0.54,
+                "support": 1,
+            },
+            "fastest_completion": None,
+            "highest_reliability": {
+                "objective": "highest_reliability",
+                "coder_model": "gpt-5.4",
+                "stages": ["code"],
+                "estimated_success_under_budget": 0.82,
+                "estimated_cost_usd": 4.8,
+                "confidence": 0.71,
+                "support": 3,
+            },
+        },
+        "nearest_neighbors": {"count": 3},
+    }
+    validated = model_30_adapter.validate_nested_model_30_inputs(_full_inputs())
+
+    normalized = model_30_adapter.normalize_model_30_output(raw, validated)
+
+    assert "support" not in normalized["recommended_strategy"]
+    assert "support" not in normalized["alternatives"][0]
+    assert "support" not in normalized["tradeoffs"]["lowest_cost"]
+
+
 def test_normalize_output_handles_dataframe() -> None:
     raw = pd.DataFrame(
         [
             {
-                "model": "deep-coder-v2",
+                "model": "claude-sonnet-4-6",
                 "score": 0.91,
                 "reason": "best match",
                 "cost": 0.42,
@@ -354,46 +525,125 @@ def test_normalize_output_handles_dataframe() -> None:
         model_30_adapter.validate_nested_model_30_inputs(_minimal_inputs()),
     )
 
-    assert normalized == {
-        "selected_model": "deep-coder-v2",
-        "selected_models": ["deep-coder-v2"],
-        "confidence": 0.91,
-        "rationale": "best match",
-        "estimated_cost_usd": 0.42,
+    assert normalized["recommended_strategy"]["coder_model"] == "claude-sonnet-4-6"
+    assert normalized["recommended_strategy"]["confidence"] == 0.91
+    assert normalized["recommended_strategy"]["estimated_cost_usd"] == 0.42
+    assert normalized["tradeoffs"]["highest_reliability"] is not None
+    assert normalized["nearest_neighbors"] == {
+        "count": 0,
+        "success_under_budget_rate": None,
+        "mean_cost_usd": None,
+        "mean_duration_seconds": None,
     }
 
 
 def test_normalize_output_handles_list_of_dicts() -> None:
     normalized = model_30_adapter.normalize_model_30_output(
-        [{"selected_models": ["fast-coder-v1"], "probability": 0.75}],
+        [{"selected_models": ["gpt-5.4"], "probability": 0.75}],
         model_30_adapter.validate_nested_model_30_inputs(_minimal_inputs()),
     )
 
-    assert normalized["selected_model"] == "fast-coder-v1"
-    assert normalized["confidence"] == 0.75
+    assert normalized["recommended_strategy"]["coder_model"] == "gpt-5.4"
+    assert normalized["recommended_strategy"]["confidence"] == 0.75
 
 
 def test_normalize_output_handles_single_dict() -> None:
     normalized = model_30_adapter.normalize_model_30_output(
-        {"prediction": "fast-coder-v1", "estimated_cost": 0.25},
+        {"prediction": "gpt-5.4", "estimated_cost": 0.25},
         model_30_adapter.validate_nested_model_30_inputs(_minimal_inputs()),
     )
 
-    assert normalized["selected_models"] == ["fast-coder-v1"]
-    assert normalized["estimated_cost_usd"] == 0.25
+    assert normalized["recommended_strategy"]["coder_model"] == "gpt-5.4"
+    assert normalized["recommended_strategy"]["estimated_cost_usd"] == 0.25
 
 
 def test_normalize_output_handles_ndarray_or_scalar_model_id() -> None:
     validated = model_30_adapter.validate_nested_model_30_inputs(_minimal_inputs())
 
     array_normalized = model_30_adapter.normalize_model_30_output(
-        np.array(["db-specialist-v1"]),
+        np.array(["deepseek-reasoner"]),
         validated,
     )
-    scalar_normalized = model_30_adapter.normalize_model_30_output("fast-coder-v1", validated)
+    scalar_normalized = model_30_adapter.normalize_model_30_output("gpt-5.4", validated)
 
-    assert array_normalized["selected_model"] == "db-specialist-v1"
-    assert scalar_normalized["selected_model"] == "fast-coder-v1"
+    assert array_normalized["recommended_strategy"]["coder_model"] == "deepseek-reasoner"
+    assert scalar_normalized["recommended_strategy"]["coder_model"] == "gpt-5.4"
+
+
+def test_normalize_output_preserves_v2_strategy_payload() -> None:
+    raw = pd.DataFrame(
+        [
+            {
+                "recommended_strategy": {
+                    "objective": "highest_reliability",
+                    "planner_model": "claude-sonnet-4-6",
+                    "coder_model": "gpt-5.4",
+                    "reviewer_model": "claude-sonnet-4-6",
+                    "stages": ["plan", "code", "review"],
+                    "estimated_success_under_budget": 0.82,
+                    "estimated_cost_usd": 4.8,
+                    "estimated_duration_seconds": 1800,
+                    "confidence": 0.71,
+                },
+                "alternatives": [],
+                "tradeoffs": {
+                    "lowest_cost": None,
+                    "fastest_completion": None,
+                    "highest_reliability": {
+                        "objective": "highest_reliability",
+                        "planner_model": "claude-sonnet-4-6",
+                        "coder_model": "gpt-5.4",
+                        "reviewer_model": "claude-sonnet-4-6",
+                        "stages": ["plan", "code", "review"],
+                        "estimated_success_under_budget": 0.82,
+                        "estimated_cost_usd": 4.8,
+                        "confidence": 0.71,
+                    },
+                },
+                "nearest_neighbors": {
+                    "count": 40,
+                    "success_under_budget_rate": 0.78,
+                    "mean_cost_usd": 4.4,
+                    "mean_duration_seconds": 1650,
+                },
+            }
+        ]
+    )
+
+    normalized = model_30_adapter.normalize_model_30_output(
+        raw,
+        model_30_adapter.validate_nested_model_30_inputs(_full_inputs()),
+    )
+
+    assert normalized["recommended_strategy"]["coder_model"] == "gpt-5.4"
+    assert normalized["alternatives"] == []
+    assert normalized["nearest_neighbors"]["count"] == 40
+
+
+def test_normalize_output_rejects_fake_model_ids() -> None:
+    raw = {
+        "recommended_strategy": {
+            "objective": "highest_reliability",
+            "coder_model": "deep-coder-v2",
+            "stages": ["code"],
+            "estimated_success_under_budget": 0.82,
+            "estimated_cost_usd": 4.8,
+            "confidence": 0.71,
+        },
+        "tradeoffs": {
+            "lowest_cost": None,
+            "fastest_completion": None,
+            "highest_reliability": None,
+        },
+        "nearest_neighbors": {"count": 40},
+    }
+
+    with pytest.raises(model_30_adapter.Model30InferenceError, match="non-public") as excinfo:
+        model_30_adapter.normalize_model_30_output(
+            raw,
+            model_30_adapter.validate_nested_model_30_inputs(_full_inputs()),
+        )
+    assert isinstance(excinfo.value.original_exc, ValueError)
 
 
 def test_normalize_output_rejects_empty_output() -> None:
@@ -408,7 +658,7 @@ def test_normalize_output_rejects_empty_output() -> None:
 
 
 def test_pyfunc_cache_loads_once_per_uri() -> None:
-    fake_model = SimpleNamespace(predict=lambda _: {"selected_model": "fast-coder-v1"})
+    fake_model = SimpleNamespace(predict=lambda _: {"selected_model": "gpt-5.4"})
 
     with patch(
         "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
@@ -421,7 +671,7 @@ def test_pyfunc_cache_loads_once_per_uri() -> None:
 
 
 def test_pyfunc_cache_loads_distinct_uris_separately() -> None:
-    fake_model = SimpleNamespace(predict=lambda _: {"selected_model": "fast-coder-v1"})
+    fake_model = SimpleNamespace(predict=lambda _: {"selected_model": "gpt-5.4"})
 
     with patch(
         "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
@@ -434,7 +684,7 @@ def test_pyfunc_cache_loads_distinct_uris_separately() -> None:
 
 
 def test_pyfunc_cache_is_thread_safe_on_cold_start() -> None:
-    fake_model = SimpleNamespace(predict=lambda _: {"selected_model": "fast-coder-v1"})
+    fake_model = SimpleNamespace(predict=lambda _: {"selected_model": "gpt-5.4"})
     load_calls: list[str] = []
     results: list[str] = []
     start_event = threading.Event()
@@ -469,7 +719,7 @@ def test_pyfunc_cache_is_thread_safe_on_cold_start() -> None:
 
 def test_call_mlflow_model_30_calls_predict() -> None:
     fake_model = MagicMock()
-    fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}
+    fake_model.predict.return_value = {"selected_model": "gpt-5.4"}
 
     with patch(
         "src.api.endpoints.model_30_adapter.mlflow.pyfunc.load_model",
@@ -481,12 +731,12 @@ def test_call_mlflow_model_30_calls_predict() -> None:
         )
 
     fake_model.predict.assert_called_once_with({"row": 1})
-    assert result == {"selected_model": "fast-coder-v1"}
+    assert result == {"selected_model": "gpt-5.4"}
 
 
 def test_call_mlflow_model_30_populates_timing_fields() -> None:
     fake_model = MagicMock()
-    fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}
+    fake_model.predict.return_value = {"selected_model": "gpt-5.4"}
     timings: dict[str, float] = {}
 
     with patch(
@@ -507,7 +757,7 @@ def test_call_mlflow_model_30_populates_timing_fields() -> None:
 
 def test_call_mlflow_model_30_warm_path_keeps_artifact_load_small() -> None:
     fake_model = MagicMock()
-    fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}
+    fake_model.predict.return_value = {"selected_model": "gpt-5.4"}
     timings: dict[str, float] = {}
 
     with patch(
@@ -527,7 +777,7 @@ def test_call_mlflow_model_30_warm_path_keeps_artifact_load_small() -> None:
 
 def test_call_mlflow_model_30_does_not_mutate_mlflow_environment(monkeypatch) -> None:
     fake_model = MagicMock()
-    fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}
+    fake_model.predict.return_value = {"selected_model": "gpt-5.4"}
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
     monkeypatch.delenv("MLFLOW_HTTP_REQUEST_BACKOFF_JITTER", raising=False)
     monkeypatch.delenv("MLFLOW_ARTIFACT_UPLOAD_DOWNLOAD_TIMEOUT", raising=False)
@@ -545,7 +795,7 @@ def test_call_mlflow_model_30_does_not_mutate_mlflow_environment(monkeypatch) ->
 
 def test_call_mlflow_model_30_does_not_mutate_global_tracking_uri(monkeypatch) -> None:
     fake_model = MagicMock()
-    fake_model.predict.return_value = {"selected_model": "fast-coder-v1"}
+    fake_model.predict.return_value = {"selected_model": "gpt-5.4"}
     monkeypatch.setenv("MLFLOW_SERVER_URL", "https://mlflow.hokusai-development.local:5000")
 
     with (

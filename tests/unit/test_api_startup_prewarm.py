@@ -13,11 +13,15 @@ from src.api.endpoints.model_registry import ModelRegistryEntry
 
 
 @pytest.fixture
-def api_main_module(monkeypatch: pytest.MonkeyPatch):
+def api_main_module(monkeypatch: pytest.MonkeyPatch, tmp_path):
     monkeypatch.setenv("MLFLOW_SERVER_URL", "https://mlflow.test.local:5000")
     monkeypatch.setenv("MLFLOW_TRACKING_TOKEN", "test-token")
     monkeypatch.setenv("DB_PASSWORD", "test-password")
+    monkeypatch.setenv("DSPY_CACHEDIR", str(tmp_path / "dspy-cache"))
     sys.modules.pop("src.api.main", None)
+    for module_name in list(sys.modules):
+        if module_name == "dspy" or module_name.startswith("dspy."):
+            sys.modules.pop(module_name, None)
     module = importlib.import_module("src.api.main")
     yield module
     sys.modules.pop("src.api.main", None)

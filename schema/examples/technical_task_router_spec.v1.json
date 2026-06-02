@@ -18,6 +18,48 @@
       "scorer_ref": "technical_task_router.feasibility/v1",
       "direction": "higher_is_better",
       "unit": "proportion"
+    },
+    {
+      "name": "technical_task_router.invalid_selection_rate/v1",
+      "scorer_ref": "technical_task_router.invalid_selection_rate/v1",
+      "direction": "lower_is_better",
+      "unit": "proportion"
+    },
+    {
+      "name": "technical_task_router.cost_mae_usd/v1",
+      "scorer_ref": "technical_task_router.cost_mae_usd/v1",
+      "direction": "lower_is_better",
+      "unit": "usd"
+    },
+    {
+      "name": "technical_task_router.duration_mae_seconds/v1",
+      "scorer_ref": "technical_task_router.duration_mae_seconds/v1",
+      "direction": "lower_is_better",
+      "unit": "seconds"
+    },
+    {
+      "name": "technical_task_router.reliability_brier_score/v1",
+      "scorer_ref": "technical_task_router.reliability_brier_score/v1",
+      "direction": "lower_is_better",
+      "unit": "score"
+    },
+    {
+      "name": "technical_task_router.lowest_cost_success_under_budget/v1",
+      "scorer_ref": "technical_task_router.lowest_cost_success_under_budget/v1",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    },
+    {
+      "name": "technical_task_router.fastest_completion_success_under_budget/v1",
+      "scorer_ref": "technical_task_router.fastest_completion_success_under_budget/v1",
+      "direction": "higher_is_better",
+      "unit": "proportion"
+    },
+    {
+      "name": "technical_task_router.highest_reliability_success_under_budget/v1",
+      "scorer_ref": "technical_task_router.highest_reliability_success_under_budget/v1",
+      "direction": "higher_is_better",
+      "unit": "proportion"
     }
   ],
   "guardrails": [],

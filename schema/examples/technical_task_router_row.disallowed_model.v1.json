@@ -10,8 +10,8 @@
     "language": "sql",
     "estimated_complexity": "medium"
   },
-  "allowed_models": ["fast-coder-v1", "db-specialist-v1"],
-  "selected_models": ["db-specialist-v1", "unapproved-frontier-model"],
+  "allowed_models": ["gpt-5.4", "deepseek-reasoner"],
+  "selected_models": ["deepseek-reasoner", "unapproved-frontier-model"],
   "max_cost_usd": 0.6,
   "actual_cost_usd": 0.37,
   "completed_successfully": true,
