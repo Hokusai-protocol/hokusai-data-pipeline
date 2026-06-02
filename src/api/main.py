@@ -112,6 +112,7 @@ _init_sentry()
 
 from src.api.endpoints import contributions, model_serving
 from src.api.endpoints.model_registry_entries import MODEL_CONFIGS
+from src.api.middleware.scanner_filter import ScannerFilterMiddleware
 from src.api.middleware.validation_logging import validation_422_exception_handler
 from src.api.routes import (
     benchmarks,
@@ -161,6 +162,10 @@ app.add_middleware(APIKeyAuthMiddleware)
 
 # Add rate limiting middleware
 app.add_middleware(RateLimitMiddleware)
+
+# Register last so it runs first on ingress and drops scanner traffic
+# before auth, rate limiting, validation, and routing.
+app.add_middleware(ScannerFilterMiddleware)
 
 # Configure additional rate limiting with slowapi
 limiter = Limiter(key_func=get_remote_address)
