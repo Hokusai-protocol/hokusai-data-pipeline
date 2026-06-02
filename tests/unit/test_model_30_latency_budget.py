@@ -73,6 +73,48 @@ def test_main_returns_setup_error_for_unreadable_budget_file(
     assert exit_code == smoke.SETUP_ERROR
 
 
+def test_main_missing_jwt_writes_infra_inconclusive_report(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("MODEL_30_SMOKE_JWT", raising=False)
+    budget_path = tmp_path / "budget.yaml"
+    budget_path.write_text(
+        "\n".join(
+            [
+                "cold_readiness_ms: {soft: 30000, hard: 60000}",
+                "artifact_load_ms: {soft: 15000, hard: 25000}",
+                "warm_p50_ms: {soft: 300, hard: 600}",
+                "warm_p95_ms: {soft: 800, hard: 1500}",
+                "warm_p99_ms: {soft: 1500, hard: 3000}",
+                "timeout_rate: {soft: 0.0, hard: 0.02}",
+                "warm_memory_mb: {soft: 800, hard: 1200}",
+                "cold_memory_mb: {soft: 1200, hard: 1800}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    report_path = tmp_path / "report.json"
+
+    exit_code = smoke.main(
+        [
+            "--api-url",
+            "http://localhost:8001",
+            "--budget-file",
+            str(budget_path),
+            "--report-out",
+            str(report_path),
+        ]
+    )
+
+    assert exit_code == smoke.INFRA_INCONCLUSIVE
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["classification"] == "infra_inconclusive"
+    assert report["exit_code"] == smoke.INFRA_INCONCLUSIVE
+    assert "MODEL_30_SMOKE_JWT" in report["reason"]
+
+
 def test_compute_percentiles_for_range() -> None:
     percentiles = smoke.compute_percentiles([float(value) for value in range(1, 101)])
 

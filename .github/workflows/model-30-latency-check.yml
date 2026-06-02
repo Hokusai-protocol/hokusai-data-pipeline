@@ -199,6 +199,7 @@ jobs:
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import json
           import subprocess
+          import sys
           from pathlib import Path
 
           from scripts.model_30 import latency_smoke_check as smoke
@@ -224,35 +225,49 @@ jobs:
               print("value=")
               raise SystemExit(0)
 
-          container_id = api_container_id()
-          raw = subprocess.run(
-              [
-                  "docker",
-                  "stats",
-                  "--no-stream",
-                  "--format",
-                  "{{.MemUsage}}",
-                  container_id,
-              ],
-              check=True,
-              capture_output=True,
-              text=True,
-          ).stdout.strip()
-          current = raw.split("/")[0].strip()
-          value, unit = current.split()
-          number = float(value)
-          multipliers = {
-              "b": 1 / (1024 * 1024),
-              "kib": 1 / 1024,
-              "kb": 1 / 1000,
-              "mib": 1,
-              "mb": 1,
-              "gib": 1024,
-              "gb": 1000,
-          }
-          warm_mb = round(number * multipliers[unit.lower()], 2)
-
           report = json.loads(report_path.read_text(encoding="utf-8"))
+
+          # Skip warm-memory capture for infra_inconclusive runs: there were no
+          # successful warm requests, so the steady-state value would not be
+          # meaningful and re-running evaluate_budgets on empty samples would
+          # incorrectly reclassify the report as pass.
+          if report.get("classification") == "infra_inconclusive":
+              print("value=")
+              raise SystemExit(0)
+
+          try:
+              container_id = api_container_id()
+              raw = subprocess.run(
+                  [
+                      "docker",
+                      "stats",
+                      "--no-stream",
+                      "--format",
+                      "{{.MemUsage}}",
+                      container_id,
+                  ],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              ).stdout.strip()
+              current = raw.split("/")[0].strip()
+              value, unit = current.split()
+              number = float(value)
+              multipliers = {
+                  "b": 1 / (1024 * 1024),
+                  "kib": 1 / 1024,
+                  "kb": 1 / 1000,
+                  "mib": 1,
+                  "mb": 1,
+                  "gib": 1024,
+                  "gb": 1000,
+              }
+              warm_mb = round(number * multipliers[unit.lower()], 2)
+          except Exception as exc:
+              print(f"::warning::warm memory capture failed: {exc}", file=sys.stderr)
+              print("value=")
+              raise SystemExit(0)
+
           report["metrics"]["warm_memory_mb"] = warm_mb
           exit_code, classification, breaches, infra_summary, model_error_count = smoke.evaluate_budgets(
               metrics=report["metrics"],

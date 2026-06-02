@@ -456,10 +456,56 @@ def print_summary(report: dict[str, Any]) -> None:
     print(json.dumps(summary, indent=2, sort_keys=True))  # noqa: T201
 
 
+def _write_infra_inconclusive_report(args: argparse.Namespace, reason: str) -> None:
+    """Persist a minimal infra_inconclusive report so downstream steps can read it."""
+    try:
+        budget = load_budget_file(args.budget_file)
+    except (OSError, ValueError, BudgetValidationError, yaml.YAMLError):
+        budget = {}
+    report = build_report(
+        metrics={
+            "cold_readiness_ms": None,
+            "artifact_load_ms": None,
+            "warm_p50_ms": None,
+            "warm_p95_ms": None,
+            "warm_p99_ms": None,
+            "timeout_rate": 0.0,
+            "warm_memory_mb": args.warm_mem_mb,
+            "cold_memory_mb": args.cold_mem_mb,
+        },
+        budget=budget,
+        breaches={"hard": [], "soft": []},
+        classification="infra_inconclusive",
+        exit_code=INFRA_INCONCLUSIVE,
+        infra_summary={"auth": 0, "upstream": 0, "network": 0},
+        samples=[],
+        model_30_error_count=0,
+    )
+    report["reason"] = reason
+    write_report(args.report_out, report)
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint."""
     try:
         args = parse_args(argv)
+    except (OSError, ValueError, BudgetValidationError, yaml.YAMLError) as exc:
+        print(f"model_30_smoke_check setup error: {exc}", file=sys.stderr)  # noqa: T201
+        return SETUP_ERROR
+
+    if not os.getenv(args.jwt_env_var):
+        reason = (
+            f"Environment variable {args.jwt_env_var} is not set; "
+            "cannot exercise authenticated Model 30 predictions."
+        )
+        print(  # noqa: T201
+            f"::warning::model_30_smoke_check infra_inconclusive: {reason}",
+            file=sys.stderr,
+        )
+        _write_infra_inconclusive_report(args, reason)
+        return INFRA_INCONCLUSIVE
+
+    try:
         exit_code, report = run_smoke_check(args)
         write_report(args.report_out, report)
         print_summary(report)
