@@ -66,8 +66,8 @@ resource "aws_cloudwatch_metric_alarm" "mlflow_memory_warn" {
     ServiceName = "hokusai-mlflow-development"
   }
 
-  alarm_actions = [aws_sns_topic.hokusai_alerts.arn]
-  ok_actions    = [aws_sns_topic.hokusai_alerts.arn]
+  alarm_actions = [data.aws_sns_topic.alerts.arn]
+  ok_actions    = [data.aws_sns_topic.alerts.arn]
 }
 ```
 
@@ -91,8 +91,8 @@ resource "aws_cloudwatch_metric_alarm" "mlflow_memory_critical" {
     ServiceName = "hokusai-mlflow-development"
   }
 
-  alarm_actions = [aws_sns_topic.hokusai_alerts.arn]
-  ok_actions    = [aws_sns_topic.hokusai_alerts.arn]
+  alarm_actions = [data.aws_sns_topic.alerts.arn]
+  ok_actions    = [data.aws_sns_topic.alerts.arn]
 }
 ```
 
