@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import httpx
 import pytest
+from botocore.exceptions import ClientError, NoCredentialsError
 from fastapi import Request
 from starlette.responses import Response
 
@@ -301,6 +302,7 @@ class TestDebitUsage:
             patch("httpx.AsyncClient") as mock_client_cls,
             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
             patch("src.middleware.auth.logger") as mock_logger,
+            patch.object(middleware, "_emit_usage_debit_rejected_metric") as mock_emit_metric,
         ):
             mock_client = AsyncMock()
             mock_client.post.return_value = mock_response
@@ -322,6 +324,7 @@ class TestDebitUsage:
             assert payload["model_id"] == "model-1"
             assert payload["endpoint"] == "/predict"
             assert payload["idempotency_key"].startswith("key123-")
+            mock_emit_metric.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_debit_logs_warning_on_402(self, middleware):
@@ -334,6 +337,7 @@ class TestDebitUsage:
             patch("httpx.AsyncClient") as mock_client_cls,
             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
             patch("src.middleware.auth.logger") as mock_logger,
+            patch.object(middleware, "_emit_usage_debit_rejected_metric") as mock_emit_metric,
         ):
             mock_client = AsyncMock()
             mock_client.post.return_value = mock_response
@@ -355,6 +359,9 @@ class TestDebitUsage:
             assert payload["model_id"] == "model-1"
             assert payload["endpoint"] == "/predict"
             assert payload["idempotency_key"].startswith("key123-")
+            mock_emit_metric.assert_called_once_with(
+                "model-1", rejection_reason="InsufficientBalance"
+            )
 
     @pytest.mark.asyncio
     async def test_debit_no_failure_log_on_2xx(self, middleware):
@@ -503,6 +510,169 @@ class TestDebitUsage:
             # Should only call once (no retry on 4xx)
             mock_client.post.assert_called_once()
             mock_sleep.assert_not_called()
+
+
+class TestUsageDebitRejectedMetric:
+    """Test CloudWatch metric emission for rejected usage debits."""
+
+    @pytest.fixture
+    def mock_app(self):
+        async def app(scope, receive, send):
+            pass
+
+        return app
+
+    @pytest.fixture
+    def middleware(self, mock_app):
+        return APIKeyAuthMiddleware(
+            app=mock_app,
+            auth_service_url="http://test-auth-service",
+            cache=None,
+            excluded_paths=["/health"],
+        )
+
+    def test_emit_metric_success(self, middleware):
+        """Test successful CloudWatch metric emission."""
+        cloudwatch_client = Mock()
+
+        with patch("src.middleware.auth.boto3.client", return_value=cloudwatch_client):
+            middleware._emit_usage_debit_rejected_metric("model-1", "InsufficientBalance")
+
+        cloudwatch_client.put_metric_data.assert_called_once_with(
+            Namespace="Hokusai/API",
+            MetricData=[
+                {
+                    "MetricName": "UsageDebitRejected",
+                    "Dimensions": [
+                        {"Name": "RejectionReason", "Value": "InsufficientBalance"},
+                        {"Name": "ModelId", "Value": "model-1"},
+                    ],
+                    "Value": 1.0,
+                    "Unit": "Count",
+                }
+            ],
+        )
+
+    def test_emit_metric_logs_warning_for_missing_credentials_in_deployed_env(
+        self, middleware, monkeypatch
+    ):
+        """Test deployed environments log a warning when AWS credentials are unavailable."""
+        monkeypatch.setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "/v2/credentials/test")
+        monkeypatch.delenv("ENVIRONMENT", raising=False)
+
+        with (
+            patch("src.middleware.auth.boto3.client") as mock_boto_client,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_boto_client.return_value.put_metric_data.side_effect = NoCredentialsError()
+
+            middleware._emit_usage_debit_rejected_metric("model-1", "InsufficientBalance")
+
+        assert middleware._cloudwatch_disabled is True
+        mock_logger.warning.assert_called_once()
+        warning_msg = mock_logger.warning.call_args[0][0]
+        assert "UsageDebitRejected" in warning_msg
+        assert "credentials" in warning_msg
+
+    def test_emit_metric_logs_debug_for_missing_credentials_in_local_env(
+        self, middleware, monkeypatch
+    ):
+        """Test local and test environments only log debug when AWS credentials are unavailable."""
+        monkeypatch.delenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", raising=False)
+        monkeypatch.setenv("ENVIRONMENT", "test")
+
+        with (
+            patch("src.middleware.auth.boto3.client") as mock_boto_client,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_boto_client.return_value.put_metric_data.side_effect = NoCredentialsError()
+
+            middleware._emit_usage_debit_rejected_metric("model-1", "InsufficientBalance")
+
+        assert middleware._cloudwatch_disabled is True
+        mock_logger.debug.assert_called_once()
+        mock_logger.warning.assert_not_called()
+        mock_logger.error.assert_not_called()
+
+    def test_emit_metric_logs_cloudwatch_client_error(self, middleware):
+        """Test CloudWatch client errors are logged and swallowed."""
+        cloudwatch_client = Mock()
+        cloudwatch_client.put_metric_data.side_effect = ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "Denied"}},
+            "PutMetricData",
+        )
+
+        with (
+            patch("src.middleware.auth.boto3.client", return_value=cloudwatch_client),
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            middleware._emit_usage_debit_rejected_metric("model-1", "InsufficientBalance")
+
+        mock_logger.warning.assert_called_once()
+        warning_msg = mock_logger.warning.call_args[0][0]
+        assert "AccessDenied" in warning_msg
+
+    @pytest.mark.asyncio
+    async def test_non_402_debit_failures_do_not_emit_metric(self, middleware):
+        """Test non-402 client errors do not emit the CloudWatch metric."""
+        mock_response = MagicMock()
+        mock_response.status_code = 422
+        mock_response.text = '{"error":"invalid model_id"}'
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch.object(middleware, "_emit_usage_debit_rejected_metric") as mock_emit_metric,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+        mock_emit_metric.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_successful_debit_does_not_emit_metric(self, middleware):
+        """Test successful debit responses do not emit the rejection metric."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch.object(middleware, "_emit_usage_debit_rejected_metric") as mock_emit_metric,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+        mock_emit_metric.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_402_debit_failure_emits_metric(self, middleware):
+        """Test 402 debit failures emit the rejection metric once."""
+        mock_response = MagicMock()
+        mock_response.status_code = 402
+        mock_response.text = '{"error":"insufficient_balance"}'
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch.object(middleware, "_emit_usage_debit_rejected_metric") as mock_emit_metric,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+        mock_emit_metric.assert_called_once_with("model-1", rejection_reason="InsufficientBalance")
 
 
 class TestDebitPayloadShape:
