@@ -9,6 +9,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import boto3
+import botocore.exceptions
 import httpx
 import redis
 from fastapi import Request
@@ -162,6 +164,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             "/api/v1/dspy/health",
             "/api/health/mlflow",
         ]
+        self._cloudwatch_disabled = False
 
     async def validate_with_auth_service(
         self,  # noqa: ANN101
@@ -561,6 +564,53 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         match = re.search(r"/api/v1/models/([^/]+)", path)
         return match.group(1) if match else None
 
+    def _emit_usage_debit_rejected_metric(  # noqa: ANN101
+        self,  # noqa: ANN101
+        model_id: Optional[str],
+        rejection_reason: str,
+    ) -> None:
+        """Emit UsageDebitRejected metric to CloudWatch without affecting requests."""
+        if self._cloudwatch_disabled:
+            return
+
+        try:
+            region = os.getenv("AWS_REGION", "us-east-1")
+            client = boto3.client("cloudwatch", region_name=region)
+            client.put_metric_data(
+                Namespace="Hokusai/API",
+                MetricData=[
+                    {
+                        "MetricName": "UsageDebitRejected",
+                        "Dimensions": [
+                            {"Name": "RejectionReason", "Value": rejection_reason},
+                            {"Name": "ModelId", "Value": model_id or "unknown"},
+                        ],
+                        "Value": 1.0,
+                        "Unit": "Count",
+                    }
+                ],
+            )
+        except (
+            botocore.exceptions.NoCredentialsError,
+            botocore.exceptions.PartialCredentialsError,
+        ):
+            self._cloudwatch_disabled = True
+            is_deployed = bool(os.getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")) or os.getenv(
+                "ENVIRONMENT", ""
+            ).lower() in ("development", "staging", "production")
+            if is_deployed:
+                logger.warning(
+                    "UsageDebitRejected metric: AWS credentials unavailable; "
+                    "check ECS task IAM role for cloudwatch:PutMetricData"
+                )
+            else:
+                logger.debug("UsageDebitRejected metric: no AWS credentials (local/test env)")
+        except botocore.exceptions.ClientError as exc:
+            error_code = exc.response["Error"]["Code"]
+            logger.warning(f"UsageDebitRejected metric: CloudWatch error {error_code}: {exc}")
+        except Exception as exc:
+            logger.warning(f"UsageDebitRejected metric: unexpected error: {exc}")
+
     async def _debit_usage(  # noqa: C901
         self,  # noqa: ANN101
         key_id: str,
@@ -657,6 +707,9 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                                 },
                             )
                             sentry_sdk.capture_message("usage.debit.rejected", level="warning")
+                        self._emit_usage_debit_rejected_metric(
+                            model_id, rejection_reason="InsufficientBalance"
+                        )
                         return "rejected"
 
                     failure_fields = {
