@@ -22,6 +22,13 @@ from src.api.utils.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+_UPSTREAM_SCHEMA_ERROR_MARKERS = (
+    "psycopg2.errors.UndefinedTable",
+    "UndefinedTable",
+    "ProgrammingError",
+)
+_LOG_RESPONSE_BODY_LIMIT = 2048
+
 
 @dataclass
 class ValidationResult:
@@ -159,6 +166,44 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         ]
         self._cloudwatch_disabled = False
 
+    def _truncate_response_body(self, body: Optional[str]) -> str:  # noqa: ANN101
+        """Keep logged upstream bodies bounded."""
+        return (body or "")[:_LOG_RESPONSE_BODY_LIMIT]
+
+    def _get_upstream_schema_error_marker(self, body: Optional[str]) -> Optional[str]:  # noqa: ANN101
+        """Return the first matching schema-error marker from an upstream response body."""
+        if not body:
+            return None
+        for marker in _UPSTREAM_SCHEMA_ERROR_MARKERS:
+            if marker in body:
+                return marker
+        return None
+
+    def _log_auth_service_schema_error(
+        self: "APIKeyAuthMiddleware",
+        *,
+        status_code: int,
+        endpoint: str,
+        response_body: Optional[str],
+        error_marker: str,
+        key_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> None:
+        """Emit structured attribution for deterministic upstream schema failures."""
+        logger.warning(
+            json.dumps(
+                {
+                    "event": "auth_service_schema_error",
+                    "status_code": status_code,
+                    "endpoint": endpoint,
+                    "response_body": self._truncate_response_body(response_body),
+                    "error_marker": error_marker,
+                    "key_id": key_id,
+                    "idempotency_key": idempotency_key,
+                }
+            )
+        )
+
     async def validate_with_auth_service(
         self,  # noqa: ANN101
         api_key: str,
@@ -209,6 +254,15 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 elif response.status_code == 429:
                     return ValidationResult(is_valid=False, error="Rate limit exceeded")
                 else:
+                    if response.status_code >= 500:
+                        error_marker = self._get_upstream_schema_error_marker(response.text)
+                        if error_marker:
+                            self._log_auth_service_schema_error(
+                                status_code=response.status_code,
+                                endpoint="/api/v1/keys/validate",
+                                response_body=response.text,
+                                error_marker=error_marker,
+                            )
                     logger.error(f"Auth service returned {response.status_code}")
                     return ValidationResult(is_valid=False, error="Authentication service error")
 
@@ -643,23 +697,42 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                     if response.status_code < 300:
                         return
 
+                    response_body = self._truncate_response_body(response.text)
+
                     failure_fields = {
                         "event": "usage_debit_failure",
                         "status_code": response.status_code,
-                        "response_body": (response.text or "")[:2048],
+                        "response_body": response_body,
                         "key_id": key_id,
                         "model_id": model_id,
                         "endpoint": endpoint,
                         "idempotency_key": idempotency_key,
                     }
-                    logger.warning(json.dumps(failure_fields))
 
                     if response.status_code < 500:
+                        logger.warning(json.dumps(failure_fields))
                         if response.status_code == 402:
                             self._emit_usage_debit_rejected_metric(
                                 model_id, rejection_reason="InsufficientBalance"
                             )
                         return  # Client error — don't retry
+
+                    error_marker = self._get_upstream_schema_error_marker(response.text)
+                    if error_marker:
+                        self._log_auth_service_schema_error(
+                            status_code=response.status_code,
+                            endpoint=endpoint,
+                            response_body=response.text,
+                            error_marker=error_marker,
+                            key_id=key_id,
+                            idempotency_key=idempotency_key,
+                        )
+                        self._emit_usage_debit_rejected_metric(
+                            model_id, rejection_reason="UpstreamSchemaError"
+                        )
+                        return
+
+                    logger.warning(json.dumps(failure_fields))
 
                     if attempt == max_retries - 1:
                         logger.error(

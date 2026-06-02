@@ -138,6 +138,10 @@ class TestDebitUsage:
     def _warning_payload(mock_logger):
         return json.loads(mock_logger.warning.call_args[0][0])
 
+    @staticmethod
+    def _warning_payload_at(mock_logger, index):
+        return json.loads(mock_logger.warning.call_args_list[index][0][0])
+
     @pytest.mark.asyncio
     async def test_debit_called_after_successful_prediction(self, middleware):
         """Test that _debit_usage is called after a successful response."""
@@ -471,6 +475,79 @@ class TestDebitUsage:
             assert error_payload["idempotency_key"].startswith("key123-")
 
     @pytest.mark.asyncio
+    async def test_debit_skips_retries_on_upstream_schema_error(self, middleware):
+        """Test deterministic upstream schema errors are attributed and not retried."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = (
+            'psycopg2.errors.UndefinedTable: relation "stripe_customers" does not exist'
+        )
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            patch("src.middleware.auth.logger") as mock_logger,
+            patch.object(middleware, "_emit_usage_debit_rejected_metric") as mock_emit_metric,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+            mock_client.post.assert_called_once()
+            mock_sleep.assert_not_called()
+            mock_logger.warning.assert_called_once()
+            mock_logger.error.assert_not_called()
+
+            payload = self._warning_payload(mock_logger)
+            assert payload["event"] == "auth_service_schema_error"
+            assert payload["status_code"] == 500
+            assert payload["endpoint"] == "/predict"
+            assert payload["response_body"] == mock_response.text
+            assert payload["error_marker"] == "psycopg2.errors.UndefinedTable"
+            assert payload["key_id"] == "key123"
+            assert payload["idempotency_key"].startswith("key123-")
+            mock_emit_metric.assert_called_once_with(
+                "model-1", rejection_reason="UpstreamSchemaError"
+            )
+
+    @pytest.mark.asyncio
+    async def test_debit_generic_500_still_retries(self, middleware):
+        """Test generic upstream 500s still use the retry path."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = "<html>Internal Server Error</html>"
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+            patch("src.middleware.auth.logger") as mock_logger,
+            patch.object(middleware, "_emit_usage_debit_rejected_metric") as mock_emit_metric,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+            assert mock_client.post.call_count == 3
+            assert mock_logger.warning.call_count == 3
+            mock_logger.error.assert_called_once()
+            assert mock_sleep.call_count == 2
+            mock_emit_metric.assert_not_called()
+
+            for index in range(3):
+                payload = self._warning_payload_at(mock_logger, index)
+                assert payload["event"] == "usage_debit_failure"
+                assert payload["status_code"] == 500
+                assert payload["response_body"] == mock_response.text
+
+    @pytest.mark.asyncio
     async def test_debit_endpoint_url(self, middleware):
         """Test that debit calls the correct endpoint URL."""
         mock_response = MagicMock()
@@ -673,6 +750,58 @@ class TestUsageDebitRejectedMetric:
             await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
 
         mock_emit_metric.assert_called_once_with("model-1", rejection_reason="InsufficientBalance")
+
+
+class TestValidateWithAuthService:
+    """Test auth-service validation behavior for upstream failures."""
+
+    @pytest.fixture
+    def mock_app(self):
+        async def app(scope, receive, send):
+            pass
+
+        return app
+
+    @pytest.fixture
+    def middleware(self, mock_app):
+        return APIKeyAuthMiddleware(
+            app=mock_app,
+            auth_service_url="http://test-auth-service",
+            cache=None,
+            excluded_paths=["/health"],
+        )
+
+    @pytest.mark.asyncio
+    async def test_validate_logs_attribution_on_upstream_schema_error(self, middleware):
+        """Test validate path attributes deterministic upstream schema errors."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.text = (
+            'psycopg2.errors.UndefinedTable: relation "stripe_customers" does not exist'
+        )
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            result = await middleware.validate_with_auth_service("test-key")
+
+            warning_payload = json.loads(mock_logger.warning.call_args[0][0])
+            assert warning_payload["event"] == "auth_service_schema_error"
+            assert warning_payload["status_code"] == 500
+            assert warning_payload["endpoint"] == "/api/v1/keys/validate"
+            assert warning_payload["response_body"] == mock_response.text
+            assert warning_payload["error_marker"] == "psycopg2.errors.UndefinedTable"
+            assert warning_payload["key_id"] is None
+            assert warning_payload["idempotency_key"] is None
+            mock_logger.error.assert_called_once_with("Auth service returned 500")
+            assert result == ValidationResult(is_valid=False, error="Authentication service error")
 
 
 class TestDebitPayloadShape:
