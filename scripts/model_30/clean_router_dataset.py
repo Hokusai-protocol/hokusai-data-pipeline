@@ -1,13 +1,20 @@
-"""Clean and validate Wavemill router exports for Model 30 registration."""
+"""Clean and validate Wavemill router exports for Model 30 registration.
+
+Positive `actual_time_seconds` values are treated as duration evidence. Zero or
+negative durations are normalized to a blank cell unless the source explicitly
+marks an exact zero as measured via `actual_time_seconds_measured_zero`.
+"""
 
 from __future__ import annotations
 
 import argparse
 import csv
 import json
+import math
 import sys
 from collections import Counter
 from pathlib import Path
+from statistics import mean, median
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -33,6 +40,10 @@ ROLE_SELECTED_MODEL_COLUMNS = {
     "available_reviewer_models": "reviewer_model",
 }
 
+DURATION_COLUMN = "actual_time_seconds"
+MEASURED_ZERO_COLUMN = "actual_time_seconds_measured_zero"
+TRUTHY_VALUES = {"1", "true", "yes", "y"}
+
 
 def clean_router_datasets(
     input_paths: list[Path],
@@ -56,6 +67,8 @@ def clean_router_datasets(
 
     drop_reasons: Counter[str] = Counter()
     removed_available_model_ids: Counter[str] = Counter()
+    duration_counts: Counter[str] = Counter()
+    positive_durations: list[float] = []
 
     for row_number, row in rows:
         row_copy = dict(row)
@@ -64,12 +77,19 @@ def clean_router_datasets(
             drop_reasons[drop_reason] += 1
             continue
 
+        normalized_duration, positive_duration, duration_category = _normalize_duration(row_copy)
+        if DURATION_COLUMN in row_copy:
+            row_copy[DURATION_COLUMN] = normalized_duration
+
         fingerprint = json.dumps(row_copy, sort_keys=True, separators=(",", ":"))
         if fingerprint in seen_rows:
             report["duplicate_rows_skipped"] += 1
             continue
         seen_rows.add(fingerprint)
         cleaned_rows.append(row_copy)
+        duration_counts[duration_category] += 1
+        if positive_duration is not None:
+            positive_durations.append(positive_duration)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", newline="", encoding="utf-8") as output_file:
@@ -82,6 +102,11 @@ def clean_router_datasets(
     report["dropped_rows"] = sum(drop_reasons.values())
     report["drop_reasons"] = dict(sorted(drop_reasons.items()))
     report["removed_available_model_ids"] = dict(sorted(removed_available_model_ids.items()))
+    report["duration_coverage"] = _build_duration_coverage_report(
+        len(cleaned_rows),
+        duration_counts,
+        positive_durations,
+    )
     report["validation"] = summary.to_mlflow_dict()
 
     if report_path is not None:
@@ -154,6 +179,59 @@ def _clean_row(
 
     del row_number
     return None
+
+
+def _is_truthy(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in TRUTHY_VALUES
+
+
+def _parse_duration(value: str | None) -> float | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    try:
+        parsed = float(stripped)
+    except ValueError:
+        return None
+    if not math.isfinite(parsed):
+        return None
+    return parsed
+
+
+def _normalize_duration(row: dict[str, str]) -> tuple[str, float | None, str]:
+    raw_value = row.get(DURATION_COLUMN)
+    stripped_value = raw_value.strip() if raw_value is not None else ""
+    parsed_value = _parse_duration(raw_value)
+    if parsed_value is None:
+        return "", None, "originally_missing"
+    if parsed_value > 0:
+        return stripped_value, parsed_value, "positive"
+    if parsed_value == 0 and _is_truthy(row.get(MEASURED_ZERO_COLUMN)):
+        return stripped_value or "0", None, "measured_zero"
+    return "", None, "nonpositive_normalized"
+
+
+def _build_duration_coverage_report(
+    output_rows: int,
+    duration_counts: Counter[str],
+    positive_durations: list[float],
+) -> dict[str, Any]:
+    originally_missing = duration_counts["originally_missing"]
+    nonpositive_normalized = duration_counts["nonpositive_normalized"]
+    positive_count = duration_counts["positive"]
+    return {
+        "total_rows": output_rows,
+        "missing": originally_missing + nonpositive_normalized,
+        "originally_missing": originally_missing,
+        "nonpositive_normalized": nonpositive_normalized,
+        "positive_count": positive_count,
+        "positive_median_seconds": median(positive_durations) if positive_durations else None,
+        "positive_mean_seconds": mean(positive_durations) if positive_durations else None,
+    }
 
 
 def parse_args() -> argparse.Namespace:

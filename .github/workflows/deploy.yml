@@ -134,6 +134,7 @@ jobs:
       ECS_SUBNET: subnet-08cb7663096ac0017
       ECS_SECURITY_GROUP: sg-0864e6f6aee2a5cf4
       LOG_GROUP: /ecs/hokusai-api-development
+      HOKUSAI_CONTRIBUTIONS_BUCKET: ${{ vars.HOKUSAI_CONTRIBUTIONS_BUCKET }}
 
     steps:
     - name: Checkout code
@@ -148,6 +149,11 @@ jobs:
     - name: Register migration task definition with new image
       id: register-td
       run: |
+        if [ -z "${HOKUSAI_CONTRIBUTIONS_BUCKET:-}" ]; then
+          echo "::error::HOKUSAI_CONTRIBUTIONS_BUCKET GitHub Actions variable is required"
+          exit 1
+        fi
+
         ECR_REGISTRY=$(aws ecr describe-repositories --repository-names $ECR_REPOSITORY_API --query 'repositories[0].repositoryUri' --output text | cut -d'/' -f1)
         IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY_API:${{ github.sha }}"
 
@@ -155,8 +161,12 @@ jobs:
         # and register a new revision. The migration one-shot runs against
         # this revision; we don't update the API service to it here.
         TASK_DEF=$(aws ecs describe-task-definition --task-definition "$API_TASK_FAMILY" --query 'taskDefinition')
-        NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$IMAGE" '
+        NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$IMAGE" --arg HOKUSAI_CONTRIBUTIONS_BUCKET "$HOKUSAI_CONTRIBUTIONS_BUCKET" '
           .containerDefinitions[0].image = $IMAGE |
+          .containerDefinitions[0].environment =
+            ((.containerDefinitions[0].environment // [])
+              | map(select(.name != "HOKUSAI_CONTRIBUTIONS_BUCKET"))
+              + [{name: "HOKUSAI_CONTRIBUTIONS_BUCKET", value: $HOKUSAI_CONTRIBUTIONS_BUCKET}]) |
           del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
         ')
         echo "$NEW_TASK_DEF" > /tmp/migrate-task-def.json
@@ -214,6 +224,9 @@ jobs:
       id-token: write
       contents: read
       issues: write
+
+    env:
+      HOKUSAI_CONTRIBUTIONS_BUCKET: ${{ vars.HOKUSAI_CONTRIBUTIONS_BUCKET }}
     
     steps:
     - name: Checkout code
@@ -243,6 +256,11 @@ jobs:
           echo "Skipping deployment for now..."
           exit 0
         fi
+
+        if [ -z "${HOKUSAI_CONTRIBUTIONS_BUCKET:-}" ]; then
+          echo "::error::HOKUSAI_CONTRIBUTIONS_BUCKET GitHub Actions variable is required"
+          exit 1
+        fi
         
         # Get ECR registry URL
         ECR_REGISTRY=$(aws ecr describe-repositories --repository-names hokusai-api --query 'repositories[0].repositoryUri' --output text | cut -d'/' -f1)
@@ -257,7 +275,14 @@ jobs:
         if aws ecs describe-task-definition --task-definition hokusai-api-development >/dev/null 2>&1; then
           echo "✅ Updating existing API task definition..."
           TASK_DEF=$(aws ecs describe-task-definition --task-definition hokusai-api-development --query 'taskDefinition')
-          NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$ECR_REGISTRY/hokusai-api:$IMAGE_TAG" '.containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$ECR_REGISTRY/hokusai-api:$IMAGE_TAG" --arg HOKUSAI_CONTRIBUTIONS_BUCKET "$HOKUSAI_CONTRIBUTIONS_BUCKET" '
+            .containerDefinitions[0].image = $IMAGE |
+            .containerDefinitions[0].environment =
+              ((.containerDefinitions[0].environment // [])
+                | map(select(.name != "HOKUSAI_CONTRIBUTIONS_BUCKET"))
+                + [{name: "HOKUSAI_CONTRIBUTIONS_BUCKET", value: $HOKUSAI_CONTRIBUTIONS_BUCKET}]) |
+            del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
+          ')
           echo "$NEW_TASK_DEF" > /tmp/api-task-def.json
           API_TASK_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/api-task-def.json --query 'taskDefinition.taskDefinitionArn' --output text)
           API_AVAILABLE=true

@@ -38,6 +38,15 @@ The cleaner is deterministic:
 - De-duplicates identical cleaned rows.
 - Runs the registration validator against the output before exiting successfully.
 
+### Duration Label Hygiene
+
+`actual_time_seconds > 0` is the only positive duration evidence used by Model 30.
+The cleaner normalizes zero, negative, malformed, and blank duration values to a
+missing CSV cell unless `actual_time_seconds_measured_zero` explicitly marks an
+exact zero as measured. Rows with missing duration are still retained so cost and
+reliability labels remain available. If a dataset has no positive duration evidence,
+duration estimates should be treated as unavailable rather than inferred from zero.
+
 ## Validation Gate
 
 `scripts/model_30/register_technical_task_router.py` rejects the dataset if any selected or available model identifier does not start with one of the public model-family prefixes:
