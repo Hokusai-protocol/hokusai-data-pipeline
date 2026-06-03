@@ -698,8 +698,11 @@ def _estimate_strategy_cost(
 def _estimate_strategy_duration(rows: pd.DataFrame) -> float | None:
     if rows.empty or "actual_time_seconds" not in rows.columns:
         return None
-    duration = _median_number(rows["actual_time_seconds"])
-    return round(max(0.0, float(duration)), 6) if duration is not None else None
+    positives = _positive_duration_values(rows["actual_time_seconds"])
+    if not positives:
+        return None
+    median = _median_number(positives)
+    return round(median, 6) if median is not None else None
 
 
 def _estimate_strategy_confidence(
@@ -784,18 +787,18 @@ def _nearest_neighbors_summary(neighbors: pd.DataFrame) -> dict[str, Any]:
         budget_rate = _mean_bool(neighbors["under_budget"], default=0.0)
         success_rate = (success_rate + budget_rate) / 2.0
     mean_cost = _mean_number(neighbors["actual_cost_usd"], default=0.0)
-    mean_duration = (
-        _mean_number(neighbors["actual_time_seconds"], default=0.0)
-        if "actual_time_seconds" in neighbors.columns
-        else None
-    )
+    if "actual_time_seconds" in neighbors.columns:
+        duration_positives = _positive_duration_values(neighbors["actual_time_seconds"])
+        mean_duration = (
+            sum(duration_positives) / len(duration_positives) if duration_positives else None
+        )
+    else:
+        mean_duration = None
     return {
         "count": int(len(neighbors)),
         "success_under_budget_rate": round(_clamp(success_rate, 0.0, 1.0), 6),
         "mean_cost_usd": round(max(0.0, mean_cost), 6),
-        "mean_duration_seconds": round(max(0.0, mean_duration), 6)
-        if mean_duration is not None
-        else None,
+        "mean_duration_seconds": round(mean_duration, 6) if mean_duration is not None else None,
     }
 
 
@@ -837,6 +840,11 @@ def _cost_penalty(cost: float | None, max_cost: float | None) -> float:
     if max_cost is not None and max_cost > 0 and cost > max_cost:
         return min((cost - max_cost) / max(max_cost, 1.0), 0.35)
     return min(cost / 100.0, 0.1)
+
+
+def _positive_duration_values(values: Iterable[Any]) -> list[float]:
+    """Return finite numeric values that are strictly positive from a duration iterable."""
+    return [float(v) for v in values if _is_finite_number(v) and float(v) > 0.0]
 
 
 def _mean_bool(values: Iterable[Any], *, default: float) -> float:
