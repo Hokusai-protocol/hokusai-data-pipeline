@@ -1237,3 +1237,272 @@ class TestCacheTTL:
         cached_json = json.loads(cache_call_args[0][2])
         assert cached_json["has_sufficient_balance"] is True
         assert cached_json["balance"] == 25.50
+
+
+def _make_authenticated_request(path: str, method: str = "POST") -> MagicMock:
+    """Build a mock Request with the given path and method."""
+    request = MagicMock(spec=Request)
+    request.url.path = path
+    request.method = method
+    request.headers = {"authorization": "Bearer test-key"}
+    request.query_params = {}
+    request.client = MagicMock(host="127.0.0.1")
+    request.state = SimpleNamespace()
+    return request
+
+
+def _valid_platform_validation(**overrides) -> ValidationResult:
+    base = {
+        "is_valid": True,
+        "user_id": "user123",
+        "key_id": "key123",
+        "service_id": "platform",
+        "scopes": ["model:read"],
+        "rate_limit_per_hour": 1000,
+        "has_sufficient_balance": True,
+        "balance": 10.0,
+    }
+    base.update(overrides)
+    return ValidationResult(**base)
+
+
+class TestContributionDebitBypass:
+    """Contribution ingestion route must bypass the usage debit while keeping auth context."""
+
+    @pytest.fixture
+    def mock_app(self):
+        async def app(scope, receive, send):
+            pass
+
+        return app
+
+    @pytest.fixture
+    def middleware(self, mock_app):
+        return APIKeyAuthMiddleware(
+            app=mock_app,
+            auth_service_url="http://test-auth-service",
+            cache=None,
+            excluded_paths=["/health"],
+        )
+
+    # -------------------------------------------------------------------------
+    # 1. Contribution POST skips debit
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_contribution_post_skips_debit(self, middleware):
+        """POST /api/v1/models/{model_id}/contributions must not call _debit_usage."""
+        request = _make_authenticated_request("/api/v1/models/30/contributions")
+
+        with (
+            patch.object(
+                middleware, "validate_with_auth_service", return_value=_valid_platform_validation()
+            ),
+            patch.object(middleware, "_debit_usage", new_callable=AsyncMock) as mock_debit,
+        ):
+
+            async def mock_call_next(req):
+                return Response(content="OK", status_code=200)
+
+            response = await middleware.dispatch(request, mock_call_next)
+
+        assert response.status_code == 200
+        mock_debit.assert_not_called()
+
+    # -------------------------------------------------------------------------
+    # 2. Contribution POST preserves authenticated context
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_contribution_post_preserves_auth_context(self, middleware):
+        """Downstream handler must receive the full auth context even when debit is bypassed."""
+        request = _make_authenticated_request("/api/v1/models/30/contributions")
+        vr = _valid_platform_validation(
+            user_id="u-abc",
+            key_id="k-xyz",
+            service_id="platform",
+            scopes=["model:read", "data:write"],
+            rate_limit_per_hour=500,
+        )
+
+        captured_state = {}
+
+        with (
+            patch.object(middleware, "validate_with_auth_service", return_value=vr),
+            patch.object(middleware, "_debit_usage", new_callable=AsyncMock),
+        ):
+
+            async def mock_call_next(req):
+                captured_state["user_id"] = req.state.user_id
+                captured_state["api_key_id"] = req.state.api_key_id
+                captured_state["service_id"] = req.state.service_id
+                captured_state["scopes"] = req.state.scopes
+                captured_state["rate_limit_per_hour"] = req.state.rate_limit_per_hour
+                return Response(content="OK", status_code=200)
+
+            await middleware.dispatch(request, mock_call_next)
+
+        assert captured_state["user_id"] == "u-abc"
+        assert captured_state["api_key_id"] == "k-xyz"
+        assert captured_state["service_id"] == "platform"
+        assert captured_state["scopes"] == ["model:read", "data:write"]
+        assert captured_state["rate_limit_per_hour"] == 500
+
+    # -------------------------------------------------------------------------
+    # 3. Zero/negative-balance keys can submit contributions
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("balance", [0.0, -10.0])
+    async def test_contribution_post_passes_for_zero_or_negative_balance(self, middleware, balance):
+        """Zero and negative balance on a platform key must not block contribution submissions."""
+        request = _make_authenticated_request("/api/v1/models/30/contributions")
+        # Platform validation returns has_sufficient_balance=True even at zero balance
+        vr = _valid_platform_validation(has_sufficient_balance=True, balance=balance)
+
+        with (
+            patch.object(middleware, "validate_with_auth_service", return_value=vr),
+            patch.object(middleware, "_debit_usage", new_callable=AsyncMock) as mock_debit,
+        ):
+
+            async def mock_call_next(req):
+                return Response(content="OK", status_code=200)
+
+            response = await middleware.dispatch(request, mock_call_next)
+
+        assert response.status_code == 200
+        mock_debit.assert_not_called()
+
+    # -------------------------------------------------------------------------
+    # 4. Route matching variants
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/api/v1/models/30/contributions",
+            "/api/v1/models/30/contributions/",
+            "/api/v1/models/abc-123/contributions",
+        ],
+    )
+    async def test_contribution_bypass_matches_expected_paths(self, middleware, path):
+        """Bypass applies for all valid contribution ingestion paths."""
+        request = _make_authenticated_request(path)
+
+        with (
+            patch.object(
+                middleware, "validate_with_auth_service", return_value=_valid_platform_validation()
+            ),
+            patch.object(middleware, "_debit_usage", new_callable=AsyncMock) as mock_debit,
+        ):
+
+            async def mock_call_next(req):
+                return Response(content="OK", status_code=200)
+
+            response = await middleware.dispatch(request, mock_call_next)
+
+        assert response.status_code == 200
+        mock_debit.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("path", "method"),
+        [
+            ("/api/v1/models/30/contributions", "GET"),
+            ("/api/v1/models/30/contributions/extra", "POST"),
+            ("/api/v1/contributions", "POST"),
+            ("/contributions", "POST"),
+            ("/api/v1/models/30/predict", "POST"),
+        ],
+    )
+    async def test_contribution_bypass_does_not_match_other_paths(self, middleware, path, method):
+        """Bypass must NOT apply to GET contributions, sub-paths, or unrelated routes."""
+        request = _make_authenticated_request(path, method=method)
+
+        with (
+            patch.object(
+                middleware, "validate_with_auth_service", return_value=_valid_platform_validation()
+            ),
+            patch.object(
+                middleware, "_debit_usage", new_callable=AsyncMock, return_value="accepted"
+            ) as mock_debit,
+        ):
+
+            async def mock_call_next(req):
+                return Response(content="OK", status_code=200)
+
+            await middleware.dispatch(request, mock_call_next)
+
+        # The debit path runs for non-contribution routes
+        mock_debit.assert_awaited_once()
+
+    # -------------------------------------------------------------------------
+    # 5. Prediction route still debits
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_prediction_post_still_calls_debit(self, middleware):
+        """POST /api/v1/models/{model_id}/predict must still call _debit_usage."""
+        request = _make_authenticated_request("/api/v1/models/30/predict")
+
+        with (
+            patch.object(
+                middleware, "validate_with_auth_service", return_value=_valid_platform_validation()
+            ),
+            patch.object(
+                middleware, "_debit_usage", new_callable=AsyncMock, return_value="accepted"
+            ) as mock_debit,
+        ):
+
+            async def mock_call_next(req):
+                return Response(content="OK", status_code=200)
+
+            response = await middleware.dispatch(request, mock_call_next)
+
+        assert response.status_code == 200
+        mock_debit.assert_awaited_once_with(
+            "key123",
+            "30",
+            "/api/v1/models/30/predict",
+            0,
+            0,
+            request_id=None,
+            account_id="user123",
+            request_state=request.state,
+        )
+
+    # -------------------------------------------------------------------------
+    # 6. Prediction route returns 402 on debit rejection
+    # -------------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_prediction_post_returns_402_on_debit_rejection(self, middleware):
+        """Prediction route must return 402 with structured body when debit is rejected."""
+        request = _make_authenticated_request("/api/v1/models/30/predict")
+        call_next = AsyncMock(return_value=Response(content="OK", status_code=200))
+
+        with (
+            patch.object(
+                middleware, "validate_with_auth_service", return_value=_valid_platform_validation()
+            ),
+            patch.object(middleware, "_debit_usage", new_callable=AsyncMock) as mock_debit,
+        ):
+
+            async def debit_side_effect(*args, **kwargs):
+                request.state._debit_reject_reason = "Balance too low"
+                request.state._debit_reject_reason_code = "insufficient_balance"
+                return "rejected"
+
+            mock_debit.side_effect = debit_side_effect
+
+            response = await middleware.dispatch(request, call_next)
+
+        assert response.status_code == 402
+        body = json.loads(response.body.decode())
+        assert body == {
+            "error": "usage_debit_rejected",
+            "reason": "Balance too low",
+            "reason_code": "insufficient_balance",
+        }
+        call_next.assert_not_awaited()

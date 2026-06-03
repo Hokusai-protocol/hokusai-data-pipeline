@@ -34,6 +34,7 @@ _UPSTREAM_SCHEMA_ERROR_MARKERS = (
 )
 _LOG_RESPONSE_BODY_LIMIT = 2048
 _DEBIT_REJECTED_HTTP_STATUS = 402
+_CONTRIBUTION_INGESTION_PATH_RE = re.compile(r"^/api/v1/models/[^/]+/contributions/?$")
 
 
 @dataclass
@@ -393,6 +394,17 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
         return False
 
+    def _is_contribution_ingestion_request(self, request: Request) -> bool:  # noqa: ANN101
+        """Return True for POST /api/v1/models/{model_id}/contributions requests.
+
+        These are free data-submission routes that must not trigger a usage debit.
+        Authentication and request-state population still happen before this check.
+        """
+        return (
+            request.method.upper() == "POST"
+            and _CONTRIBUTION_INGESTION_PATH_RE.fullmatch(request.url.path) is not None
+        )
+
     def _is_internal_request(self, client_ip: str) -> bool:  # noqa: ANN101
         """Detect if request is from internal service.
 
@@ -573,6 +585,18 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         request.state.service_id = validation_result.service_id
         request.state.scopes = validation_result.scopes
         request.state.rate_limit_per_hour = validation_result.rate_limit_per_hour
+
+        # Contribution ingestion is free — skip debit and forward directly to handler.
+        if self._is_contribution_ingestion_request(request):
+            logger.debug(
+                "contribution ingestion bypass: skipping debit",
+                extra={
+                    "path": request.url.path,
+                    "method": request.method,
+                    "key_id": validation_result.key_id,
+                },
+            )
+            return await call_next(request)
 
         # Debit usage before the model handler runs so 402 can be returned to the client.
         if validation_result.key_id:
