@@ -338,3 +338,149 @@ def test_mlflow_pyfunc_save_load_and_predict_smoke(tmp_path: Path) -> None:
 
     assert result.iloc[0]["selected_model"] == "claude-sonnet-4-6"
     assert result.iloc[0]["selected_models"] == ["claude-sonnet-4-6"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HOK-1928: duration evidence filtering — ignore nonpositive/missing durations
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _dur_rows(
+    model: str,
+    durations: list,
+    *,
+    include_duration_column: bool = True,
+) -> list[dict]:
+    """Build minimal router dataset rows for one model with given duration values.
+
+    Pass ``include_duration_column=False`` to produce rows without the
+    ``actual_time_seconds`` column (simulates a dataset that never recorded it).
+    When the flag is True, ``None`` items become ``NaN`` in the resulting
+    DataFrame, simulating blank/missing duration cells in an otherwise-present
+    column.
+    """
+    rows = []
+    for dur in durations:
+        row: dict = {
+            "task_type": "feature",
+            "language": "py",
+            "domain": "backend",
+            "repo_size_bucket": "medium",
+            "files_touched_bucket": "2_5",
+            "description_length_bucket": "medium",
+            "risk_level": "low",
+            "completed_successfully": True,
+            "score": 0.9,
+            "planner_model": model,
+            "coder_model": model,
+            "reviewer_model": model,
+            "expected_cost_usd": 0.1,
+            "actual_cost_usd": 0.1,
+        }
+        if include_duration_column:
+            row["actual_time_seconds"] = dur
+        rows.append(row)
+    return rows
+
+
+def _predict_duration_scenario(
+    tmp_path: Path,
+    rows: list[dict],
+    *,
+    routing_objective: str = "highest_reliability",
+    workflow_stages: list[str] | None = None,
+    available_coder_models: list[str] | None = None,
+) -> dict:
+    """Load a router model from ``rows`` and run a single prediction."""
+    df = pd.DataFrame(rows)
+    csv_path = tmp_path / "test-router-dataset.csv"
+    df.to_csv(csv_path, index=False)
+
+    router = TechnicalTaskRouterModel(k_neighbors=len(rows))
+    router.load_context(SimpleNamespace(artifacts={ROUTER_DATASET_ARTIFACT: str(csv_path)}))
+
+    feature_row: dict = {
+        "task_type": "feature",
+        "language": "py",
+        "domain": "backend",
+        "repo_size_bucket": "medium",
+        "description_length_bucket": "medium",
+        "risk_level": "low",
+        "routing_objective": routing_objective,
+    }
+    if workflow_stages is not None:
+        feature_row["workflow_stages"] = json.dumps(workflow_stages)
+    if available_coder_models is not None:
+        feature_row["available_coder_models"] = json.dumps(available_coder_models)
+
+    result = router.predict(None, pd.DataFrame([feature_row]))
+    return result.iloc[0].to_dict()
+
+
+def test_duration_all_zero_produces_null(tmp_path: Path) -> None:
+    rows = _dur_rows("model-a", [0, 0, 0])
+    out = _predict_duration_scenario(tmp_path, rows)
+
+    assert out["recommended_strategy"]["estimated_duration_seconds"] is None
+    assert out["nearest_neighbors"]["mean_duration_seconds"] is None
+
+
+def test_duration_mixed_zero_and_positive_uses_positive_values_only(tmp_path: Path) -> None:
+    # Positives: [10, 20, 30] → median = 20.0, mean = 20.0
+    rows = _dur_rows("model-a", [0, 0, 10, 20, 30])
+    out = _predict_duration_scenario(tmp_path, rows)
+
+    assert out["recommended_strategy"]["estimated_duration_seconds"] == 20.0
+    assert out["nearest_neighbors"]["mean_duration_seconds"] == 20.0
+
+
+def test_duration_nonpositive_and_missing_produces_null(tmp_path: Path) -> None:
+    # Zero, negative, and NaN durations — all should be ignored.
+    rows = _dur_rows("model-a", [0, -5, None])
+    out = _predict_duration_scenario(tmp_path, rows)
+
+    assert out["recommended_strategy"]["estimated_duration_seconds"] is None
+    assert out["nearest_neighbors"]["mean_duration_seconds"] is None
+
+
+def test_duration_missing_column_produces_null(tmp_path: Path) -> None:
+    rows = _dur_rows("model-a", [1, 2, 3], include_duration_column=False)
+    out = _predict_duration_scenario(tmp_path, rows)
+
+    assert out["recommended_strategy"]["estimated_duration_seconds"] is None
+    assert out["nearest_neighbors"]["mean_duration_seconds"] is None
+
+
+def test_fastest_completion_prefers_known_duration_over_null(tmp_path: Path) -> None:
+    # model-null has only zero durations → None; model-fast has positive durations.
+    # With workflow_stages=["code"], only coder role is active, so strategy
+    # separation is clean: each model's rows map to exactly one strategy.
+    rows = _dur_rows("model-null", [0, 0, 0]) + _dur_rows("model-fast", [50, 50, 50])
+    out = _predict_duration_scenario(
+        tmp_path,
+        rows,
+        routing_objective="fastest_completion",
+        workflow_stages=["code"],
+        available_coder_models=["model-null", "model-fast"],
+    )
+
+    strategy = out["recommended_strategy"]
+    assert strategy["coder_model"] == "model-fast"
+    assert strategy["estimated_duration_seconds"] == 50.0
+
+
+def test_fastest_completion_returns_null_duration_when_all_unknown(tmp_path: Path) -> None:
+    rows = _dur_rows("model-a", [0, 0]) + _dur_rows("model-b", [0, 0])
+    out = _predict_duration_scenario(
+        tmp_path,
+        rows,
+        routing_objective="fastest_completion",
+        workflow_stages=["code"],
+        available_coder_models=["model-a", "model-b"],
+    )
+
+    strategy = out["recommended_strategy"]
+    assert strategy["estimated_duration_seconds"] is None
+    tradeoff = out["tradeoffs"]["fastest_completion"]
+    assert tradeoff is not None
+    assert tradeoff["estimated_duration_seconds"] is None

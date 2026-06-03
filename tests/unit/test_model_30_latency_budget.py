@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -292,6 +293,39 @@ def test_infra_noise_below_twenty_percent_is_tolerated() -> None:
 
 def test_parse_json_body_returns_none_for_invalid_json() -> None:
     assert smoke.parse_json_body("{") is None
+
+
+def test_run_warm_requests_wraps_fixture_as_inputs() -> None:
+    """_run_warm_requests must send {"inputs": <fixture>} not the fixture directly.
+
+    The PredictionRequest schema requires a top-level "inputs" key. Sending the
+    fixture object directly returns a 422 (missing field) which classify_response
+    routes to infra_upstream, causing evaluate_budgets to return infra_inconclusive
+    instead of a meaningful warm-path result.
+    """
+    fixture = {
+        "task": {"description": "Refactor billing webhook retry handling", "task_type": "refactor"}
+    }
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.text = '{"model_id": "30", "predictions": {}}'
+
+    session = MagicMock()
+    session.post.return_value = mock_response
+
+    smoke._run_warm_requests(
+        session,
+        predict_url="http://localhost:8001/api/v1/models/30/predict",
+        payload=fixture,
+        num_requests=1,
+    )
+
+    session.post.assert_called_once()
+    _, call_kwargs = session.post.call_args
+    assert call_kwargs["json"] == {
+        "inputs": fixture
+    }, "smoke checker must wrap fixture as {inputs: <fixture>}, not send it bare"
 
 
 def test_write_report_persists_json(tmp_path: Path) -> None:
