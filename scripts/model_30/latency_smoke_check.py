@@ -318,7 +318,7 @@ def _run_warm_requests(
         body: Any = None
         error: BaseException | None = None
         try:
-            response = session.post(predict_url, json=payload, timeout=30)
+            response = session.post(predict_url, json={"inputs": payload}, timeout=30)
             status = response.status_code
             body = parse_json_body(response.text)
         except requests.RequestException as exc:
