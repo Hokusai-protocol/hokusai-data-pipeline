@@ -1,0 +1,62 @@
+{
+  "planner": "gpt-5.5",
+  "coder": "claude-sonnet-4-6",
+  "reviewer": "claude-sonnet-4-6",
+  "planDepth": "deep",
+  "codeDepth": "deep",
+  "reviewRecommended": "static+llm",
+  "expectedSuccess": 0.35,
+  "confidence": 0.1,
+  "expectedCostPlan": 1.89,
+  "expectedCostCode": 14.3,
+  "expectedCostReview": 0.92,
+  "reasoning": [
+    "Task classified as bugfix with long prompt length.",
+    "Risk score 18 from complexity, scope, and repo-surface keywords.",
+    "Coder baseline uses claude-sonnet-4-6 from heuristic eval routing.",
+    "Review mode static+llm chosen to match expected change risk.",
+    "DeepSeek models were ignored because providers.deepseek.enabled is not true."
+  ],
+  "signals": {
+    "taskType": "bugfix",
+    "promptLength": "long",
+    "complexityScore": 4,
+    "fileTypes": [
+      ".py",
+      ".yaml",
+      ".yml",
+      ".md",
+      ".json"
+    ],
+    "riskScore": 18
+  },
+  "constraints": {
+    "maxCostUsd": 25
+  },
+  "routingMode": "heuristic-fallback",
+  "neighborCount": 0,
+  "neighborSimilarityRange": [
+    0,
+    0
+  ],
+  "expectedCost": 17.11,
+  "challengeRecommendation": {
+    "shouldChallenge": true,
+    "reason": "low-confidence",
+    "defaultModel": "claude-sonnet-4-6",
+    "challengerModel": "claude-haiku-4-5-20251001",
+    "priority": 300
+  },
+  "maxCostUsd": 25,
+  "provenance": {
+    "source": "expanded",
+    "inputKind": "task-packet",
+    "inputPath": "/Users/timothyogilvie/Dropbox/Hokusai/hokusai-data-pipeline/../worktrees/model-30-performance-cold-start-and-serving-reliability/features/model-30-performance-cold-start-and-serving-reliability/task-packet.md",
+    "inputHash": "f446ec81ce5afb4990b490e886e493ee1e144d9551839a6761c27485ef7beb3b",
+    "routedAt": "2026-06-03T20:45:24.328Z",
+    "routerMode": "normal"
+  },
+  "cache_hit": false,
+  "route_source": "single",
+  "packet_hash": "5135d7b46c6c0032a1fa3bf21658da9295169d406f81ffc2c435341153f161c4"
+}

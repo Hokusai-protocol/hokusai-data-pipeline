@@ -1,0 +1,18 @@
+{
+  "planner": "gpt-5.5",
+  "coder": "claude-sonnet-4-6",
+  "reviewer": "claude-sonnet-4-6",
+  "planDepth": "deep",
+  "codeDepth": "deep",
+  "reviewMode": "static+llm",
+  "reviewRecommended": "static+llm",
+  "provenance": {
+    "source": "bootstrap",
+    "inputKind": "issue",
+    "inputPath": "features/model-30-performance-cold-start-and-serving-reliability/selected-task.json",
+    "inputHash": "",
+    "routedAt": "2026-06-03T20:26:31Z",
+    "routerMode": "normal"
+  },
+  "maxCostUsd": 25
+}

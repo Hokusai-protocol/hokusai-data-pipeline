@@ -188,6 +188,8 @@ The current serving path validates the nested request, maps it into a one-row pa
 }
 ```
 
+`estimated_duration_seconds` and `nearest_neighbors.mean_duration_seconds` are `null` when no positive duration evidence exists for a strategy. The `fastest_completion` tradeoff sorts null-duration strategies after positive-duration strategies; if all strategies lack duration evidence the tradeoff is still populated with an otherwise-best candidate and a null duration.
+
 The normalizer validates strategy outputs against the public response schema and rejects malformed model identifiers such as `deep-coder-v2`, `fast-coder-v1`, and `<synthetic>`. It keeps a compatibility shim for older smoke artifacts that emit only legacy selected-model fields, but the production Technical Task Router artifact is expected to emit the v2 strategy payload directly.
 
 For legacy smoke artifacts only, normalization accepts common aliases:
