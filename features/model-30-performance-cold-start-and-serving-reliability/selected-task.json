@@ -1,0 +1,14 @@
+{
+  "taskId": "HOK-1869",
+  "title": "Model 30 performance: cold start and serving reliability",
+  "description": "Model 30 performance: cold start and serving reliability\n\nBucket for making model 30 serve valid predictions quickly and reliably after deployment. Work in this bucket should be driven by the timing traces and cold/warm benchmark results from the diagnosis bucket.",
+  "labels": [
+    "Component: Model30technicaltaskrouter",
+    "Component: Modelservingservice",
+    "Component: Modelapiservice"
+  ],
+  "workflowType": "feature",
+  "featureName": "model-30-performance-cold-start-and-serving-reliability",
+  "contextPath": "features/model-30-performance-cold-start-and-serving-reliability/selected-task.json",
+  "selectedAt": "2026-06-03T20:26:30Z"
+}
