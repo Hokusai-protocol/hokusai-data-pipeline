@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Request, status
@@ -63,7 +64,8 @@ async def submit_contribution(
             pass
 
     try:
-        accepted = service.accept_contribution(
+        accepted = await asyncio.to_thread(
+            service.accept_contribution,
             model_id=model_id,
             request=contribution,
             idempotency_key=idempotency_key,
@@ -117,7 +119,7 @@ async def get_contribution_lifecycle(
     del auth
 
     try:
-        lifecycle = service.get_lifecycle_state(submission_id)
+        lifecycle = await asyncio.to_thread(service.get_lifecycle_state, submission_id)
     except ContributionLifecycleUnavailableError as exc:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
