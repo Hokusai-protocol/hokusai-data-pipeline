@@ -50,6 +50,12 @@ class ValidationResult:
     error: Optional[str] = None
     has_sufficient_balance: bool = True
     balance: float = 0.0
+    # Distinguishes *why* validation failed. "unavailable" means the auth
+    # service could not be reached / errored (timeout, connection failure, 5xx),
+    # which is a transient upstream problem and should surface as 503 (retryable),
+    # NOT 401 (which implies the caller's credentials are bad). None for a
+    # genuine invalid-credential rejection.
+    error_type: Optional[str] = None
 
 
 def get_api_key_from_request(request: Request) -> Optional[str]:
@@ -272,7 +278,11 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 elif response.status_code == 401:
                     return ValidationResult(is_valid=False, error="Invalid or expired API key")
                 elif response.status_code == 429:
-                    return ValidationResult(is_valid=False, error="Rate limit exceeded")
+                    return ValidationResult(
+                        is_valid=False,
+                        error="Rate limit exceeded",
+                        error_type="rate_limited",
+                    )
                 else:
                     if response.status_code >= 500:
                         error_marker = self._get_upstream_schema_error_marker(response.text)
@@ -284,14 +294,26 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                                 error_marker=error_marker,
                             )
                     logger.error(f"Auth service returned {response.status_code}")
-                    return ValidationResult(is_valid=False, error="Authentication service error")
+                    return ValidationResult(
+                        is_valid=False,
+                        error="Authentication service error",
+                        error_type="unavailable",
+                    )
 
         except httpx.TimeoutException:
             logger.error("Auth service request timed out")
-            return ValidationResult(is_valid=False, error="Authentication service timeout")
+            return ValidationResult(
+                is_valid=False,
+                error="Authentication service timeout",
+                error_type="unavailable",
+            )
         except Exception as e:
             logger.error(f"Auth service error: {str(e)}")
-            return ValidationResult(is_valid=False, error="Authentication service unavailable")
+            return ValidationResult(
+                is_valid=False,
+                error="Authentication service unavailable",
+                error_type="unavailable",
+            )
 
     def is_mlflow_write_operation(self, request: Request) -> bool:  # noqa: ANN101
         """Check if the request is for an MLflow write operation.
@@ -554,6 +576,25 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
         # Check validation result
         if not validation_result.is_valid:
+            # A transient upstream failure (timeout / connection error / auth 5xx)
+            # is NOT an authentication failure — surface it as a retryable 503 so
+            # callers don't treat a blip as bad credentials.
+            if validation_result.error_type == "unavailable":
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "detail": validation_result.error or "Authentication service unavailable"
+                    },
+                    headers={"Retry-After": "1"},
+                )
+            # Auth service signalled the caller is rate limited -> surface a real
+            # 429 so clients back off, rather than a misleading 401.
+            if validation_result.error_type == "rate_limited":
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": validation_result.error or "Rate limit exceeded"},
+                    headers={"Retry-After": "60"},
+                )
             return JSONResponse(
                 status_code=401, content={"detail": validation_result.error or "Invalid API key"}
             )

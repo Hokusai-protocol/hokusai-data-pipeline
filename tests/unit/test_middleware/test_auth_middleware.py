@@ -124,7 +124,7 @@ class TestAPIKeyAuthMiddleware:
 
     @patch("httpx.AsyncClient.post")
     def test_middleware_handles_rate_limit(self, mock_post, client):
-        """Test middleware handles rate limit response from auth service."""
+        """A rate-limit from the auth service surfaces as 429 (not 401) with Retry-After."""
         # Arrange
         api_key = "hk_live_rate_limited_key"
 
@@ -137,8 +137,27 @@ class TestAPIKeyAuthMiddleware:
         response = client.get("/protected", headers={"Authorization": f"Bearer {api_key}"})
 
         # Assert
-        assert response.status_code == 401
+        assert response.status_code == 429
         assert response.json()["detail"] == "Rate limit exceeded"
+        assert response.headers.get("Retry-After") == "60"
+
+    @patch("httpx.AsyncClient.post")
+    def test_middleware_handles_auth_service_5xx(self, mock_post, client):
+        """A 5xx from the auth service is an upstream failure -> 503, not 401."""
+        # Arrange
+        api_key = "hk_live_5xx_key"
+        mock_response = Mock()
+        mock_response.status_code = 500
+        mock_response.text = "internal server error"
+        mock_post.return_value = mock_response
+
+        # Act
+        response = client.get("/protected", headers={"Authorization": f"Bearer {api_key}"})
+
+        # Assert
+        assert response.status_code == 503
+        assert response.json()["detail"] == "Authentication service error"
+        assert response.headers.get("Retry-After") == "1"
 
     @patch("httpx.AsyncClient.post")
     def test_middleware_uses_cache(self, mock_post, client, mock_cache):
@@ -229,7 +248,7 @@ class TestAPIKeyAuthMiddleware:
 
     @patch("httpx.AsyncClient.post")
     def test_middleware_handles_auth_service_timeout(self, mock_post, client):
-        """Test middleware handles auth service timeout gracefully."""
+        """An auth-service timeout is a transient upstream failure -> 503, not 401."""
         # Arrange
         api_key = "hk_live_timeout_key"
         mock_post.side_effect = httpx.TimeoutException("Request timed out")
@@ -238,12 +257,13 @@ class TestAPIKeyAuthMiddleware:
         response = client.get("/protected", headers={"Authorization": f"Bearer {api_key}"})
 
         # Assert
-        assert response.status_code == 401
+        assert response.status_code == 503
         assert response.json()["detail"] == "Authentication service timeout"
+        assert response.headers.get("Retry-After") == "1"
 
     @patch("httpx.AsyncClient.post")
     def test_middleware_handles_auth_service_error(self, mock_post, client):
-        """Test middleware handles auth service connection error."""
+        """An auth-service connection error is a transient upstream failure -> 503, not 401."""
         # Arrange
         api_key = "hk_live_error_key"
         mock_post.side_effect = httpx.ConnectError("Connection failed")
@@ -252,24 +272,41 @@ class TestAPIKeyAuthMiddleware:
         response = client.get("/protected", headers={"Authorization": f"Bearer {api_key}"})
 
         # Assert
-        assert response.status_code == 401
+        assert response.status_code == 503
         assert response.json()["detail"] == "Authentication service unavailable"
+        assert response.headers.get("Retry-After") == "1"
 
-    def test_middleware_extracts_api_key_from_query_param(self, client):
+    @patch("httpx.AsyncClient.post")
+    def test_middleware_extracts_api_key_from_query_param(self, mock_post, client):
         """Test middleware can extract API key from query parameter."""
+        # Arrange: auth service rejects the key, so a 401 proves the key was
+        # extracted and forwarded for validation (vs. "API key required").
+        mock_response = Mock()
+        mock_response.status_code = 401
+        mock_post.return_value = mock_response
+
         # Act
         response = client.get("/protected?api_key=hk_live_query_key")
 
         # Assert
-        assert response.status_code == 401  # Will fail validation, but key was extracted
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid or expired API key"
 
-    def test_middleware_extracts_api_key_from_x_api_key_header(self, client):
+    @patch("httpx.AsyncClient.post")
+    def test_middleware_extracts_api_key_from_x_api_key_header(self, mock_post, client):
         """Test middleware can extract API key from X-API-Key header."""
+        # Arrange: auth service rejects the key, so a 401 proves the key was
+        # extracted and forwarded for validation (vs. "API key required").
+        mock_response = Mock()
+        mock_response.status_code = 401
+        mock_post.return_value = mock_response
+
         # Act
         response = client.get("/protected", headers={"X-API-Key": "hk_live_header_key"})
 
         # Assert
-        assert response.status_code == 401  # Will fail validation, but key was extracted
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid or expired API key"
 
 
 class TestGetAPIKeyFromRequest:
