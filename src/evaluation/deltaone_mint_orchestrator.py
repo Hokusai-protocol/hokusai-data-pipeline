@@ -846,7 +846,7 @@ def _build_acceptance_event(
         attestation_hash if attestation_hash.startswith("0x") else f"0x{attestation_hash}"
     )
 
-    idempotency_key = make_idempotency_key(ctx.model_id_uint, ctx.eval_id, norm_att_hash)
+    idempotency_key = make_idempotency_key(ctx.model_id_uint, norm_att_hash)
 
     mlflow_name = ctx.primary_metric_mlflow_name or derive_mlflow_name(decision.metric_name)
 

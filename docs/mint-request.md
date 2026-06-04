@@ -58,10 +58,16 @@ All score fields are in **basis points** (0–10000). Cost fields are in **USDC 
 ## Idempotency Key
 
 ```
-idempotency_key = 0x + sha256("{model_id_uint}:{eval_id}:{bare_attestation_hash}")
+idempotency_key = 0x + sha256("{model_id_uint}:{bare_attestation_hash}")
 ```
 
 Computed by `make_idempotency_key()` in `src/evaluation/event_payload.py`. The bare hash is the 64-hex SHA-256 without the `0x` prefix. The resulting key is `0x`-prefixed lowercase 64-hex.
+
+`eval_id` remains required on the payload as pipeline run metadata and is forwarded downstream as `pipelineRunId`, but it is not part of mint replay identity.
+
+Recovery invariant: if the pipeline crashes after detecting an accepted evaluation but before the mint request is durably published, re-running the same evaluation over unchanged content republishes the same `idempotency_key`. A genuine content change produces a new key because `attestation_hash` changes.
+
+Cutover note: this is a pre-mainnet breaking change from the older 3-component key format `sha256("{model_id_uint}:{eval_id}:{bare_attestation_hash}")`. Any queued or fixture payloads using the old formula must be regenerated before enabling the new producer.
 
 Do **not** reimplement this formula — use the HOK-1266 helper.
 
@@ -76,7 +82,7 @@ The sequence within `DeltaOneMintOrchestrator._execute_mint()` for accepted eval
 5. `_advance_canonical_score()` in MLflow
 6. Call `mint_hook.mint()` as a secondary audit or dry-run action
 
-If `publish()` raises a `RedisError`, the exception propagates and steps 5-6 are never reached. This preserves the recovery invariant: a crash between detection and publish means the next evaluation re-detects the improvement and re-publishes.
+If `publish()` raises a `RedisError`, the exception propagates and steps 5-6 are never reached. This preserves the recovery invariant: a crash between detection and publish means the next evaluation re-detects the improvement and re-publishes the same key for unchanged content.
 
 If the producer cannot derive a positive integer candidate sample size from the accepted DeltaOne decision, MintRequest construction fails closed before Redis publish. In that case, canonical score advancement and the legacy mint hook are both skipped.
 

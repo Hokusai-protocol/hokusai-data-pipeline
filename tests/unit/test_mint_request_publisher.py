@@ -268,7 +268,7 @@ class TestMintRequest:
 
     def test_idempotency_key_matches_hok1266_helper(self) -> None:
         model_id_uint_int = int(_MODEL_ID_UINT)
-        key = make_idempotency_key(model_id_uint_int, _EVAL_ID, _ATT_HASH)
+        key = make_idempotency_key(model_id_uint_int, _ATT_HASH)
         msg = _valid_mint_request(idempotency_key=key)
         assert msg.idempotency_key == key
 

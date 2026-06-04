@@ -144,21 +144,19 @@ def _validate_and_coerce_cost(value: Decimal | float) -> Decimal:
     raise EventPayloadError("cost", f"unsupported cost value type {type(value).__name__!r}")
 
 
-def make_idempotency_key(model_id_uint: int, eval_id: str, attestation_hash: str) -> str:
+def make_idempotency_key(model_id_uint: int, attestation_hash: str) -> str:
     """Compute canonical idempotency key as 0x-prefixed SHA-256.
 
-    Input: '{model_id_uint}:{eval_id}:{attestation_hash_bare_hex}'.
+    Input: '{model_id_uint}:{attestation_hash_bare_hex}'.
     Accepts bare 64-hex or 0x-prefixed hash.
-    Raises EventPayloadError for invalid model_id_uint, empty eval_id, or bad hash.
+    Raises EventPayloadError for invalid model_id_uint or bad hash.
     """
     if not isinstance(model_id_uint, int) or model_id_uint < 0 or model_id_uint > UINT256_MAX:
         raise EventPayloadError(
             "model_id_uint", f"must be an integer in [0, 2^256 - 1]; got {model_id_uint!r}"
         )
-    if not eval_id or not eval_id.strip():
-        raise EventPayloadError("eval_id", "eval_id must be a non-empty string")
     norm_hash = _normalize_hash_input(attestation_hash, field="attestation_hash")
-    raw = f"{model_id_uint}:{eval_id}:{norm_hash}"
+    raw = f"{model_id_uint}:{norm_hash}"
     return "0x" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -260,7 +258,7 @@ class DeltaOneAcceptanceEvent(BaseModel):
     # Cryptographic anchors
     attestation_hash: str = Field(..., description="SHA-256 of canonical HEM payload, 0x-prefixed")
     idempotency_key: str = Field(
-        ..., description="SHA-256 of model_id_uint:eval_id:attestation_hash, 0x-prefixed"
+        ..., description="SHA-256 of model_id_uint:attestation_hash, 0x-prefixed"
     )
 
     # Guardrail summary
