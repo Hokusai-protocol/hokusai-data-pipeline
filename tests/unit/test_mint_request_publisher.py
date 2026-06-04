@@ -69,7 +69,10 @@ _SPEC_ID = "spec-test-v1"
 
 
 def _valid_contributor(**overrides) -> MintRequestContributor:
-    defaults = {"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 10000}
+    defaults = {
+        "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+        "weight_bps": 10000,
+    }
     defaults.update(overrides)
     return MintRequestContributor(**defaults)
 
@@ -159,6 +162,20 @@ class TestMintRequestContributor:
                 weight_bps=5000,
                 extra_field="nope",
             )
+
+    def test_optional_submission_metadata_accepted(self) -> None:
+        contributor = MintRequestContributor(
+            wallet_address="0x742d35cc6634c0532925a3b844bc9e7595f62341",
+            weight_bps=5000,
+            submission_id="sub-1",
+            contribution_batch_id="batch-1",
+            contributor_id="contrib-1",
+        )
+        assert contributor.submission_id == "sub-1"
+        dumped = contributor.model_dump(mode="json", by_alias=True)
+        assert dumped["submissionId"] == "sub-1"
+        assert dumped["contributionBatchId"] == "batch-1"
+        assert dumped["contributorId"] == "contrib-1"
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +447,10 @@ class TestExtractContributorsFromSpec:
         }
         result = _extract_contributors_from_spec(spec)
         assert len(result) == 2
-        assert result[0]["weight_bps"] == 7000
+        assert {item["wallet_address"]: item["weight_bps"] for item in result} == {
+            _WALLET_A: 7000,
+            _WALLET_B: 3000,
+        }
 
     def test_extracts_fractional_weight(self) -> None:
         spec = {
@@ -441,8 +461,10 @@ class TestExtractContributorsFromSpec:
         }
         result = _extract_contributors_from_spec(spec)
         assert len(result) == 2
-        assert result[0]["weight_bps"] == 7000
-        assert result[1]["weight_bps"] == 3000
+        assert {item["wallet_address"]: item["weight_bps"] for item in result} == {
+            _WALLET_A: 7000,
+            _WALLET_B: 3000,
+        }
 
     def test_invalid_wallet_skipped(self) -> None:
         spec = {
@@ -463,6 +485,29 @@ class TestExtractContributorsFromSpec:
         result = _extract_contributors_from_spec({"contributors": []})
         assert result == []
 
+    def test_preserves_submission_metadata_aliases(self) -> None:
+        spec = {
+            "contributors": [
+                {
+                    "wallet_address": _WALLET_A,
+                    "weight_bps": 7000,
+                    "submissionId": "sub-1",
+                    "contributionBatchId": "batch-1",
+                    "contributorId": "contrib-1",
+                },
+                {
+                    "wallet_address": _WALLET_B,
+                    "weight_bps": 3000,
+                    "submission_id": "sub-2",
+                },
+            ]
+        }
+        result = _extract_contributors_from_spec(spec)
+        assert result[0]["submission_id"] == "sub-2"
+        assert result[1]["submission_id"] == "sub-1"
+        assert result[1]["contribution_batch_id"] == "batch-1"
+        assert result[1]["contributor_id"] == "contrib-1"
+
 
 class TestExtractContributorsFromTags:
     def test_extracts_from_json_tag(self) -> None:
@@ -478,6 +523,26 @@ class TestExtractContributorsFromTags:
 
     def test_malformed_json_returns_empty(self) -> None:
         assert _extract_contributors_from_tags({"hokusai.contributors": "not-json{{"}) == []
+
+    def test_preserves_submission_metadata(self) -> None:
+        tags = {
+            "hokusai.contributors": json.dumps(
+                [
+                    {"wallet_address": _WALLET_B, "weight_bps": 4000, "submissionId": "sub-2"},
+                    {
+                        "wallet_address": _WALLET_A,
+                        "weight_bps": 6000,
+                        "submission_id": "sub-1",
+                        "contribution_batch_id": "batch-1",
+                    },
+                ]
+            )
+        }
+        result = _extract_contributors_from_tags(tags)
+        by_wallet = {item["wallet_address"]: item for item in result}
+        assert by_wallet[_WALLET_A]["submission_id"] == "sub-1"
+        assert by_wallet[_WALLET_A]["contribution_batch_id"] == "batch-1"
+        assert by_wallet[_WALLET_B]["submission_id"] == "sub-2"
 
 
 class TestNormalizeWeightsTo10000:
@@ -499,6 +564,24 @@ class TestNormalizeWeightsTo10000:
 
     def test_empty_list_unchanged(self) -> None:
         assert _normalize_weights_to_10000([]) == []
+
+    def test_preserves_metadata_while_adjusting_weight(self) -> None:
+        contribs = [
+            {
+                "wallet_address": "0x" + "a" * 40,
+                "weight_bps": 6001,
+                "submission_id": "sub-1",
+            },
+            {
+                "wallet_address": "0x" + "b" * 40,
+                "weight_bps": 4000,
+                "submission_id": "sub-2",
+            },
+        ]
+        result = _normalize_weights_to_10000(contribs)
+        assert result[0]["submission_id"] == "sub-1"
+        assert result[1]["submission_id"] == "sub-2"
+        assert sum(c["weight_bps"] for c in result) == 10000
 
 
 # ---------------------------------------------------------------------------
@@ -527,6 +610,7 @@ def _make_acceptance_event(**overrides) -> DeltaOneAcceptanceEvent:
         ),
         "max_cost_usd_micro": 5_000_000,
         "actual_cost_usd_micro": 2_340_000,
+        "contributors": [],
     }
     defaults.update(overrides)
     return DeltaOneAcceptanceEvent(**defaults)
@@ -557,7 +641,15 @@ class TestBuildMintRequest:
         )
 
     def test_builds_valid_mint_request(self) -> None:
-        event = _make_acceptance_event()
+        event = _make_acceptance_event(
+            contributors=[
+                {
+                    "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+                    "weight_bps": 10000,
+                    "submissionId": "sub-1",
+                }
+            ]
+        )
         contribs = [
             {"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 10000}
         ]
@@ -568,10 +660,19 @@ class TestBuildMintRequest:
         assert msg.evaluation.baseline_score_bps == 7800
         assert msg.evaluation.new_score_bps == 8100
         assert len(msg.contributors) == 1
+        assert msg.contributors[0].submission_id == "sub-1"
 
     def test_scores_match_acceptance_event(self) -> None:
         event = _make_acceptance_event(
-            baseline_score_bps=5000, candidate_score_bps=6000, delta_bps=1000
+            baseline_score_bps=5000,
+            candidate_score_bps=6000,
+            delta_bps=1000,
+            contributors=[
+                {
+                    "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+                    "weight_bps": 10000,
+                }
+            ],
         )
         contribs = [
             {"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 10000}
@@ -582,7 +683,16 @@ class TestBuildMintRequest:
         assert msg.evaluation.new_score_bps == 6000
 
     def test_cost_fields_match_acceptance_event(self) -> None:
-        event = _make_acceptance_event(max_cost_usd_micro=1_000_000, actual_cost_usd_micro=500_000)
+        event = _make_acceptance_event(
+            max_cost_usd_micro=1_000_000,
+            actual_cost_usd_micro=500_000,
+            contributors=[
+                {
+                    "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+                    "weight_bps": 10000,
+                }
+            ],
+        )
         contribs = [
             {"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 10000}
         ]
@@ -598,12 +708,26 @@ class TestBuildMintRequest:
             _build_mint_request(event, ctx)
 
     def test_no_context_raises_on_empty_contributors(self) -> None:
-        event = _make_acceptance_event()
+        event = _make_acceptance_event(
+            contributors=[
+                {
+                    "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+                    "weight_bps": 10000,
+                }
+            ]
+        )
         with pytest.raises(EventPayloadError, match="totalSamples"):
             _build_mint_request(event, None)
 
     def test_idempotency_key_preserved_from_acceptance_event(self) -> None:
-        event = _make_acceptance_event()
+        event = _make_acceptance_event(
+            contributors=[
+                {
+                    "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+                    "weight_bps": 10000,
+                }
+            ]
+        )
         contribs = [
             {"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 10000}
         ]
@@ -612,7 +736,14 @@ class TestBuildMintRequest:
         assert msg.idempotency_key == event.idempotency_key
 
     def test_sample_sizes_from_decision(self) -> None:
-        event = _make_acceptance_event()
+        event = _make_acceptance_event(
+            contributors=[
+                {
+                    "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+                    "weight_bps": 10000,
+                }
+            ]
+        )
         contribs = [
             {"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 10000}
         ]
@@ -625,7 +756,14 @@ class TestBuildMintRequest:
 
     @pytest.mark.parametrize("n_current", [1, 0, -1, None, True])
     def test_total_samples_validation_from_decision(self, n_current) -> None:
-        event = _make_acceptance_event()
+        event = _make_acceptance_event(
+            contributors=[
+                {
+                    "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+                    "weight_bps": 10000,
+                }
+            ]
+        )
         contribs = [
             {"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 10000}
         ]
@@ -640,6 +778,33 @@ class TestBuildMintRequest:
 
         with pytest.raises(EventPayloadError, match="totalSamples"):
             _build_mint_request(event, ctx)
+
+    def test_build_mint_request_preserves_metadata_from_acceptance_event(self) -> None:
+        event = _make_acceptance_event(
+            contributors=[
+                {
+                    "wallet_address": _WALLET_A,
+                    "weight_bps": 7000,
+                    "submissionId": "sub-1",
+                    "contributionBatchId": "batch-1",
+                },
+                {
+                    "wallet_address": _WALLET_B,
+                    "weight_bps": 3000,
+                    "submissionId": "sub-2",
+                },
+            ]
+        )
+        ctx = self._make_ctx_with_contributors(
+            [
+                {"wallet_address": _WALLET_A, "weight_bps": 7000},
+                {"wallet_address": _WALLET_B, "weight_bps": 3000},
+            ]
+        )
+        msg = _build_mint_request(event, ctx)
+        assert msg.contributors[0].submission_id == "sub-1"
+        assert msg.contributors[0].contribution_batch_id == "batch-1"
+        assert msg.contributors[1].submission_id == "sub-2"
 
 
 # ---------------------------------------------------------------------------

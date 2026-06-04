@@ -1,5 +1,68 @@
 {
   "$defs": {
+    "DeltaOneContributorAllocation": {
+      "additionalProperties": false,
+      "description": "Contributor allocation metadata embedded in DeltaOne acceptance events.",
+      "properties": {
+        "wallet_address": {
+          "description": "EIP-55 checksummed or lowercase 0x-prefixed Ethereum address",
+          "title": "Wallet Address",
+          "type": "string"
+        },
+        "weight_bps": {
+          "description": "Allocation weight in basis points",
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Weight Bps",
+          "type": "integer"
+        },
+        "submissionId": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Submissionid"
+        },
+        "contributionBatchId": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contributionbatchid"
+        },
+        "contributorId": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contributorid"
+        }
+      },
+      "required": [
+        "wallet_address",
+        "weight_bps"
+      ],
+      "title": "DeltaOneContributorAllocation",
+      "type": "object"
+    },
     "DeltaOneGuardrailBreach": {
       "additionalProperties": false,
       "description": "A single guardrail violation in the acceptance event.",
@@ -182,6 +245,13 @@
       "minimum": 0,
       "title": "Actual Cost Usd Micro",
       "type": "integer"
+    },
+    "contributors": {
+      "items": {
+        "$ref": "#/$defs/DeltaOneContributorAllocation"
+      },
+      "title": "Contributors",
+      "type": "array"
     }
   },
   "required": [

@@ -24,6 +24,7 @@ from src.evaluation.event_payload import (
     SUPPORTED_METRIC_FAMILIES,
     UINT256_MAX,
     DeltaOneAcceptanceEvent,
+    DeltaOneContributorAllocation,
     DeltaOneGuardrailBreach,
     DeltaOneGuardrailSummary,
     EventPayloadError,
@@ -274,6 +275,33 @@ class TestMakeIdempotencyKey:
 
 
 class TestDeltaOneAcceptanceEvent:
+    def test_accepts_contributor_allocations_with_submission_metadata(self) -> None:
+        event = _valid_event(
+            contributors=[
+                DeltaOneContributorAllocation(
+                    wallet_address="0x742d35cc6634c0532925a3b844bc9e7595f62341",
+                    weight_bps=6000,
+                    submission_id="sub-1",
+                    contribution_batch_id="batch-1",
+                ),
+                DeltaOneContributorAllocation(
+                    wallet_address="0x6c3e007f281f6948b37c511a11e43c8026d2f069",
+                    weight_bps=4000,
+                    submission_id="sub-2",
+                ),
+            ]
+        )
+
+        assert len(event.contributors) == 2
+        assert event.contributors[0].submission_id == "sub-1"
+        dumped = event.model_dump(mode="json", by_alias=True)
+        assert dumped["contributors"][0]["submissionId"] == "sub-1"
+        assert dumped["contributors"][0]["contributionBatchId"] == "batch-1"
+
+    def test_legacy_event_without_contributors_remains_valid(self) -> None:
+        event = _valid_event()
+        assert event.contributors == []
+
     def test_valid_event_constructs(self) -> None:
         event = _valid_event()
         assert event.event_version == DELTAONE_ACCEPTANCE_EVENT_VERSION

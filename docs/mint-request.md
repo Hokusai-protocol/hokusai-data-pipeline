@@ -35,7 +35,7 @@ That post-mint split is reported only after the secondary HTTP mint hook returns
 | `idempotency_key` | `0x`-prefixed 64-hex | Canonical dedup key (see below) |
 | `totalSamples` | integer `>= 1` | Required top-level sample count for DeltaVerifier ABI |
 | `evaluation` | object | Scores, costs, statistical metadata |
-| `contributors` | array | Wallet addresses + `weight_bps` (must sum to 10000) |
+| `contributors` | array | Wallet addresses + `weight_bps` with optional submission traceability fields |
 
 ### Evaluation sub-object
 
@@ -79,14 +79,16 @@ The sequence within `DeltaOneMintOrchestrator._execute_mint()` for accepted eval
 2. Build and validate `MintRequest`
 3. Dispatch `deltaone.achieved` webhook
 4. **`mint_request_publisher.publish(mint_request)`**
-5. `_advance_canonical_score()` in MLflow
-6. Call `mint_hook.mint()` as a secondary audit or dry-run action
+5. Notify auth-service with `pending` reward entitlements
+6. `_advance_canonical_score()` in MLflow
+7. Call `mint_hook.mint()` as a secondary audit or dry-run action
+8. Notify auth-service with `claimable` reward entitlements when vesting details are available
 
 If `publish()` raises a `RedisError`, the exception propagates and steps 5-6 are never reached. This preserves the recovery invariant: a crash between detection and publish means the next evaluation re-detects the improvement and re-publishes the same key for unchanged content.
 
 If the producer cannot derive a positive integer candidate sample size from the accepted DeltaOne decision, MintRequest construction fails closed before Redis publish. In that case, canonical score advancement and the legacy mint hook are both skipped.
 
-Legacy hook failures, skips, and dry-runs do not roll back the already durable Redis handoff or the canonical advancement. They are recorded separately in MLflow tags such as `hokusai.mint.legacy_status`.
+Auth-service notification failures are logged but do not roll back the already durable Redis handoff or the canonical advancement. Legacy hook failures, skips, and dry-runs are also non-blocking and are recorded separately in MLflow tags such as `hokusai.mint.legacy_status`.
 
 ## Post-mint vesting semantics
 
@@ -118,6 +120,27 @@ Contributors must come from the benchmark spec (`spec["contributors"]`) or from 
 - `weight_bps` (int, 0–10000) or `weight` (float, 0–1.0)
 
 The `weight_bps` values **must sum to exactly 10000**. If no valid contributors are found, the publisher raises `EventPayloadError` and the mint path aborts before canonical score advancement.
+
+Optional contributor traceability fields are preserved on each contributor row:
+
+- `submissionId`: contributor submission identifier used by the data contribution pipeline
+- `contributionBatchId`: optional batch/job reference when one submission maps to a broader batch
+- `contributorId`: optional contributor identity distinct from the wallet address
+
+The producer sorts contributors deterministically by wallet and traceability metadata before building the acceptance event and MintRequest payload. This keeps serialized payloads stable across replays without changing the idempotency key formula.
+
+## Auth-service reward entitlements
+
+After a successful MintRequest publish, the pipeline posts a `reward_entitlement.v1` payload to auth-service using the existing internal auth-service notifier configuration:
+
+- `pending` is emitted immediately after Redis publish and includes contributor `weight_bps`, `submissionId`, and `contributionBatchId`
+- `claimable` is emitted after the secondary mint hook only when vesting or claimable details are returned
+
+Both notifications use an idempotency key derived from the MintRequest key and status:
+
+```text
+{mint_request.idempotency_key}:reward_entitlement:{status}
+```
 
 ## Privacy
 

@@ -24,6 +24,20 @@ _CONTRIBUTORS_TAG = json.dumps(
 )
 
 
+class _FakeRewardNotifier:
+    def __init__(self, fail_statuses: set[str] | None = None) -> None:
+        self.calls: list[dict[str, object]] = []
+        self.fail_statuses = fail_statuses or set()
+
+    def notify_reward_entitlement(self, *, mint_request, status, mint_result=None):
+        self.calls.append(
+            {"mint_request": mint_request, "status": status, "mint_result": mint_result}
+        )
+        if status in self.fail_statuses:
+            return False, f"{status} failed"
+        return True, None
+
+
 class _FakeMlflowClient:
     def __init__(
         self,
@@ -98,6 +112,7 @@ def test_acceptance_publish_success_advances_canonical_score(monkeypatch) -> Non
         mint_hook=mint_hook,
         mlflow_client=client,
         mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=_FakeRewardNotifier(),
     )
 
     outcome = orchestrator.process_evaluation("run-candidate", "run-baseline")
@@ -143,6 +158,7 @@ def test_publish_failure_does_not_advance_canonical_score(monkeypatch) -> None:
         mint_hook=mint_hook,
         mlflow_client=client,
         mint_request_publisher=MintRequestPublisher(redis_client=broken_redis),
+        reward_entitlement_notifier=_FakeRewardNotifier(),
     )
 
     with pytest.raises(RedisConnectionError):
@@ -176,6 +192,7 @@ def test_invalid_candidate_sample_size_aborts_publish_and_canonical_advance(
         mint_hook=mint_hook,
         mlflow_client=client,
         mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=_FakeRewardNotifier(),
     )
 
     with pytest.raises(ValueError, match="totalSamples"):
@@ -211,6 +228,7 @@ def test_secondary_dry_run_does_not_block_primary_success(monkeypatch) -> None:
         mint_hook=mint_hook,
         mlflow_client=client,
         mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=_FakeRewardNotifier(),
     )
 
     outcome = orchestrator.process_evaluation("run-candidate", "run-baseline")
@@ -245,6 +263,7 @@ def test_secondary_failure_is_recorded_without_rolling_back_publish(monkeypatch)
         mint_hook=mint_hook,
         mlflow_client=client,
         mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=_FakeRewardNotifier(),
     )
 
     outcome = orchestrator.process_evaluation("run-candidate", "run-baseline")
@@ -296,6 +315,7 @@ def test_vesting_details_flow_to_tags_and_webhook(monkeypatch) -> None:
         mint_hook=mint_hook,
         mlflow_client=client,
         mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=_FakeRewardNotifier(),
     )
 
     outcome = orchestrator.process_evaluation("run-candidate", "run-baseline")
@@ -378,6 +398,7 @@ def test_rejection_skips_mint(monkeypatch) -> None:
         evaluator=evaluator,
         mint_hook=mint_hook,
         mlflow_client=client,
+        reward_entitlement_notifier=_FakeRewardNotifier(),
     )
 
     outcome = orchestrator.process_evaluation("run-candidate", "run-baseline")
@@ -386,3 +407,104 @@ def test_rejection_skips_mint(monkeypatch) -> None:
     assert outcome.mint_result is None
     mint_hook.mint.assert_not_called()
     dispatch_mock.assert_not_called()
+
+
+def test_reward_entitlement_pending_sent_after_publish(monkeypatch) -> None:
+    decision = _accepted_decision()
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+    mint_hook = Mock()
+    mint_hook.mint.return_value = TokenMintResult(
+        status="success",
+        audit_ref="audit-1",
+        timestamp=datetime.now(timezone.utc),
+    )
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
+    notifier = _FakeRewardNotifier()
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        Mock(return_value=[]),
+    )
+
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=notifier,
+    )
+
+    orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert notifier.calls[0]["status"] == "pending"
+
+
+def test_reward_entitlement_failure_does_not_block_publish(monkeypatch) -> None:
+    decision = _accepted_decision()
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+    mint_hook = Mock()
+    mint_hook.mint.return_value = TokenMintResult(
+        status="success",
+        audit_ref="audit-1",
+        timestamp=datetime.now(timezone.utc),
+    )
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
+    notifier = _FakeRewardNotifier(fail_statuses={"pending"})
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        Mock(return_value=[]),
+    )
+
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=notifier,
+    )
+
+    outcome = orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert outcome.status == "success"
+    assert redis_client.llen(QUEUE_NAME) == 1
+    assert client.tags["hokusai.canonical_score"] == "0.92"
+
+
+def test_claimable_reward_entitlement_sent_when_vesting_present(monkeypatch) -> None:
+    decision = _accepted_decision()
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+    mint_hook = Mock()
+    mint_hook.mint.return_value = TokenMintResult.model_validate(
+        {
+            "status": "success",
+            "audit_ref": "audit-1",
+            "timestamp": datetime.now(timezone.utc),
+            "vesting": {"claimable_amount": "25"},
+        }
+    )
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
+    notifier = _FakeRewardNotifier()
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        Mock(return_value=[]),
+    )
+
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=notifier,
+    )
+
+    orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert [call["status"] for call in notifier.calls] == ["pending", "claimable"]
