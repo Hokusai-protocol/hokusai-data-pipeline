@@ -21,6 +21,7 @@ import pytest
 from src.api.schemas.token_mint import TokenMintResult
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator
+from src.evaluation.event_payload import make_idempotency_key
 from src.events.publishers.mint_request_publisher import QUEUE_NAME, MintRequestPublisher
 from src.events.schemas import MintRequest
 
@@ -77,6 +78,59 @@ def _make_technical_task_router_spec() -> dict:
     spec["task_type"] = "technical_task_router"
     spec["eval_spec"]["primary_metric"]["name"] = "technical_task_router.success_under_budget/v1"
     return spec
+
+
+def _build_orchestrator(
+    *,
+    fake_redis_client,
+    monkeypatch,
+    eval_id: str,
+    attestation_hash: str = "a" * 64,
+    run_metrics: dict[str, float] | None = None,
+) -> DeltaOneMintOrchestrator:
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        Mock(),
+    )
+    evaluator = Mock()
+    evaluator.evaluate_for_model.return_value = _make_decision(accepted=True)
+    evaluator.delta_threshold_pp = 1.0
+    mint_hook = Mock()
+    mint_hook.mint.return_value = TokenMintResult(
+        status="success",
+        audit_ref="audit-integration",
+        timestamp=datetime.now(timezone.utc),
+    )
+    mlflow_client = _FakeMlflowClient(
+        run_metrics=run_metrics
+        or {
+            "workflow_success_rate_under_budget": 0.87,
+            "hokusai_workflow_success_rate_under_budget": 0.87,
+        },
+        initial_tags={
+            "hokusai.eval_id": eval_id,
+            "hokusai.actual_cost_usd": "2.34",
+        },
+    )
+    publisher = MintRequestPublisher(redis_client=fake_redis_client)
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=mlflow_client,
+        mint_request_publisher=publisher,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_create_signed_attestation",
+        Mock(return_value=(attestation_hash, {"attestation_hash": attestation_hash})),
+    )
+    return orchestrator
+
+
+def _queued_mint_request(fake_redis_client, index: int = 0) -> MintRequest:
+    raw = fake_redis_client.lindex(QUEUE_NAME, index)
+    assert raw is not None
+    return MintRequest.model_validate_json(raw)
 
 
 class _FakeMlflowClient:
@@ -211,6 +265,102 @@ class TestMintRequestPublishIntegration:
         key = data["idempotency_key"]
         assert key.startswith("0x")
         assert len(key) == 66  # "0x" + 64 hex chars
+
+    def test_same_content_different_eval_ids_reuses_idempotency_key(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        first = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id="sched-7-run-a",
+        )
+        second = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id="sched-7-run-b",
+        )
+
+        first.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+        second.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        first_msg = _queued_mint_request(fake_redis_client, 1)
+        second_msg = _queued_mint_request(fake_redis_client, 0)
+
+        assert first_msg.eval_id == "sched-7-run-a"
+        assert second_msg.eval_id == "sched-7-run-b"
+        assert first_msg.attestation_hash == second_msg.attestation_hash
+        assert first_msg.idempotency_key == second_msg.idempotency_key
+        assert first_msg.idempotency_key == make_idempotency_key(
+            int(_MODEL_ID_UINT), first_msg.attestation_hash
+        )
+
+    def test_changed_content_produces_new_idempotency_key(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        first = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id="sched-7-run-a",
+            attestation_hash="a" * 64,
+        )
+        second = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id="sched-7-run-b",
+            attestation_hash="b" * 64,
+        )
+
+        first.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+        second.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        first_msg = _queued_mint_request(fake_redis_client, 1)
+        second_msg = _queued_mint_request(fake_redis_client, 0)
+
+        assert first_msg.attestation_hash != second_msg.attestation_hash
+        assert first_msg.idempotency_key != second_msg.idempotency_key
+
+    def test_replay_no_op_simulation_uses_unique_content_keys(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        first = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id="sched-7-run-a",
+            attestation_hash="a" * 64,
+        )
+        replay = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id="sched-7-run-b",
+            attestation_hash="a" * 64,
+        )
+        changed = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id="sched-7-run-c",
+            attestation_hash="b" * 64,
+        )
+
+        first.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+        replay.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+        changed.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        first_msg = _queued_mint_request(fake_redis_client, 2)
+        replay_msg = _queued_mint_request(fake_redis_client, 1)
+        changed_msg = _queued_mint_request(fake_redis_client, 0)
+
+        processed: set[str] = set()
+        accepted_submissions: list[str] = []
+        for message in (first_msg, replay_msg, changed_msg):
+            if message.idempotency_key in processed:
+                continue
+            processed.add(message.idempotency_key)
+            accepted_submissions.append(message.idempotency_key)
+
+        assert first_msg.idempotency_key == replay_msg.idempotency_key
+        assert changed_msg.idempotency_key != first_msg.idempotency_key
+        assert accepted_submissions == [first_msg.idempotency_key, changed_msg.idempotency_key]
+        assert processed == {first_msg.idempotency_key, changed_msg.idempotency_key}
 
     def test_no_message_on_rejection(self, fake_redis_client, monkeypatch) -> None:
         monkeypatch.setattr(

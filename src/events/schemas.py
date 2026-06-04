@@ -274,7 +274,7 @@ class MintRequest(BaseModel):
     # Cryptographic anchors
     attestation_hash: str = Field(..., description="SHA-256 of HEM payload, 0x-prefixed 64-hex")
     idempotency_key: str = Field(
-        ..., description="sha256(model_id_uint:eval_id:attestation_hash), 0x-prefixed"
+        ..., description="sha256(model_id_uint:attestation_hash), 0x-prefixed"
     )
 
     total_samples: int = Field(

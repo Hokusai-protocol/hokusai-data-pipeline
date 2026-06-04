@@ -109,12 +109,18 @@ HEM payload stored in MLflow artifacts.
 
 ```python
 bare_hash = attestation_hash[2:]  # strip 0x prefix
-raw = f"{model_id_uint}:{eval_id}:{bare_hash}"
+raw = f"{model_id_uint}:{bare_hash}"
 idempotency_key = "0x" + sha256(raw.encode("utf-8")).hexdigest()
 ```
 
-The key is deterministic given the same `(model_id_uint, eval_id, attestation_hash)` triple.
-It is stored in `hokusai.mint.idempotency_key` on the MLflow run and passed to `TokenMintHook`.
+The key is deterministic given the same `(model_id_uint, attestation_hash)` pair. `eval_id`
+remains required event metadata and is still propagated downstream for pipeline traceability, but it
+does not affect replay identity. A rerun over unchanged content republishes the same key; changed
+content produces a new key through `attestation_hash`.
+
+This is a pre-mainnet cutover from the old 3-component formula
+`sha256("{model_id_uint}:{eval_id}:{bare_attestation_hash}")`. Any queued fixtures or downstream
+docs that mention the old formula must be updated in lockstep.
 
 ## Versioning Policy
 
