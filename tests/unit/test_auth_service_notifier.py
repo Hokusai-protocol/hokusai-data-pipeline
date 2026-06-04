@@ -48,6 +48,7 @@ def test_notifier_posts_payload_on_success(monkeypatch: pytest.MonkeyPatch) -> N
     assert post_mock.call_count == 1
     call_kwargs = post_mock.call_args.kwargs
     assert call_kwargs["headers"]["Authorization"] == "Bearer secret-token"
+    assert call_kwargs["headers"]["Idempotency-Key"] == "idem-123"
     assert call_kwargs["json"] == {
         "submissionId": "batch-123",
         "jobId": "batch-123",
@@ -121,3 +122,25 @@ def test_notifier_dry_run_skips_http_call(monkeypatch: pytest.MonkeyPatch) -> No
     notifier.notify_accepted(record=_record(), auth=_auth())
 
     post_mock.assert_not_called()
+
+
+def test_from_env_dry_run_when_flag_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOKUSAI_AUTH_SERVICE_URL", "https://auth.example.com")
+    monkeypatch.setenv("HOKUSAI_AUTH_INTERNAL_TOKEN", "secret")
+    monkeypatch.setenv("CONTRIBUTION_AUTH_CALLBACK_ENABLED", "false")
+
+    notifier = AuthServiceNotifier.from_env()
+
+    assert notifier.dry_run is True
+
+
+def test_from_env_not_dry_run_when_flag_enabled_with_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOKUSAI_AUTH_SERVICE_URL", "https://auth.example.com")
+    monkeypatch.setenv("HOKUSAI_AUTH_INTERNAL_TOKEN", "secret")
+    monkeypatch.setenv("CONTRIBUTION_AUTH_CALLBACK_ENABLED", "true")
+
+    notifier = AuthServiceNotifier.from_env()
+
+    assert notifier.dry_run is False

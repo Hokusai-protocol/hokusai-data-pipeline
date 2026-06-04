@@ -42,10 +42,13 @@ class AuthServiceNotifier:
         """Build an instance from environment-backed defaults."""
         auth_service_url = os.getenv("HOKUSAI_AUTH_SERVICE_URL", "https://auth.hokus.ai")
         internal_token = os.getenv("HOKUSAI_AUTH_INTERNAL_TOKEN", "")
+        callback_enabled = (
+            os.getenv("CONTRIBUTION_AUTH_CALLBACK_ENABLED", "false").strip().lower() == "true"
+        )
         return cls(
             auth_service_url=auth_service_url,
             internal_token=internal_token,
-            dry_run=not bool(internal_token.strip()),
+            dry_run=not callback_enabled or not bool(internal_token.strip()),
         )
 
     def notify_accepted(
@@ -98,6 +101,7 @@ class AuthServiceNotifier:
         headers = {
             "Authorization": f"Bearer {self.internal_token}",
             "Content-Type": "application/json",
+            "Idempotency-Key": record.idempotency_key,
         }
         url = f"{self.auth_service_url}{_AUTH_ACCEPTED_PATH}"
 
