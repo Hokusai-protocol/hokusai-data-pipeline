@@ -148,6 +148,18 @@ def test_task_router_prediction_error_diagnostics_skip_missing_prediction_fields
     assert _score("technical_task_router.reliability_brier_score/v1", [row]) == 0.0
 
 
+def test_task_router_duration_diagnostic_skips_null_and_zero_actual_labels() -> None:
+    null_duration = copy.deepcopy(_load_example("technical_task_router_row.null_duration.v1.json"))
+    zero_duration = copy.deepcopy(_load_example("technical_task_router_row.success.v1.json"))
+    zero_duration["actual_time_seconds"] = 0.0
+    zero_duration["estimated_duration_seconds"] = 100.0
+
+    assert (
+        _score("technical_task_router.duration_mae_seconds/v1", [null_duration, zero_duration])
+        == 100.0
+    )
+
+
 def test_task_router_objective_specific_success_rates() -> None:
     lowest_success = copy.deepcopy(_load_example("technical_task_router_row.success.v1.json"))
     lowest_failure = copy.deepcopy(_load_example("technical_task_router_row.failed.v1.json"))

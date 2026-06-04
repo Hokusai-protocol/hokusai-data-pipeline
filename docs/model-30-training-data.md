@@ -4,11 +4,24 @@ Model 30 must be trained from the privacy-safe Wavemill router export, not from 
 
 ## Source
 
-Generate the training export from the Wavemill repository:
+Generate or refresh the Wavemill exports in the adjacent repository, then clean
+them in this repository. The current checked-in regeneration used the artifacts:
+
+- `/Users/timothyogilvie/Dropbox/wavemill/.wavemill/evals/hokusai-router-dataset.csv`
+- `/Users/timothyogilvie/Dropbox/wavemill/.wavemill/evals/hokusai-router-budget-benchmark.csv`
+
+The cleaning commands used on June 4, 2026 were:
 
 ```sh
-cd ../../wavemill
-npx tsx tools/export-hokusai-router-dataset.ts -o .wavemill/evals/hokusai-router-dataset.csv
+python scripts/model_30/clean_router_dataset.py \
+  --input /Users/timothyogilvie/Dropbox/wavemill/.wavemill/evals/hokusai-router-dataset.csv \
+  --output data/model_30/hokusai-router-dataset.clean.csv \
+  --report data/model_30/hokusai-router-dataset.clean.report.json
+
+python scripts/model_30/clean_router_dataset.py \
+  --input /Users/timothyogilvie/Dropbox/wavemill/.wavemill/evals/hokusai-router-budget-benchmark.csv \
+  --output data/model_30/hokusai-router-budget-benchmark.clean.csv \
+  --report data/model_30/hokusai-router-budget-benchmark.clean.report.json
 ```
 
 The registration command in this repository validates the export before it starts an MLflow run:
@@ -37,6 +50,22 @@ The cleaner is deterministic:
 - Drops rows whose selected `planner_model`, `coder_model`, or `reviewer_model` is invalid.
 - De-duplicates identical cleaned rows.
 - Runs the registration validator against the output before exiting successfully.
+
+### Current Coverage Snapshot
+
+The June 4, 2026 regenerated artifacts in `data/model_30/` have these exact
+duration-coverage results:
+
+| Artifact | Clean rows | Positive duration rows | Positive coverage | Missing/normalized duration rows | SHA-256 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `hokusai-router-dataset.clean.csv` | 692 | 2 | 0.289% | 690 | `b5845fbfbf6a1fcf78ff403e99a8718b9aaa6d42e4b07fdec85c6cc64f88c430` |
+| `hokusai-router-budget-benchmark.clean.csv` | 228 | 0 | 0.0% | 228 | `bf7e83691063099012ac51be5c07710f5339c462cb66139e39f7dd5776a6d88e` |
+
+Additional cleaner findings from the regenerated training export:
+
+- 4 rows were dropped because `reviewer_model=deep` was not a public model ID.
+- 33 `<synthetic>` values were removed from available-model lists.
+- No measured-zero duration rows were preserved in either cleaned artifact.
 
 ### Duration Label Hygiene
 
@@ -93,6 +122,27 @@ nonpositive `max_cost_usd`, missing observed outcomes, invalid costs, or histori
 models outside the row's available model set are quarantined and counted in the evaluation report.
 They are not silently treated as zero-budget failures.
 
+The current local baseline report was generated with:
+
+```sh
+python scripts/model_30/register_technical_task_router.py \
+  --router-dataset data/model_30/hokusai-router-dataset.clean.csv \
+  --holdout-dataset data/model_30/hokusai-router-budget-benchmark.clean.csv \
+  --run-name hok-1929-local-registration \
+  --smoke
+
+python scripts/model_30/evaluate_technical_task_router.py \
+  --holdout-dataset data/model_30/hokusai-router-budget-benchmark.clean.csv \
+  --model-uri "models:/Technical Task Router@production" \
+  --model-id "Technical Task Router@production" \
+  --output-report data/model_30/model_30_baseline_report.json
+```
+
+That report evaluated 109 valid holdout rows across 327 objective-scored benchmark rows,
+quarantined 119 rows (`coder_model:outside_available=79`, `planner_model:outside_available=40`),
+and confirmed `technical_task_router.duration_mae_seconds_v1 = null` because positive-duration
+coverage on the cleaned holdout is exactly zero.
+
 To compare a candidate model against a baseline for contributor reward decisions:
 
 ```sh
@@ -106,7 +156,9 @@ python scripts/model_30/evaluate_technical_task_router.py \
 
 The comparison report includes baseline metrics, candidate metrics, deltas, the primary
 `technical_task_router.benchmark_score_v1` delta, and diagnostic guardrail deltas for invalid
-selection rate, cost error, duration error, and reliability calibration.
+selection rate, cost error, duration error, and reliability calibration. When the holdout has
+zero positive duration labels, the duration MAE field remains `null` and MLflow logging skips it
+instead of writing a misleading `0.0`.
 
 ## Checked-In Clean Fixture
 

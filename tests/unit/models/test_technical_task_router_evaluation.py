@@ -155,6 +155,14 @@ def test_evaluate_model_scores_all_objectives(tmp_path: Path) -> None:
     assert report["metrics"]["technical_task_router.benchmark_score_v1"] == pytest.approx(0.5)
     assert report["metrics"]["technical_task_router.cost_mae_usd_v1"] == pytest.approx(0.1)
     assert report["metrics"]["technical_task_router.duration_mae_seconds_v1"] == pytest.approx(20.0)
+    assert report["duration_coverage"] == {
+        "evaluated_rows": 6,
+        "positive_label_rows": 6,
+        "positive_label_fraction": 1.0,
+        "rows_with_predictions": 6,
+        "prediction_fraction_within_positive_labels": 1.0,
+        "duration_mae_available": True,
+    }
     assert {row["routing_objective"] for row in report["benchmark_rows"]} == {
         "lowest_cost",
         "fastest_completion",
@@ -189,3 +197,66 @@ def test_compare_models_reports_primary_delta(tmp_path: Path) -> None:
     assert comparison["deltas"][
         "technical_task_router.reliability_brier_score_v1"
     ] == pytest.approx(-0.24)
+
+
+class NullDurationRouterModel(FixedRouterModel):
+    def predict(self, frame: pd.DataFrame) -> pd.DataFrame:
+        row = super().predict(frame).iloc[0].to_dict()
+        row["recommended_strategy"]["estimated_duration_seconds"] = None
+        return pd.DataFrame([row])
+
+
+def test_evaluate_model_reports_unavailable_duration_mae_without_positive_labels(
+    tmp_path: Path,
+) -> None:
+    holdout_path = tmp_path / "holdout.csv"
+    row_a = _valid_row("a")
+    row_a["actual_time_seconds"] = "0"
+    row_b = _valid_row("b")
+    row_b["actual_time_seconds"] = ""
+    _write_holdout(holdout_path, [row_a, row_b])
+
+    report = evaluate_model(
+        NullDurationRouterModel(model_id="gpt-5.4"),
+        model_id="candidate",
+        holdout_path=holdout_path,
+        objectives=["highest_reliability"],
+        eval_id="eval-1",
+    )
+
+    assert report["metrics"]["technical_task_router.duration_mae_seconds_v1"] is None
+    assert report["duration_coverage"] == {
+        "evaluated_rows": 2,
+        "positive_label_rows": 0,
+        "positive_label_fraction": 0.0,
+        "rows_with_predictions": 0,
+        "prediction_fraction_within_positive_labels": None,
+        "duration_mae_available": False,
+    }
+
+
+def test_compare_models_keeps_duration_delta_null_when_metric_unavailable(tmp_path: Path) -> None:
+    holdout_path = tmp_path / "holdout.csv"
+    row = _valid_row("a")
+    row["actual_time_seconds"] = "0"
+    _write_holdout(holdout_path, [row])
+
+    baseline = evaluate_model(
+        NullDurationRouterModel(model_id="gpt-5.4", success_probability=0.5),
+        model_id="baseline",
+        holdout_path=holdout_path,
+        objectives=["highest_reliability"],
+        eval_id="eval-1",
+    )
+    candidate = evaluate_model(
+        NullDurationRouterModel(model_id="claude-sonnet-4-6", success_probability=0.9),
+        model_id="candidate",
+        holdout_path=holdout_path,
+        objectives=["highest_reliability"],
+        eval_id="eval-1",
+    )
+
+    comparison = compare_models(baseline, candidate)
+
+    assert comparison["deltas"]["technical_task_router.duration_mae_seconds_v1"] is None
+    assert comparison["guardrail_deltas"]["technical_task_router.duration_mae_seconds_v1"] is None

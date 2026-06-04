@@ -1,0 +1,43 @@
+{
+  "benchmark_spec_id": "technical-task-router-baseline-v1",
+  "duration_coverage": {
+    "duration_mae_available": false,
+    "evaluated_rows": 327,
+    "positive_label_fraction": 0.0,
+    "positive_label_rows": 0,
+    "prediction_fraction_within_positive_labels": null,
+    "rows_with_predictions": 0
+  },
+  "eval_id": "model-30-eval-20260604T141846Z",
+  "holdout_dataset": "/Users/timothyogilvie/Dropbox/Hokusai/worktrees/model-30-regenerate-duration-clean-training-data-retrain-and-update-benchmark-baseline/data/model_30/hokusai-router-budget-benchmark.clean.csv",
+  "holdout_dataset_sha256": "sha256:bf7e83691063099012ac51be5c07710f5339c462cb66139e39f7dd5776a6d88e",
+  "metrics": {
+    "technical_task_router.benchmark_score_v1": 0.22018348623853212,
+    "technical_task_router.cost_mae_usd_v1": 13.824918081437309,
+    "technical_task_router.duration_mae_seconds_v1": null,
+    "technical_task_router.fastest_completion_success_under_budget_v1": 0.22018348623853212,
+    "technical_task_router.feasibility_v1": 0.7339449541284404,
+    "technical_task_router.highest_reliability_success_under_budget_v1": 0.22018348623853212,
+    "technical_task_router.invalid_selection_rate_v1": 0.0,
+    "technical_task_router.lowest_cost_success_under_budget_v1": 0.22018348623853212,
+    "technical_task_router.reliability_brier_score_v1": 0.5875774166322192,
+    "technical_task_router.success_under_budget_v1": 0.22018348623853212
+  },
+  "model_id": "Technical Task Router@production",
+  "model_uri": "models:/Technical Task Router@production",
+  "objectives": [
+    "lowest_cost",
+    "fastest_completion",
+    "highest_reliability"
+  ],
+  "quarantine_reasons": {
+    "coder_model:outside_available": 79,
+    "planner_model:outside_available": 40
+  },
+  "row_counts": {
+    "benchmark_rows": 327,
+    "evaluated_rows": 109,
+    "input_rows": 228,
+    "quarantined_rows": 119
+  }
+}

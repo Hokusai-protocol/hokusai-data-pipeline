@@ -80,7 +80,9 @@ def test_clean_router_dataset_normalizes_nonpositive_durations_and_reports_cover
         "missing": 3,
         "originally_missing": 1,
         "nonpositive_normalized": 2,
+        "measured_zero_count": 1,
         "positive_count": 2,
+        "positive_coverage_fraction": 2 / 6,
         "positive_median_seconds": 71.25,
         "positive_mean_seconds": 71.25,
     }
@@ -115,7 +117,9 @@ def test_clean_router_dataset_deduplicates_after_duration_normalization(
         "missing": 1,
         "originally_missing": 0,
         "nonpositive_normalized": 1,
+        "measured_zero_count": 0,
         "positive_count": 0,
+        "positive_coverage_fraction": 0.0,
         "positive_median_seconds": None,
         "positive_mean_seconds": None,
     }
@@ -156,7 +160,9 @@ def test_clean_router_dataset_preserves_invalid_model_drop_behavior(
         "missing": 0,
         "originally_missing": 0,
         "nonpositive_normalized": 0,
+        "measured_zero_count": 0,
         "positive_count": 1,
+        "positive_coverage_fraction": 1.0,
         "positive_median_seconds": 60.0,
         "positive_mean_seconds": 60.0,
     }

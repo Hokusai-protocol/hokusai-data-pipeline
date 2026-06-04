@@ -64,6 +64,25 @@ class HoldoutRows:
     quarantine_reasons: dict[str, int]
 
 
+@dataclass(frozen=True)
+class DurationCoverage:
+    """Duration label coverage summary for benchmark rows."""
+
+    evaluated_rows: int
+    positive_label_rows: int
+    rows_with_predictions: int
+
+    @property
+    def positive_label_fraction(self: DurationCoverage) -> float:
+        return self.positive_label_rows / self.evaluated_rows if self.evaluated_rows else 0.0
+
+    @property
+    def prediction_fraction_within_positive_labels(self: DurationCoverage) -> float | None:
+        if self.positive_label_rows == 0:
+            return None
+        return self.rows_with_predictions / self.positive_label_rows
+
+
 def load_holdout_rows(path: Path) -> HoldoutRows:
     """Load and validate a Wavemill router CSV holdout for benchmark evaluation."""
     rows: list[dict[str, str]] = []
@@ -114,6 +133,7 @@ def evaluate_model(
         objectives=objectives,
     )
     metrics = _score_benchmark_rows(benchmark_rows)
+    duration_coverage = _duration_coverage(benchmark_rows)
     return {
         "model_id": model_id,
         "holdout_dataset": str(holdout_path),
@@ -129,6 +149,17 @@ def evaluate_model(
         "quarantine_reasons": holdout.quarantine_reasons,
         "objectives": objectives,
         "metrics": metrics,
+        "duration_coverage": {
+            "evaluated_rows": duration_coverage.evaluated_rows,
+            "positive_label_rows": duration_coverage.positive_label_rows,
+            "positive_label_fraction": duration_coverage.positive_label_fraction,
+            "rows_with_predictions": duration_coverage.rows_with_predictions,
+            "prediction_fraction_within_positive_labels": (
+                duration_coverage.prediction_fraction_within_positive_labels
+            ),
+            "duration_mae_available": metrics["technical_task_router.duration_mae_seconds_v1"]
+            is not None,
+        },
         "benchmark_rows": benchmark_rows,
     }
 
@@ -141,7 +172,7 @@ def compare_models(
     baseline_metrics = baseline_report["metrics"]
     candidate_metrics = candidate_report["metrics"]
     deltas = {
-        key: candidate_metrics[key] - baseline_metrics[key]
+        key: _metric_delta(baseline_metrics[key], candidate_metrics[key])
         for key in sorted(set(baseline_metrics) & set(candidate_metrics))
     }
     return {
@@ -168,13 +199,25 @@ def compare_models(
 
 def log_report_to_mlflow(report: dict[str, Any], *, artifact_name: str) -> None:
     """Log metrics and report artifacts to the active MLflow run."""
-    for key, value in report.get("metrics", {}).items():
-        mlflow.log_metric(key, float(value))
+    _log_metrics(report.get("metrics", {}))
     mlflow.set_tag("hokusai.model_30.holdout_hash", report["holdout_dataset_sha256"])
     mlflow.set_tag("hokusai.model_30.holdout_rows", str(report["row_counts"]["evaluated_rows"]))
     mlflow.set_tag(
         "hokusai.model_30.quarantined_rows",
         str(report["row_counts"]["quarantined_rows"]),
+    )
+    duration_coverage = report.get("duration_coverage", {})
+    mlflow.set_tag(
+        "hokusai.model_30.duration_positive_label_rows",
+        str(duration_coverage.get("positive_label_rows", 0)),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.duration_positive_label_fraction",
+        str(duration_coverage.get("positive_label_fraction", 0.0)),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.duration_mae_available",
+        str(duration_coverage.get("duration_mae_available", False)).lower(),
     )
     mlflow.log_dict(_report_without_rows(report), artifact_name)
 
@@ -182,10 +225,8 @@ def log_report_to_mlflow(report: dict[str, Any], *, artifact_name: str) -> None:
 def log_comparison_to_mlflow(comparison: dict[str, Any]) -> None:
     """Log candidate-vs-baseline deltas to the active MLflow run."""
     for prefix in ("baseline", "candidate"):
-        for key, value in comparison[f"{prefix}_metrics"].items():
-            mlflow.log_metric(f"{prefix}_{key}", float(value))
-    for key, value in comparison["deltas"].items():
-        mlflow.log_metric(f"delta_{key}", float(value))
+        _log_metrics(comparison[f"{prefix}_metrics"], prefix=f"{prefix}_")
+    _log_metrics(comparison["deltas"], prefix="delta_")
     mlflow.log_dict(comparison, "model_30_baseline_comparison.json")
 
 
@@ -242,8 +283,53 @@ def _build_benchmark_rows(
     return benchmark_rows
 
 
-def _score_benchmark_rows(rows: list[dict[str, Any]]) -> dict[str, float]:
-    return {_metric_key(ref): float(resolve_scorer(ref).callable_(rows)) for ref in SCORER_REFS}
+def _score_benchmark_rows(rows: list[dict[str, Any]]) -> dict[str, float | None]:
+    metrics = {_metric_key(ref): float(resolve_scorer(ref).callable_(rows)) for ref in SCORER_REFS}
+    metrics["technical_task_router.duration_mae_seconds_v1"] = _duration_mae(rows)
+    return metrics
+
+
+def _duration_coverage(rows: list[dict[str, Any]]) -> DurationCoverage:
+    positive_label_rows = 0
+    rows_with_predictions = 0
+    for row in rows:
+        actual_duration = _positive_float(row.get("actual_time_seconds"))
+        if actual_duration is None:
+            continue
+        positive_label_rows += 1
+        if _finite_float(row.get("estimated_duration_seconds")) is not None:
+            rows_with_predictions += 1
+    return DurationCoverage(
+        evaluated_rows=len(rows),
+        positive_label_rows=positive_label_rows,
+        rows_with_predictions=rows_with_predictions,
+    )
+
+
+def _duration_mae(rows: list[dict[str, Any]]) -> float | None:
+    errors: list[float] = []
+    for row in rows:
+        actual_duration = _positive_float(row.get("actual_time_seconds"))
+        estimated_duration = _finite_float(row.get("estimated_duration_seconds"))
+        if actual_duration is None or estimated_duration is None:
+            continue
+        errors.append(abs(estimated_duration - actual_duration))
+    if not errors:
+        return None
+    return sum(errors) / len(errors)
+
+
+def _metric_delta(baseline: float | None, candidate: float | None) -> float | None:
+    if baseline is None or candidate is None:
+        return None
+    return candidate - baseline
+
+
+def _log_metrics(metrics: dict[str, float | None], *, prefix: str = "") -> None:
+    for key, value in metrics.items():
+        if value is None:
+            continue
+        mlflow.log_metric(f"{prefix}{key}", float(value))
 
 
 def _features_from_holdout_row(row: dict[str, str], objective: str) -> dict[str, Any]:
@@ -407,6 +493,20 @@ def _optional_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _finite_float(value: Any) -> float | None:
+    numeric = _optional_float(value)
+    if numeric is None or not pd.notna(numeric):
+        return None
+    return numeric
+
+
+def _positive_float(value: Any) -> float | None:
+    numeric = _finite_float(value)
+    if numeric is None or numeric <= 0:
+        return None
+    return numeric
 
 
 def _coerce_bool(value: Any) -> bool:
