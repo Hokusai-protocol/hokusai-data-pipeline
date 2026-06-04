@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -71,3 +72,35 @@ class ContributionLifecycleResponse(BaseModel):
     evaluation_run_id: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class LifecycleReasonCode(str, Enum):
+    """Dashboard-safe reason codes sent to auth-service."""
+
+    SCHEMA_VALIDATION_FAILED = "SCHEMA_VALIDATION_FAILED"
+    DUPLICATE_SUBMISSION = "DUPLICATE_SUBMISSION"
+    INSUFFICIENT_QUALITY = "INSUFFICIENT_QUALITY"
+    PROCESSING_ERROR = "PROCESSING_ERROR"
+    EXCLUDED_FROM_TRAINING = "EXCLUDED_FROM_TRAINING"
+
+
+class RowCounts(BaseModel):
+    """Accepted/rejected contribution row counts."""
+
+    accepted: int
+    rejected: int
+    total: int
+
+
+class LifecycleUpdatePayload(BaseModel):
+    """Lifecycle update callback payload for auth-service."""
+
+    submission_id: str
+    status: str
+    row_counts: RowCounts
+    dataset_version: str | None = None
+    training_run_id: str | None = None
+    evaluation_run_id: str | None = None
+    estimated_reward_at: datetime | None = None
+    reason_code: LifecycleReasonCode | None = None
+    event_version: str = "v1"

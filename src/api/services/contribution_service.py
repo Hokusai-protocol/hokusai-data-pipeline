@@ -23,7 +23,12 @@ from src.api.models.contribution_lifecycle import (
     ContributionLifecycle,
     ContributionLifecycleState,
 )
-from src.api.schemas.contribution import ContributionAcceptedResponse, ContributionRequest
+from src.api.schemas.contribution import (
+    ContributionAcceptedResponse,
+    ContributionRequest,
+    LifecycleUpdatePayload,
+    RowCounts,
+)
 from src.api.utils.config import get_settings
 
 if TYPE_CHECKING:
@@ -122,6 +127,16 @@ class ContributionLifecycleRecord:
     evaluation_run_id: str | None
     created_at: datetime
     updated_at: datetime
+
+
+_LIFECYCLE_METADATA_DATASET_VERSION_KEY = "dataset_version"
+_LIFECYCLE_METADATA_ESTIMATED_REWARD_AT_KEY = "estimated_reward_at"
+_NOTIFIABLE_LIFECYCLE_STATES = {
+    ContributionLifecycleState.PROCESSED.value,
+    ContributionLifecycleState.INCLUDED_IN_TRAINING.value,
+    ContributionLifecycleState.REJECTED.value,
+    ContributionLifecycleState.EXCLUDED.value,
+}
 
 
 class ContributionStore(Protocol):
@@ -413,8 +428,10 @@ class ContributionService:
         rejected_row_count: int | None = None,
         reason: str | None = None,
         processing_metadata: dict[str, Any] | None = None,
+        dataset_version: str | None = None,
         training_run_id: str | None = None,
         evaluation_run_id: str | None = None,
+        estimated_reward_at: datetime | None = None,
     ) -> ContributionLifecycleRecord:
         """Upsert and update lifecycle state with absolute counts and optional run refs."""
         normalized_state = self._normalize_lifecycle_state(state)
@@ -432,36 +449,69 @@ class ContributionService:
                 .with_for_update()
                 .first()
             )
-            if row is None:
-                row = ContributionLifecycle(
-                    submission_id=submission_id,
-                    state=normalized_state,
-                    accepted_row_count=accepted_row_count or 0,
-                    rejected_row_count=rejected_row_count or 0,
-                    reason=reason,
-                    processing_metadata=processing_metadata,
-                    training_run_id=training_run_id,
-                    evaluation_run_id=evaluation_run_id,
-                )
-                session.add(row)
-            else:
-                row.state = normalized_state
-                if accepted_row_count is not None:
-                    row.accepted_row_count = accepted_row_count
-                if rejected_row_count is not None:
-                    row.rejected_row_count = rejected_row_count
-                if reason is not None:
-                    row.reason = reason
-                if processing_metadata is not None:
-                    row.processing_metadata = processing_metadata
-                if training_run_id is not None:
-                    row.training_run_id = training_run_id
-                if evaluation_run_id is not None:
-                    row.evaluation_run_id = evaluation_run_id
+            row = self._upsert_lifecycle_row(
+                session=session,
+                existing_row=row,
+                submission_id=submission_id,
+                state=normalized_state,
+                accepted_row_count=accepted_row_count,
+                rejected_row_count=rejected_row_count,
+                reason=reason,
+                processing_metadata=processing_metadata,
+                dataset_version=dataset_version,
+                training_run_id=training_run_id,
+                evaluation_run_id=evaluation_run_id,
+                estimated_reward_at=estimated_reward_at,
+            )
 
             session.commit()
             session.refresh(row)
-            return self._encode_lifecycle_row(row)
+            record = self._encode_lifecycle_row(row)
+            try:
+                self._notify_lifecycle_update(session=session, row=row)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Failed to persist lifecycle callback tracking",
+                    extra={"submission_id": submission_id, "state": normalized_state},
+                    exc_info=True,
+                )
+            return record
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def retry_failed_callbacks(self: ContributionService, *, limit: int = 50) -> int:
+        """Retry failed lifecycle callbacks up to the configured max-attempt threshold."""
+        session_factory = self._get_lifecycle_session_factory()
+        if session_factory is None:
+            raise ContributionLifecycleUnavailableError(
+                "Lifecycle persistence is unavailable because no database is configured"
+            )
+
+        max_attempts = max(1, int(os.getenv("LIFECYCLE_CALLBACK_MAX_ATTEMPTS", "5")))
+        session = session_factory()
+        delivered = 0
+        try:
+            rows = (
+                session.query(ContributionLifecycle)
+                .filter(ContributionLifecycle.callback_status == "failed")
+                .filter(ContributionLifecycle.callback_attempts < max_attempts)
+                .order_by(ContributionLifecycle.updated_at.asc())
+                .limit(limit)
+                .all()
+            )
+            for row in rows:
+                try:
+                    delivered += int(self._notify_lifecycle_update(session=session, row=row))
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "Failed to persist lifecycle callback retry state",
+                        extra={"submission_id": row.submission_id, "state": row.state},
+                        exc_info=True,
+                    )
+            return delivered
         except Exception:
             session.rollback()
             raise
@@ -581,6 +631,146 @@ class ContributionService:
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
+
+    def _notify_lifecycle_update(
+        self: ContributionService,
+        *,
+        session: Session,
+        row: ContributionLifecycle,
+    ) -> bool:
+        if self._notifier is None or row.state not in _NOTIFIABLE_LIFECYCLE_STATES:
+            return False
+
+        delivered = False
+        error_message = None
+        try:
+            payload = self._build_lifecycle_update_payload(row)
+            delivered, error_message = self._notifier.notify_lifecycle_update(payload)
+        except Exception as exc:  # noqa: BLE001
+            error_message = str(exc)
+            logger.warning(
+                "Lifecycle callback raised unexpectedly",
+                extra={
+                    "submission_id": row.submission_id,
+                    "state": row.state,
+                    "error": error_message,
+                },
+            )
+
+        row.callback_status = "delivered" if delivered else "failed"
+        row.callback_attempts = (row.callback_attempts or 0) + 1
+        row.callback_last_error = None if delivered else error_message
+        row.callback_last_attempt_at = datetime.now(timezone.utc)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return delivered
+
+    def _build_lifecycle_update_payload(
+        self: ContributionService,
+        row: ContributionLifecycle,
+    ) -> LifecycleUpdatePayload:
+        processing_metadata = row.processing_metadata or {}
+        estimated_reward_at = self._parse_estimated_reward_at(
+            processing_metadata.get(_LIFECYCLE_METADATA_ESTIMATED_REWARD_AT_KEY)
+        )
+        return LifecycleUpdatePayload(
+            submission_id=row.submission_id,
+            status=row.state,
+            row_counts=RowCounts(
+                accepted=row.accepted_row_count,
+                rejected=row.rejected_row_count,
+                total=row.accepted_row_count + row.rejected_row_count,
+            ),
+            dataset_version=processing_metadata.get(_LIFECYCLE_METADATA_DATASET_VERSION_KEY),
+            training_run_id=row.training_run_id,
+            evaluation_run_id=row.evaluation_run_id,
+            estimated_reward_at=estimated_reward_at,
+            reason_code=self._notifier._map_reason_code(row.reason),
+        )
+
+    def _upsert_lifecycle_row(
+        self: ContributionService,
+        *,
+        session: Session,
+        existing_row: ContributionLifecycle | None,
+        submission_id: str,
+        state: str,
+        accepted_row_count: int | None,
+        rejected_row_count: int | None,
+        reason: str | None,
+        processing_metadata: dict[str, Any] | None,
+        dataset_version: str | None,
+        training_run_id: str | None,
+        evaluation_run_id: str | None,
+        estimated_reward_at: datetime | None,
+    ) -> ContributionLifecycle:
+        merged_processing_metadata = self._merge_processing_metadata(
+            current=existing_row.processing_metadata if existing_row is not None else None,
+            updates=processing_metadata,
+            dataset_version=dataset_version,
+            estimated_reward_at=estimated_reward_at,
+        )
+        if existing_row is None:
+            row = ContributionLifecycle(
+                submission_id=submission_id,
+                state=state,
+                accepted_row_count=accepted_row_count or 0,
+                rejected_row_count=rejected_row_count or 0,
+                reason=reason,
+                processing_metadata=merged_processing_metadata,
+                training_run_id=training_run_id,
+                evaluation_run_id=evaluation_run_id,
+            )
+            session.add(row)
+            return row
+
+        existing_row.state = state
+        if accepted_row_count is not None:
+            existing_row.accepted_row_count = accepted_row_count
+        if rejected_row_count is not None:
+            existing_row.rejected_row_count = rejected_row_count
+        if reason is not None:
+            existing_row.reason = reason
+        if (
+            processing_metadata is not None
+            or dataset_version is not None
+            or estimated_reward_at is not None
+        ):
+            existing_row.processing_metadata = merged_processing_metadata
+        if training_run_id is not None:
+            existing_row.training_run_id = training_run_id
+        if evaluation_run_id is not None:
+            existing_row.evaluation_run_id = evaluation_run_id
+        return existing_row
+
+    @staticmethod
+    def _merge_processing_metadata(
+        *,
+        current: dict[str, Any] | None,
+        updates: dict[str, Any] | None,
+        dataset_version: str | None,
+        estimated_reward_at: datetime | None,
+    ) -> dict[str, Any] | None:
+        merged: dict[str, Any] = dict(current or {})
+        if updates is not None:
+            merged.update(updates)
+        if dataset_version is not None:
+            merged[_LIFECYCLE_METADATA_DATASET_VERSION_KEY] = dataset_version
+        if estimated_reward_at is not None:
+            merged[_LIFECYCLE_METADATA_ESTIMATED_REWARD_AT_KEY] = estimated_reward_at.isoformat()
+        return merged or None
+
+    @staticmethod
+    def _parse_estimated_reward_at(value: Any) -> datetime | None:
+        if value is None or isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                return None
+        return None
 
     def _storage_ref_for_record(
         self: ContributionService, record: StoredContributionRecord
