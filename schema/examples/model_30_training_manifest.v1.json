@@ -1,0 +1,24 @@
+{
+  "as_of": "2026-06-01T00:00:00Z",
+  "blocks": [
+    {
+      "reward_hold": false,
+      "row_count": 2,
+      "row_end": 1,
+      "row_start": 0,
+      "s3_key": "prefix/contributions/model_id=30/submission-1.json",
+      "submission_id": "submission-1",
+      "wallet": "0x742d35cc6634c0532925a3b844bc9e7595f62341"
+    }
+  ],
+  "dataset_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "manifest_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "model_id": "30",
+  "duplicates_dropped": [
+    "prefix/contributions/model_id=30/submission-1-duplicate.json"
+  ],
+  "quarantine_count": 1,
+  "row_count": 2,
+  "schema_version": "model_30_training_manifest/v1",
+  "wallet_policy": "quarantine"
+}

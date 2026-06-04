@@ -22,6 +22,7 @@ LOGGER = logging.getLogger(__name__)
 _AUTH_ACCEPTED_PATH = "/internal/data-submissions/accepted"
 _AUTH_LIFECYCLE_PATH = "/internal/data-submissions/lifecycle-update"
 _AUTH_REWARD_ENTITLEMENT_PATH = "/internal/reward-entitlements"
+_AUTH_WALLET_RESOLUTION_PATH = "/internal/auth-context/wallet"
 _SUBMISSION_SOURCE = "hokusai_data_pipeline"
 _ENDPOINT_TEMPLATE = "/api/v1/models/{model_id}/contributions"
 
@@ -83,6 +84,13 @@ class AuthServiceNotifier:
                 _AUTH_REWARD_ENTITLEMENT_PATH,
             ).strip()
             or _AUTH_REWARD_ENTITLEMENT_PATH
+        )
+        self.wallet_resolution_path = (
+            os.getenv(
+                "HOKUSAI_AUTH_WALLET_RESOLUTION_PATH",
+                _AUTH_WALLET_RESOLUTION_PATH,
+            ).strip()
+            or _AUTH_WALLET_RESOLUTION_PATH
         )
 
     @classmethod
@@ -423,6 +431,69 @@ class AuthServiceNotifier:
                 sort_keys=True,
             )
         )
+
+    def resolve_wallet(  # noqa: C901
+        self: AuthServiceNotifier,
+        *,
+        user_id: str | None,
+        api_key_id: str | None = None,
+        service_id: str | None = None,
+    ) -> str | None:
+        """Resolve a wallet address from the auth-service auth-context lookup."""
+        if self.dry_run:
+            LOGGER.info(
+                json.dumps(
+                    {
+                        "event": "auth_wallet_resolution_dry_run",
+                        "user_id": user_id,
+                        "api_key_id": api_key_id,
+                        "service_id": service_id,
+                    },
+                    default=str,
+                    sort_keys=True,
+                )
+            )
+            return None
+
+        params = {
+            key: value
+            for key, value in {
+                "user_id": user_id,
+                "api_key_id": api_key_id,
+                "service_id": service_id,
+            }.items()
+            if value
+        }
+        if not params:
+            return None
+
+        headers = {"Authorization": f"Bearer {self.internal_token}"}
+        url = f"{self.auth_service_url}{self.wallet_resolution_path}"
+        for attempt in range(1, self.retry_attempts + 1):
+            if attempt > 1:
+                time.sleep(2 ** (attempt - 2))
+            try:
+                response = httpx.get(url, params=params, headers=headers, timeout=self.timeout)
+            except httpx.HTTPError:
+                continue
+            except Exception:  # noqa: BLE001
+                return None
+
+            if response.status_code == 200:
+                try:
+                    wallet = response.json().get("wallet_address")
+                except Exception:  # noqa: BLE001
+                    return None
+                if not isinstance(wallet, str):
+                    return None
+                return wallet
+
+            if response.status_code in {404, 422}:
+                return None
+            if response.status_code >= 500:
+                continue
+            return None
+        return None
 
     def _parse_uuid(
         self: AuthServiceNotifier,

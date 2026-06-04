@@ -348,6 +348,25 @@ def test_notify_reward_entitlement_includes_claimable_vesting(
     assert post_mock.call_args.kwargs["json"]["vesting"]["claimable_amount"] == "25"
 
 
+def test_resolve_wallet_returns_none_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    notifier = AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="secret-token",
+        dry_run=False,
+    )
+    get_mock = Mock(return_value=Mock(status_code=404, text="missing"))
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.get", get_mock)
+
+    wallet = notifier.resolve_wallet(
+        user_id="11111111-1111-1111-1111-111111111111",
+        api_key_id="22222222-2222-2222-2222-222222222222",
+        service_id="svc-1",
+    )
+
+    assert wallet is None
+    assert get_mock.call_count == 1
+
+
 @pytest.mark.parametrize(
     ("cause", "expected"),
     [
