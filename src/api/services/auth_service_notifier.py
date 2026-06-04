@@ -11,11 +11,13 @@ from uuid import UUID
 
 import httpx
 
+from src.api.schemas.contribution import LifecycleReasonCode, LifecycleUpdatePayload
 from src.api.services.contribution_service import StoredContributionRecord
 
 LOGGER = logging.getLogger(__name__)
 
 _AUTH_ACCEPTED_PATH = "/internal/data-submissions/accepted"
+_AUTH_LIFECYCLE_PATH = "/internal/data-submissions/lifecycle-update"
 _SUBMISSION_SOURCE = "hokusai_data_pipeline"
 _ENDPOINT_TEMPLATE = "/api/v1/models/{model_id}/contributions"
 
@@ -37,6 +39,10 @@ class AuthServiceNotifier:
         self.dry_run = dry_run
         self.timeout = timeout
         self.retry_attempts = max(1, retry_attempts)
+        self.lifecycle_callback_path = (
+            os.getenv("HOKUSAI_AUTH_LIFECYCLE_CALLBACK_PATH", _AUTH_LIFECYCLE_PATH).strip()
+            or _AUTH_LIFECYCLE_PATH
+        )
 
     @classmethod
     def from_env(cls: type[AuthServiceNotifier]) -> AuthServiceNotifier:
@@ -262,3 +268,145 @@ class AuthServiceNotifier:
                 sort_keys=True,
             )
         )
+
+    @staticmethod
+    def _map_reason_code(cause: str | None) -> LifecycleReasonCode:
+        normalized = (cause or "").strip().lower()
+        mapping = {
+            "schema_validation_failed": LifecycleReasonCode.SCHEMA_VALIDATION_FAILED,
+            "duplicate_submission": LifecycleReasonCode.DUPLICATE_SUBMISSION,
+            "insufficient_quality": LifecycleReasonCode.INSUFFICIENT_QUALITY,
+            "excluded_from_training": LifecycleReasonCode.EXCLUDED_FROM_TRAINING,
+        }
+        return mapping.get(normalized, LifecycleReasonCode.PROCESSING_ERROR)
+
+    def notify_lifecycle_update(
+        self: AuthServiceNotifier,
+        payload: LifecycleUpdatePayload,
+    ) -> tuple[bool, str | None]:
+        """Post a contribution lifecycle update to auth-service."""
+        if self.dry_run:
+            LOGGER.info(
+                json.dumps(
+                    {
+                        "event": "auth_lifecycle_notification_dry_run",
+                        "submission_id": payload.submission_id,
+                        "payload": payload.model_dump(mode="json"),
+                    },
+                    default=str,
+                    sort_keys=True,
+                )
+            )
+            return True, None
+
+        headers = {
+            "Authorization": f"Bearer {self.internal_token}",
+            "Content-Type": "application/json",
+            "Idempotency-Key": (
+                f"{payload.submission_id}:{payload.status}:{payload.event_version}"
+            ),
+        }
+        url = f"{self.auth_service_url}{self.lifecycle_callback_path}"
+        error_message: str | None = None
+
+        for attempt in range(1, self.retry_attempts + 1):
+            if attempt > 1:
+                time.sleep(2 ** (attempt - 2))
+            try:
+                response = httpx.post(
+                    url,
+                    json=payload.model_dump(mode="json"),
+                    headers=headers,
+                    timeout=self.timeout,
+                )
+            except httpx.HTTPError as exc:
+                error_message = str(exc)
+                LOGGER.warning(
+                    json.dumps(
+                        {
+                            "event": "auth_lifecycle_notification_request_error",
+                            "submission_id": payload.submission_id,
+                            "attempt": attempt,
+                            "max_attempts": self.retry_attempts,
+                            "error": error_message,
+                        },
+                        default=str,
+                        sort_keys=True,
+                    )
+                )
+                continue
+            except Exception as exc:  # noqa: BLE001
+                error_message = str(exc)
+                LOGGER.warning(
+                    json.dumps(
+                        {
+                            "event": "auth_lifecycle_notification_unexpected_error",
+                            "submission_id": payload.submission_id,
+                            "attempt": attempt,
+                            "error": error_message,
+                        },
+                        default=str,
+                        sort_keys=True,
+                    )
+                )
+                return False, error_message
+
+            if response.status_code in {200, 201}:
+                LOGGER.info(
+                    json.dumps(
+                        {
+                            "event": "auth_lifecycle_notification_succeeded",
+                            "submission_id": payload.submission_id,
+                            "status_code": response.status_code,
+                        },
+                        default=str,
+                        sort_keys=True,
+                    )
+                )
+                return True, None
+
+            error_message = f"{response.status_code}: {response.text[:500]}"
+            if response.status_code >= 500:
+                LOGGER.warning(
+                    json.dumps(
+                        {
+                            "event": "auth_lifecycle_notification_retryable_response",
+                            "submission_id": payload.submission_id,
+                            "attempt": attempt,
+                            "max_attempts": self.retry_attempts,
+                            "status_code": response.status_code,
+                            "response_body": response.text[:500],
+                        },
+                        default=str,
+                        sort_keys=True,
+                    )
+                )
+                continue
+
+            LOGGER.warning(
+                json.dumps(
+                    {
+                        "event": "auth_lifecycle_notification_failed",
+                        "submission_id": payload.submission_id,
+                        "status_code": response.status_code,
+                        "response_body": response.text[:500],
+                    },
+                    default=str,
+                    sort_keys=True,
+                )
+            )
+            return False, error_message
+
+        LOGGER.warning(
+            json.dumps(
+                {
+                    "event": "auth_lifecycle_notification_retry_exhausted",
+                    "submission_id": payload.submission_id,
+                    "attempts": self.retry_attempts,
+                    "error": error_message,
+                },
+                default=str,
+                sort_keys=True,
+            )
+        )
+        return False, error_message
