@@ -30,6 +30,20 @@ _SPEC_ID = "spec-integration-v1"
 _MODEL_ID_UINT = "99001"
 
 
+class _FakeRewardNotifier:
+    def __init__(self, fail_statuses: set[str] | None = None) -> None:
+        self.calls: list[dict[str, object]] = []
+        self.fail_statuses = fail_statuses or set()
+
+    def notify_reward_entitlement(self, *, mint_request, status, mint_result=None):
+        self.calls.append(
+            {"mint_request": mint_request, "status": status, "mint_result": mint_result}
+        )
+        if status in self.fail_statuses:
+            return False, f"{status} failed"
+        return True, None
+
+
 def _make_decision(
     accepted: bool = True,
     metric_name: str = "workflow_success_rate_under_budget",
@@ -67,8 +81,17 @@ def _make_spec() -> dict:
             "guardrails": [],
         },
         "contributors": [
-            {"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 7000},
-            {"wallet_address": "0x6c3e007f281f6948b37c511a11e43c8026d2f069", "weight_bps": 3000},
+            {
+                "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+                "weight_bps": 7000,
+                "submissionId": "sub-1",
+                "contributionBatchId": "batch-1",
+            },
+            {
+                "wallet_address": "0x6c3e007f281f6948b37c511a11e43c8026d2f069",
+                "weight_bps": 3000,
+                "submissionId": "sub-2",
+            },
         ],
     }
 
@@ -113,11 +136,13 @@ def _build_orchestrator(
         },
     )
     publisher = MintRequestPublisher(redis_client=fake_redis_client)
+    reward_notifier = _FakeRewardNotifier()
     orchestrator = DeltaOneMintOrchestrator(
         evaluator=evaluator,
         mint_hook=mint_hook,
         mlflow_client=mlflow_client,
         mint_request_publisher=publisher,
+        reward_entitlement_notifier=reward_notifier,
     )
     monkeypatch.setattr(
         orchestrator,
@@ -185,6 +210,7 @@ def orchestrator(publisher, monkeypatch):
         mint_hook=mint_hook,
         mlflow_client=mlflow_client,
         mint_request_publisher=publisher,
+        reward_entitlement_notifier=_FakeRewardNotifier(),
     )
 
 
@@ -233,6 +259,10 @@ class TestMintRequestPublishIntegration:
 
         assert len(msg.contributors) == 2
         assert sum(c.weight_bps for c in msg.contributors) == 10000
+        by_submission = {contributor.submission_id: contributor for contributor in msg.contributors}
+        assert by_submission["sub-1"].contribution_batch_id == "batch-1"
+        assert by_submission["sub-1"].weight_bps == 7000
+        assert by_submission["sub-2"].weight_bps == 3000
 
     def test_scores_in_basis_points(self, orchestrator, fake_redis_client) -> None:
         orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
@@ -417,6 +447,7 @@ class TestMintRequestPublishIntegration:
             mint_hook=mint_hook,
             mlflow_client=mlflow_client,
             mint_request_publisher=publisher,
+            reward_entitlement_notifier=_FakeRewardNotifier(),
         )
 
         outcome = orch.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
@@ -474,3 +505,83 @@ class TestMintRequestPublishIntegration:
         payload = json.loads(fake_redis_client.lindex(QUEUE_NAME, 0))
         assert payload["totalSamples"] == 4
         assert payload["evaluation"]["sample_size_candidate"] == 4
+
+    def test_pending_reward_entitlement_receives_contributor_metadata(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        evaluator = Mock()
+        evaluator.evaluate_for_model.return_value = _make_decision(accepted=True)
+        evaluator.delta_threshold_pp = 1.0
+        mint_hook = Mock()
+        mint_hook.mint.return_value = TokenMintResult(
+            status="success",
+            audit_ref="audit-integration",
+            timestamp=datetime.now(timezone.utc),
+        )
+        mlflow_client = _FakeMlflowClient(
+            run_metrics={
+                "workflow_success_rate_under_budget": 0.87,
+                "hokusai_workflow_success_rate_under_budget": 0.87,
+            },
+            initial_tags={"hokusai.eval_id": _EVAL_ID, "hokusai.actual_cost_usd": "2.34"},
+        )
+        reward_notifier = _FakeRewardNotifier()
+        orch = DeltaOneMintOrchestrator(
+            evaluator=evaluator,
+            mint_hook=mint_hook,
+            mlflow_client=mlflow_client,
+            mint_request_publisher=MintRequestPublisher(redis_client=fake_redis_client),
+            reward_entitlement_notifier=reward_notifier,
+        )
+
+        orch.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        assert [call["status"] for call in reward_notifier.calls] == ["pending"]
+        mint_request = reward_notifier.calls[0]["mint_request"]
+        by_submission = {
+            contributor.submission_id: contributor for contributor in mint_request.contributors
+        }
+        assert by_submission["sub-1"].contribution_batch_id == "batch-1"
+        assert by_submission["sub-2"].weight_bps == 3000
+
+    def test_reward_entitlement_failure_does_not_block_queue_or_canonical_advance(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        evaluator = Mock()
+        evaluator.evaluate_for_model.return_value = _make_decision(accepted=True)
+        evaluator.delta_threshold_pp = 1.0
+        mint_hook = Mock()
+        mint_hook.mint.return_value = TokenMintResult(
+            status="success",
+            audit_ref="audit-integration",
+            timestamp=datetime.now(timezone.utc),
+        )
+        mlflow_client = _FakeMlflowClient(
+            run_metrics={
+                "workflow_success_rate_under_budget": 0.87,
+                "hokusai_workflow_success_rate_under_budget": 0.87,
+            },
+            initial_tags={"hokusai.eval_id": _EVAL_ID, "hokusai.actual_cost_usd": "2.34"},
+        )
+        reward_notifier = _FakeRewardNotifier(fail_statuses={"pending"})
+        orch = DeltaOneMintOrchestrator(
+            evaluator=evaluator,
+            mint_hook=mint_hook,
+            mlflow_client=mlflow_client,
+            mint_request_publisher=MintRequestPublisher(redis_client=fake_redis_client),
+            reward_entitlement_notifier=reward_notifier,
+        )
+
+        outcome = orch.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        assert outcome.status == "success"
+        assert fake_redis_client.llen(QUEUE_NAME) == 1
+        assert mlflow_client.tags["hokusai.canonical_score"] == "0.87"

@@ -44,6 +44,17 @@ post-mint audit tags and optional `vesting` block on the `deltaone.minted` webho
 | `guardrail_summary` | object | Guardrail evaluation aggregate; see nested schema |
 | `max_cost_usd_micro` | `int` ≥ 0 | Cost cap from measurement policy in USDC micro-units |
 | `actual_cost_usd_micro` | `int` ≥ 0 | Actual eval cost from run tags in USDC micro-units |
+| `contributors` | array | Contributor allocations with wallet, weight, and optional submission traceability fields |
+
+### Contributor Allocation Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `wallet_address` | `str` | Contributor wallet address used for reward routing |
+| `weight_bps` | `int` [0, 10000] | Contributor allocation weight in basis points |
+| `submissionId` | `str \| null` | Optional submission identifier for reward traceability |
+| `contributionBatchId` | `str \| null` | Optional batch identifier when multiple submissions are grouped |
+| `contributorId` | `str \| null` | Optional contributor identity distinct from wallet |
 
 ### Guardrail Summary Fields
 
@@ -127,6 +138,7 @@ docs that mention the old formula must be updated in lockstep.
 - Field additions are backward-compatible; bump only when breaking field renames or type changes occur.
 - The `event_version` literal changes from `"deltaone.acceptance/v1"` to `"deltaone.acceptance/v2"` on the next breaking change.
 - `hokusai-token` should pin `schema/examples/deltaone_acceptance_event.v1.json` in its contract tests so any schema drift fails CI on both sides.
+- The `contributors` array and its optional traceability fields were added additively in v1 and do not change the event version.
 
 ## Downstream Validation
 

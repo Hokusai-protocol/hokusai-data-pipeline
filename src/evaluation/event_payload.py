@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from typing import Any, Literal
 
@@ -43,6 +44,7 @@ SUPPORTED_METRIC_FAMILIES = frozenset(
 _HEX64_RE_LOWER = "0x" + "[0-9a-f]{64}"
 _BPS_SCALE = Decimal("10000")
 _MICRO_USDC_SCALE = Decimal("1000000")
+_ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
 # ---------------------------------------------------------------------------
 # Exceptions
@@ -222,6 +224,29 @@ class DeltaOneGuardrailSummary(BaseModel):
         return self
 
 
+class DeltaOneContributorAllocation(BaseModel):
+    """Contributor allocation metadata embedded in DeltaOne acceptance events."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    wallet_address: str = Field(
+        ..., description="EIP-55 checksummed or lowercase 0x-prefixed Ethereum address"
+    )
+    weight_bps: int = Field(..., ge=0, le=10000, description="Allocation weight in basis points")
+    submission_id: str | None = Field(default=None, alias="submissionId", min_length=1)
+    contribution_batch_id: str | None = Field(
+        default=None, alias="contributionBatchId", min_length=1
+    )
+    contributor_id: str | None = Field(default=None, alias="contributorId", min_length=1)
+
+    @field_validator("wallet_address")
+    @classmethod
+    def _validate_wallet(cls: type[DeltaOneContributorAllocation], value: str) -> str:
+        if not _ETH_ADDRESS_RE.match(value):
+            raise ValueError(f"wallet_address must match 0x[a-fA-F0-9]{{40}}, got {value!r}")
+        return value.lower()
+
+
 class DeltaOneAcceptanceEvent(BaseModel):
     """Versioned acceptance event emitted before DeltaOne mint for on-chain DeltaVerifier.
 
@@ -229,7 +254,7 @@ class DeltaOneAcceptanceEvent(BaseModel):
     micro-units (6 decimals).  All SHA-256 hashes are lowercase, 0x-prefixed.
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
     # Event identity
     event_version: Literal["deltaone.acceptance/v1"] = DELTAONE_ACCEPTANCE_EVENT_VERSION
@@ -267,6 +292,9 @@ class DeltaOneAcceptanceEvent(BaseModel):
     # Cost fields (USDC micro-units, 6 decimals)
     max_cost_usd_micro: int = Field(..., ge=0)
     actual_cost_usd_micro: int = Field(..., ge=0)
+
+    # Contributor allocations
+    contributors: list[DeltaOneContributorAllocation] = Field(default_factory=list)
 
     @field_validator("model_id_uint")
     @classmethod

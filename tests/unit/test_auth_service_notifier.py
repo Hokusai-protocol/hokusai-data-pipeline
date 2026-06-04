@@ -10,8 +10,10 @@ import httpx
 import pytest
 
 from src.api.schemas.contribution import LifecycleReasonCode, LifecycleUpdatePayload, RowCounts
+from src.api.schemas.token_mint import TokenMintResult
 from src.api.services.auth_service_notifier import AuthServiceNotifier
 from src.api.services.contribution_service import StoredContributionRecord
+from src.events.schemas import MintRequest, MintRequestContributor, MintRequestEvaluation
 
 
 def _record() -> StoredContributionRecord:
@@ -33,6 +35,40 @@ def _auth() -> dict[str, str]:
         "api_key_id": "22222222-2222-2222-2222-222222222222",
         "service_id": "svc-1",
     }
+
+
+def _mint_request() -> MintRequest:
+    return MintRequest(
+        message_id="mint-msg-1",
+        timestamp="2026-06-04T12:00:00+00:00",
+        model_id="30",
+        model_id_uint="99001",
+        eval_id="eval-123",
+        attestation_hash="0x" + "a" * 64,
+        idempotency_key="0x" + "b" * 64,
+        total_samples=3,
+        evaluation=MintRequestEvaluation(
+            metric_name="accuracy",
+            metric_family="proportion",
+            baseline_score_bps=7000,
+            new_score_bps=8000,
+            max_cost_usd_micro=100,
+            actual_cost_usd_micro=50,
+        ),
+        contributors=[
+            MintRequestContributor(
+                wallet_address="0x742d35cc6634c0532925a3b844bc9e7595f62341",
+                weight_bps=7000,
+                submission_id="sub-1",
+                contribution_batch_id="batch-1",
+            ),
+            MintRequestContributor(
+                wallet_address="0x6c3e007f281f6948b37c511a11e43c8026d2f069",
+                weight_bps=3000,
+                submission_id="sub-2",
+            ),
+        ],
+    )
 
 
 def test_notifier_posts_payload_on_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -203,6 +239,113 @@ def test_notify_lifecycle_update_dry_run_skips_http_call(
     assert delivered is True
     assert error is None
     post_mock.assert_not_called()
+
+
+def test_notify_reward_entitlement_posts_payload_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="secret-token",
+        dry_run=False,
+    )
+    response = Mock(status_code=201, text="")
+    post_mock = Mock(return_value=response)
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.post", post_mock)
+
+    delivered, error = notifier.notify_reward_entitlement(
+        mint_request=_mint_request(),
+        status="pending",
+    )
+
+    assert delivered is True
+    assert error is None
+    call_kwargs = post_mock.call_args.kwargs
+    assert call_kwargs["headers"]["Authorization"] == "Bearer secret-token"
+    assert (
+        call_kwargs["headers"]["Idempotency-Key"]
+        == f"{_mint_request().idempotency_key}:reward_entitlement:pending"
+    )
+    assert call_kwargs["json"]["contributors"][0]["submissionId"] == "sub-1"
+    assert call_kwargs["json"]["contributors"][0]["weightBps"] == 7000
+    assert call_kwargs["json"]["contributors"][1]["submissionId"] == "sub-2"
+
+
+def test_notify_reward_entitlement_dry_run_skips_http_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="",
+        dry_run=True,
+    )
+    post_mock = Mock()
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.post", post_mock)
+
+    delivered, error = notifier.notify_reward_entitlement(
+        mint_request=_mint_request(),
+        status="pending",
+    )
+
+    assert delivered is True
+    assert error is None
+    post_mock.assert_not_called()
+
+
+def test_notify_reward_entitlement_retries_and_returns_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="secret-token",
+        dry_run=False,
+        retry_attempts=2,
+    )
+    response = Mock(status_code=503, text="downstream unavailable")
+    post_mock = Mock(return_value=response)
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.post", post_mock)
+
+    delivered, error = notifier.notify_reward_entitlement(
+        mint_request=_mint_request(),
+        status="pending",
+    )
+
+    assert delivered is False
+    assert error == "503: downstream unavailable"
+    assert post_mock.call_count == 2
+
+
+def test_notify_reward_entitlement_includes_claimable_vesting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="secret-token",
+        dry_run=False,
+    )
+    response = Mock(status_code=200, text="")
+    post_mock = Mock(return_value=response)
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.post", post_mock)
+
+    delivered, error = notifier.notify_reward_entitlement(
+        mint_request=_mint_request(),
+        status="claimable",
+        mint_result=TokenMintResult.model_validate(
+            {
+                "status": "success",
+                "audit_ref": "audit-1",
+                "timestamp": datetime.now(timezone.utc),
+                "vesting": {
+                    "claimable_amount": "25",
+                    "vault_address": "0xvault",
+                },
+            }
+        ),
+    )
+
+    assert delivered is True
+    assert error is None
+    assert post_mock.call_args.kwargs["json"]["vesting"]["claimable_amount"] == "25"
 
 
 @pytest.mark.parametrize(
