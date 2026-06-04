@@ -26,6 +26,7 @@ from .model_registration_event import (
     TokenizedRegistrationEventRequest,
     TokenizedRegistrationEventResponse,
 )
+from .sales_lead_scoring_inputs import MODEL_27_INPUT_FIELDS, SalesLeadScoringInputs
 from .technical_task_router_inputs import (
     TechnicalTaskContextGroup,
     TechnicalTaskGroup,
@@ -64,6 +65,8 @@ __all__ = [
     "OutcomeSubmissionResponse",
     "TokenizedRegistrationEventRequest",
     "TokenizedRegistrationEventResponse",
+    "MODEL_27_INPUT_FIELDS",
+    "SalesLeadScoringInputs",
     "TechnicalTaskContextGroup",
     "TechnicalTaskGroup",
     "TechnicalTaskMetadataGroup",
