@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -53,3 +54,20 @@ class ContributionAcceptedResponse(BaseModel):
     submitted_rows: int = Field(..., alias="submittedRows")
     token_reward: int = Field(default=0, alias="tokenReward")
     idempotent_replay: bool = Field(default=False, alias="idempotentReplay")
+
+
+class ContributionLifecycleResponse(BaseModel):
+    """Current processing lifecycle state for a contribution submission."""
+
+    model_config = ConfigDict(populate_by_name=True, protected_namespaces=())
+
+    submission_id: str = Field(..., alias="submission_id")
+    state: str
+    accepted_row_count: int
+    rejected_row_count: int
+    reason: str | None = None
+    processing_metadata: dict[str, Any] | None = Field(default=None, alias="metadata")
+    training_run_id: str | None = None
+    evaluation_run_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
