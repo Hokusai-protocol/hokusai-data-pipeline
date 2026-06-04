@@ -246,6 +246,19 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
                 if response.status_code == 200:
                     data = response.json()
+                    if not isinstance(data, dict):
+                        logger.warning(
+                            json.dumps(
+                                {
+                                    "event": "auth_service_non_dict_response",
+                                    "endpoint": "/api/v1/keys/validate",
+                                    "observed_type": type(data).__name__,
+                                }
+                            )
+                        )
+                        return ValidationResult(
+                            is_valid=False, error="Authentication service error"
+                        )
                     return ValidationResult(
                         is_valid=True,
                         user_id=data.get("user_id"),
