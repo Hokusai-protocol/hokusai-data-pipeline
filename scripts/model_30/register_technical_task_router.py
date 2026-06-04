@@ -29,6 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.model_30.assemble_training_set import load_json  # noqa: E402
 from scripts.model_30.evaluate_technical_task_router import (  # noqa: E402
     evaluate_model,
     parse_objectives,
@@ -193,6 +194,14 @@ def _registered_model_uri(model_name: str, version: str | None) -> str:
     return f"models:/{model_name}/latest"
 
 
+def _log_training_manifest(report_path: str) -> None:
+    report = load_json(Path(report_path).expanduser().resolve())
+    mlflow.set_tag("training_dataset_hash", report["dataset_hash"])
+    mlflow.set_tag("training_manifest_digest", report["manifest_digest"])
+    mlflow.set_tag("training_as_of", report["as_of"])
+    mlflow.log_dict(report, "training_manifest_report.json")
+
+
 def register_model(args: argparse.Namespace) -> dict[str, Any]:
     """Log and register the callable Technical Task Router model."""
     dataset_path = Path(args.router_dataset).expanduser().resolve()
@@ -245,6 +254,9 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
         mlflow.set_tag("hokusai.dataset.num_samples", str(dataset_summary.row_count))
         mlflow.set_tag("hokusai.dataset.source", "wavemill-router-export")
         mlflow.log_dict(dataset_summary.to_mlflow_dict(), "router_dataset_summary.json")
+        training_manifest = getattr(args, "training_manifest", None)
+        if training_manifest:
+            _log_training_manifest(training_manifest)
         if evaluation_report is not None:
             for metric_name, metric_value in evaluation_report["metrics"].items():
                 if metric_value is None:
@@ -341,6 +353,10 @@ def parse_args() -> argparse.Namespace:
         "--smoke",
         action="store_true",
         help="Load the registered model URI and call predict after registration.",
+    )
+    parser.add_argument(
+        "--training-manifest",
+        help="Optional assembler report.json used to tag the MLflow training run.",
     )
     return parser.parse_args()
 

@@ -199,6 +199,23 @@ class S3ContributionStore:
             created_at=payload["created_at"],
         )
 
+    def list_keys(self: S3ContributionStore, *, model_id: str) -> list[str]:
+        """Return stored contribution object keys for a model in stable order."""
+        prefix = self._key_for(model_id, "").rsplit("/", 1)[0] + "/"
+        paginator = self._client.get_paginator("list_objects_v2")
+        keys: list[str] = []
+        try:
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+                for item in page.get("Contents", []):
+                    key = item.get("Key")
+                    if isinstance(key, str):
+                        keys.append(key)
+        except ClientError as exc:
+            raise ContributionPersistenceUnavailableError(
+                f"Failed to list contribution records for model {model_id}"
+            ) from exc
+        return sorted(keys)
+
     def create(
         self: S3ContributionStore, *, record: StoredContributionRecord
     ) -> StoredContributionRecord:
