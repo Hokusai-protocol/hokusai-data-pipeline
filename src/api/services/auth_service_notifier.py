@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Any
 from uuid import UUID
 
@@ -106,6 +107,8 @@ class AuthServiceNotifier:
         url = f"{self.auth_service_url}{_AUTH_ACCEPTED_PATH}"
 
         for attempt in range(1, self.retry_attempts + 1):
+            if attempt > 1:
+                time.sleep(2 ** (attempt - 2))
             try:
                 response = httpx.post(url, json=payload, headers=headers, timeout=self.timeout)
             except httpx.HTTPError as exc:

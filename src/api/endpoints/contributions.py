@@ -19,7 +19,6 @@ from src.api.services.contribution_service import (
 from src.middleware.auth import require_auth
 
 router = APIRouter(prefix="/api/v1/models", tags=["contributions"])
-CONTRIBUTIONS_ENDPOINT_TEMPLATE = "/api/v1/models/{model_id}/contributions"
 
 
 @router.post(
