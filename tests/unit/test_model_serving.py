@@ -29,6 +29,12 @@ from src.api.endpoints.model_30_adapter import (
     validate_nested_model_30_inputs,
 )
 from src.api.endpoints.model_registry import ModelRegistryEntry
+from src.api.endpoints.sales_lead_scoring_adapter import (
+    DEFAULT_MODEL_27_MLFLOW_URI,
+    MODEL_27_SCHEMA,
+    MODEL_27_VERSION,
+    reset_model_27_cache,
+)
 from src.middleware.auth import require_auth
 from src.utils.mlflow_health import MLflowRegistryHealthResult
 
@@ -102,6 +108,22 @@ def _replace_registry_entry(model_id: str, **changes: object) -> ModelRegistryEn
     return updated
 
 
+def _model_27_inputs() -> dict[str, object]:
+    return {
+        "Customer ID": "CG-12520",
+        "first_industry": "Technology",
+        "first_segment": "Enterprise",
+        "first_region": "North America",
+        "first_subregion": "US East",
+        "first_country": "United States",
+        "first_product": "Analytics Suite",
+        "first_sales": 12500.0,
+        "first_quantity": 25.0,
+        "first_discount": 0.1,
+        "total_profit": 3200.0,
+    }
+
+
 @pytest.fixture()
 def app() -> FastAPI:
     app = FastAPI()
@@ -125,6 +147,7 @@ def clear_caches() -> None:
     original_entries = dict(model_serving.MODEL_CONFIGS)
     model_serving.serving_service.model_cache.clear()
     reset_model_30_cache()
+    reset_model_27_cache()
     yield
     model_serving.MODEL_CONFIGS.clear()
     model_serving.MODEL_CONFIGS.update(original_entries)
@@ -149,6 +172,18 @@ def test_get_model_config_model_30_returns_router_config() -> None:
     assert config["model_version"] == MODEL_30_VERSION
     assert config["schema"] == MODEL_30_SCHEMA
     assert config["model_uri"] == DEFAULT_MODEL_30_MLFLOW_URI
+
+
+def test_get_model_config_model_27_returns_sales_lead_mlflow_config() -> None:
+    config = model_serving.serving_service.get_model_config("27")
+
+    assert config["name"] == "Sales Lead Scoring"
+    assert config["model_type"] == "sales_lead_scoring"
+    assert config["storage_type"] == "mlflow"
+    assert config["inference_method"] == "mlflow_pyfunc"
+    assert config["model_version"] == MODEL_27_VERSION
+    assert config["schema"] == MODEL_27_SCHEMA
+    assert config["model_uri"] == DEFAULT_MODEL_27_MLFLOW_URI
 
 
 def test_get_model_config_unknown_model_raises_404() -> None:
@@ -208,6 +243,40 @@ def test_model_30_info_endpoint_returns_mlflow_metadata(client: TestClient) -> N
     }
 
 
+def test_model_27_info_endpoint_returns_mlflow_metadata(client: TestClient) -> None:
+    response = client.get("/api/v1/models/27/info")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "model_id": "27",
+        "name": "Sales Lead Scoring",
+        "type": "sales_lead_scoring",
+        "storage": "mlflow",
+        "is_available": True,
+        "inference_methods": ["mlflow_pyfunc"],
+        "max_batch_size": 1,
+        "model_type": "sales_lead_scoring",
+        "storage_type": "mlflow",
+        "model_uri": DEFAULT_MODEL_27_MLFLOW_URI,
+        "model_version": MODEL_27_VERSION,
+        "schema": MODEL_27_SCHEMA,
+        "description": "MLflow-backed sales lead scoring model.",
+        "input_fields": [
+            "Customer ID",
+            "first_industry",
+            "first_segment",
+            "first_region",
+            "first_subregion",
+            "first_country",
+            "first_product",
+            "first_sales",
+            "first_quantity",
+            "first_discount",
+            "total_profit",
+        ],
+    }
+
+
 def test_model_30_health_endpoint_reflects_mlflow_cache(client: TestClient) -> None:
     _replace_registry_entry("30", cache_checker=lambda _: True)
     sdk_result = MLflowRegistryHealthResult(
@@ -239,6 +308,41 @@ def test_model_30_health_endpoint_reflects_mlflow_cache(client: TestClient) -> N
             "tracking_uri": "https://mlflow.test.local:5000",
             "latency_ms": 12.5,
             "sample_model": "Technical Task Router",
+        },
+    }
+
+
+def test_model_27_health_endpoint_reports_healthy(client: TestClient) -> None:
+    _replace_registry_entry("27", cache_checker=lambda _: True)
+    sdk_result = MLflowRegistryHealthResult(
+        status="ok",
+        tracking_uri="https://mlflow.test.local:5000",
+        latency_ms=11.2,
+        sample_model="Sales Lead Scoring",
+    )
+    with patch(
+        "src.api.endpoints.model_serving.check_mlflow_registry_sdk",
+        AsyncMock(return_value=sdk_result),
+    ):
+        response = client.get("/api/v1/models/27/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "model_id": "27",
+        "status": "healthy",
+        "is_cached": True,
+        "storage_type": "mlflow",
+        "inference_ready": True,
+        "readiness": {
+            "checked": False,
+            "model_uri": DEFAULT_MODEL_27_MLFLOW_URI,
+            "status": "cached",
+        },
+        "mlflow_sdk": {
+            "reachable": True,
+            "tracking_uri": "https://mlflow.test.local:5000",
+            "latency_ms": 11.2,
+            "sample_model": "Sales Lead Scoring",
         },
     }
 
@@ -314,6 +418,77 @@ def test_model_30_predict_minimal_payload_uses_adapter_path(client: TestClient) 
     assert body["metadata"]["inference_method"] == "mlflow_pyfunc"
     assert body["metadata"]["request_id"] == body["inference_log_id"]
     local_predict_mock.assert_not_called()
+
+
+def test_model_27_predict_returns_score_for_valid_payload(client: TestClient) -> None:
+    normalized_output = {
+        "lead_score": 82,
+        "conversion_probability": 0.82,
+        "recommendation": "Hot",
+        "confidence": 0.82,
+    }
+
+    _replace_registry_entry(
+        "27",
+        input_validator=lambda raw: raw,
+        feature_mapper=lambda validated: {"features": validated},
+        model_caller=lambda _model_uri, _features, _timings=None: {"probability": 0.82},
+        output_normalizer=lambda _raw, _validated: normalized_output,
+    )
+
+    response = client.post("/api/v1/models/27/predict", json={"inputs": _model_27_inputs()})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["model_id"] == "27"
+    assert body["predictions"] == normalized_output
+    assert body["metadata"]["model_uri"] == DEFAULT_MODEL_27_MLFLOW_URI
+    assert body["metadata"]["model_version"] == MODEL_27_VERSION
+    assert body["metadata"]["schema"] == MODEL_27_SCHEMA
+
+
+def test_model_27_predict_missing_required_field_returns_422(client: TestClient) -> None:
+    payload = _model_27_inputs()
+    del payload["total_profit"]
+
+    response = client.post("/api/v1/models/27/predict", json={"inputs": payload})
+
+    assert response.status_code == 422
+    assert "total_profit" in response.text
+
+
+def test_model_27_health_endpoint_warmup_loads_model(client: TestClient) -> None:
+    cache_states = [False, True]
+
+    def _is_cached(_uri: str) -> bool:
+        return cache_states.pop(0) if cache_states else True
+
+    _replace_registry_entry(
+        "27",
+        cache_checker=_is_cached,
+        model_caller=lambda _uri, _features, timings=None: (
+            timings.update({"artifact_load_ms": 1.2, "inference_only_ms": 0.4})
+            or {"probability": 0.72}
+        ),
+    )
+    sdk_result = MLflowRegistryHealthResult(
+        status="ok",
+        tracking_uri="https://mlflow.test.local:5000",
+        latency_ms=9.4,
+        sample_model="Sales Lead Scoring",
+    )
+    with patch(
+        "src.api.endpoints.model_serving.check_mlflow_registry_sdk",
+        AsyncMock(return_value=sdk_result),
+    ):
+        response = client.get("/api/v1/models/27/health?warmup=true")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_cached"] is True
+    assert body["inference_ready"] is True
+    assert body["readiness"]["checked"] is True
+    assert body["readiness"]["status"] == "ready"
 
 
 def test_model_30_predict_full_payload_passes_validated_inputs_to_adapter(

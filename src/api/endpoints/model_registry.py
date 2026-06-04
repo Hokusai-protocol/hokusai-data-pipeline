@@ -34,6 +34,8 @@ class ModelRegistryEntry:
     output_normalizer: OutputNormalizer | None = None
     model_caller: ModelCaller | None = None
     cache_checker: CacheChecker | None = None
+    input_fields: tuple[str, ...] = ()
+    readiness_inputs: dict[str, Any] | None = None
     repository_id: str | None = None
     cache_duration: int | None = None
     local_predictor: LocalPredictor | None = None
@@ -55,6 +57,7 @@ class ModelRegistryEntry:
             "model_version",
             "schema",
             "registered_model_name",
+            "input_fields",
             "repository_id",
             "cache_duration",
         ):

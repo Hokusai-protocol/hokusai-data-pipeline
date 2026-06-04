@@ -642,13 +642,11 @@ class ModelServingService:
 
     async def warm_mlflow_model(self, entry: ModelRegistryEntry) -> dict[str, Any]:
         """Load an MLflow model and run a minimal readiness check."""
+        readiness_inputs = entry.readiness_inputs
+        if not isinstance(readiness_inputs, dict):
+            raise ValueError(f"{entry.name} does not define readiness_inputs")
         validated_inputs = self._get_required_mlflow_component(entry, "input_validator")(
-            {
-                "task": {
-                    "description": "Readiness check for Technical Task Router",
-                    "task_type": "health_check",
-                }
-            }
+            readiness_inputs
         )
         features = self._get_required_mlflow_component(entry, "feature_mapper")(validated_inputs)
         timings: dict[str, float] = {}
@@ -735,6 +733,8 @@ async def get_model_info(
     for _key in ("model_version", "schema", "description"):
         if (_val := config.get(_key)) is not None:
             response[_key] = _val
+    if config.get("input_fields"):
+        response["input_fields"] = config["input_fields"]
     return response
 
 
@@ -877,7 +877,7 @@ async def check_model_health(
     model_id: str,
     warmup: bool = Query(
         default=False,
-        description="For model 30, load the MLflow artifact and run a minimal prediction.",
+        description="For MLflow-backed models, load the artifact and run a minimal prediction.",
     ),
     auth: Dict[str, Any] = Depends(require_auth),
 ):
