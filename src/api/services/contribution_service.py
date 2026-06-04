@@ -8,18 +8,29 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Protocol
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 import boto3
 from botocore.exceptions import ClientError
+from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, sessionmaker
 
 from src.api.endpoints.model_registry_entries import MODEL_CONFIGS
+from src.api.models.contribution_lifecycle import (
+    LIFECYCLE_STATE_VALUES,
+    ContributionLifecycle,
+    ContributionLifecycleState,
+)
 from src.api.schemas.contribution import ContributionAcceptedResponse, ContributionRequest
+from src.api.utils.config import get_settings
 
 if TYPE_CHECKING:
     from src.api.services.auth_service_notifier import AuthServiceNotifier
 
 logger = logging.getLogger(__name__)
+SessionFactory = Callable[[], Session]
 
 
 class ContributionError(Exception):
@@ -54,6 +65,27 @@ class ContributionValidationError(ContributionError):
         self.detail = detail
 
 
+class ContributionLifecycleUnavailableError(ContributionError):
+    """Raised when lifecycle persistence cannot be reached for a required operation."""
+
+
+class ContributionLifecycleNotFoundError(ContributionError):
+    """Raised when a lifecycle record does not exist."""
+
+    def __init__(self: ContributionLifecycleNotFoundError, submission_id: str) -> None:
+        super().__init__(f"Lifecycle record not found for {submission_id}")
+        self.submission_id = submission_id
+
+
+class ContributionLifecycleStateError(ContributionError):
+    """Raised when a lifecycle state transition request is invalid."""
+
+    def __init__(self: ContributionLifecycleStateError, state: str) -> None:
+        valid_states = ", ".join(LIFECYCLE_STATE_VALUES)
+        super().__init__(f"Invalid lifecycle state {state!r}. Expected one of: {valid_states}")
+        self.state = state
+
+
 @dataclass(frozen=True)
 class StoredContributionRecord:
     """Persisted contribution batch."""
@@ -74,6 +106,22 @@ class ContributionAcceptance:
 
     response: ContributionAcceptedResponse
     status_code: int
+
+
+@dataclass(frozen=True)
+class ContributionLifecycleRecord:
+    """Serialized lifecycle state returned by service methods."""
+
+    submission_id: str
+    state: str
+    accepted_row_count: int
+    rejected_row_count: int
+    reason: str | None
+    processing_metadata: dict[str, Any] | None
+    training_run_id: str | None
+    evaluation_run_id: str | None
+    created_at: datetime
+    updated_at: datetime
 
 
 class ContributionStore(Protocol):
@@ -171,6 +219,12 @@ class S3ContributionStore:
         return record
 
 
+@lru_cache(maxsize=4)
+def _lifecycle_session_factory_from_url(database_url: str) -> sessionmaker:
+    engine = create_engine(database_url, pool_pre_ping=True)
+    return sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
 class ContributionService:
     """Validate, normalize, deduplicate, and persist contribution submissions."""
 
@@ -178,10 +232,14 @@ class ContributionService:
         self: ContributionService,
         store: ContributionStore | None = None,
         notifier: AuthServiceNotifier | None = None,
+        lifecycle_session_factory: SessionFactory | None = None,
+        database_url: str | None = None,
     ) -> None:
         self.max_body_bytes = int(os.getenv("CONTRIBUTIONS_MAX_BODY_BYTES", str(1024 * 1024)))
         self._store: ContributionStore | None = store
         self._notifier = notifier
+        self._lifecycle_session_factory = lifecycle_session_factory
+        self._database_url = database_url
 
     @property
     def store(self: ContributionService) -> ContributionStore:
@@ -264,6 +322,16 @@ class ContributionService:
             created_at=datetime.now(timezone.utc).isoformat(),
         )
         self.store.create(record=record)
+        try:
+            self.create_lifecycle_record(
+                submission_id=submission_id,
+                accepted_row_count=len(request.rows),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Failed to persist contribution lifecycle state during acceptance",
+                extra={"submission_id": submission_id, "model_id": model_id},
+            )
         if self._notifier is not None:
             try:
                 self._notifier.notify_accepted(
@@ -278,6 +346,151 @@ class ContributionService:
                 )
         return ContributionAcceptance(response=response, status_code=201)
 
+    def create_lifecycle_record(
+        self: ContributionService,
+        *,
+        submission_id: str,
+        accepted_row_count: int,
+        rejected_row_count: int = 0,
+        reason: str | None = None,
+        processing_metadata: dict[str, Any] | None = None,
+        training_run_id: str | None = None,
+        evaluation_run_id: str | None = None,
+    ) -> ContributionLifecycleRecord | None:
+        """Create the initial lifecycle row if DB persistence is available."""
+        session_factory = self._get_lifecycle_session_factory()
+        if session_factory is None:
+            logger.info(
+                "Lifecycle persistence unavailable during acceptance; skipping record creation",
+                extra={"submission_id": submission_id},
+            )
+            return None
+
+        session = session_factory()
+        try:
+            existing = (
+                session.query(ContributionLifecycle)
+                .filter(ContributionLifecycle.submission_id == submission_id)
+                .first()
+            )
+            if existing is not None:
+                return self._encode_lifecycle_row(existing)
+
+            row = ContributionLifecycle(
+                submission_id=submission_id,
+                state=ContributionLifecycleState.RECEIVED.value,
+                accepted_row_count=accepted_row_count,
+                rejected_row_count=rejected_row_count,
+                reason=reason,
+                processing_metadata=processing_metadata,
+                training_run_id=training_run_id,
+                evaluation_run_id=evaluation_run_id,
+            )
+            session.add(row)
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                existing = (
+                    session.query(ContributionLifecycle)
+                    .filter(ContributionLifecycle.submission_id == submission_id)
+                    .first()
+                )
+                if existing is not None:
+                    return self._encode_lifecycle_row(existing)
+                raise
+            session.refresh(row)
+            return self._encode_lifecycle_row(row)
+        finally:
+            session.close()
+
+    def advance_lifecycle_state(
+        self: ContributionService,
+        *,
+        submission_id: str,
+        state: str,
+        accepted_row_count: int | None = None,
+        rejected_row_count: int | None = None,
+        reason: str | None = None,
+        processing_metadata: dict[str, Any] | None = None,
+        training_run_id: str | None = None,
+        evaluation_run_id: str | None = None,
+    ) -> ContributionLifecycleRecord:
+        """Upsert and update lifecycle state with absolute counts and optional run refs."""
+        normalized_state = self._normalize_lifecycle_state(state)
+        session_factory = self._get_lifecycle_session_factory()
+        if session_factory is None:
+            raise ContributionLifecycleUnavailableError(
+                "Lifecycle persistence is unavailable because no database is configured"
+            )
+
+        session = session_factory()
+        try:
+            row = (
+                session.query(ContributionLifecycle)
+                .filter(ContributionLifecycle.submission_id == submission_id)
+                .with_for_update()
+                .first()
+            )
+            if row is None:
+                row = ContributionLifecycle(
+                    submission_id=submission_id,
+                    state=normalized_state,
+                    accepted_row_count=accepted_row_count or 0,
+                    rejected_row_count=rejected_row_count or 0,
+                    reason=reason,
+                    processing_metadata=processing_metadata,
+                    training_run_id=training_run_id,
+                    evaluation_run_id=evaluation_run_id,
+                )
+                session.add(row)
+            else:
+                row.state = normalized_state
+                if accepted_row_count is not None:
+                    row.accepted_row_count = accepted_row_count
+                if rejected_row_count is not None:
+                    row.rejected_row_count = rejected_row_count
+                if reason is not None:
+                    row.reason = reason
+                if processing_metadata is not None:
+                    row.processing_metadata = processing_metadata
+                if training_run_id is not None:
+                    row.training_run_id = training_run_id
+                if evaluation_run_id is not None:
+                    row.evaluation_run_id = evaluation_run_id
+
+            session.commit()
+            session.refresh(row)
+            return self._encode_lifecycle_row(row)
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def get_lifecycle_state(
+        self: ContributionService, submission_id: str
+    ) -> ContributionLifecycleRecord | None:
+        """Fetch lifecycle state for a submission id."""
+        session_factory = self._get_lifecycle_session_factory()
+        if session_factory is None:
+            raise ContributionLifecycleUnavailableError(
+                "Lifecycle persistence is unavailable because no database is configured"
+            )
+
+        session = session_factory()
+        try:
+            row = (
+                session.query(ContributionLifecycle)
+                .filter(ContributionLifecycle.submission_id == submission_id)
+                .first()
+            )
+            if row is None:
+                return None
+            return self._encode_lifecycle_row(row)
+        finally:
+            session.close()
+
     def _build_default_store(self: ContributionService) -> ContributionStore:
         bucket = os.getenv("HOKUSAI_CONTRIBUTIONS_BUCKET")
         if not bucket:
@@ -286,6 +499,30 @@ class ContributionService:
             )
         prefix = os.getenv("HOKUSAI_CONTRIBUTIONS_PREFIX", "").strip("/")
         return S3ContributionStore(bucket=bucket, prefix=prefix)
+
+    def _resolve_database_url(self: ContributionService) -> str | None:
+        if self._database_url:
+            return self._database_url
+
+        env_url = os.getenv("POSTGRES_URI") or os.getenv("DATABASE_URL")
+        if env_url:
+            return env_url
+
+        try:
+            settings = get_settings()
+            return settings.postgres_uri
+        except Exception as exc:
+            logger.info("Contribution lifecycle could not resolve database URL: %s", exc)
+            return None
+
+    def _get_lifecycle_session_factory(self: ContributionService) -> SessionFactory | None:
+        if self._lifecycle_session_factory:
+            return self._lifecycle_session_factory
+
+        database_url = self._resolve_database_url()
+        if not database_url:
+            return None
+        return _lifecycle_session_factory_from_url(database_url)
 
     @staticmethod
     def _validate_model_id(model_id: str) -> None:
@@ -322,6 +559,28 @@ class ContributionService:
         if metadata_key:
             return metadata_key.strip()
         return f"bodyhash-{body_hash[:32]}"
+
+    @staticmethod
+    def _normalize_lifecycle_state(state: str) -> str:
+        normalized = state.strip()
+        if normalized not in LIFECYCLE_STATE_VALUES:
+            raise ContributionLifecycleStateError(normalized)
+        return normalized
+
+    @staticmethod
+    def _encode_lifecycle_row(row: ContributionLifecycle) -> ContributionLifecycleRecord:
+        return ContributionLifecycleRecord(
+            submission_id=row.submission_id,
+            state=row.state,
+            accepted_row_count=row.accepted_row_count,
+            rejected_row_count=row.rejected_row_count,
+            reason=row.reason,
+            processing_metadata=row.processing_metadata,
+            training_run_id=row.training_run_id,
+            evaluation_run_id=row.evaluation_run_id,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+        )
 
     def _storage_ref_for_record(
         self: ContributionService, record: StoredContributionRecord

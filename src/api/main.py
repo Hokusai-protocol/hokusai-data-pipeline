@@ -219,6 +219,7 @@ app.include_router(outcomes.router)
 app.include_router(dataset_arrivals.router)
 app.include_router(model_serving.router, tags=["model-serving"])  # Model 21 serving endpoint
 app.include_router(contributions.router)
+app.include_router(contributions.lifecycle_router)
 # TODO: Enable auth router after fixing APIKeyModel dependency
 # app.include_router(auth.router, tags=["authentication"])
 

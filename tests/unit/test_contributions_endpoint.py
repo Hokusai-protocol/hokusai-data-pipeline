@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Any
 
 import pytest
@@ -18,6 +19,7 @@ from src.api.services.auth_service_notifier import AuthServiceNotifier
 from src.api.services.contribution_service import (
     ContributionAcceptance,
     ContributionConflictError,
+    ContributionLifecycleRecord,
     ContributionService,
     StoredContributionRecord,
 )
@@ -44,6 +46,18 @@ class FakeContributionService:
     def __init__(self) -> None:
         self.max_body_bytes = 512
         self.calls: list[dict[str, Any]] = []
+        self.lifecycle_record: ContributionLifecycleRecord | None = ContributionLifecycleRecord(
+            submission_id="batch-123",
+            state="processed",
+            accepted_row_count=2,
+            rejected_row_count=0,
+            reason=None,
+            processing_metadata={"source": "test"},
+            training_run_id="train-123",
+            evaluation_run_id="eval-123",
+            created_at=datetime(2026, 6, 4, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 6, 4, 12, 0, tzinfo=timezone.utc),
+        )
 
     def accept_contribution(
         self,
@@ -75,6 +89,10 @@ class FakeContributionService:
             ),
             status_code=201,
         )
+
+    def get_lifecycle_state(self, submission_id: str) -> ContributionLifecycleRecord | None:
+        self.calls.append({"lifecycle_submission_id": submission_id})
+        return self.lifecycle_record
 
 
 class RecordingNotifier:
@@ -118,6 +136,7 @@ def app() -> FastAPI:
     app = FastAPI()
     fake_service = FakeContributionService()
     app.include_router(contributions.router)
+    app.include_router(contributions.lifecycle_router)
     app.dependency_overrides[require_auth] = lambda: {
         "user_id": "test-user",
         "api_key_id": "test-key",
@@ -225,10 +244,46 @@ def test_unknown_model_id_returns_structured_404(client: TestClient) -> None:
 def test_missing_auth_returns_401() -> None:
     app = FastAPI()
     app.include_router(contributions.router)
+    app.include_router(contributions.lifecycle_router)
     app.dependency_overrides[get_contribution_service] = lambda: FakeContributionService()
     client = TestClient(app)
 
     response = client.post("/api/v1/models/30/contributions", json={"rows": [{"task_id": "row-1"}]})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Authentication required"}
+
+
+def test_get_lifecycle_returns_200(client: TestClient, app: FastAPI) -> None:
+    response = client.get("/api/v1/contributions/batch-123/lifecycle")
+
+    assert response.status_code == 200
+    assert response.json()["submission_id"] == "batch-123"
+    assert response.json()["state"] == "processed"
+    assert response.json()["metadata"] == {"source": "test"}
+    assert app.state.fake_contribution_service.calls[-1] == {"lifecycle_submission_id": "batch-123"}
+
+
+def test_get_lifecycle_returns_404_when_unknown(client: TestClient, app: FastAPI) -> None:
+    app.state.fake_contribution_service.lifecycle_record = None
+
+    response = client.get("/api/v1/contributions/missing-batch/lifecycle")
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "error": "lifecycle_not_found",
+        "submission_id": "missing-batch",
+    }
+
+
+def test_get_lifecycle_requires_auth() -> None:
+    app = FastAPI()
+    app.include_router(contributions.router)
+    app.include_router(contributions.lifecycle_router)
+    app.dependency_overrides[get_contribution_service] = lambda: FakeContributionService()
+    client = TestClient(app)
+
+    response = client.get("/api/v1/contributions/batch-123/lifecycle")
 
     assert response.status_code == 401
     assert response.json() == {"detail": "Authentication required"}
