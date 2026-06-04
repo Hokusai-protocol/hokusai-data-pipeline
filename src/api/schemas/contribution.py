@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -53,3 +55,52 @@ class ContributionAcceptedResponse(BaseModel):
     submitted_rows: int = Field(..., alias="submittedRows")
     token_reward: int = Field(default=0, alias="tokenReward")
     idempotent_replay: bool = Field(default=False, alias="idempotentReplay")
+
+
+class ContributionLifecycleResponse(BaseModel):
+    """Current processing lifecycle state for a contribution submission."""
+
+    model_config = ConfigDict(populate_by_name=True, protected_namespaces=())
+
+    submission_id: str = Field(..., alias="submission_id")
+    state: str
+    accepted_row_count: int
+    rejected_row_count: int
+    reason: str | None = None
+    processing_metadata: dict[str, Any] | None = Field(default=None, alias="metadata")
+    training_run_id: str | None = None
+    evaluation_run_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class LifecycleReasonCode(str, Enum):
+    """Dashboard-safe reason codes sent to auth-service."""
+
+    SCHEMA_VALIDATION_FAILED = "SCHEMA_VALIDATION_FAILED"
+    DUPLICATE_SUBMISSION = "DUPLICATE_SUBMISSION"
+    INSUFFICIENT_QUALITY = "INSUFFICIENT_QUALITY"
+    PROCESSING_ERROR = "PROCESSING_ERROR"
+    EXCLUDED_FROM_TRAINING = "EXCLUDED_FROM_TRAINING"
+
+
+class RowCounts(BaseModel):
+    """Accepted/rejected contribution row counts."""
+
+    accepted: int
+    rejected: int
+    total: int
+
+
+class LifecycleUpdatePayload(BaseModel):
+    """Lifecycle update callback payload for auth-service."""
+
+    submission_id: str
+    status: str
+    row_counts: RowCounts
+    dataset_version: str | None = None
+    training_run_id: str | None = None
+    evaluation_run_id: str | None = None
+    estimated_reward_at: datetime | None = None
+    reason_code: LifecycleReasonCode | None = None
+    event_version: str = "v1"

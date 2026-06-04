@@ -620,6 +620,78 @@ def test_normalize_output_preserves_v2_strategy_payload() -> None:
     assert normalized["nearest_neighbors"]["count"] == 40
 
 
+def test_normalize_output_rewrites_nonpositive_durations_to_null() -> None:
+    raw = {
+        "recommended_strategy": {
+            "objective": "highest_reliability",
+            "coder_model": "gpt-5.4",
+            "stages": ["code"],
+            "estimated_success_under_budget": 0.82,
+            "estimated_cost_usd": 4.8,
+            "estimated_duration_seconds": 0.0,
+            "confidence": 0.71,
+        },
+        "alternatives": [
+            {
+                "objective": "lowest_cost",
+                "coder_model": "gpt-5.4",
+                "stages": ["code"],
+                "estimated_success_under_budget": 0.62,
+                "estimated_cost_usd": 1.2,
+                "estimated_duration_seconds": -5,
+                "confidence": 0.54,
+            }
+        ],
+        "tradeoffs": {
+            "lowest_cost": {
+                "objective": "lowest_cost",
+                "coder_model": "gpt-5.4",
+                "stages": ["code"],
+                "estimated_success_under_budget": 0.62,
+                "estimated_cost_usd": 1.2,
+                "estimated_duration_seconds": 0,
+                "confidence": 0.54,
+            },
+            "fastest_completion": {
+                "objective": "fastest_completion",
+                "coder_model": "gpt-5.4",
+                "stages": ["code"],
+                "estimated_success_under_budget": 0.7,
+                "estimated_cost_usd": 2.0,
+                "estimated_duration_seconds": 12,
+                "confidence": 0.6,
+            },
+            "highest_reliability": {
+                "objective": "highest_reliability",
+                "coder_model": "gpt-5.4",
+                "stages": ["code"],
+                "estimated_success_under_budget": 0.82,
+                "estimated_cost_usd": 4.8,
+                "estimated_duration_seconds": None,
+                "confidence": 0.71,
+            },
+        },
+        "nearest_neighbors": {
+            "count": 3,
+            "success_under_budget_rate": 0.8,
+            "mean_cost_usd": 2.5,
+            "mean_duration_seconds": 0.0,
+        },
+    }
+
+    normalized = model_30_adapter.normalize_model_30_output(
+        raw,
+        model_30_adapter.validate_nested_model_30_inputs(_full_inputs()),
+    )
+
+    assert normalized["recommended_strategy"]["estimated_duration_seconds"] is None
+    assert normalized["alternatives"][0]["estimated_duration_seconds"] is None
+    assert normalized["tradeoffs"]["lowest_cost"]["estimated_duration_seconds"] is None
+    assert normalized["tradeoffs"]["fastest_completion"]["estimated_duration_seconds"] == 12.0
+    assert normalized["tradeoffs"]["highest_reliability"]["estimated_duration_seconds"] is None
+    assert normalized["nearest_neighbors"]["mean_duration_seconds"] is None
+
+
 def test_normalize_output_rejects_fake_model_ids() -> None:
     raw = {
         "recommended_strategy": {

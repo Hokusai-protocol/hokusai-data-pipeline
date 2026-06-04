@@ -252,6 +252,19 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
                 if response.status_code == 200:
                     data = response.json()
+                    if not isinstance(data, dict):
+                        logger.warning(
+                            json.dumps(
+                                {
+                                    "event": "auth_service_non_dict_response",
+                                    "endpoint": "/api/v1/keys/validate",
+                                    "observed_type": type(data).__name__,
+                                }
+                            )
+                        )
+                        return ValidationResult(
+                            is_valid=False, error="Authentication service error"
+                        )
                     return ValidationResult(
                         is_valid=True,
                         user_id=data.get("user_id"),
@@ -642,16 +655,30 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         # Debit usage before the model handler runs so 402 can be returned to the client.
         if validation_result.key_id:
             model_id = self._extract_model_id(request.url.path)
-            debit_outcome = await self._debit_usage(
-                validation_result.key_id,
-                model_id,
-                request.url.path,
-                0,
-                0,
-                request_id=request.headers.get("x-request-id"),
-                account_id=validation_result.user_id,
-                request_state=request.state,
-            )
+            try:
+                debit_outcome = await self._debit_usage(
+                    validation_result.key_id,
+                    model_id,
+                    request.url.path,
+                    0,
+                    0,
+                    request_id=request.headers.get("x-request-id"),
+                    account_id=validation_result.user_id,
+                    request_state=request.state,
+                )
+            except Exception:
+                # Auth-service debit failures are fail-open unless the debit path returns an
+                # explicit rejection. This prevents coroutine boundary errors such as
+                # RuntimeError("coroutine raised StopIteration") from turning into a 500.
+                logger.exception(
+                    "usage debit raised unexpectedly; allowing request",
+                    extra={
+                        "key_id": validation_result.key_id,
+                        "user_id": validation_result.user_id,
+                        "path": request.url.path,
+                    },
+                )
+                debit_outcome = "error"
             if debit_outcome == "rejected":
                 return JSONResponse(
                     status_code=_DEBIT_REJECTED_HTTP_STATUS,

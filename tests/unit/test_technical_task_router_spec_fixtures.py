@@ -27,6 +27,7 @@ def row_validator() -> Draft202012Validator:
         "technical_task_router_row.over_budget.v1.json",
         "technical_task_router_row.disallowed_model.v1.json",
         "technical_task_router_row.failed.v1.json",
+        "technical_task_router_row.null_duration.v1.json",
     ],
 )
 def test_valid_task_router_row_examples_pass(

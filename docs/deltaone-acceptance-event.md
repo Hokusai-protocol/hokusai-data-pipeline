@@ -44,6 +44,17 @@ post-mint audit tags and optional `vesting` block on the `deltaone.minted` webho
 | `guardrail_summary` | object | Guardrail evaluation aggregate; see nested schema |
 | `max_cost_usd_micro` | `int` ≥ 0 | Cost cap from measurement policy in USDC micro-units |
 | `actual_cost_usd_micro` | `int` ≥ 0 | Actual eval cost from run tags in USDC micro-units |
+| `contributors` | array | Contributor allocations with wallet, weight, and optional submission traceability fields |
+
+### Contributor Allocation Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `wallet_address` | `str` | Contributor wallet address used for reward routing |
+| `weight_bps` | `int` [0, 10000] | Contributor allocation weight in basis points |
+| `submissionId` | `str \| null` | Optional submission identifier for reward traceability |
+| `contributionBatchId` | `str \| null` | Optional batch identifier when multiple submissions are grouped |
+| `contributorId` | `str \| null` | Optional contributor identity distinct from wallet |
 
 ### Guardrail Summary Fields
 
@@ -109,18 +120,25 @@ HEM payload stored in MLflow artifacts.
 
 ```python
 bare_hash = attestation_hash[2:]  # strip 0x prefix
-raw = f"{model_id_uint}:{eval_id}:{bare_hash}"
+raw = f"{model_id_uint}:{bare_hash}"
 idempotency_key = "0x" + sha256(raw.encode("utf-8")).hexdigest()
 ```
 
-The key is deterministic given the same `(model_id_uint, eval_id, attestation_hash)` triple.
-It is stored in `hokusai.mint.idempotency_key` on the MLflow run and passed to `TokenMintHook`.
+The key is deterministic given the same `(model_id_uint, attestation_hash)` pair. `eval_id`
+remains required event metadata and is still propagated downstream for pipeline traceability, but it
+does not affect replay identity. A rerun over unchanged content republishes the same key; changed
+content produces a new key through `attestation_hash`.
+
+This is a pre-mainnet cutover from the old 3-component formula
+`sha256("{model_id_uint}:{eval_id}:{bare_attestation_hash}")`. Any queued fixtures or downstream
+docs that mention the old formula must be updated in lockstep.
 
 ## Versioning Policy
 
 - Field additions are backward-compatible; bump only when breaking field renames or type changes occur.
 - The `event_version` literal changes from `"deltaone.acceptance/v1"` to `"deltaone.acceptance/v2"` on the next breaking change.
 - `hokusai-token` should pin `schema/examples/deltaone_acceptance_event.v1.json` in its contract tests so any schema drift fails CI on both sides.
+- The `contributors` array and its optional traceability fields were added additively in v1 and do not change the event version.
 
 ## Downstream Validation
 

@@ -242,6 +242,7 @@ def _assert_strategy_payload(payload: dict[str, Any], *, source: str) -> None:
             f"{source} response contained invalid model IDs "
             f"(forbidden={forbidden}, malformed={malformed})"
         )
+    _assert_duration_payload(payload, source=source)
 
 
 def _collect_model_ids(value: Any) -> list[str]:
@@ -259,6 +260,52 @@ def _collect_model_ids(value: Any) -> list[str]:
             collected.extend(_collect_model_ids(item))
         return collected
     return []
+
+
+def _assert_duration_payload(payload: dict[str, Any], *, source: str) -> None:
+    for strategy in _collect_strategies(payload):
+        duration = strategy.get("estimated_duration_seconds")
+        if duration is None:
+            continue
+        try:
+            numeric = float(duration)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{source} response contained invalid duration value {duration!r}"
+            ) from exc
+        if numeric <= 0:
+            raise ValueError(f"{source} response contained nonpositive duration value {numeric!r}")
+
+    nearest_neighbors = payload.get("nearest_neighbors")
+    if not isinstance(nearest_neighbors, dict):
+        return
+    mean_duration = nearest_neighbors.get("mean_duration_seconds")
+    if mean_duration is None:
+        return
+    try:
+        numeric = float(mean_duration)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{source} response contained invalid nearest-neighbor duration {mean_duration!r}"
+        ) from exc
+    if numeric <= 0:
+        raise ValueError(
+            f"{source} response contained nonpositive nearest-neighbor duration {numeric!r}"
+        )
+
+
+def _collect_strategies(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    strategies: list[dict[str, Any]] = []
+    recommended = payload.get("recommended_strategy")
+    if isinstance(recommended, dict):
+        strategies.append(recommended)
+    alternatives = payload.get("alternatives")
+    if isinstance(alternatives, list):
+        strategies.extend(item for item in alternatives if isinstance(item, dict))
+    tradeoffs = payload.get("tradeoffs")
+    if isinstance(tradeoffs, dict):
+        strategies.extend(item for item in tradeoffs.values() if isinstance(item, dict))
+    return strategies
 
 
 def _alias_target(client: MlflowClient, model_name: str, alias: str) -> dict[str, str] | None:

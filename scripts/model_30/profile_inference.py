@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: S603
 """Profile Model 30 inference against a supplied MLflow model artifact.
 
 Example:
@@ -138,8 +139,8 @@ def _ru_maxrss_bytes() -> int:
 
 def _current_rss_bytes() -> int | None:
     try:
-        output = subprocess.check_output(  # noqa: S603,S607
-            ["/bin/ps", "-o", "rss=", "-p", str(os.getpid())],
+        output = subprocess.check_output(  # noqa: S603
+            ["/bin/ps", "-o", "rss=", "-p", str(os.getpid())],  # noqa: S607
             text=True,
         )
     except Exception:

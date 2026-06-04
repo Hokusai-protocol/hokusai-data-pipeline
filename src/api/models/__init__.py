@@ -6,6 +6,7 @@ Exports legacy pydantic request/response schemas and governance SQLAlchemy model
 from .audit_log import AuditLog
 from .benchmark_spec import BenchmarkSpec
 from .consent_record import ConsentRecord
+from .contribution_lifecycle import ContributionLifecycle, ContributionLifecycleState
 from .dataset_arrival import DatasetArrival
 from .dataset_license import DatasetLicense
 from .evaluation_schedule import EvaluationSchedule
@@ -43,6 +44,8 @@ __all__ = [
     "EvaluationSchedule",
     "RetentionPolicy",
     "ConsentRecord",
+    "ContributionLifecycle",
+    "ContributionLifecycleState",
     "DatasetLicense",
     "InferenceLog",
 ]

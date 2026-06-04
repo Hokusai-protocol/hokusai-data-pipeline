@@ -1,0 +1,49 @@
+{
+  "drop_reasons": {},
+  "dropped_rows": 0,
+  "duplicate_rows_skipped": 0,
+  "duration_coverage": {
+    "measured_zero_count": 0,
+    "missing": 228,
+    "nonpositive_normalized": 228,
+    "originally_missing": 0,
+    "positive_count": 0,
+    "positive_coverage_fraction": 0.0,
+    "positive_mean_seconds": null,
+    "positive_median_seconds": null,
+    "total_rows": 228
+  },
+  "input_files": [
+    "/Users/timothyogilvie/Dropbox/wavemill/.wavemill/evals/hokusai-router-budget-benchmark.csv"
+  ],
+  "input_rows": 228,
+  "output_rows": 228,
+  "removed_available_model_ids": {},
+  "validation": {
+    "row_count": 228,
+    "selected_model_distribution": {
+      "coder_model": {
+        "claude-haiku-4-5-20251001": 3,
+        "claude-opus-4-6": 5,
+        "claude-opus-4-7": 3,
+        "claude-sonnet-4-5-20250929": 7,
+        "claude-sonnet-4-6": 7,
+        "gpt-5.3-codex": 21,
+        "gpt-5.4": 168,
+        "gpt-5.5": 14
+      },
+      "planner_model": {
+        "claude-opus-4-7": 13,
+        "claude-sonnet-4-5-20250929": 2,
+        "claude-sonnet-4-6": 73,
+        "gpt-5.5": 140
+      },
+      "reviewer_model": {
+        "claude-haiku-4-5-20251001": 48,
+        "claude-sonnet-4-5-20250929": 2,
+        "claude-sonnet-4-6": 178
+      }
+    },
+    "sha256": "sha256:bf7e83691063099012ac51be5c07710f5339c462cb66139e39f7dd5776a6d88e"
+  }
+}

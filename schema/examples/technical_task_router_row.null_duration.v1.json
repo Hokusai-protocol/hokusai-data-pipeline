@@ -1,0 +1,32 @@
+{
+  "schema_version": "technical_task_router_row/v1",
+  "row_id": "router-null-duration-001",
+  "benchmark_spec_id": "technical-task-router-baseline-v1",
+  "eval_id": "eval-20260604",
+  "model_id": "Technical Task Router",
+  "task_descriptor": {
+    "task_type": "refactor",
+    "language": "python",
+    "domain": "backend"
+  },
+  "allowed_models": [
+    "claude-sonnet-4-6",
+    "gpt-5.4"
+  ],
+  "selected_models": [
+    "gpt-5.4"
+  ],
+  "max_cost_usd": 10.0,
+  "actual_cost_usd": 4.2,
+  "estimated_cost_usd": 4.5,
+  "actual_time_seconds": null,
+  "estimated_duration_seconds": null,
+  "estimated_success_under_budget": 0.77,
+  "routing_objective": "highest_reliability",
+  "completed_successfully": true,
+  "scorer_ref": "technical_task_router.success_under_budget/v1",
+  "observed_at": "2026-06-04T12:00:00Z",
+  "metadata": {
+    "source": "null-duration-example"
+  }
+}

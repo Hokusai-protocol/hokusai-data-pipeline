@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "model_30_training_manifest/v1",
+  "title": "Model30TrainingManifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "as_of",
+    "dataset_hash",
+    "manifest_digest",
+    "row_count",
+    "model_id",
+    "blocks",
+    "quarantine_count",
+    "duplicates_dropped",
+    "wallet_policy"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "model_30_training_manifest/v1"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "dataset_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "manifest_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "row_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "model_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "submission_id",
+          "wallet",
+          "s3_key",
+          "row_start",
+          "row_end",
+          "row_count",
+          "reward_hold"
+        ],
+        "properties": {
+          "submission_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "wallet": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^0x[0-9a-f]{40}$"
+          },
+          "s3_key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "row_start": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "row_end": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "row_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reward_hold": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "quarantine_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "duplicates_dropped": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "wallet_policy": {
+      "type": "string",
+      "enum": [
+        "quarantine",
+        "exclude",
+        "hold"
+      ]
+    }
+  }
+}

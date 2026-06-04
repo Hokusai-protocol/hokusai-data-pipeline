@@ -21,12 +21,27 @@ import pytest
 from src.api.schemas.token_mint import TokenMintResult
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator
+from src.evaluation.event_payload import make_idempotency_key
 from src.events.publishers.mint_request_publisher import QUEUE_NAME, MintRequestPublisher
 from src.events.schemas import MintRequest
 
 _EVAL_ID = "eval-integration-001"
 _SPEC_ID = "spec-integration-v1"
 _MODEL_ID_UINT = "99001"
+
+
+class _FakeRewardNotifier:
+    def __init__(self, fail_statuses: set[str] | None = None) -> None:
+        self.calls: list[dict[str, object]] = []
+        self.fail_statuses = fail_statuses or set()
+
+    def notify_reward_entitlement(self, *, mint_request, status, mint_result=None):
+        self.calls.append(
+            {"mint_request": mint_request, "status": status, "mint_result": mint_result}
+        )
+        if status in self.fail_statuses:
+            return False, f"{status} failed"
+        return True, None
 
 
 def _make_decision(
@@ -66,8 +81,17 @@ def _make_spec() -> dict:
             "guardrails": [],
         },
         "contributors": [
-            {"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 7000},
-            {"wallet_address": "0x6c3e007f281f6948b37c511a11e43c8026d2f069", "weight_bps": 3000},
+            {
+                "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+                "weight_bps": 7000,
+                "submissionId": "sub-1",
+                "contributionBatchId": "batch-1",
+            },
+            {
+                "wallet_address": "0x6c3e007f281f6948b37c511a11e43c8026d2f069",
+                "weight_bps": 3000,
+                "submissionId": "sub-2",
+            },
         ],
     }
 
@@ -77,6 +101,61 @@ def _make_technical_task_router_spec() -> dict:
     spec["task_type"] = "technical_task_router"
     spec["eval_spec"]["primary_metric"]["name"] = "technical_task_router.success_under_budget/v1"
     return spec
+
+
+def _build_orchestrator(
+    *,
+    fake_redis_client,
+    monkeypatch,
+    eval_id: str,
+    attestation_hash: str = "a" * 64,
+    run_metrics: dict[str, float] | None = None,
+) -> DeltaOneMintOrchestrator:
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        Mock(),
+    )
+    evaluator = Mock()
+    evaluator.evaluate_for_model.return_value = _make_decision(accepted=True)
+    evaluator.delta_threshold_pp = 1.0
+    mint_hook = Mock()
+    mint_hook.mint.return_value = TokenMintResult(
+        status="success",
+        audit_ref="audit-integration",
+        timestamp=datetime.now(timezone.utc),
+    )
+    mlflow_client = _FakeMlflowClient(
+        run_metrics=run_metrics
+        or {
+            "workflow_success_rate_under_budget": 0.87,
+            "hokusai_workflow_success_rate_under_budget": 0.87,
+        },
+        initial_tags={
+            "hokusai.eval_id": eval_id,
+            "hokusai.actual_cost_usd": "2.34",
+        },
+    )
+    publisher = MintRequestPublisher(redis_client=fake_redis_client)
+    reward_notifier = _FakeRewardNotifier()
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=mlflow_client,
+        mint_request_publisher=publisher,
+        reward_entitlement_notifier=reward_notifier,
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_create_signed_attestation",
+        Mock(return_value=(attestation_hash, {"attestation_hash": attestation_hash})),
+    )
+    return orchestrator
+
+
+def _queued_mint_request(fake_redis_client, index: int = 0) -> MintRequest:
+    raw = fake_redis_client.lindex(QUEUE_NAME, index)
+    assert raw is not None
+    return MintRequest.model_validate_json(raw)
 
 
 class _FakeMlflowClient:
@@ -131,6 +210,7 @@ def orchestrator(publisher, monkeypatch):
         mint_hook=mint_hook,
         mlflow_client=mlflow_client,
         mint_request_publisher=publisher,
+        reward_entitlement_notifier=_FakeRewardNotifier(),
     )
 
 
@@ -179,6 +259,10 @@ class TestMintRequestPublishIntegration:
 
         assert len(msg.contributors) == 2
         assert sum(c.weight_bps for c in msg.contributors) == 10000
+        by_submission = {contributor.submission_id: contributor for contributor in msg.contributors}
+        assert by_submission["sub-1"].contribution_batch_id == "batch-1"
+        assert by_submission["sub-1"].weight_bps == 7000
+        assert by_submission["sub-2"].weight_bps == 3000
 
     def test_scores_in_basis_points(self, orchestrator, fake_redis_client) -> None:
         orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
@@ -211,6 +295,102 @@ class TestMintRequestPublishIntegration:
         key = data["idempotency_key"]
         assert key.startswith("0x")
         assert len(key) == 66  # "0x" + 64 hex chars
+
+    def test_same_content_different_eval_ids_reuses_idempotency_key(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        first = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id="sched-7-run-a",
+        )
+        second = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id="sched-7-run-b",
+        )
+
+        first.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+        second.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        first_msg = _queued_mint_request(fake_redis_client, 1)
+        second_msg = _queued_mint_request(fake_redis_client, 0)
+
+        assert first_msg.eval_id == "sched-7-run-a"
+        assert second_msg.eval_id == "sched-7-run-b"
+        assert first_msg.attestation_hash == second_msg.attestation_hash
+        assert first_msg.idempotency_key == second_msg.idempotency_key
+        assert first_msg.idempotency_key == make_idempotency_key(
+            int(_MODEL_ID_UINT), first_msg.attestation_hash
+        )
+
+    def test_changed_content_produces_new_idempotency_key(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        first = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id="sched-7-run-a",
+            attestation_hash="a" * 64,
+        )
+        second = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id="sched-7-run-b",
+            attestation_hash="b" * 64,
+        )
+
+        first.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+        second.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        first_msg = _queued_mint_request(fake_redis_client, 1)
+        second_msg = _queued_mint_request(fake_redis_client, 0)
+
+        assert first_msg.attestation_hash != second_msg.attestation_hash
+        assert first_msg.idempotency_key != second_msg.idempotency_key
+
+    def test_replay_no_op_simulation_uses_unique_content_keys(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        first = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id="sched-7-run-a",
+            attestation_hash="a" * 64,
+        )
+        replay = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id="sched-7-run-b",
+            attestation_hash="a" * 64,
+        )
+        changed = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id="sched-7-run-c",
+            attestation_hash="b" * 64,
+        )
+
+        first.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+        replay.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+        changed.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        first_msg = _queued_mint_request(fake_redis_client, 2)
+        replay_msg = _queued_mint_request(fake_redis_client, 1)
+        changed_msg = _queued_mint_request(fake_redis_client, 0)
+
+        processed: set[str] = set()
+        accepted_submissions: list[str] = []
+        for message in (first_msg, replay_msg, changed_msg):
+            if message.idempotency_key in processed:
+                continue
+            processed.add(message.idempotency_key)
+            accepted_submissions.append(message.idempotency_key)
+
+        assert first_msg.idempotency_key == replay_msg.idempotency_key
+        assert changed_msg.idempotency_key != first_msg.idempotency_key
+        assert accepted_submissions == [first_msg.idempotency_key, changed_msg.idempotency_key]
+        assert processed == {first_msg.idempotency_key, changed_msg.idempotency_key}
 
     def test_no_message_on_rejection(self, fake_redis_client, monkeypatch) -> None:
         monkeypatch.setattr(
@@ -267,6 +447,7 @@ class TestMintRequestPublishIntegration:
             mint_hook=mint_hook,
             mlflow_client=mlflow_client,
             mint_request_publisher=publisher,
+            reward_entitlement_notifier=_FakeRewardNotifier(),
         )
 
         outcome = orch.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
@@ -324,3 +505,83 @@ class TestMintRequestPublishIntegration:
         payload = json.loads(fake_redis_client.lindex(QUEUE_NAME, 0))
         assert payload["totalSamples"] == 4
         assert payload["evaluation"]["sample_size_candidate"] == 4
+
+    def test_pending_reward_entitlement_receives_contributor_metadata(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        evaluator = Mock()
+        evaluator.evaluate_for_model.return_value = _make_decision(accepted=True)
+        evaluator.delta_threshold_pp = 1.0
+        mint_hook = Mock()
+        mint_hook.mint.return_value = TokenMintResult(
+            status="success",
+            audit_ref="audit-integration",
+            timestamp=datetime.now(timezone.utc),
+        )
+        mlflow_client = _FakeMlflowClient(
+            run_metrics={
+                "workflow_success_rate_under_budget": 0.87,
+                "hokusai_workflow_success_rate_under_budget": 0.87,
+            },
+            initial_tags={"hokusai.eval_id": _EVAL_ID, "hokusai.actual_cost_usd": "2.34"},
+        )
+        reward_notifier = _FakeRewardNotifier()
+        orch = DeltaOneMintOrchestrator(
+            evaluator=evaluator,
+            mint_hook=mint_hook,
+            mlflow_client=mlflow_client,
+            mint_request_publisher=MintRequestPublisher(redis_client=fake_redis_client),
+            reward_entitlement_notifier=reward_notifier,
+        )
+
+        orch.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        assert [call["status"] for call in reward_notifier.calls] == ["pending"]
+        mint_request = reward_notifier.calls[0]["mint_request"]
+        by_submission = {
+            contributor.submission_id: contributor for contributor in mint_request.contributors
+        }
+        assert by_submission["sub-1"].contribution_batch_id == "batch-1"
+        assert by_submission["sub-2"].weight_bps == 3000
+
+    def test_reward_entitlement_failure_does_not_block_queue_or_canonical_advance(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        evaluator = Mock()
+        evaluator.evaluate_for_model.return_value = _make_decision(accepted=True)
+        evaluator.delta_threshold_pp = 1.0
+        mint_hook = Mock()
+        mint_hook.mint.return_value = TokenMintResult(
+            status="success",
+            audit_ref="audit-integration",
+            timestamp=datetime.now(timezone.utc),
+        )
+        mlflow_client = _FakeMlflowClient(
+            run_metrics={
+                "workflow_success_rate_under_budget": 0.87,
+                "hokusai_workflow_success_rate_under_budget": 0.87,
+            },
+            initial_tags={"hokusai.eval_id": _EVAL_ID, "hokusai.actual_cost_usd": "2.34"},
+        )
+        reward_notifier = _FakeRewardNotifier(fail_statuses={"pending"})
+        orch = DeltaOneMintOrchestrator(
+            evaluator=evaluator,
+            mint_hook=mint_hook,
+            mlflow_client=mlflow_client,
+            mint_request_publisher=MintRequestPublisher(redis_client=fake_redis_client),
+            reward_entitlement_notifier=reward_notifier,
+        )
+
+        outcome = orch.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        assert outcome.status == "success"
+        assert fake_redis_client.llen(QUEUE_NAME) == 1
+        assert mlflow_client.tags["hokusai.canonical_score"] == "0.87"

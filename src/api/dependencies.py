@@ -110,7 +110,9 @@ def get_contributor_logger() -> ContributorLogger:
 @lru_cache(maxsize=1)
 def get_contribution_service() -> ContributionService:
     """Return shared contribution ingestion service."""
-    return ContributionService()
+    from src.api.services.auth_service_notifier import AuthServiceNotifier
+
+    return ContributionService(notifier=AuthServiceNotifier.from_env())
 
 
 @lru_cache(maxsize=1)

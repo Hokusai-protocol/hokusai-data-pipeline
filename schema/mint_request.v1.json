@@ -15,6 +15,45 @@
           "minimum": 0,
           "title": "Weight Bps",
           "type": "integer"
+        },
+        "submissionId": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Submissionid"
+        },
+        "contributionBatchId": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contributionbatchid"
+        },
+        "contributorId": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contributorid"
         }
       },
       "required": [
@@ -185,14 +224,12 @@
     "message_type": {
       "const": "mint_request",
       "default": "mint_request",
-      "title": "Message Type",
-      "type": "string"
+      "title": "Message Type"
     },
     "schema_version": {
       "const": "1.0",
       "default": "1.0",
-      "title": "Schema Version",
-      "type": "string"
+      "title": "Schema Version"
     },
     "message_id": {
       "description": "UUID or unique message identifier",
@@ -227,7 +264,7 @@
       "type": "string"
     },
     "idempotency_key": {
-      "description": "sha256(model_id_uint:eval_id:attestation_hash), 0x-prefixed",
+      "description": "sha256(model_id_uint:attestation_hash), 0x-prefixed",
       "title": "Idempotency Key",
       "type": "string"
     },

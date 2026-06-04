@@ -17,12 +17,14 @@ from typing import Any, Protocol
 from pydantic import ValidationError
 
 from src.api.schemas.token_mint import TokenMintResult
+from src.api.services.auth_service_notifier import AuthServiceNotifier
 from src.api.services.token_mint_hook import TokenMintHook
 from src.cli.attestation import create_attestation
 from src.evaluation.deltaone_evaluator import DeltaOneDecision, DeltaOneEvaluator
 from src.evaluation.event_payload import (
     DELTAONE_ACCEPTANCE_EVENT_VERSION,
     DeltaOneAcceptanceEvent,
+    DeltaOneContributorAllocation,
     DeltaOneGuardrailBreach,
     DeltaOneGuardrailSummary,
     EventPayloadError,
@@ -65,6 +67,18 @@ class MintRequestPublisherProtocol(Protocol):
     """Minimal protocol for publishing MintRequest messages."""
 
     def publish(self: MintRequestPublisherProtocol, message: MintRequest) -> None: ...
+
+
+class RewardEntitlementNotifierProtocol(Protocol):
+    """Minimal protocol for auth-service reward entitlement delivery."""
+
+    def notify_reward_entitlement(
+        self: RewardEntitlementNotifierProtocol,
+        *,
+        mint_request: MintRequest,
+        status: str,
+        mint_result: TokenMintResult | None = None,
+    ) -> tuple[bool, str | None]: ...
 
 
 @dataclass(slots=True)
@@ -111,11 +125,15 @@ class DeltaOneMintOrchestrator:
         mint_hook: TokenMintHook,
         mlflow_client: MlflowClientProtocol | None = None,
         mint_request_publisher: MintRequestPublisherProtocol | None = None,
+        reward_entitlement_notifier: RewardEntitlementNotifierProtocol | None = None,
     ) -> None:
         self.evaluator = evaluator
         self.mint_hook = mint_hook
         self._client = mlflow_client or evaluator._client  # noqa: SLF001
         self._mint_request_publisher = mint_request_publisher
+        self._reward_entitlement_notifier = reward_entitlement_notifier
+        if self._reward_entitlement_notifier is None:
+            self._reward_entitlement_notifier = AuthServiceNotifier.from_env()
 
     def process_evaluation(
         self: DeltaOneMintOrchestrator,
@@ -433,6 +451,10 @@ class DeltaOneMintOrchestrator:
             attestation_hash=attestation_hash,
             idempotency_key=idempotency_key,
         )
+        self._notify_reward_entitlement(
+            mint_request=mint_request,
+            status="pending",
+        )
         self._advance_canonical_score(decision)
         canonical_score_advanced = True
 
@@ -442,6 +464,12 @@ class DeltaOneMintOrchestrator:
             attestation_payload=attestation_payload,
             acceptance_event=acceptance_event,
         )
+        if mint_result.vesting_payload() is not None:
+            self._notify_reward_entitlement(
+                mint_request=mint_request,
+                status="claimable",
+                mint_result=mint_result,
+            )
 
         dispatch_deltaone_webhook_event(
             event_type=DELTAONE_MINTED_EVENT,
@@ -502,6 +530,32 @@ class DeltaOneMintOrchestrator:
             mint_result=mint_result,
         )
         return mint_result
+
+    def _notify_reward_entitlement(
+        self: DeltaOneMintOrchestrator,
+        *,
+        mint_request: MintRequest,
+        status: str,
+        mint_result: TokenMintResult | None = None,
+    ) -> None:
+        notifier = self._reward_entitlement_notifier
+        if notifier is None:
+            return
+        delivered, error = notifier.notify_reward_entitlement(
+            mint_request=mint_request,
+            status=status,
+            mint_result=mint_result,
+        )
+        if not delivered:
+            logger.warning(
+                (
+                    "event=reward_entitlement_notification_failed "
+                    "idempotency_key=%s status=%s error=%s"
+                ),
+                mint_request.idempotency_key,
+                status,
+                error,
+            )
 
     def _create_signed_attestation(
         self: DeltaOneMintOrchestrator, decision: DeltaOneDecision
@@ -846,7 +900,7 @@ def _build_acceptance_event(
         attestation_hash if attestation_hash.startswith("0x") else f"0x{attestation_hash}"
     )
 
-    idempotency_key = make_idempotency_key(ctx.model_id_uint, ctx.eval_id, norm_att_hash)
+    idempotency_key = make_idempotency_key(ctx.model_id_uint, norm_att_hash)
 
     mlflow_name = ctx.primary_metric_mlflow_name or derive_mlflow_name(decision.metric_name)
 
@@ -867,6 +921,8 @@ def _build_acceptance_event(
         Decimal(str(ctx.actual_cost_usd)) if ctx.actual_cost_usd is not None else None
     )
 
+    normalized_contributors = _normalize_weights_to_10000(ctx.contributors)
+
     return DeltaOneAcceptanceEvent(
         event_version=DELTAONE_ACCEPTANCE_EVENT_VERSION,
         model_id=decision.model_id,
@@ -886,6 +942,16 @@ def _build_acceptance_event(
         guardrail_summary=guardrail_summary,
         max_cost_usd_micro=max_cost_micro,
         actual_cost_usd_micro=actual_cost_micro,
+        contributors=[
+            DeltaOneContributorAllocation(
+                wallet_address=contributor["wallet_address"],
+                weight_bps=contributor["weight_bps"],
+                submission_id=contributor.get("submission_id"),
+                contribution_batch_id=contributor.get("contribution_batch_id"),
+                contributor_id=contributor.get("contributor_id"),
+            )
+            for contributor in normalized_contributors
+        ],
     )
 
 
@@ -938,38 +1004,78 @@ def _normalize_contributor_list(raw: list[Any]) -> list[dict[str, Any]]:
     """
     result: list[dict[str, Any]] = []
     for entry in raw:
-        if not isinstance(entry, dict):
+        normalized_entry = _normalize_single_contributor(entry)
+        if normalized_entry is None:
             continue
-        wallet = entry.get("wallet_address") or entry.get("wallet")
-        if not wallet or not isinstance(wallet, str):
-            continue
-        if not _ETH_ADDRESS_RE.match(wallet):
-            continue
+        result.append(normalized_entry)
 
-        weight_bps: int | None = None
-        if "weight_bps" in entry:
-            try:
-                weight_bps = int(entry["weight_bps"])
-            except (TypeError, ValueError):
-                pass
-        elif "weight" in entry:
-            try:
-                weight_f = float(entry["weight"])
-                # Deterministic bps from fractional weight using ROUND_HALF_EVEN
-                from decimal import ROUND_HALF_EVEN, Decimal  # noqa: PLC0415
+    return sorted(
+        result,
+        key=lambda item: (
+            item["wallet_address"],
+            str(item.get("submission_id") or ""),
+            str(item.get("contribution_batch_id") or ""),
+            str(item.get("contributor_id") or ""),
+        ),
+    )
 
-                weight_bps = int(
-                    (Decimal(str(weight_f)) * Decimal("10000")).to_integral_value(
-                        rounding=ROUND_HALF_EVEN
-                    )
-                )
-            except (TypeError, ValueError):
-                pass
 
-        if weight_bps is not None and 0 <= weight_bps <= 10000:
-            result.append({"wallet_address": wallet.lower(), "weight_bps": weight_bps})
+def _normalize_single_contributor(entry: Any) -> dict[str, Any] | None:
+    """Normalize a single contributor entry when wallet and weight are valid."""
+    if not isinstance(entry, dict):
+        return None
+    wallet = entry.get("wallet_address") or entry.get("wallet")
+    if not wallet or not isinstance(wallet, str):
+        return None
+    if not _ETH_ADDRESS_RE.match(wallet):
+        return None
 
-    return result
+    weight_bps = _coerce_contributor_weight_bps(entry)
+    if weight_bps is None or not 0 <= weight_bps <= 10000:
+        return None
+
+    normalized_entry: dict[str, Any] = {
+        "wallet_address": wallet.lower(),
+        "weight_bps": weight_bps,
+    }
+    normalized_entry.update(_extract_optional_contributor_metadata(entry))
+    return normalized_entry
+
+
+def _coerce_contributor_weight_bps(entry: dict[str, Any]) -> int | None:
+    """Return a contributor weight in basis points from either supported input shape."""
+    if "weight_bps" in entry:
+        try:
+            return int(entry["weight_bps"])
+        except (TypeError, ValueError):
+            return None
+    if "weight" not in entry:
+        return None
+    try:
+        weight_f = float(entry["weight"])
+        # Deterministic bps from fractional weight using ROUND_HALF_EVEN
+        from decimal import ROUND_HALF_EVEN, Decimal  # noqa: PLC0415
+
+        return int(
+            (Decimal(str(weight_f)) * Decimal("10000")).to_integral_value(rounding=ROUND_HALF_EVEN)
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_optional_contributor_metadata(entry: dict[str, Any]) -> dict[str, str]:
+    """Collect optional contributor traceability fields from snake_case or camelCase input."""
+    metadata: dict[str, str] = {}
+    field_aliases = {
+        "submission_id": ("submission_id", "submissionId"),
+        "contribution_batch_id": ("contribution_batch_id", "contributionBatchId"),
+        "contributor_id": ("contributor_id", "contributorId"),
+    }
+    for normalized_key, aliases in field_aliases.items():
+        value = next((entry.get(alias) for alias in aliases if entry.get(alias) is not None), None)
+        if isinstance(value, str) and value.strip():
+            metadata[normalized_key] = value.strip()
+    return metadata
 
 
 def _build_mint_request(
@@ -1051,11 +1157,7 @@ def _build_mint_request(
     )
 
     # Resolve contributors
-    raw_contributors: list[dict[str, Any]] = []
-    if event_context is not None:
-        raw_contributors = event_context.contributors
-
-    if not raw_contributors:
+    if not acceptance_event.contributors:
         raise EventPayloadError(
             "contributors",
             f"no valid contributor wallet allocations found for model={acceptance_event.model_id} "
@@ -1063,15 +1165,15 @@ def _build_mint_request(
             "populate spec['contributors'] or the 'hokusai.contributors' run tag",
         )
 
-    # Normalize total to exactly 10000 bps (adjust largest weight for rounding remainder)
-    contributors_bps = _normalize_weights_to_10000(raw_contributors)
-
     contributor_models = [
         MintRequestContributor(
-            wallet_address=c["wallet_address"],
-            weight_bps=c["weight_bps"],
+            wallet_address=contributor.wallet_address,
+            weight_bps=contributor.weight_bps,
+            submission_id=contributor.submission_id,
+            contribution_batch_id=contributor.contribution_batch_id,
+            contributor_id=contributor.contributor_id,
         )
-        for c in contributors_bps
+        for contributor in acceptance_event.contributors
     ]
 
     return MintRequest(

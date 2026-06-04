@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Request, status
 from fastapi.responses import JSONResponse
 
 from src.api.dependencies import get_contribution_service
-from src.api.schemas.contribution import ContributionAcceptedResponse, ContributionRequest
+from src.api.schemas.contribution import (
+    ContributionAcceptedResponse,
+    ContributionLifecycleResponse,
+    ContributionRequest,
+)
 from src.api.services.contribution_service import (
     ContributionConflictError,
+    ContributionLifecycleUnavailableError,
     ContributionModelNotFoundError,
     ContributionPersistenceUnavailableError,
     ContributionService,
@@ -19,6 +25,7 @@ from src.api.services.contribution_service import (
 from src.middleware.auth import require_auth
 
 router = APIRouter(prefix="/api/v1/models", tags=["contributions"])
+lifecycle_router = APIRouter(prefix="/api/v1/contributions", tags=["contributions"])
 
 
 @router.post(
@@ -57,7 +64,8 @@ async def submit_contribution(
             pass
 
     try:
-        accepted = service.accept_contribution(
+        accepted = await asyncio.to_thread(
+            service.accept_contribution,
             model_id=model_id,
             request=contribution,
             idempotency_key=idempotency_key,
@@ -90,4 +98,53 @@ async def submit_contribution(
     return JSONResponse(
         status_code=accepted.status_code,
         content=accepted.response.model_dump(by_alias=True),
+    )
+
+
+@lifecycle_router.get(
+    "/{submission_id}/lifecycle",
+    response_model=ContributionLifecycleResponse,
+    responses={
+        401: {"description": "Authentication required"},
+        404: {"description": "Lifecycle record not found"},
+        503: {"description": "Lifecycle persistence unavailable"},
+    },
+)
+async def get_contribution_lifecycle(
+    submission_id: str,
+    auth: dict[str, Any] = Depends(require_auth),
+    service: ContributionService = Depends(get_contribution_service),
+) -> JSONResponse:
+    """Return current processing lifecycle state for an accepted submission."""
+    del auth
+
+    try:
+        lifecycle = await asyncio.to_thread(service.get_lifecycle_state, submission_id)
+    except ContributionLifecycleUnavailableError as exc:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"error": "lifecycle_unavailable", "detail": str(exc)},
+        )
+
+    if lifecycle is None:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"error": "lifecycle_not_found", "submission_id": submission_id},
+        )
+
+    response = ContributionLifecycleResponse(
+        submission_id=lifecycle.submission_id,
+        state=lifecycle.state,
+        accepted_row_count=lifecycle.accepted_row_count,
+        rejected_row_count=lifecycle.rejected_row_count,
+        reason=lifecycle.reason,
+        metadata=lifecycle.processing_metadata,
+        training_run_id=lifecycle.training_run_id,
+        evaluation_run_id=lifecycle.evaluation_run_id,
+        created_at=lifecycle.created_at,
+        updated_at=lifecycle.updated_at,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content=response.model_dump(by_alias=True, mode="json"),
     )

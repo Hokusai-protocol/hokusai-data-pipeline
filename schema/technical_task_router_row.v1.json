@@ -95,14 +95,20 @@
     },
     "actual_time_seconds": {
       "title": "Actual Time Seconds",
-      "description": "Observed workflow duration in seconds. Used by diagnostic duration error scorers and does not affect the primary promotion metric.",
-      "type": "number",
+      "description": "Observed workflow duration in seconds. Null means duration is unknown or unavailable. Diagnostic duration error scoring only treats positive finite values as label coverage.",
+      "type": [
+        "number",
+        "null"
+      ],
       "minimum": 0
     },
     "estimated_duration_seconds": {
       "title": "Estimated Duration Seconds",
-      "description": "Router-estimated workflow duration in seconds. Used by diagnostic duration error scorers and does not affect the primary promotion metric.",
-      "type": "number",
+      "description": "Router-estimated workflow duration in seconds. Null means the model has no positive duration evidence for the strategy.",
+      "type": [
+        "number",
+        "null"
+      ],
       "minimum": 0
     },
     "estimated_success_under_budget": {

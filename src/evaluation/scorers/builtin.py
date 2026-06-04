@@ -52,8 +52,8 @@ _TASK_ROUTER_ROW_SCHEMA: dict = {
             "max_cost_usd": {"type": "number", "exclusiveMinimum": 0},
             "actual_cost_usd": {"type": "number", "minimum": 0},
             "estimated_cost_usd": {"type": "number", "minimum": 0},
-            "actual_time_seconds": {"type": "number", "minimum": 0},
-            "estimated_duration_seconds": {"type": "number", "minimum": 0},
+            "actual_time_seconds": {"type": ["number", "null"], "minimum": 0},
+            "estimated_duration_seconds": {"type": ["number", "null"], "minimum": 0},
             "estimated_success_under_budget": {
                 "type": "number",
                 "minimum": 0,

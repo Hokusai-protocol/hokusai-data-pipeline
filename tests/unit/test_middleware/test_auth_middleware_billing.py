@@ -1506,3 +1506,46 @@ class TestContributionDebitBypass:
             "reason_code": "insufficient_balance",
         }
         call_next.assert_not_awaited()
+
+
+class TestValidateWithAuthServiceNonDictResponse:
+    """Regression coverage for malformed successful auth responses."""
+
+    @pytest.fixture
+    def middleware(self):
+        async def app(scope, receive, send):
+            pass
+
+        return APIKeyAuthMiddleware(
+            app=app,
+            auth_service_url="http://test-auth-service",
+            cache=None,
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body", [None, "error", ["a", "b"]])
+    async def test_non_dict_body_returns_invalid_not_attribute_error(self, middleware, body):
+        """A 200 response with a non-dict body must fail closed."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = body
+
+        with (
+            patch("httpx.AsyncClient") as mock_client_class,
+            patch("src.middleware.auth.logger") as mock_logger,
+        ):
+            mock_client_class.return_value.__aenter__.return_value.post = AsyncMock(
+                return_value=mock_response
+            )
+
+            result = await middleware.validate_with_auth_service("test-api-key")
+
+        assert result.is_valid is False
+        assert result.error == "Authentication service error"
+        mock_logger.warning.assert_called_once()
+        payload = json.loads(mock_logger.warning.call_args[0][0])
+        assert payload == {
+            "event": "auth_service_non_dict_response",
+            "endpoint": "/api/v1/keys/validate",
+            "observed_type": type(body).__name__,
+        }

@@ -3,7 +3,7 @@
 Tests cover:
 - to_basis_points(): all edge cases (0.0, 1.0, NaN, inf, negative, >1, families)
 - to_micro_usdc(): None, zero, Decimal, half-even ties, negative, NaN, inf
-- make_idempotency_key(): valid formula, invalid model ids, empty eval_id, bad hashes
+- make_idempotency_key(): valid formula, determinism, invalid model ids, bad hashes
 - DeltaOneAcceptanceEvent: Pydantic field validation, extra-forbid, v1 literal
 - JSON Schema drift test against schema/deltaone_acceptance_event.v1.json
 - Fixture validation: example fixture round-trips through Pydantic and JSON Schema
@@ -12,6 +12,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import hashlib
 import json
 from decimal import Decimal
 from pathlib import Path
@@ -23,6 +24,7 @@ from src.evaluation.event_payload import (
     SUPPORTED_METRIC_FAMILIES,
     UINT256_MAX,
     DeltaOneAcceptanceEvent,
+    DeltaOneContributorAllocation,
     DeltaOneGuardrailBreach,
     DeltaOneGuardrailSummary,
     EventPayloadError,
@@ -198,67 +200,73 @@ class TestToMicroUsdc:
 
 class TestMakeIdempotencyKey:
     def test_valid_formula(self) -> None:
-        import hashlib
-
         model_id_uint = 99999
-        eval_id = "eval-abc"
         attestation_hash = "0x" + "f" * 64
         norm_hash = "f" * 64
-        raw = f"{model_id_uint}:{eval_id}:{norm_hash}"
+        raw = f"{model_id_uint}:{norm_hash}"
         expected = "0x" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
-        result = make_idempotency_key(model_id_uint, eval_id, attestation_hash)
+        result = make_idempotency_key(model_id_uint, attestation_hash)
         assert result == expected
 
     def test_accepts_bare_hex_hash(self) -> None:
         bare_hash = "a" * 64
         prefixed_hash = "0x" + bare_hash
-        result_bare = make_idempotency_key(1, "eval", bare_hash)
-        result_prefixed = make_idempotency_key(1, "eval", prefixed_hash)
+        result_bare = make_idempotency_key(1, bare_hash)
+        result_prefixed = make_idempotency_key(1, prefixed_hash)
         assert result_bare == result_prefixed
 
     def test_uppercase_hash_normalized(self) -> None:
         lower_hash = "0x" + "a" * 64
         upper_hash = "0x" + "A" * 64
-        result_lower = make_idempotency_key(1, "eval", lower_hash)
-        result_upper = make_idempotency_key(1, "eval", upper_hash)
+        result_lower = make_idempotency_key(1, lower_hash)
+        result_upper = make_idempotency_key(1, upper_hash)
         assert result_lower == result_upper
 
     def test_result_is_0x_prefixed(self) -> None:
-        result = make_idempotency_key(1, "eval", "0x" + "a" * 64)
+        result = make_idempotency_key(1, "0x" + "a" * 64)
         assert result.startswith("0x")
         assert len(result) == 66  # 0x + 64 hex
 
+    def test_same_inputs_are_deterministic(self) -> None:
+        attestation_hash = "0x" + "a" * 64
+        first = make_idempotency_key(1, attestation_hash)
+        second = make_idempotency_key(1, attestation_hash)
+        assert first == second
+
+    def test_changed_attestation_hash_changes_key(self) -> None:
+        first = make_idempotency_key(1, "0x" + "a" * 64)
+        second = make_idempotency_key(1, "0x" + "b" * 64)
+        assert first != second
+
+    def test_changed_model_id_changes_key(self) -> None:
+        attestation_hash = "0x" + "a" * 64
+        first = make_idempotency_key(1, attestation_hash)
+        second = make_idempotency_key(2, attestation_hash)
+        assert first != second
+
     def test_invalid_model_id_uint_negative(self) -> None:
         with pytest.raises(EventPayloadError, match="model_id_uint"):
-            make_idempotency_key(-1, "eval", "0x" + "a" * 64)
+            make_idempotency_key(-1, "0x" + "a" * 64)
 
     def test_invalid_model_id_uint_too_large(self) -> None:
         with pytest.raises(EventPayloadError, match="model_id_uint"):
-            make_idempotency_key(UINT256_MAX + 1, "eval", "0x" + "a" * 64)
+            make_idempotency_key(UINT256_MAX + 1, "0x" + "a" * 64)
 
     def test_zero_model_id_uint_valid(self) -> None:
-        result = make_idempotency_key(0, "eval", "0x" + "a" * 64)
+        result = make_idempotency_key(0, "0x" + "a" * 64)
         assert result.startswith("0x")
 
     def test_max_model_id_uint_valid(self) -> None:
-        result = make_idempotency_key(UINT256_MAX, "eval", "0x" + "a" * 64)
+        result = make_idempotency_key(UINT256_MAX, "0x" + "a" * 64)
         assert result.startswith("0x")
-
-    def test_empty_eval_id_raises(self) -> None:
-        with pytest.raises(EventPayloadError, match="eval_id"):
-            make_idempotency_key(1, "", "0x" + "a" * 64)
-
-    def test_whitespace_eval_id_raises(self) -> None:
-        with pytest.raises(EventPayloadError, match="eval_id"):
-            make_idempotency_key(1, "   ", "0x" + "a" * 64)
 
     def test_malformed_hash_raises(self) -> None:
         with pytest.raises(EventPayloadError, match="attestation_hash"):
-            make_idempotency_key(1, "eval", "not-a-hash")
+            make_idempotency_key(1, "not-a-hash")
 
     def test_wrong_length_hash_raises(self) -> None:
         with pytest.raises(EventPayloadError, match="attestation_hash"):
-            make_idempotency_key(1, "eval", "0x" + "a" * 32)
+            make_idempotency_key(1, "0x" + "a" * 32)
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +275,33 @@ class TestMakeIdempotencyKey:
 
 
 class TestDeltaOneAcceptanceEvent:
+    def test_accepts_contributor_allocations_with_submission_metadata(self) -> None:
+        event = _valid_event(
+            contributors=[
+                DeltaOneContributorAllocation(
+                    wallet_address="0x742d35cc6634c0532925a3b844bc9e7595f62341",
+                    weight_bps=6000,
+                    submission_id="sub-1",
+                    contribution_batch_id="batch-1",
+                ),
+                DeltaOneContributorAllocation(
+                    wallet_address="0x6c3e007f281f6948b37c511a11e43c8026d2f069",
+                    weight_bps=4000,
+                    submission_id="sub-2",
+                ),
+            ]
+        )
+
+        assert len(event.contributors) == 2
+        assert event.contributors[0].submission_id == "sub-1"
+        dumped = event.model_dump(mode="json", by_alias=True)
+        assert dumped["contributors"][0]["submissionId"] == "sub-1"
+        assert dumped["contributors"][0]["contributionBatchId"] == "batch-1"
+
+    def test_legacy_event_without_contributors_remains_valid(self) -> None:
+        event = _valid_event()
+        assert event.contributors == []
+
     def test_valid_event_constructs(self) -> None:
         event = _valid_event()
         assert event.event_version == DELTAONE_ACCEPTANCE_EVENT_VERSION

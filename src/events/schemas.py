@@ -206,12 +206,17 @@ _SHA256_HEX_RE = re.compile(r"^0x[0-9a-f]{64}$")
 class MintRequestContributor(BaseModel):
     """A single contributor's wallet address and allocation weight for a MintRequest."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     wallet_address: str = Field(
         ..., description="EIP-55 checksummed or lowercase 0x-prefixed Ethereum address"
     )
     weight_bps: int = Field(..., ge=0, le=10000, description="Allocation weight in basis points")
+    submission_id: str | None = Field(default=None, alias="submissionId", min_length=1)
+    contribution_batch_id: str | None = Field(
+        default=None, alias="contributionBatchId", min_length=1
+    )
+    contributor_id: str | None = Field(default=None, alias="contributorId", min_length=1)
 
     @field_validator("wallet_address")
     @classmethod
@@ -274,7 +279,7 @@ class MintRequest(BaseModel):
     # Cryptographic anchors
     attestation_hash: str = Field(..., description="SHA-256 of HEM payload, 0x-prefixed 64-hex")
     idempotency_key: str = Field(
-        ..., description="sha256(model_id_uint:eval_id:attestation_hash), 0x-prefixed"
+        ..., description="sha256(model_id_uint:attestation_hash), 0x-prefixed"
     )
 
     total_samples: int = Field(

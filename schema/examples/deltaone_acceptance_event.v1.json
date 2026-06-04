@@ -13,12 +13,25 @@
   "delta_bps": 300,
   "delta_threshold_bps": 100,
   "attestation_hash": "0xd12b65d6be0c2170d427589cc027d4988031dc23356a7f83ecf476fc712bb543",
-  "idempotency_key": "0xfd742fa5dea6034d1be32ea5be01a73f931ef061869509afc3585fda659909e7",
+  "idempotency_key": "0x1c19c341d6c99e7e7dbd68f767cdf7d0969688fed7e3d3fdd82711b29ea69a65",
   "guardrail_summary": {
     "total_guardrails": 2,
     "guardrails_passed": 2,
     "breaches": []
   },
   "max_cost_usd_micro": 5000000,
-  "actual_cost_usd_micro": 2340000
+  "actual_cost_usd_micro": 2340000,
+  "contributors": [
+    {
+      "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+      "weight_bps": 7000,
+      "submissionId": "sub-001",
+      "contributionBatchId": "batch-001"
+    },
+    {
+      "wallet_address": "0x6c3e007f281f6948b37c511a11e43c8026d2f069",
+      "weight_bps": 3000,
+      "submissionId": "sub-002"
+    }
+  ]
 }

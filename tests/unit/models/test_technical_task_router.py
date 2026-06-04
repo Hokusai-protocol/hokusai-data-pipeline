@@ -277,6 +277,57 @@ def test_registration_logs_holdout_evaluation_metrics_to_mlflow() -> None:
     assert log_dict.call_count == 2
 
 
+def test_registration_logs_training_manifest_report_to_mlflow(tmp_path: Path) -> None:
+    class RunContext:
+        def __enter__(self: RunContext) -> SimpleNamespace:
+            return SimpleNamespace(info=SimpleNamespace(run_id="run-123"))
+
+        def __exit__(self: RunContext, *args: Any) -> None:
+            return None
+
+    manifest_report = tmp_path / "report.json"
+    manifest_report.write_text(
+        json.dumps(
+            {
+                "dataset_hash": "sha256:" + "a" * 64,
+                "manifest_digest": "sha256:" + "b" * 64,
+                "as_of": "2026-06-01T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    args = SimpleNamespace(
+        router_dataset=str(FIXTURE),
+        tracking_uri=None,
+        experiment_name="technical-task-router-test",
+        run_name="test-run",
+        k_neighbors=2,
+        smoke=False,
+        training_manifest=str(manifest_report),
+    )
+    model_info = SimpleNamespace(model_uri="runs:/run-123/model", registered_model_version="7")
+
+    with (
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_experiment"),
+        patch("scripts.model_30.register_technical_task_router.mlflow.start_run") as start_run,
+        patch("scripts.model_30.register_technical_task_router.mlflow.log_param"),
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_tag") as set_tag,
+        patch("scripts.model_30.register_technical_task_router.mlflow.log_dict") as log_dict,
+        patch(
+            "scripts.model_30.register_technical_task_router.mlflow.pyfunc.log_model",
+            return_value=model_info,
+        ),
+    ):
+        start_run.return_value = RunContext()
+        register_model(args)
+
+    logged_tags = {call.args[0]: call.args[1] for call in set_tag.call_args_list}
+    assert logged_tags["training_dataset_hash"] == "sha256:" + "a" * 64
+    assert logged_tags["training_manifest_digest"] == "sha256:" + "b" * 64
+    assert logged_tags["training_as_of"] == "2026-06-01T00:00:00Z"
+    assert any(call.args[1] == "training_manifest_report.json" for call in log_dict.call_args_list)
+
+
 def test_clean_router_dataset_merges_removes_available_fakes_and_drops_bad_labels(
     tmp_path: Path,
 ) -> None:

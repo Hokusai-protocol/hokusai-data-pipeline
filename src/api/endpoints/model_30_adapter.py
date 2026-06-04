@@ -613,7 +613,8 @@ def _normalize_v2_router_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
             "fastest_completion": None,
             "highest_reliability": None,
         },
-        "nearest_neighbors": raw_payload.get("nearest_neighbors") or {"count": 0},
+        "nearest_neighbors": _public_nearest_neighbors_payload(raw_payload.get("nearest_neighbors"))
+        or {"count": 0},
     }
     parsed = TechnicalTaskRouterPredictions.model_validate(payload)
     result = parsed.model_dump(mode="json")
@@ -624,11 +625,15 @@ def _normalize_v2_router_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
 def _public_strategy_payload(strategy: Any) -> Any:
     if not isinstance(strategy, dict):
         return strategy
-    return {
+    public = {
         key: value
         for key, value in strategy.items()
         if key in TechnicalTaskStrategyRecommendation.model_fields
     }
+    public["estimated_duration_seconds"] = _public_duration_value(
+        public.get("estimated_duration_seconds")
+    )
+    return public
 
 
 def _public_tradeoffs_payload(tradeoffs: Any) -> Any:
@@ -638,6 +643,14 @@ def _public_tradeoffs_payload(tradeoffs: Any) -> Any:
         key: _public_strategy_payload(strategy) if strategy is not None else None
         for key, strategy in tradeoffs.items()
     }
+
+
+def _public_nearest_neighbors_payload(nearest_neighbors: Any) -> Any:
+    if not isinstance(nearest_neighbors, dict):
+        return nearest_neighbors
+    payload = dict(nearest_neighbors)
+    payload["mean_duration_seconds"] = _public_duration_value(payload.get("mean_duration_seconds"))
+    return payload
 
 
 def _get_or_load_model_30(model_uri: str) -> Any:
@@ -796,3 +809,13 @@ def _iter_strategy_payloads(payload: dict[str, Any]) -> list[dict[str, Any]]:
     if isinstance(tradeoffs, dict):
         strategies.extend(item for item in tradeoffs.values() if isinstance(item, dict))
     return strategies
+
+
+def _public_duration_value(value: Any) -> float | None:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if numeric <= 0:
+        return None
+    return numeric
