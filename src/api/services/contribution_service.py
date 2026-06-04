@@ -8,13 +8,16 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import boto3
 from botocore.exceptions import ClientError
 
 from src.api.endpoints.model_registry_entries import MODEL_CONFIGS
 from src.api.schemas.contribution import ContributionAcceptedResponse, ContributionRequest
+
+if TYPE_CHECKING:
+    from src.api.services.auth_service_notifier import AuthServiceNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -171,9 +174,14 @@ class S3ContributionStore:
 class ContributionService:
     """Validate, normalize, deduplicate, and persist contribution submissions."""
 
-    def __init__(self: ContributionService, store: ContributionStore | None = None) -> None:
+    def __init__(
+        self: ContributionService,
+        store: ContributionStore | None = None,
+        notifier: AuthServiceNotifier | None = None,
+    ) -> None:
         self.max_body_bytes = int(os.getenv("CONTRIBUTIONS_MAX_BODY_BYTES", str(1024 * 1024)))
         self._store: ContributionStore | None = store
+        self._notifier = notifier
 
     @property
     def store(self: ContributionService) -> ContributionStore:
@@ -256,6 +264,18 @@ class ContributionService:
             created_at=datetime.now(timezone.utc).isoformat(),
         )
         self.store.create(record=record)
+        if self._notifier is not None:
+            try:
+                self._notifier.notify_accepted(
+                    record=record,
+                    auth=auth,
+                    storage_ref=self._storage_ref_for_record(record),
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Failed to notify auth service for accepted contribution",
+                    extra={"submission_id": submission_id, "model_id": model_id},
+                )
         return ContributionAcceptance(response=response, status_code=201)
 
     def _build_default_store(self: ContributionService) -> ContributionStore:
@@ -302,3 +322,11 @@ class ContributionService:
         if metadata_key:
             return metadata_key.strip()
         return f"bodyhash-{body_hash[:32]}"
+
+    def _storage_ref_for_record(
+        self: ContributionService, record: StoredContributionRecord
+    ) -> str | None:
+        if isinstance(self.store, S3ContributionStore):
+            key = self.store._key_for(record.model_id, record.submission_id)
+            return f"s3://{self.store.bucket}/{key}"
+        return None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from typing import Any
 
@@ -13,6 +14,7 @@ from src.api.dependencies import get_contribution_service
 from src.api.endpoints import contributions
 from src.api.endpoints.model_registry_entries import MODEL_CONFIGS
 from src.api.schemas.contribution import ContributionAcceptedResponse, ContributionRequest
+from src.api.services.auth_service_notifier import AuthServiceNotifier
 from src.api.services.contribution_service import (
     ContributionAcceptance,
     ContributionConflictError,
@@ -73,6 +75,42 @@ class FakeContributionService:
             ),
             status_code=201,
         )
+
+
+class RecordingNotifier:
+    """Capture accepted-submission notifications for assertions."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def notify_accepted(
+        self,
+        *,
+        record: StoredContributionRecord,
+        auth: dict[str, Any],
+        storage_ref: str | None = None,
+    ) -> None:
+        self.calls.append({"record": record, "auth": auth, "storage_ref": storage_ref})
+
+
+class RaisingNotifier:
+    """Simulate downstream notifier failure."""
+
+    def notify_accepted(
+        self,
+        *,
+        record: StoredContributionRecord,
+        auth: dict[str, Any],
+        storage_ref: str | None = None,
+    ) -> None:
+        raise RuntimeError("auth-service unavailable")
+
+
+VALID_AUTH = {
+    "user_id": "11111111-1111-1111-1111-111111111111",
+    "api_key_id": "22222222-2222-2222-2222-222222222222",
+    "service_id": "svc-1",
+}
 
 
 @pytest.fixture()
@@ -275,3 +313,123 @@ def test_service_supports_registered_models_added_during_tests() -> None:
 
     assert response.response.model_id == "31"
     assert response.status_code == 201
+
+
+def test_service_notifies_auth_on_new_submission() -> None:
+    store = InMemoryContributionStore()
+    notifier = RecordingNotifier()
+    service = ContributionService(store=store, notifier=notifier)
+    payload = ContributionRequest.model_validate(
+        {
+            "rows": [{"task_id": "row-1"}, {"task_id": "row-2"}],
+            "metadata": {"idempotency_key": "batch-123"},
+        }
+    )
+
+    accepted = service.accept_contribution(
+        model_id="30",
+        request=payload,
+        idempotency_key=None,
+        auth=VALID_AUTH,
+    )
+
+    assert accepted.status_code == 201
+    assert len(notifier.calls) == 1
+    call = notifier.calls[0]
+    assert call["record"].submission_id == "batch-123"
+    assert call["record"].model_id == "30"
+    assert call["record"].body_hash
+    assert call["record"].idempotency_key == "batch-123"
+    assert call["auth"] == VALID_AUTH
+    assert call["storage_ref"] is None
+
+
+def test_service_does_not_notify_auth_on_idempotent_replay() -> None:
+    store = InMemoryContributionStore()
+    notifier = RecordingNotifier()
+    service = ContributionService(store=store, notifier=notifier)
+    payload = ContributionRequest.model_validate(
+        {
+            "rows": [{"task_id": "row-1"}],
+            "metadata": {"idempotency_key": "batch-123"},
+        }
+    )
+
+    first = service.accept_contribution(
+        model_id="30",
+        request=payload,
+        idempotency_key=None,
+        auth=VALID_AUTH,
+    )
+    second = service.accept_contribution(
+        model_id="30",
+        request=payload,
+        idempotency_key=None,
+        auth=VALID_AUTH,
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 200
+    assert len(notifier.calls) == 1
+
+
+def test_service_continues_when_notifier_raises(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level("ERROR")
+    store = InMemoryContributionStore()
+    service = ContributionService(store=store, notifier=RaisingNotifier())
+    payload = ContributionRequest.model_validate(
+        {
+            "rows": [{"task_id": "row-1"}],
+            "metadata": {"idempotency_key": "batch-123"},
+        }
+    )
+
+    accepted = service.accept_contribution(
+        model_id="30",
+        request=payload,
+        idempotency_key=None,
+        auth=VALID_AUTH,
+    )
+
+    assert accepted.status_code == 201
+    assert ("30", "batch-123") in store.records
+    assert "Failed to notify auth service for accepted contribution" in caplog.text
+
+
+def test_notifier_skipped_when_uuid_fields_invalid(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level("WARNING")
+    notifier = AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="",
+        dry_run=True,
+    )
+    post_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "src.api.services.auth_service_notifier.httpx.post",
+        lambda *args, **kwargs: post_calls.append({"args": args, "kwargs": kwargs}),
+    )
+    record = StoredContributionRecord(
+        submission_id="batch-123",
+        model_id="30",
+        idempotency_key="batch-123",
+        body_hash="abc123",
+        rows=[{"task_id": "row-1"}],
+        metadata={},
+        response_payload={"accepted": True},
+        created_at="2026-06-04T12:00:00+00:00",
+    )
+
+    notifier.notify_accepted(
+        record=record,
+        auth={"user_id": "not-a-uuid", "api_key_id": "still-not-a-uuid", "service_id": "svc-1"},
+    )
+
+    assert not post_calls
+    parsed_logs = [json.loads(record.getMessage()) for record in caplog.records]
+    assert any(
+        item["event"] == "auth_submission_notification_skipped_invalid_auth_context"
+        and item["field"] == "user_id"
+        for item in parsed_logs
+    )
