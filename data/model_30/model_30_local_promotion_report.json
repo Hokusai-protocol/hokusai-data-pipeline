@@ -1,0 +1,101 @@
+{
+  "local_smoke": [
+    {
+      "nearest_neighbors": {
+        "count": 40,
+        "mean_cost_usd": 9.536874,
+        "mean_duration_seconds": null,
+        "success_under_budget_rate": 0.425
+      },
+      "objective": "lowest_cost",
+      "recommended_strategy": {
+        "coder_model": "gpt-5.4",
+        "confidence": 0.423378,
+        "estimated_cost_usd": 15.12836,
+        "estimated_duration_seconds": null,
+        "estimated_success_under_budget": 0.605,
+        "objective": "lowest_cost",
+        "planner_model": "claude-sonnet-4-6",
+        "rationale": "Estimated lowest_cost strategy from 2 exact route match(es) across 40 nearest Wavemill router row(s).",
+        "reviewer_model": "claude-sonnet-4-6",
+        "stages": [
+          "plan",
+          "code",
+          "review"
+        ],
+        "support": 2
+      }
+    },
+    {
+      "nearest_neighbors": {
+        "count": 40,
+        "mean_cost_usd": 9.536874,
+        "mean_duration_seconds": null,
+        "success_under_budget_rate": 0.425
+      },
+      "objective": "fastest_completion",
+      "recommended_strategy": {
+        "coder_model": "gpt-5.4",
+        "confidence": 0.423378,
+        "estimated_cost_usd": 15.12836,
+        "estimated_duration_seconds": null,
+        "estimated_success_under_budget": 0.605,
+        "objective": "fastest_completion",
+        "planner_model": "claude-sonnet-4-6",
+        "rationale": "Estimated fastest_completion strategy from 2 exact route match(es) across 40 nearest Wavemill router row(s).",
+        "reviewer_model": "claude-sonnet-4-6",
+        "stages": [
+          "plan",
+          "code",
+          "review"
+        ],
+        "support": 2
+      }
+    },
+    {
+      "nearest_neighbors": {
+        "count": 40,
+        "mean_cost_usd": 9.536874,
+        "mean_duration_seconds": null,
+        "success_under_budget_rate": 0.425
+      },
+      "objective": "highest_reliability",
+      "recommended_strategy": {
+        "coder_model": "gpt-5.4",
+        "confidence": 0.423378,
+        "estimated_cost_usd": 15.12836,
+        "estimated_duration_seconds": null,
+        "estimated_success_under_budget": 0.605,
+        "objective": "highest_reliability",
+        "planner_model": "claude-sonnet-4-6",
+        "rationale": "Estimated highest_reliability strategy from 2 exact route match(es) across 40 nearest Wavemill router row(s).",
+        "reviewer_model": "claude-sonnet-4-6",
+        "stages": [
+          "plan",
+          "code",
+          "review"
+        ],
+        "support": 2
+      }
+    }
+  ],
+  "production_smoke": null,
+  "promotion": {
+    "alias": "production",
+    "model_name": "Technical Task Router",
+    "model_uri": "models:/Technical Task Router@production",
+    "previous_alias_target": null,
+    "rollback_command": null,
+    "skipped": false,
+    "version": "1"
+  },
+  "registration": {
+    "registered_model_name": "Technical Task Router",
+    "registered_model_uri": "models:/Technical Task Router/1",
+    "registered_model_version": "1",
+    "skipped_registration": true
+  },
+  "serving_environment": {
+    "MODEL_30_MLFLOW_URI": "models:/Technical Task Router@production"
+  }
+}

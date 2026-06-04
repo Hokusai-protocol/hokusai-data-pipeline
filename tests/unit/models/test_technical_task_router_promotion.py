@@ -38,6 +38,14 @@ def test_assert_strategy_payload_rejects_fake_model_ids() -> None:
         promotion._assert_strategy_payload(_strategy_payload("deep-coder-v2"), source="test")
 
 
+def test_assert_strategy_payload_rejects_nonpositive_duration_values() -> None:
+    payload = _strategy_payload()
+    payload["recommended_strategy"]["estimated_duration_seconds"] = 0.0
+
+    with pytest.raises(ValueError, match="nonpositive duration"):
+        promotion._assert_strategy_payload(payload, source="test")
+
+
 def test_smoke_production_api_sends_auth_header_and_checks_all_objectives(monkeypatch) -> None:
     calls: list[dict] = []
 

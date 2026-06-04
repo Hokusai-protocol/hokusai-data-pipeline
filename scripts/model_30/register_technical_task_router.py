@@ -247,6 +247,8 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
         mlflow.log_dict(dataset_summary.to_mlflow_dict(), "router_dataset_summary.json")
         if evaluation_report is not None:
             for metric_name, metric_value in evaluation_report["metrics"].items():
+                if metric_value is None:
+                    continue
                 mlflow.log_metric(metric_name, float(metric_value))
             mlflow.set_tag(
                 "hokusai.model_30.holdout_hash",
@@ -259,6 +261,18 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
             mlflow.set_tag(
                 "hokusai.model_30.quarantined_rows",
                 str(evaluation_report["row_counts"]["quarantined_rows"]),
+            )
+            mlflow.set_tag(
+                "hokusai.model_30.duration_positive_label_rows",
+                str(evaluation_report["duration_coverage"]["positive_label_rows"]),
+            )
+            mlflow.set_tag(
+                "hokusai.model_30.duration_positive_label_fraction",
+                str(evaluation_report["duration_coverage"]["positive_label_fraction"]),
+            )
+            mlflow.set_tag(
+                "hokusai.model_30.duration_mae_available",
+                str(evaluation_report["duration_coverage"]["duration_mae_available"]).lower(),
             )
             mlflow.log_dict(
                 {key: value for key, value in evaluation_report.items() if key != "benchmark_rows"},

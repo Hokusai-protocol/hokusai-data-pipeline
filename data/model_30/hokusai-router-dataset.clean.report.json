@@ -1,0 +1,61 @@
+{
+  "drop_reasons": {
+    "reviewer_model:invalid:deep": 4
+  },
+  "dropped_rows": 4,
+  "duplicate_rows_skipped": 0,
+  "duration_coverage": {
+    "measured_zero_count": 0,
+    "missing": 690,
+    "nonpositive_normalized": 690,
+    "originally_missing": 0,
+    "positive_count": 2,
+    "positive_coverage_fraction": 0.002890173410404624,
+    "positive_mean_seconds": 383.154,
+    "positive_median_seconds": 383.154,
+    "total_rows": 692
+  },
+  "input_files": [
+    "/Users/timothyogilvie/Dropbox/wavemill/.wavemill/evals/hokusai-router-dataset.csv"
+  ],
+  "input_rows": 696,
+  "output_rows": 692,
+  "removed_available_model_ids": {
+    "<synthetic>": 33
+  },
+  "validation": {
+    "row_count": 692,
+    "selected_model_distribution": {
+      "coder_model": {
+        "claude-haiku-4-5-20251001": 16,
+        "claude-opus-4-6": 14,
+        "claude-opus-4-7": 4,
+        "claude-sonnet-4-5-20250929": 366,
+        "claude-sonnet-4-6": 12,
+        "gpt-5.3-codex": 35,
+        "gpt-5.4": 231,
+        "gpt-5.5": 14
+      },
+      "planner_model": {
+        "claude-haiku-4-5-20251001": 2,
+        "claude-opus-4-6": 61,
+        "claude-opus-4-7": 21,
+        "claude-sonnet-4-5-20250929": 375,
+        "claude-sonnet-4-6": 84,
+        "gpt-5.3-codex": 5,
+        "gpt-5.4": 4,
+        "gpt-5.5": 140
+      },
+      "reviewer_model": {
+        "claude-haiku-4-5-20251001": 59,
+        "claude-opus-4-6": 4,
+        "claude-opus-4-7": 1,
+        "claude-sonnet-4-5-20250929": 428,
+        "claude-sonnet-4-6": 191,
+        "gpt-5.3-codex": 5,
+        "gpt-5.4": 4
+      }
+    },
+    "sha256": "sha256:b5845fbfbf6a1fcf78ff403e99a8718b9aaa6d42e4b07fdec85c6cc64f88c430"
+  }
+}

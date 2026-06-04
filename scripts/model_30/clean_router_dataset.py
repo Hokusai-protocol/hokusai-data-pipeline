@@ -223,12 +223,16 @@ def _build_duration_coverage_report(
     originally_missing = duration_counts["originally_missing"]
     nonpositive_normalized = duration_counts["nonpositive_normalized"]
     positive_count = duration_counts["positive"]
+    measured_zero_count = duration_counts["measured_zero"]
+    positive_coverage_fraction = positive_count / output_rows if output_rows else 0.0
     return {
         "total_rows": output_rows,
         "missing": originally_missing + nonpositive_normalized,
         "originally_missing": originally_missing,
         "nonpositive_normalized": nonpositive_normalized,
+        "measured_zero_count": measured_zero_count,
         "positive_count": positive_count,
+        "positive_coverage_fraction": positive_coverage_fraction,
         "positive_median_seconds": median(positive_durations) if positive_durations else None,
         "positive_mean_seconds": mean(positive_durations) if positive_durations else None,
     }
