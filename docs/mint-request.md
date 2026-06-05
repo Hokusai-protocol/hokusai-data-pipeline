@@ -31,7 +31,7 @@ That post-mint split is reported only after the secondary HTTP mint hook returns
 | `model_id` | string | Human-readable model identifier |
 | `model_id_uint` | decimal string | uint256 model ID for on-chain use |
 | `eval_id` | string | Evaluation run identifier |
-| `attestation_hash` | `0x`-prefixed 64-hex | SHA-256 of HEM payload |
+| `attestation_hash` | `0x`-prefixed 64-hex | SHA-256 of the canonical attestation payload |
 | `idempotency_key` | `0x`-prefixed 64-hex | Canonical dedup key (see below) |
 | `totalSamples` | integer `>= 1` | Required top-level sample count for DeltaVerifier ABI |
 | `evaluation` | object | Scores, costs, statistical metadata |
@@ -70,6 +70,24 @@ Recovery invariant: if the pipeline crashes after detecting an accepted evaluati
 Cutover note: this is a pre-mainnet breaking change from the older 3-component key format `sha256("{model_id_uint}:{eval_id}:{bare_attestation_hash}")`. Any queued or fixture payloads using the old formula must be regenerated before enabling the new producer.
 
 Do **not** reimplement this formula — use the HOK-1266 helper.
+
+## Attestation Hash Formula
+
+`attestation_hash` is not the HEM content hash. It is the SHA-256 of the canonical JSON payload produced by `src/cli/attestation.py`, with keys sorted and compact separators.
+
+For DeltaOne minting, that payload includes:
+
+- `model_id`
+- `eval_spec` (`"deltaone"`)
+- `provider`
+- `seed`
+- `temperature`
+- `results` (the serialized DeltaOne decision)
+- `benchmark_spec_id` when available
+- `dataset_hash` when available
+- `attribution_report_hash` when attribution has run
+
+`attribution_report_hash` is itself the SHA-256 of the full canonical attribution report. This keeps the mint attestation sensitive to deterministic attribution changes without making the attestation hash equal to the HEM hash.
 
 ## Publish ordering
 

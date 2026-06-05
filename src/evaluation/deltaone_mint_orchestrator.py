@@ -5,6 +5,7 @@ from __future__ import annotations
 # Auth-hook note: this orchestrator relies on the evaluator/client passed in and
 # does not open direct remote sessions itself.
 # Production MLflow auth relies on Authorization / MLFLOW_TRACKING_TOKEN env wiring.
+import hashlib
 import json
 import logging
 import re
@@ -103,6 +104,7 @@ class _EventContext:
     metric_family: str = "proportion"
     primary_metric_mlflow_name: str | None = None
     benchmark_spec_id: str | None = None
+    attribution_report: dict[str, Any] | None = None
     eval_id: str | None = None
     model_id_uint: int | None = None
     delta_threshold_pp: float = 1.0
@@ -369,7 +371,11 @@ class DeltaOneMintOrchestrator:
         event_context: _EventContext | None = None,
     ) -> MintOutcome:
         _ = blocked_reason
-        attestation_hash, attestation_payload = self._create_signed_attestation(decision)
+        attestation_hash, attestation_payload = self._create_signed_attestation(
+            decision,
+            benchmark_spec_id=event_context.benchmark_spec_id if event_context else None,
+            attribution_report=event_context.attribution_report if event_context else None,
+        )
 
         # Build acceptance event before any mint side-effects so malformed payloads fail early
         # and before the webhook fires to avoid notifying consumers of a mint that won't happen.
@@ -558,8 +564,20 @@ class DeltaOneMintOrchestrator:
             )
 
     def _create_signed_attestation(
-        self: DeltaOneMintOrchestrator, decision: DeltaOneDecision
+        self: DeltaOneMintOrchestrator,
+        decision: DeltaOneDecision,
+        *,
+        benchmark_spec_id: str | None = None,
+        attribution_report: dict[str, Any] | None = None,
     ) -> tuple[str, dict[str, Any]]:
+        attribution_report_hash: str | None = None
+        if attribution_report is not None:
+            canonical_report = json.dumps(
+                attribution_report,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            attribution_report_hash = hashlib.sha256(canonical_report.encode("utf-8")).hexdigest()
         return create_attestation(
             model_id=decision.model_id,
             eval_spec="deltaone",
@@ -567,6 +585,9 @@ class DeltaOneMintOrchestrator:
             seed=None,
             temperature=None,
             results=self._decision_to_dict(decision),
+            benchmark_spec_id=benchmark_spec_id or None,
+            dataset_hash=decision.dataset_hash,
+            attribution_report_hash=attribution_report_hash,
         )
 
     def _resolve_token_id(self: DeltaOneMintOrchestrator, model_id: str) -> str:
