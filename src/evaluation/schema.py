@@ -206,6 +206,47 @@ HEM_V1_SCHEMA: dict[str, object] = {
                 },
             },
         },
+        "attribution": {
+            "type": ["object", "null"],
+            "additionalProperties": False,
+            "required": ["method", "report_hash", "contributors"],
+            "properties": {
+                "method": {
+                    "type": "string",
+                    "enum": ["neighbor_provenance", "loco_shapley", "shapley"],
+                },
+                "report_hash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$",
+                },
+                "efficiency_gap": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                },
+                "seed": {"type": ["integer", "null"]},
+                "sample_plan": {"type": ["object", "null"]},
+                "contributors": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["wallet", "weight_bps"],
+                        "properties": {
+                            "wallet": {
+                                "type": "string",
+                                "pattern": "^0x[0-9a-f]{40}$",
+                            },
+                            "weight_bps": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000,
+                            },
+                        },
+                    },
+                },
+            },
+        },
     },
     "definitions": {
         "metric": {

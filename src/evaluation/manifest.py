@@ -29,6 +29,7 @@ _NULLABLE_FIELDS = (
     "label_snapshot_hash",
     "coverage",
     "per_row_artifact",
+    "attribution",
 )
 _NONEMPTY_FIELDS = ("scorer_refs", "scorer_source_hashes", "guardrail_results")
 
@@ -60,6 +61,7 @@ class HokusaiEvaluationManifest:
     label_snapshot_hash: str | None = None
     coverage: dict[str, Any] | None = None
     per_row_artifact: dict[str, Any] | None = None
+    attribution: dict[str, Any] | None = None
 
     def to_dict(self: HokusaiEvaluationManifest) -> dict[str, Any]:
         """Serialize the manifest to a JSON-serializable dictionary."""
@@ -110,6 +112,7 @@ class HokusaiEvaluationManifest:
             label_snapshot_hash=data.get("label_snapshot_hash"),
             coverage=data.get("coverage"),
             per_row_artifact=data.get("per_row_artifact"),
+            attribution=data.get("attribution"),
         )
 
     def compute_hash(self: HokusaiEvaluationManifest) -> str:

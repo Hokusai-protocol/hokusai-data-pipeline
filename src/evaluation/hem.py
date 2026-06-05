@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 
 @dataclass(slots=True)
@@ -31,4 +32,5 @@ class HEM:
     confidence_interval_lower: float | None = None
     confidence_interval_upper: float | None = None
     per_row_artifact: PerRowArtifact | None = None
+    attribution: dict[str, Any] | None = None
     unit_of_analysis: str | None = None
