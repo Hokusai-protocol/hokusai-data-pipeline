@@ -6,6 +6,7 @@ mlflow_module before custom_eval functions are called. Tests here use fake modul
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -195,6 +196,49 @@ def test_persist_uploaded_parquet_has_correct_row_count(tmp_path: Path) -> None:
     written = pd.read_parquet(captured_paths[0])
     assert len(written) == 7
     assert "row_id" in written.columns
+
+
+def test_neighbor_provenance_column_round_trip(tmp_path: Path) -> None:
+    captured_paths: list[str] = []
+
+    class _CapturingWithPath(_CapturingMlflow):
+        def log_artifact(self, local_path: str, artifact_path: str = "") -> None:
+            captured_paths.append(local_path)
+            super().log_artifact(local_path, artifact_path)
+
+    mlflow = _CapturingWithPath()
+    provenance = [{"wallet": "0x" + "1" * 40, "weight": 0.75, "training_row_index": 3}]
+    result = SimpleNamespace(
+        result_df=pd.DataFrame(
+            {
+                "row_id": ["row-1"],
+                "accuracy": [True],
+                "neighbor_provenance": [provenance],
+            }
+        )
+    )
+
+    with patch(
+        "src.evaluation.custom_eval.tempfile.TemporaryDirectory",
+        return_value=_PersistTempDir(tmp_path),
+    ):
+        _persist_per_row_artifact(
+            mlflow_module=mlflow,
+            result=result,
+            runtime_spec=_make_spec(),
+            run_id="run-neighbor",
+        )
+
+    written = pd.read_parquet(captured_paths[0])
+    assert json.loads(written.iloc[0]["neighbor_provenance"]) == provenance
+
+
+def test_non_model_30_unaffected() -> None:
+    df = pd.DataFrame({"row_id": ["row-1"], "accuracy": [True]})
+
+    result = _prepare_per_row_dataframe(df, _make_spec())
+
+    assert "neighbor_provenance" not in result.columns
 
 
 class _PersistTempDir:

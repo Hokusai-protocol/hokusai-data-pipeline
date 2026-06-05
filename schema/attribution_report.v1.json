@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "attribution_report/v1",
+  "title": "AttributionReport",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "model_id",
+    "method",
+    "baseline_run_id",
+    "candidate_run_id",
+    "created_at",
+    "total_rows_evaluated",
+    "rows_improved",
+    "contributors",
+    "weight_bps_total"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "attribution_report/v1"
+    },
+    "model_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "method": {
+      "type": "string",
+      "enum": [
+        "neighbor_provenance",
+        "loco_shapley"
+      ]
+    },
+    "baseline_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidate_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "total_rows_evaluated": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rows_improved": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "contributors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "wallet",
+          "submission_ids",
+          "rows_credited",
+          "raw_score",
+          "weight_bps"
+        ],
+        "properties": {
+          "wallet": {
+            "type": "string",
+            "pattern": "^0x[0-9a-f]{40}$"
+          },
+          "submission_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "rows_credited": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "raw_score": {
+            "type": "number",
+            "minimum": 0
+          },
+          "weight_bps": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "weight_bps_total": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10000
+    },
+    "method_details": {
+      "type": "object"
+    }
+  }
+}

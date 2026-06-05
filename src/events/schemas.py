@@ -277,6 +277,10 @@ class MintRequest(BaseModel):
     eval_id: str = Field(..., min_length=1)
 
     # Cryptographic anchors
+    benchmark_spec_id: str = Field(
+        ..., min_length=1, description="Stable benchmark spec identifier"
+    )
+    dataset_hash: str = Field(..., description="Dataset anchor, 0x-prefixed 64-hex SHA-256")
     attestation_hash: str = Field(..., description="SHA-256 of HEM payload, 0x-prefixed 64-hex")
     idempotency_key: str = Field(
         ..., description="sha256(model_id_uint:attestation_hash), 0x-prefixed"
@@ -309,7 +313,7 @@ class MintRequest(BaseModel):
             raise ValueError(f"model_id_uint {v!r} is outside uint256 range")
         return v
 
-    @field_validator("attestation_hash", "idempotency_key")
+    @field_validator("attestation_hash", "idempotency_key", "dataset_hash")
     @classmethod
     def _validate_0x_sha256(cls, v: str) -> str:
         if not _SHA256_HEX_RE.match(v):

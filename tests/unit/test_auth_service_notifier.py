@@ -44,6 +44,8 @@ def _mint_request() -> MintRequest:
         model_id="30",
         model_id_uint="99001",
         eval_id="eval-123",
+        benchmark_spec_id="spec-test-v1",
+        dataset_hash="0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         attestation_hash="0x" + "a" * 64,
         idempotency_key="0x" + "b" * 64,
         total_samples=3,

@@ -508,6 +508,33 @@ def test_normalize_v2_output_strips_internal_strategy_support() -> None:
     assert "support" not in normalized["tradeoffs"]["lowest_cost"]
 
 
+def test_normalize_v2_output_does_not_leak_neighbor_provenance() -> None:
+    raw = {
+        "recommended_strategy": {
+            "objective": "highest_reliability",
+            "coder_model": "gpt-5.4",
+            "stages": ["code"],
+            "estimated_success_under_budget": 0.82,
+            "estimated_cost_usd": 4.8,
+            "confidence": 0.71,
+        },
+        "tradeoffs": {
+            "lowest_cost": None,
+            "fastest_completion": None,
+            "highest_reliability": None,
+        },
+        "nearest_neighbors": {"count": 3},
+        "neighbor_provenance": [{"training_row_index": 1, "wallet": "0x" + "1" * 40}],
+    }
+
+    normalized = model_30_adapter.normalize_model_30_output(
+        raw,
+        model_30_adapter.validate_nested_model_30_inputs(_full_inputs()),
+    )
+
+    assert "neighbor_provenance" not in normalized
+
+
 def test_normalize_output_handles_dataframe() -> None:
     raw = pd.DataFrame(
         [

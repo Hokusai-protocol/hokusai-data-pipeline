@@ -17,3 +17,4 @@ ACTUAL_COST_TAG = "hokusai.eval.actual_cost_usd"
 BENCHMARK_SPEC_ID_TAG = "hokusai.benchmark_spec_id"
 EVAL_SPEC_ID_TAG = BENCHMARK_SPEC_ID_TAG
 PER_ROW_ARTIFACT_URI_TAG = "hokusai.per_row_artifact_uri"
+ATTRIBUTION_REPORT_ARTIFACT_URI_TAG = "hokusai.attribution_report_artifact_uri"
