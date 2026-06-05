@@ -121,6 +121,8 @@ def _row_wallet_shares(
     per_wallet: dict[str, dict[str, Any]] = {}
     skipped_null_wallet_shares = 0.0
     for neighbor, share in zip(neighbors, normalized, strict=True):
+        if share <= 0:
+            continue
         wallet = neighbor.get("wallet")
         if wallet is None:
             skipped_null_wallet_shares += share
@@ -162,6 +164,8 @@ def _finalize_contributors(wallet_totals: dict[str, dict[str, Any]]) -> list[dic
 
     ordered_wallets = sorted(wallet_totals)
     total_raw = sum(float(wallet_totals[wallet]["raw_score"]) for wallet in ordered_wallets)
+    if total_raw <= 0:
+        return []
     exact_bps = {
         wallet: (float(wallet_totals[wallet]["raw_score"]) / total_raw) * 10000.0
         for wallet in ordered_wallets

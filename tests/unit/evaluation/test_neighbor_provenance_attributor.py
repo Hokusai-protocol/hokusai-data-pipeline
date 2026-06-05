@@ -247,6 +247,36 @@ def test_attribute_treats_per_row_null_provenance_as_empty(caplog) -> None:
     assert "treating as empty" in caplog.text
 
 
+def test_attribute_skips_zero_share_wallets_without_zero_division() -> None:
+    baseline = _frame([{"row_id": "a", "completed_successfully": False}])
+    candidate = _frame(
+        [
+            {
+                "row_id": "a",
+                "completed_successfully": True,
+                "neighbor_provenance": _encoded(
+                    [
+                        {"wallet": "0x" + "1" * 40, "submission_id": "sub-a", "weight": 0.0},
+                        {"wallet": None, "submission_id": "sub-b", "weight": 1.0},
+                    ]
+                ),
+            }
+        ]
+    )
+
+    report = attribute(
+        baseline,
+        candidate,
+        model_id="30",
+        baseline_run_id="base",
+        candidate_run_id="cand",
+        created_at="2026-06-05T00:00:00Z",
+    )
+
+    assert report["contributors"] == []
+    assert report["weight_bps_total"] == 0
+
+
 def test_attribute_splits_weight_within_row_and_merges_same_wallet_slots() -> None:
     baseline = _frame(
         [{"row_id": "a", "completed_successfully": False, "neighbor_provenance": "[]"}]
