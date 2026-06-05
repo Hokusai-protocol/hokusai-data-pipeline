@@ -72,7 +72,10 @@ def compute_reward(
 def _coerce_optional_float(value: Any) -> float | None:
     if value is None:
         return None
-    return float(value)
+    coerced = float(value)
+    if coerced < 0:
+        raise ValueError("budget config floats must be non-negative")
+    return coerced
 
 
 def _coerce_bool(value: Any) -> bool:

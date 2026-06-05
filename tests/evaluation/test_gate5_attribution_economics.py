@@ -347,3 +347,11 @@ class TestKillSwitch:
         config = BudgetConfig.from_yaml_safe(bad_config)
 
         assert config.mint_paused is True
+
+    def test_fail_closed_on_negative_budget_field(self, tmp_path: Path) -> None:
+        bad_config = tmp_path / "budget.yaml"
+        bad_config.write_text("tokensPerDeltaOne: -10\n", encoding="utf-8")
+
+        config = BudgetConfig.from_yaml_safe(bad_config)
+
+        assert config.mint_paused is True
