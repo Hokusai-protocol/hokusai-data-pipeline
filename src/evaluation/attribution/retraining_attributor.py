@@ -169,6 +169,7 @@ def attribute(
         method_details["fallback"] = fallback
     if gap_undefined:
         method_details["gap_undefined"] = True
+        method_details["efficiency_gap"] = None  # math.inf is not JSON-serialisable
 
     return {
         "schema_version": "attribution_report/v1",
