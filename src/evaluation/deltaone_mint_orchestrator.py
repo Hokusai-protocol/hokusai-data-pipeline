@@ -34,6 +34,7 @@ from src.evaluation.event_payload import (
     to_micro_usdc,
 )
 from src.evaluation.guardrails import evaluate_guardrails
+from src.evaluation.reward_cap import BudgetConfig, compute_reward
 from src.evaluation.schema import AcceptanceDecision, ComparatorResult, GuardrailResult
 from src.evaluation.spec_translation import RuntimeGuardrailSpec
 from src.evaluation.tags import ACTUAL_COST_TAG, EVAL_SPEC_ID_TAG, PROJECTED_COST_TAG
@@ -92,6 +93,8 @@ class MintOutcome:
     attestation_hash: str | None = None
     canonical_score_advanced: bool = False
     acceptance_event: DeltaOneAcceptanceEvent | None = None
+    reward_tokens: float | None = None
+    reward_capped: bool = False
 
 
 @dataclass
@@ -128,6 +131,7 @@ class DeltaOneMintOrchestrator:
         mlflow_client: MlflowClientProtocol | None = None,
         mint_request_publisher: MintRequestPublisherProtocol | None = None,
         reward_entitlement_notifier: RewardEntitlementNotifierProtocol | None = None,
+        budget_config: BudgetConfig | None = None,
     ) -> None:
         self.evaluator = evaluator
         self.mint_hook = mint_hook
@@ -136,6 +140,7 @@ class DeltaOneMintOrchestrator:
         self._reward_entitlement_notifier = reward_entitlement_notifier
         if self._reward_entitlement_notifier is None:
             self._reward_entitlement_notifier = AuthServiceNotifier.from_env()
+        self._budget_config = budget_config or BudgetConfig()
 
     def process_evaluation(
         self: DeltaOneMintOrchestrator,
@@ -371,6 +376,25 @@ class DeltaOneMintOrchestrator:
         event_context: _EventContext | None = None,
     ) -> MintOutcome:
         _ = blocked_reason
+        if self._budget_config.mint_paused:
+            return MintOutcome(status="paused", decision=decision)
+
+        reward_result = compute_reward(
+            decision.delta_percentage_points,
+            tokens_per_delta_one=self._budget_config.tokens_per_delta_one,
+            max_reward_per_eval=self._budget_config.max_reward_per_eval,
+        )
+        if reward_result.capped:
+            logger.info(
+                "event=reward_capped run_id=%s delta_pp=%.4f tokens_per_delta_one=%s "
+                "max_reward_per_eval=%s reward_tokens=%.2f",
+                decision.run_id,
+                decision.delta_percentage_points,
+                self._budget_config.tokens_per_delta_one,
+                self._budget_config.max_reward_per_eval,
+                reward_result.reward_tokens,
+            )
+
         attestation_hash, attestation_payload = self._create_signed_attestation(
             decision,
             benchmark_spec_id=event_context.benchmark_spec_id if event_context else None,
@@ -441,6 +465,8 @@ class DeltaOneMintOrchestrator:
                 attestation_hash=attestation_hash,
                 canonical_score_advanced=False,
                 acceptance_event=acceptance_event,
+                reward_tokens=reward_result.reward_tokens,
+                reward_capped=reward_result.capped,
             )
 
         self._set_mint_tags(
@@ -494,6 +520,8 @@ class DeltaOneMintOrchestrator:
             attestation_hash=attestation_hash,
             canonical_score_advanced=canonical_score_advanced,
             acceptance_event=acceptance_event,
+            reward_tokens=reward_result.reward_tokens,
+            reward_capped=reward_result.capped,
         )
 
     def _run_secondary_mint_hook(
