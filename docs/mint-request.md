@@ -132,12 +132,22 @@ fully supported. In that case, no `vesting` block is emitted.
 
 ## Contributor data
 
-Contributors must come from the benchmark spec (`spec["contributors"]`) or from the MLflow run tag `hokusai.contributors` (JSON array). Each entry needs:
+Contributors are derived automatically from the attribution report for the exact candidate run whenever the MLflow tag `hokusai.attribution_report_artifact_uri` is present. The orchestrator loads the report artifact, filters out zero/negative-lift contributors, validates wallets as `0x`-prefixed Ethereum addresses, and re-apportions `weight_bps` from positive `raw_score` so the published weights sum to exactly `10000`.
+
+Fallback order is:
+
+- attribution report from `hokusai.attribution_report_artifact_uri`
+- benchmark spec contributors (`spec["contributors"]`)
+- MLflow run tag `hokusai.contributors` (JSON array)
+
+Fallback keeps older callers working when no attribution report is available. If a report is present but invalid, mint publication aborts before canonical score advancement.
+
+For fallback spec/tag contributors, each entry needs:
 
 - `wallet_address`: `0x`-prefixed Ethereum address (40 hex digits)
 - `weight_bps` (int, 0–10000) or `weight` (float, 0–1.0)
 
-The `weight_bps` values **must sum to exactly 10000**. If no valid contributors are found, the publisher raises `EventPayloadError` and the mint path aborts before canonical score advancement.
+The published `weight_bps` values **must sum to exactly 10000**. If no valid contributors are found, the publisher raises `EventPayloadError` and the mint path aborts before canonical score advancement.
 
 Optional contributor traceability fields are preserved on each contributor row:
 
