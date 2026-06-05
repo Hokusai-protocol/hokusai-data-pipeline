@@ -26,8 +26,12 @@ def attribute(
     created_at: str,
 ) -> dict[str, Any]:
     """Build a deterministic attribution report from improved eval rows."""
-    _require_columns(baseline_per_row, "baseline")
-    _require_columns(candidate_per_row, "candidate")
+    _require_columns(baseline_per_row, "baseline", (ROW_ID_COLUMN, OUTCOME_COLUMN))
+    _require_columns(
+        candidate_per_row,
+        "candidate",
+        (ROW_ID_COLUMN, OUTCOME_COLUMN, NEIGHBOR_PROVENANCE_COLUMN),
+    )
 
     joined = baseline_per_row[[ROW_ID_COLUMN, OUTCOME_COLUMN]].merge(
         candidate_per_row[[ROW_ID_COLUMN, OUTCOME_COLUMN, NEIGHBOR_PROVENANCE_COLUMN]],
@@ -88,12 +92,12 @@ def attribute(
     }
 
 
-def _require_columns(frame: pd.DataFrame, frame_name: str) -> None:
-    missing = [
-        column
-        for column in (ROW_ID_COLUMN, OUTCOME_COLUMN, NEIGHBOR_PROVENANCE_COLUMN)
-        if column not in frame.columns
-    ]
+def _require_columns(
+    frame: pd.DataFrame,
+    frame_name: str,
+    required: tuple[str, ...],
+) -> None:
+    missing = [column for column in required if column not in frame.columns]
     if missing:
         raise ValueError(f"{frame_name} per-row frame missing required columns: {missing}")
 
@@ -138,8 +142,11 @@ def _decode_neighbor_provenance(
     *,
     row_id: str,
 ) -> list[dict[str, Any]]:
-    if encoded_neighbor_provenance is None:
-        raise ValueError(f"neighbor_provenance missing for row_id={row_id}")
+    if encoded_neighbor_provenance is None or (
+        isinstance(encoded_neighbor_provenance, float) and math.isnan(encoded_neighbor_provenance)
+    ):
+        logger.info("neighbor_provenance missing for row_id=%s; treating as empty", row_id)
+        return []
     if isinstance(encoded_neighbor_provenance, str):
         decoded = json.loads(encoded_neighbor_provenance)
     else:

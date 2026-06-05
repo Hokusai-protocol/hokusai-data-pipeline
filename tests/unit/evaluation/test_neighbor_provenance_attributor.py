@@ -181,6 +181,72 @@ def test_attribute_is_deterministic_and_schema_valid() -> None:
     jsonschema.validate(instance=first, schema=_schema())
 
 
+def test_attribute_accepts_baseline_without_neighbor_provenance_column() -> None:
+    baseline = _frame([{"row_id": "a", "completed_successfully": False}])
+    candidate = _frame(
+        [
+            {
+                "row_id": "a",
+                "completed_successfully": True,
+                "neighbor_provenance": _encoded(
+                    [{"wallet": "0x" + "1" * 40, "submission_id": "sub-a", "weight": 1.0}]
+                ),
+            }
+        ]
+    )
+
+    report = attribute(
+        baseline,
+        candidate,
+        model_id="30",
+        baseline_run_id="base",
+        candidate_run_id="cand",
+        created_at="2026-06-05T00:00:00Z",
+    )
+
+    assert report["rows_improved"] == 1
+    assert [item["weight_bps"] for item in report["contributors"]] == [10000]
+
+
+def test_attribute_treats_per_row_null_provenance_as_empty(caplog) -> None:
+    caplog.set_level(logging.INFO, logger="src.evaluation.attribution.neighbor_provenance")
+    baseline = _frame(
+        [
+            {"row_id": "a", "completed_successfully": False},
+            {"row_id": "b", "completed_successfully": False},
+        ]
+    )
+    candidate = _frame(
+        [
+            {
+                "row_id": "a",
+                "completed_successfully": True,
+                "neighbor_provenance": None,
+            },
+            {
+                "row_id": "b",
+                "completed_successfully": True,
+                "neighbor_provenance": _encoded(
+                    [{"wallet": "0x" + "1" * 40, "submission_id": "sub-b", "weight": 1.0}]
+                ),
+            },
+        ]
+    )
+
+    report = attribute(
+        baseline,
+        candidate,
+        model_id="30",
+        baseline_run_id="base",
+        candidate_run_id="cand",
+        created_at="2026-06-05T00:00:00Z",
+    )
+
+    assert report["rows_improved"] == 2
+    assert [item["wallet"] for item in report["contributors"]] == ["0x" + "1" * 40]
+    assert "treating as empty" in caplog.text
+
+
 def test_attribute_splits_weight_within_row_and_merges_same_wallet_slots() -> None:
     baseline = _frame(
         [{"row_id": "a", "completed_successfully": False, "neighbor_provenance": "[]"}]
