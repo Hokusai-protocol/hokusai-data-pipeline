@@ -149,6 +149,52 @@
       "title": "Metadata",
       "description": "Arbitrary additional metadata for extensibility. Does not affect metric computation.",
       "type": "object"
+    },
+    "neighbor_provenance": {
+      "title": "Neighbor Provenance",
+      "description": "Optional per-neighbor training provenance for attribution-capable eval runs. Persisted as structured JSON in per-row artifacts.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "row_id",
+          "submission_id",
+          "wallet",
+          "training_row_index",
+          "distance",
+          "weight"
+        ],
+        "properties": {
+          "row_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "submission_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "wallet": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^0x[0-9a-f]{40}$"
+          },
+          "training_row_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "distance": {
+            "type": "number",
+            "minimum": 0
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
     }
   }
 }

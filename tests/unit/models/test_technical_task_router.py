@@ -74,6 +74,7 @@ def test_load_context_loads_router_dataset_artifact() -> None:
         "alternatives",
         "tradeoffs",
         "nearest_neighbors",
+        "neighbor_provenance",
     ]
     assert result.iloc[0]["selected_model"] == "claude-sonnet-4-6"
     assert result.iloc[0]["selected_models"] == ["claude-sonnet-4-6"]
@@ -82,6 +83,41 @@ def test_load_context_loads_router_dataset_artifact() -> None:
     assert "nearest Wavemill router row" in result.iloc[0]["rationale"]
     assert result.iloc[0]["recommended_strategy"]["objective"] == "highest_reliability"
     assert result.iloc[0]["nearest_neighbors"]["count"] == 2
+    assert len(result.iloc[0]["neighbor_provenance"]) == 2
+
+
+def test_predict_emits_neighbor_provenance_sorted_by_distance(tmp_path: Path) -> None:
+    rows = _dur_rows("model-a", [10, 20, 30])
+    out = _predict_duration_scenario(tmp_path, rows)
+
+    provenance = out["neighbor_provenance"]
+
+    assert [entry["training_row_index"] for entry in provenance] == [0, 1, 2]
+    assert provenance == sorted(
+        provenance,
+        key=lambda entry: (entry["distance"], entry["training_row_index"]),
+    )
+    assert all(entry["weight"] >= 0 for entry in provenance)
+
+
+def test_predict_neighbor_provenance_caps_at_dataset_size(tmp_path: Path) -> None:
+    rows = _dur_rows("model-a", [10, 20])
+    df = pd.DataFrame(rows)
+    csv_path = tmp_path / "router.csv"
+    df.to_csv(csv_path, index=False)
+    router = TechnicalTaskRouterModel(k_neighbors=10)
+    router.load_context(SimpleNamespace(artifacts={ROUTER_DATASET_ARTIFACT: str(csv_path)}))
+
+    out = router.predict(None, pd.DataFrame([{"task_type": "feature", "language": "py"}])).iloc[0]
+
+    assert len(out["neighbor_provenance"]) == 2
+
+
+def test_predict_neighbor_provenance_tie_breaks_by_training_row_index(tmp_path: Path) -> None:
+    rows = _dur_rows("model-a", [10, 10, 10])
+    out = _predict_duration_scenario(tmp_path, rows)
+
+    assert [entry["training_row_index"] for entry in out["neighbor_provenance"]] == [0, 1, 2]
 
 
 def test_strategy_router_respects_available_models_and_requested_stages() -> None:

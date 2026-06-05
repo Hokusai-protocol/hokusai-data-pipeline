@@ -478,7 +478,20 @@ def _prepare_per_row_dataframe(result_df: Any, runtime_spec: RuntimeAdapterSpec)
     if "unit_id" in df.columns:
         df["unit_id"] = df["unit_id"].astype(str)
 
+    if "neighbor_provenance" in df.columns:
+        df["neighbor_provenance"] = df["neighbor_provenance"].map(_encode_neighbor_provenance)
+
     return _apply_scorer_dtypes(df, runtime_spec)
+
+
+def _encode_neighbor_provenance(value: Any) -> Any:
+    if value is None or (isinstance(value, float) and value != value):
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return value
 
 
 def _persist_per_row_artifact(

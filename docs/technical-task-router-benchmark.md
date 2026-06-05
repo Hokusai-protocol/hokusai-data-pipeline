@@ -47,6 +47,7 @@ The schema version sentinel is `"technical_task_router_row/v1"`.
 | `estimated_duration_seconds` | number or null | Router-estimated workflow duration. `null` means no positive duration evidence exists for the strategy. |
 | `estimated_success_under_budget` | number | Router-estimated probability of successful completion within budget. Used only by diagnostics. |
 | `routing_objective` | enum | One of `lowest_cost`, `fastest_completion`, or `highest_reliability`. Used only by objective-specific diagnostics. |
+| `neighbor_provenance` | object array | Optional training-neighbor provenance for attribution-capable eval runs. Each item includes `row_id`, `submission_id`, `wallet`, `training_row_index`, `distance`, and `weight`. Persisted through `eval_results/per_row.parquet` as deterministic JSON. |
 
 ## Two-Stage Scoring
 
@@ -145,3 +146,20 @@ The API-level `task_type` value is optional and informational:
 
 Scoring is driven by the `eval_spec` scorer refs and the row-level fields, not by
 spec-level model lists or budgets.
+
+## Attribution Provenance
+
+When `scripts/model_30/evaluate_technical_task_router.py` is run with
+`--training-manifest`, each benchmark row also carries `neighbor_provenance`.
+This resolves the routed row's contributing training neighbors back to:
+
+- `row_id`: synthesized as `<submission_id>:<row_offset_within_submission_block>`
+- `submission_id`: the assembler manifest block owner
+- `wallet`: contributor wallet or `null` when the manifest is under reward hold
+- `training_row_index`, `distance`, `weight`: router-local neighbor metadata
+
+Per-row artifacts store that field as deterministic JSON so
+`scripts/model_30/attribute_neighbors.py` can compare baseline versus candidate
+`eval_results/per_row.parquet` files and emit a shared
+`schema/attribution_report.v1.json` report. Basis-point normalization uses the
+Hamilton largest-remainder method with wallet ascending as the tie-break.
