@@ -277,6 +277,10 @@ def _wallet_by_row_index(*, blocks: list[dict[str, Any]], row_count: int) -> lis
     for block in blocks:
         start = int(block["row_start"])
         end = int(block["row_end"])
+        if start < 0 or end >= row_count or start > end:
+            raise SystemExit(
+                f"manifest block row range [{start}, {end}] is outside dataset (rows={row_count})",
+            )
         wallet = block.get("wallet")
         for index in range(start, end + 1):
             wallets[index] = None if wallet is None else str(wallet)

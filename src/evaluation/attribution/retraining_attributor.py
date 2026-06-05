@@ -212,6 +212,9 @@ class _SubsetEvaluator:
     def remaining_budget(self: _SubsetEvaluator) -> int:
         return self._budget - self.retrain_count
 
+    def is_cached(self: _SubsetEvaluator, included_ids: frozenset[str]) -> bool:
+        return frozenset(included_ids) in self._cache
+
     def value(self: _SubsetEvaluator, included_ids: frozenset[str]) -> float:
         subset = frozenset(included_ids)
         if subset in self._cache:
@@ -319,7 +322,7 @@ def _tmc_shapley(
         marginals = {group_id: 0.0 for group_id in group_ids}
         for group_id in permutation:
             next_subset = frozenset((*current_subset, group_id))
-            if evaluator.remaining_budget <= 0 and next_subset not in evaluator._cache:
+            if evaluator.remaining_budget <= 0 and not evaluator.is_cached(next_subset):
                 break
             next_value = evaluator.value(next_subset)
             marginal = next_value - previous_value
