@@ -101,6 +101,8 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
     Wavemill router dataset CSV and ``predict`` performs deterministic
     nearest-neighbor ranking over that learned history. This makes the MLflow
     artifact a callable inference model rather than a wrapper around raw data.
+    Internal evaluation paths also consume per-neighbor provenance that is not
+    exposed through the public Model 30 adapter response.
     """
 
     def __init__(self: TechnicalTaskRouterModel, *, k_neighbors: int = 40) -> None:
@@ -181,6 +183,7 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             "alternatives": [strategy.to_dict() for strategy in alternatives],
             "tradeoffs": tradeoffs,
             "nearest_neighbors": nearest_neighbors,
+            "neighbor_provenance": _neighbor_provenance(neighbors),
         }
 
     def _rank_strategies(
@@ -301,7 +304,7 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             by=["_similarity", "completed_successfully", "score"],
             ascending=[False, False, False],
         ).head(max(1, self.k_neighbors))
-        return neighbors.drop(columns=["_similarity"])
+        return neighbors
 
     def _choose_role(
         self: TechnicalTaskRouterModel,
@@ -800,6 +803,22 @@ def _nearest_neighbors_summary(neighbors: pd.DataFrame) -> dict[str, Any]:
         "mean_cost_usd": round(max(0.0, mean_cost), 6),
         "mean_duration_seconds": round(mean_duration, 6) if mean_duration is not None else None,
     }
+
+
+def _neighbor_provenance(neighbors: pd.DataFrame) -> list[dict[str, Any]]:
+    """Return deterministic per-neighbor attribution metadata."""
+    provenance: list[dict[str, Any]] = []
+    for training_row_index, neighbor in neighbors.iterrows():
+        similarity = float(neighbor.get("_similarity", 0.0) or 0.0)
+        provenance.append(
+            {
+                "training_row_index": int(training_row_index),
+                "distance": float(1.0 - similarity),
+                "weight": similarity,
+            }
+        )
+    provenance.sort(key=lambda item: (item["distance"], item["training_row_index"]))
+    return provenance
 
 
 def _estimate_route_cost(
