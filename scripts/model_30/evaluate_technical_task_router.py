@@ -7,6 +7,7 @@ MLflow authentication follows the SDK environment, including
 from __future__ import annotations
 
 import argparse
+import bisect
 import csv
 import hashlib
 import json
@@ -83,6 +84,55 @@ class DurationCoverage:
         return self.rows_with_predictions / self.positive_label_rows
 
 
+@dataclass(frozen=True)
+class _NeighborBlock:
+    row_start: int
+    row_end: int
+    submission_id: str
+    wallet: str | None
+
+
+class _NeighborResolver:
+    """Resolve training row indices back to manifest contributor provenance."""
+
+    def __init__(self: _NeighborResolver, blocks: list[_NeighborBlock]) -> None:
+        self._blocks = sorted(blocks, key=lambda block: block.row_start)
+        self._starts = [block.row_start for block in self._blocks]
+
+    @classmethod
+    def from_manifest(
+        cls: type[_NeighborResolver],
+        manifest_path: Path,
+    ) -> _NeighborResolver:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        blocks = [
+            _NeighborBlock(
+                row_start=int(block["row_start"]),
+                row_end=int(block["row_end"]),
+                submission_id=str(block["submission_id"]),
+                wallet=str(block["wallet"]) if block.get("wallet") is not None else None,
+            )
+            for block in manifest.get("blocks", [])
+        ]
+        return cls(blocks)
+
+    def resolve(self: _NeighborResolver, training_row_index: int) -> dict[str, Any]:
+        if not self._blocks:
+            raise ValueError("Training manifest has no blocks to resolve neighbor provenance")
+        position = bisect.bisect_right(self._starts, training_row_index) - 1
+        if position < 0:
+            raise ValueError(f"training_row_index {training_row_index} not found in manifest")
+        block = self._blocks[position]
+        if training_row_index > block.row_end:
+            raise ValueError(f"training_row_index {training_row_index} not found in manifest")
+        row_offset = training_row_index - block.row_start
+        return {
+            "row_id": f"{block.submission_id}:{row_offset}",
+            "submission_id": block.submission_id,
+            "wallet": block.wallet,
+        }
+
+
 def load_holdout_rows(path: Path) -> HoldoutRows:
     """Load and validate a Wavemill router CSV holdout for benchmark evaluation."""
     rows: list[dict[str, str]] = []
@@ -120,6 +170,7 @@ def evaluate_model(
     objectives: list[str],
     benchmark_spec_id: str = "technical-task-router-baseline-v1",
     eval_id: str | None = None,
+    neighbor_resolver: _NeighborResolver | None = None,
 ) -> dict[str, Any]:
     """Evaluate a pyfunc-like router model and return metrics plus provenance."""
     holdout = load_holdout_rows(holdout_path)
@@ -131,6 +182,7 @@ def evaluate_model(
         benchmark_spec_id=benchmark_spec_id,
         eval_id=eval_id,
         objectives=objectives,
+        neighbor_resolver=neighbor_resolver,
     )
     metrics = _score_benchmark_rows(benchmark_rows)
     duration_coverage = _duration_coverage(benchmark_rows)
@@ -238,6 +290,7 @@ def _build_benchmark_rows(
     benchmark_spec_id: str,
     eval_id: str,
     objectives: list[str],
+    neighbor_resolver: _NeighborResolver | None = None,
 ) -> list[dict[str, Any]]:
     benchmark_rows: list[dict[str, Any]] = []
     observed_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -247,39 +300,47 @@ def _build_benchmark_rows(
             prediction = _predict_one(model, features)
             strategy = prediction.get("recommended_strategy") or {}
             selected_models = _prediction_selected_models(prediction, strategy)
-            benchmark_rows.append(
-                {
-                    "schema_version": "technical_task_router_row/v1",
-                    "row_id": _row_id(row, row_index, objective),
-                    "benchmark_spec_id": benchmark_spec_id,
-                    "eval_id": eval_id,
-                    "model_id": model_id,
-                    "task_descriptor": _task_descriptor(row),
-                    "allowed_models": _allowed_models(row),
-                    "selected_models": selected_models,
-                    "max_cost_usd": _required_float(row, "max_cost_usd"),
-                    "actual_cost_usd": _required_float(row, "actual_cost_usd"),
-                    "completed_successfully": _coerce_bool(row.get("completed_successfully")),
-                    "scorer_ref": "technical_task_router.success_under_budget/v1",
-                    "observed_at": observed_at,
-                    "estimated_cost_usd": _prediction_float(
-                        strategy, prediction, "estimated_cost_usd"
-                    ),
-                    "estimated_duration_seconds": _optional_float(
-                        strategy.get("estimated_duration_seconds")
-                    ),
-                    "estimated_success_under_budget": _optional_float(
-                        strategy.get("estimated_success_under_budget")
-                    ),
-                    "actual_time_seconds": _optional_float(row.get("actual_time_seconds")),
-                    "routing_objective": objective,
-                    "metadata": {
-                        "source_run_id_hash": row.get("run_id_hash"),
-                        "source_task_id_hash": row.get("task_id_hash"),
-                        "historical_selected_models": _historical_selected_models(row),
-                    },
-                }
-            )
+            benchmark_row = {
+                "schema_version": "technical_task_router_row/v1",
+                "row_id": _row_id(row, row_index, objective),
+                "benchmark_spec_id": benchmark_spec_id,
+                "eval_id": eval_id,
+                "model_id": model_id,
+                "task_descriptor": _task_descriptor(row),
+                "allowed_models": _allowed_models(row),
+                "selected_models": selected_models,
+                "max_cost_usd": _required_float(row, "max_cost_usd"),
+                "actual_cost_usd": _required_float(row, "actual_cost_usd"),
+                "completed_successfully": _coerce_bool(row.get("completed_successfully")),
+                "scorer_ref": "technical_task_router.success_under_budget/v1",
+                "observed_at": observed_at,
+                "estimated_cost_usd": _prediction_float(strategy, prediction, "estimated_cost_usd"),
+                "estimated_duration_seconds": _optional_float(
+                    strategy.get("estimated_duration_seconds")
+                ),
+                "estimated_success_under_budget": _optional_float(
+                    strategy.get("estimated_success_under_budget")
+                ),
+                "actual_time_seconds": _optional_float(row.get("actual_time_seconds")),
+                "routing_objective": objective,
+                "metadata": {
+                    "source_run_id_hash": row.get("run_id_hash"),
+                    "source_task_id_hash": row.get("task_id_hash"),
+                    "historical_selected_models": _historical_selected_models(row),
+                },
+            }
+            neighbor_provenance = prediction.get("neighbor_provenance")
+            if neighbor_resolver is not None and isinstance(neighbor_provenance, list):
+                benchmark_row["neighbor_provenance"] = [
+                    {
+                        **neighbor_resolver.resolve(int(neighbor["training_row_index"])),
+                        "training_row_index": int(neighbor["training_row_index"]),
+                        "distance": float(neighbor["distance"]),
+                        "weight": float(neighbor["weight"]),
+                    }
+                    for neighbor in neighbor_provenance
+                ]
+            benchmark_rows.append(benchmark_row)
     return benchmark_rows
 
 
@@ -556,6 +617,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--experiment-name", default="technical-task-router-evaluation")
     parser.add_argument("--run-name", default="model-30-baseline-evaluation")
     parser.add_argument("--output-report")
+    parser.add_argument("--training-manifest")
     parser.add_argument("--log-mlflow", action="store_true")
     return parser.parse_args()
 
@@ -565,6 +627,11 @@ def main() -> None:
     args = parse_args()
     objectives = parse_objectives(args.objectives)
     holdout_path = Path(args.holdout_dataset).expanduser().resolve()
+    neighbor_resolver = (
+        _NeighborResolver.from_manifest(Path(args.training_manifest).expanduser().resolve())
+        if args.training_manifest
+        else None
+    )
     if args.tracking_uri:
         mlflow.set_tracking_uri(args.tracking_uri)
 
@@ -576,6 +643,7 @@ def main() -> None:
             model_id=args.baseline_model_id,
             holdout_path=holdout_path,
             objectives=objectives,
+            neighbor_resolver=neighbor_resolver,
         )
         baseline_report["model_uri"] = args.baseline_model_uri
         candidate_report = evaluate_model(
@@ -583,6 +651,7 @@ def main() -> None:
             model_id=args.candidate_model_id,
             holdout_path=holdout_path,
             objectives=objectives,
+            neighbor_resolver=neighbor_resolver,
         )
         candidate_report["model_uri"] = args.candidate_model_uri
         report = {
@@ -598,6 +667,7 @@ def main() -> None:
             model_id=args.model_id,
             holdout_path=holdout_path,
             objectives=objectives,
+            neighbor_resolver=neighbor_resolver,
         )
         model_report["model_uri"] = args.model_uri
         report = _report_without_rows(model_report)

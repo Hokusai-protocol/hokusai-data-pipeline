@@ -21,6 +21,7 @@ def build_attestation_payload(
     attestation_nonce: str | None = None,
     benchmark_spec_id: str | None = None,
     dataset_hash: str | None = None,
+    attribution_report_hash: str | None = None,
 ) -> dict[str, Any]:
     """Build canonical attestation payload from run inputs and outputs."""
     payload = {
@@ -36,6 +37,8 @@ def build_attestation_payload(
         payload["benchmark_spec_id"] = benchmark_spec_id
     if dataset_hash:
         payload["dataset_hash"] = dataset_hash
+    if attribution_report_hash:
+        payload["attribution_report_hash"] = attribution_report_hash
     return payload
 
 
@@ -56,6 +59,7 @@ def create_attestation(
     attestation_nonce: str | None = None,
     benchmark_spec_id: str | None = None,
     dataset_hash: str | None = None,
+    attribution_report_hash: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Create attestation hash and payload."""
     payload = build_attestation_payload(
@@ -68,6 +72,7 @@ def create_attestation(
         attestation_nonce=attestation_nonce,
         benchmark_spec_id=benchmark_spec_id,
         dataset_hash=dataset_hash,
+        attribution_report_hash=attribution_report_hash,
     )
     return compute_attestation_hash(payload), payload
 

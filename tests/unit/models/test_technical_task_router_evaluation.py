@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,8 @@ import pandas as pd
 import pytest
 
 from scripts.model_30.evaluate_technical_task_router import (
+    _build_benchmark_rows,
+    _NeighborResolver,
     compare_models,
     evaluate_model,
     load_holdout_rows,
@@ -33,6 +36,10 @@ class FixedRouterModel:
                     "selected_models": [self.model_id],
                     "confidence": self.success_probability,
                     "estimated_cost_usd": 0.3,
+                    "neighbor_provenance": [
+                        {"training_row_index": 0, "distance": 0.1, "weight": 0.9},
+                        {"training_row_index": 1, "distance": 0.2, "weight": 0.8},
+                    ],
                     "recommended_strategy": {
                         "objective": objective,
                         "planner_model": self.model_id,
@@ -260,3 +267,96 @@ def test_compare_models_keeps_duration_delta_null_when_metric_unavailable(tmp_pa
 
     assert comparison["deltas"]["technical_task_router.duration_mae_seconds_v1"] is None
     assert comparison["guardrail_deltas"]["technical_task_router.duration_mae_seconds_v1"] is None
+
+
+def test_build_benchmark_rows_resolves_neighbor_provenance(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "model_30_training_manifest/v1",
+                "as_of": "2026-06-04T00:00:00Z",
+                "dataset_hash": "sha256:" + "a" * 64,
+                "manifest_digest": "sha256:" + "b" * 64,
+                "row_count": 2,
+                "model_id": "30",
+                "blocks": [
+                    {
+                        "submission_id": "sub-a",
+                        "wallet": "0x" + "1" * 40,
+                        "s3_key": "s3://bucket/a",
+                        "row_start": 0,
+                        "row_end": 0,
+                        "row_count": 1,
+                        "reward_hold": False,
+                    },
+                    {
+                        "submission_id": "sub-b",
+                        "wallet": "0x" + "2" * 40,
+                        "s3_key": "s3://bucket/b",
+                        "row_start": 1,
+                        "row_end": 1,
+                        "row_count": 1,
+                        "reward_hold": False,
+                    },
+                ],
+                "quarantine_count": 0,
+                "duplicates_dropped": [],
+                "wallet_policy": "hold",
+            }
+        ),
+        encoding="utf-8",
+    )
+    resolver = _NeighborResolver.from_manifest(manifest_path)
+
+    rows = _build_benchmark_rows(
+        FixedRouterModel(model_id="gpt-5.4"),
+        rows=[_valid_row("success")],
+        model_id="candidate",
+        benchmark_spec_id="spec-1",
+        eval_id="eval-1",
+        objectives=["highest_reliability"],
+        neighbor_resolver=resolver,
+    )
+
+    provenance = rows[0]["neighbor_provenance"]
+    assert provenance[0]["row_id"] == "sub-a:0"
+    assert provenance[0]["submission_id"] == "sub-a"
+    assert provenance[0]["wallet"] == "0x" + "1" * 40
+    assert provenance[1]["row_id"] == "sub-b:0"
+
+
+def test_neighbor_resolver_raises_for_out_of_range_index(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "model_30_training_manifest/v1",
+                "as_of": "2026-06-04T00:00:00Z",
+                "dataset_hash": "sha256:" + "a" * 64,
+                "manifest_digest": "sha256:" + "b" * 64,
+                "row_count": 1,
+                "model_id": "30",
+                "blocks": [
+                    {
+                        "submission_id": "sub-a",
+                        "wallet": "0x" + "1" * 40,
+                        "s3_key": "s3://bucket/a",
+                        "row_start": 0,
+                        "row_end": 0,
+                        "row_count": 1,
+                        "reward_hold": False,
+                    }
+                ],
+                "quarantine_count": 0,
+                "duplicates_dropped": [],
+                "wallet_policy": "hold",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    resolver = _NeighborResolver.from_manifest(manifest_path)
+
+    with pytest.raises(ValueError, match="training_row_index 4"):
+        resolver.resolve(4)

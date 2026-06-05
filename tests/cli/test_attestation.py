@@ -31,6 +31,7 @@ def test_attestation_hash_is_deterministic() -> None:
         "seed": 42,
         "temperature": 0.1,
         "results": {"accuracy": 0.95},
+        "attestation_nonce": "nonce-123",
     }
     first_hash, first_payload = create_attestation(**inputs)
     second_hash, second_payload = create_attestation(**inputs)

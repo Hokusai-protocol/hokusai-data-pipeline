@@ -45,6 +45,7 @@ from src.evaluation.event_payload import (
     EventPayloadError,
     make_idempotency_key,
 )
+from src.evaluation.tags import ATTRIBUTION_REPORT_ARTIFACT_URI_TAG
 from src.events.publishers.mint_request_publisher import QUEUE_NAME, MintRequestPublisher
 from src.events.schemas import (
     MintRequest,
@@ -61,6 +62,7 @@ _IDEMPOTENCY_KEY = "0x" + "b" * 64
 _MODEL_ID_UINT = "12345678901234567890"
 _EVAL_ID = "eval-test-001"
 _SPEC_ID = "spec-test-v1"
+_DATASET_HASH = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +99,8 @@ def _valid_mint_request(**overrides) -> MintRequest:
         "model_id": "model-a",
         "model_id_uint": _MODEL_ID_UINT,
         "eval_id": _EVAL_ID,
+        "benchmark_spec_id": _SPEC_ID,
+        "dataset_hash": _DATASET_HASH,
         "attestation_hash": _ATT_HASH,
         "idempotency_key": _IDEMPOTENCY_KEY,
         "total_samples": 1000,
@@ -289,6 +293,14 @@ class TestMintRequest:
         msg = _valid_mint_request(idempotency_key=key)
         assert msg.idempotency_key == key
 
+    def test_benchmark_spec_id_required_nonempty(self) -> None:
+        with pytest.raises(ValidationError, match="benchmark_spec_id"):
+            _valid_mint_request(benchmark_spec_id="")
+
+    def test_dataset_hash_must_be_0x_lowercase_64hex(self) -> None:
+        with pytest.raises(ValidationError, match="dataset_hash"):
+            _valid_mint_request(dataset_hash="sha256:" + "a" * 64)
+
     def test_extra_fields_forbidden(self) -> None:
         with pytest.raises(ValidationError):
             _valid_mint_request(unknown_field="x")
@@ -342,6 +354,8 @@ class TestJsonSchemaDrift:
         assert dumped["model_id"] == data["model_id"]
         assert dumped["idempotency_key"] == data["idempotency_key"]
         assert dumped["attestation_hash"] == data["attestation_hash"]
+        assert dumped["benchmark_spec_id"] == data["benchmark_spec_id"]
+        assert dumped["dataset_hash"] == data["dataset_hash"]
         assert dumped["totalSamples"] == data["totalSamples"]
 
 
@@ -657,6 +671,8 @@ class TestBuildMintRequest:
         msg = _build_mint_request(event, ctx)
         assert isinstance(msg, MintRequest)
         assert msg.model_id == "model-a"
+        assert msg.benchmark_spec_id == _SPEC_ID
+        assert msg.dataset_hash == "0x" + "a" * 64
         assert msg.evaluation.baseline_score_bps == 7800
         assert msg.evaluation.new_score_bps == 8100
         assert len(msg.contributors) == 1
@@ -734,6 +750,8 @@ class TestBuildMintRequest:
         ctx = self._make_ctx_with_contributors(contribs)
         msg = _build_mint_request(event, ctx)
         assert msg.idempotency_key == event.idempotency_key
+        assert msg.benchmark_spec_id == event.benchmark_spec_id
+        assert msg.dataset_hash == "0x" + "a" * 64
 
     def test_sample_sizes_from_decision(self) -> None:
         event = _make_acceptance_event(
@@ -806,6 +824,36 @@ class TestBuildMintRequest:
         assert msg.contributors[0].contribution_batch_id == "batch-1"
         assert msg.contributors[1].submission_id == "sub-2"
 
+    @pytest.mark.parametrize(
+        ("decision_dataset_hash", "expected"),
+        [
+            ("sha256:" + "c" * 64, "0x" + "c" * 64),
+            ("0x" + "d" * 64, "0x" + "d" * 64),
+        ],
+    )
+    def test_build_mint_request_normalizes_dataset_hash(
+        self, decision_dataset_hash: str, expected: str
+    ) -> None:
+        event = _make_acceptance_event(
+            contributors=[{"wallet_address": _WALLET_A, "weight_bps": 10000}]
+        )
+        ctx = self._make_ctx_with_contributors([{"wallet_address": _WALLET_A, "weight_bps": 10000}])
+        ctx.decision.dataset_hash = decision_dataset_hash
+
+        msg = _build_mint_request(event, ctx)
+
+        assert msg.dataset_hash == expected
+
+    def test_build_mint_request_rejects_invalid_dataset_hash(self) -> None:
+        event = _make_acceptance_event(
+            contributors=[{"wallet_address": _WALLET_A, "weight_bps": 10000}]
+        )
+        ctx = self._make_ctx_with_contributors([{"wallet_address": _WALLET_A, "weight_bps": 10000}])
+        ctx.decision.dataset_hash = "invalid"
+
+        with pytest.raises(EventPayloadError, match="dataset_hash"):
+            _build_mint_request(event, ctx)
+
 
 # ---------------------------------------------------------------------------
 # Orchestrator integration tests
@@ -867,6 +915,7 @@ def _make_orchestrator_with_publisher(
     publisher=None,
     run_metrics=None,
     extra_tags=None,
+    attribution_report_loader=None,
 ):
     evaluator = Mock()
     evaluator.evaluate_for_model.return_value = decision
@@ -886,6 +935,7 @@ def _make_orchestrator_with_publisher(
         mint_hook=mint_hook,
         mlflow_client=client,
         mint_request_publisher=publisher,
+        attribution_report_loader=attribution_report_loader,
     )
     return orch, mint_hook, client
 
@@ -1133,3 +1183,170 @@ class TestOrchestratorPublishesOnAcceptance:
         assert mlflow_client.tags["hokusai.mint.status"] == "published"
         assert mlflow_client.tags["hokusai.mint.legacy_status"] == "failed"
         assert fake_client.llen(QUEUE_NAME) == 1
+
+    def test_attribution_report_auto_wires_contributors(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        fake_client = fakeredis.FakeRedis(decode_responses=True)
+        publisher = MintRequestPublisher(redis_client=fake_client)
+        decision = _make_decision(accepted=True)
+        report = {
+            "schema_version": "attribution_report/v1",
+            "model_id": "model-x",
+            "baseline_run_id": "run-base",
+            "candidate_run_id": "run-cand",
+            "contributors": [
+                {"wallet": _WALLET_A, "raw_score": 3.0, "submission_ids": ["sub-a"]},
+                {"wallet": _WALLET_B, "raw_score": 1.0, "submission_ids": ["sub-b"]},
+            ],
+            "weight_bps_total": 10000,
+        }
+        orch, _, _ = _make_orchestrator_with_publisher(
+            decision,
+            publisher=publisher,
+            run_metrics={"workflow_success_rate_under_budget": 0.87},
+            extra_tags={
+                "hokusai.contributors": json.dumps(
+                    [{"wallet_address": _WALLET_B, "weight_bps": 10000}]
+                ),
+                ATTRIBUTION_REPORT_ARTIFACT_URI_TAG: "mlflow-artifacts:/report.json",
+            },
+            attribution_report_loader=lambda _tags: report,
+        )
+
+        orch.process_evaluation_with_spec(
+            "run-cand",
+            "run-base",
+            self._spec_with_contributors(),
+        )
+
+        data = json.loads(fake_client.lindex(QUEUE_NAME, 0))
+        assert data["contributors"] == [
+            {
+                "wallet_address": _WALLET_B,
+                "weight_bps": 2500,
+                "submissionId": "sub-b",
+                "contributionBatchId": None,
+                "contributorId": None,
+            },
+            {
+                "wallet_address": _WALLET_A,
+                "weight_bps": 7500,
+                "submissionId": "sub-a",
+                "contributionBatchId": None,
+                "contributorId": None,
+            },
+        ]
+
+    def test_attribution_loader_failure_falls_back_to_tag_contributors(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        fake_client = fakeredis.FakeRedis(decode_responses=True)
+        publisher = MintRequestPublisher(redis_client=fake_client)
+        decision = _make_decision(accepted=True)
+        orch, _, _ = _make_orchestrator_with_publisher(
+            decision,
+            publisher=publisher,
+            run_metrics={"workflow_success_rate_under_budget": 0.87},
+            extra_tags={
+                "hokusai.contributors": json.dumps(
+                    [{"wallet_address": _WALLET_B, "weight_bps": 10000}]
+                ),
+                ATTRIBUTION_REPORT_ARTIFACT_URI_TAG: "mlflow-artifacts:/report.json",
+            },
+            attribution_report_loader=lambda _tags: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+
+        orch.process_evaluation_with_spec(
+            "run-cand",
+            "run-base",
+            _make_spec_with_contributors(),
+        )
+
+        data = json.loads(fake_client.lindex(QUEUE_NAME, 0))
+        assert data["contributors"] == [
+            {
+                "wallet_address": _WALLET_B,
+                "weight_bps": 10000,
+                "submissionId": None,
+                "contributionBatchId": None,
+                "contributorId": None,
+            }
+        ]
+
+    def test_attribution_report_zero_lift_entries_are_excluded(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        fake_client = fakeredis.FakeRedis(decode_responses=True)
+        publisher = MintRequestPublisher(redis_client=fake_client)
+        decision = _make_decision(accepted=True)
+        report = {
+            "schema_version": "attribution_report/v1",
+            "model_id": "model-x",
+            "baseline_run_id": "run-base",
+            "candidate_run_id": "run-cand",
+            "contributors": [
+                {"wallet": _WALLET_A, "raw_score": 3.0, "submission_ids": ["sub-a"]},
+                {"wallet": _WALLET_B, "raw_score": 0.0, "submission_ids": ["sub-b"]},
+            ],
+            "weight_bps_total": 10000,
+        }
+        orch, _, _ = _make_orchestrator_with_publisher(
+            decision,
+            publisher=publisher,
+            run_metrics={"workflow_success_rate_under_budget": 0.87},
+            attribution_report_loader=lambda _tags: report,
+        )
+
+        orch.process_evaluation_with_spec("run-cand", "run-base", self._spec_with_contributors())
+
+        data = json.loads(fake_client.lindex(QUEUE_NAME, 0))
+        assert data["contributors"] == [
+            {
+                "wallet_address": _WALLET_A,
+                "weight_bps": 10000,
+                "submissionId": "sub-a",
+                "contributionBatchId": None,
+                "contributorId": None,
+            }
+        ]
+
+    def test_invalid_attribution_report_wallet_raises_before_publish(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        fake_client = fakeredis.FakeRedis(decode_responses=True)
+        publisher = MintRequestPublisher(redis_client=fake_client)
+        decision = _make_decision(accepted=True)
+        report = {
+            "schema_version": "attribution_report/v1",
+            "model_id": "model-x",
+            "baseline_run_id": "run-base",
+            "candidate_run_id": "run-cand",
+            "contributors": [
+                {"wallet": "not-a-wallet", "raw_score": 1.0, "submission_ids": ["sub-a"]},
+            ],
+            "weight_bps_total": 10000,
+        }
+        orch, _, _ = _make_orchestrator_with_publisher(
+            decision,
+            publisher=publisher,
+            run_metrics={"workflow_success_rate_under_budget": 0.87},
+            attribution_report_loader=lambda _tags: report,
+        )
+
+        with pytest.raises(EventPayloadError, match="failed to derive contributors"):
+            orch.process_evaluation_with_spec(
+                "run-cand",
+                "run-base",
+                self._spec_with_contributors(),
+            )
+
+        assert fake_client.llen(QUEUE_NAME) == 0
