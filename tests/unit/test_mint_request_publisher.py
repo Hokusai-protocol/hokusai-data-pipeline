@@ -45,6 +45,7 @@ from src.evaluation.event_payload import (
     EventPayloadError,
     make_idempotency_key,
 )
+from src.evaluation.tags import ATTRIBUTION_REPORT_ARTIFACT_URI_TAG
 from src.events.publishers.mint_request_publisher import QUEUE_NAME, MintRequestPublisher
 from src.events.schemas import (
     MintRequest,
@@ -867,6 +868,7 @@ def _make_orchestrator_with_publisher(
     publisher=None,
     run_metrics=None,
     extra_tags=None,
+    attribution_report_loader=None,
 ):
     evaluator = Mock()
     evaluator.evaluate_for_model.return_value = decision
@@ -886,6 +888,7 @@ def _make_orchestrator_with_publisher(
         mint_hook=mint_hook,
         mlflow_client=client,
         mint_request_publisher=publisher,
+        attribution_report_loader=attribution_report_loader,
     )
     return orch, mint_hook, client
 
@@ -1133,3 +1136,170 @@ class TestOrchestratorPublishesOnAcceptance:
         assert mlflow_client.tags["hokusai.mint.status"] == "published"
         assert mlflow_client.tags["hokusai.mint.legacy_status"] == "failed"
         assert fake_client.llen(QUEUE_NAME) == 1
+
+    def test_attribution_report_auto_wires_contributors(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        fake_client = fakeredis.FakeRedis(decode_responses=True)
+        publisher = MintRequestPublisher(redis_client=fake_client)
+        decision = _make_decision(accepted=True)
+        report = {
+            "schema_version": "attribution_report/v1",
+            "model_id": "model-x",
+            "baseline_run_id": "run-base",
+            "candidate_run_id": "run-cand",
+            "contributors": [
+                {"wallet": _WALLET_A, "raw_score": 3.0, "submission_ids": ["sub-a"]},
+                {"wallet": _WALLET_B, "raw_score": 1.0, "submission_ids": ["sub-b"]},
+            ],
+            "weight_bps_total": 10000,
+        }
+        orch, _, _ = _make_orchestrator_with_publisher(
+            decision,
+            publisher=publisher,
+            run_metrics={"workflow_success_rate_under_budget": 0.87},
+            extra_tags={
+                "hokusai.contributors": json.dumps(
+                    [{"wallet_address": _WALLET_B, "weight_bps": 10000}]
+                ),
+                ATTRIBUTION_REPORT_ARTIFACT_URI_TAG: "mlflow-artifacts:/report.json",
+            },
+            attribution_report_loader=lambda _tags: report,
+        )
+
+        orch.process_evaluation_with_spec(
+            "run-cand",
+            "run-base",
+            self._spec_with_contributors(),
+        )
+
+        data = json.loads(fake_client.lindex(QUEUE_NAME, 0))
+        assert data["contributors"] == [
+            {
+                "wallet_address": _WALLET_B,
+                "weight_bps": 2500,
+                "submissionId": "sub-b",
+                "contributionBatchId": None,
+                "contributorId": None,
+            },
+            {
+                "wallet_address": _WALLET_A,
+                "weight_bps": 7500,
+                "submissionId": "sub-a",
+                "contributionBatchId": None,
+                "contributorId": None,
+            },
+        ]
+
+    def test_attribution_loader_failure_falls_back_to_tag_contributors(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        fake_client = fakeredis.FakeRedis(decode_responses=True)
+        publisher = MintRequestPublisher(redis_client=fake_client)
+        decision = _make_decision(accepted=True)
+        orch, _, _ = _make_orchestrator_with_publisher(
+            decision,
+            publisher=publisher,
+            run_metrics={"workflow_success_rate_under_budget": 0.87},
+            extra_tags={
+                "hokusai.contributors": json.dumps(
+                    [{"wallet_address": _WALLET_B, "weight_bps": 10000}]
+                ),
+                ATTRIBUTION_REPORT_ARTIFACT_URI_TAG: "mlflow-artifacts:/report.json",
+            },
+            attribution_report_loader=lambda _tags: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+
+        orch.process_evaluation_with_spec(
+            "run-cand",
+            "run-base",
+            _make_spec_with_contributors(),
+        )
+
+        data = json.loads(fake_client.lindex(QUEUE_NAME, 0))
+        assert data["contributors"] == [
+            {
+                "wallet_address": _WALLET_B,
+                "weight_bps": 10000,
+                "submissionId": None,
+                "contributionBatchId": None,
+                "contributorId": None,
+            }
+        ]
+
+    def test_attribution_report_zero_lift_entries_are_excluded(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        fake_client = fakeredis.FakeRedis(decode_responses=True)
+        publisher = MintRequestPublisher(redis_client=fake_client)
+        decision = _make_decision(accepted=True)
+        report = {
+            "schema_version": "attribution_report/v1",
+            "model_id": "model-x",
+            "baseline_run_id": "run-base",
+            "candidate_run_id": "run-cand",
+            "contributors": [
+                {"wallet": _WALLET_A, "raw_score": 3.0, "submission_ids": ["sub-a"]},
+                {"wallet": _WALLET_B, "raw_score": 0.0, "submission_ids": ["sub-b"]},
+            ],
+            "weight_bps_total": 10000,
+        }
+        orch, _, _ = _make_orchestrator_with_publisher(
+            decision,
+            publisher=publisher,
+            run_metrics={"workflow_success_rate_under_budget": 0.87},
+            attribution_report_loader=lambda _tags: report,
+        )
+
+        orch.process_evaluation_with_spec("run-cand", "run-base", self._spec_with_contributors())
+
+        data = json.loads(fake_client.lindex(QUEUE_NAME, 0))
+        assert data["contributors"] == [
+            {
+                "wallet_address": _WALLET_A,
+                "weight_bps": 10000,
+                "submissionId": "sub-a",
+                "contributionBatchId": None,
+                "contributorId": None,
+            }
+        ]
+
+    def test_invalid_attribution_report_wallet_raises_before_publish(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        fake_client = fakeredis.FakeRedis(decode_responses=True)
+        publisher = MintRequestPublisher(redis_client=fake_client)
+        decision = _make_decision(accepted=True)
+        report = {
+            "schema_version": "attribution_report/v1",
+            "model_id": "model-x",
+            "baseline_run_id": "run-base",
+            "candidate_run_id": "run-cand",
+            "contributors": [
+                {"wallet": "not-a-wallet", "raw_score": 1.0, "submission_ids": ["sub-a"]},
+            ],
+            "weight_bps_total": 10000,
+        }
+        orch, _, _ = _make_orchestrator_with_publisher(
+            decision,
+            publisher=publisher,
+            run_metrics={"workflow_success_rate_under_budget": 0.87},
+            attribution_report_loader=lambda _tags: report,
+        )
+
+        with pytest.raises(EventPayloadError, match="failed to derive contributors"):
+            orch.process_evaluation_with_spec(
+                "run-cand",
+                "run-base",
+                self._spec_with_contributors(),
+            )
+
+        assert fake_client.llen(QUEUE_NAME) == 0

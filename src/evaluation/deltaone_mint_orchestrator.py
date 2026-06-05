@@ -9,11 +9,13 @@ import hashlib
 import json
 import logging
 import re
+import tempfile
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Protocol
+from pathlib import Path
+from typing import Any, Callable, Protocol
 
 from pydantic import ValidationError
 
@@ -21,6 +23,10 @@ from src.api.schemas.token_mint import TokenMintResult
 from src.api.services.auth_service_notifier import AuthServiceNotifier
 from src.api.services.token_mint_hook import TokenMintHook
 from src.cli.attestation import create_attestation
+from src.evaluation.attribution.contributor_set import (
+    ContributorDerivationError,
+    derive_contributor_set,
+)
 from src.evaluation.deltaone_evaluator import DeltaOneDecision, DeltaOneEvaluator
 from src.evaluation.event_payload import (
     DELTAONE_ACCEPTANCE_EVENT_VERSION,
@@ -37,7 +43,12 @@ from src.evaluation.guardrails import evaluate_guardrails
 from src.evaluation.reward_cap import BudgetConfig, compute_reward
 from src.evaluation.schema import AcceptanceDecision, ComparatorResult, GuardrailResult
 from src.evaluation.spec_translation import RuntimeGuardrailSpec
-from src.evaluation.tags import ACTUAL_COST_TAG, EVAL_SPEC_ID_TAG, PROJECTED_COST_TAG
+from src.evaluation.tags import (
+    ACTUAL_COST_TAG,
+    ATTRIBUTION_REPORT_ARTIFACT_URI_TAG,
+    EVAL_SPEC_ID_TAG,
+    PROJECTED_COST_TAG,
+)
 from src.evaluation.webhook_delivery import dispatch_deltaone_webhook_event
 from src.events.schemas import MintRequest, MintRequestContributor, MintRequestEvaluation
 from src.utils.metric_naming import derive_mlflow_name
@@ -55,6 +66,7 @@ _MODEL_ID_UINT_TAG_KEYS = (
 )
 
 _ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
+_AttributionReportLoader = Callable[[dict[str, str]], dict[str, Any] | None]
 
 
 class MlflowClientProtocol(Protocol):
@@ -132,6 +144,7 @@ class DeltaOneMintOrchestrator:
         mint_request_publisher: MintRequestPublisherProtocol | None = None,
         reward_entitlement_notifier: RewardEntitlementNotifierProtocol | None = None,
         budget_config: BudgetConfig | None = None,
+        attribution_report_loader: _AttributionReportLoader | None = None,
     ) -> None:
         self.evaluator = evaluator
         self.mint_hook = mint_hook
@@ -141,6 +154,9 @@ class DeltaOneMintOrchestrator:
         if self._reward_entitlement_notifier is None:
             self._reward_entitlement_notifier = AuthServiceNotifier.from_env()
         self._budget_config = budget_config or BudgetConfig()
+        self._attribution_report_loader = (
+            attribution_report_loader or _load_attribution_report_from_tags
+        )
 
     def process_evaluation(
         self: DeltaOneMintOrchestrator,
@@ -196,7 +212,13 @@ class DeltaOneMintOrchestrator:
             except (ValueError, TypeError):
                 pass
 
-        contributors = _extract_contributors_from_tags(candidate_tags)
+        attribution_report = self._load_attribution_report(candidate_tags, decision.run_id)
+        contributors = self._resolve_contributors(
+            candidate_tags=candidate_tags,
+            candidate_run_id=decision.run_id,
+            spec=None,
+            attribution_report=attribution_report,
+        )
 
         return _EventContext(
             decision=decision,
@@ -205,6 +227,7 @@ class DeltaOneMintOrchestrator:
             metric_family="proportion",
             primary_metric_mlflow_name=mlflow_name,
             benchmark_spec_id=benchmark_spec_id,
+            attribution_report=attribution_report,
             eval_id=eval_id,
             model_id_uint=model_id_uint,
             delta_threshold_pp=float(delta_threshold_pp),
@@ -347,10 +370,13 @@ class DeltaOneMintOrchestrator:
             except (ValueError, TypeError):
                 pass
 
-        # Prefer contributors from spec, fall back to candidate run tags
-        contributors = _extract_contributors_from_spec(spec)
-        if not contributors:
-            contributors = _extract_contributors_from_tags(candidate_tags)
+        attribution_report = self._load_attribution_report(candidate_tags, decision.run_id)
+        contributors = self._resolve_contributors(
+            candidate_tags=candidate_tags,
+            candidate_run_id=decision.run_id,
+            spec=spec,
+            attribution_report=attribution_report,
+        )
 
         return _EventContext(
             decision=decision,
@@ -359,6 +385,7 @@ class DeltaOneMintOrchestrator:
             metric_family=metric_family,
             primary_metric_mlflow_name=primary_metric_mlflow_name,
             benchmark_spec_id=benchmark_spec_id,
+            attribution_report=attribution_report,
             eval_id=eval_id,
             model_id_uint=model_id_uint,
             delta_threshold_pp=float(delta_threshold_pp),
@@ -368,6 +395,49 @@ class DeltaOneMintOrchestrator:
             actual_cost_usd=actual_cost_usd,
             contributors=contributors,
         )
+
+    def _load_attribution_report(
+        self: DeltaOneMintOrchestrator,
+        candidate_tags: dict[str, str],
+        run_id: str,
+    ) -> dict[str, Any] | None:
+        try:
+            return self._attribution_report_loader(candidate_tags)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "event=attribution_report_load_failed run_id=%s error=%s",
+                run_id,
+                exc,
+            )
+            return None
+
+    def _resolve_contributors(
+        self: DeltaOneMintOrchestrator,
+        *,
+        candidate_tags: dict[str, str],
+        candidate_run_id: str,
+        spec: dict[str, Any] | None,
+        attribution_report: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        if attribution_report is not None:
+            try:
+                return _extract_contributors_from_attribution_report(
+                    attribution_report,
+                    candidate_run_id=candidate_run_id,
+                )
+            except ContributorDerivationError as exc:
+                raise EventPayloadError(
+                    "contributors",
+                    "failed to derive contributors from attribution report for "
+                    f"run {candidate_run_id}: {exc}",
+                ) from exc
+
+        if spec is not None:
+            contributors = _extract_contributors_from_spec(spec)
+            if contributors:
+                return contributors
+
+        return _extract_contributors_from_tags(candidate_tags)
 
     def _execute_mint(
         self: DeltaOneMintOrchestrator,
@@ -1041,6 +1111,63 @@ def _extract_contributors_from_tags(tags: dict[str, str]) -> list[dict[str, Any]
     return _normalize_contributor_list(raw)
 
 
+def _load_attribution_report_from_artifact(uri: str) -> dict[str, Any] | None:
+    """Download and parse an attribution report artifact from MLflow."""
+    try:
+        import mlflow  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_path = mlflow.artifacts.download_artifacts(
+                artifact_uri=uri,
+                dst_path=tmpdir,
+            )
+            artifact_path = Path(local_path)
+            if artifact_path.is_dir():
+                artifact_path = artifact_path / "report.json"
+            with artifact_path.open(encoding="utf-8") as handle:
+                payload = json.load(handle)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("event=attribution_report_artifact_load_failed uri=%s error=%s", uri, exc)
+        return None
+
+    if not isinstance(payload, dict):
+        logger.warning(
+            "event=invalid_attribution_report_artifact uri=%s type=%s",
+            uri,
+            type(payload),
+        )
+        return None
+    return payload
+
+
+def _load_attribution_report_from_tags(candidate_tags: dict[str, str]) -> dict[str, Any] | None:
+    """Resolve an attribution report artifact from candidate run tags."""
+    artifact_uri = candidate_tags.get(ATTRIBUTION_REPORT_ARTIFACT_URI_TAG)
+    if not artifact_uri:
+        return None
+    return _load_attribution_report_from_artifact(artifact_uri)
+
+
+def _extract_contributors_from_attribution_report(
+    report: dict[str, Any],
+    *,
+    candidate_run_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Derive normalized contributor records from an attribution report."""
+    derived = derive_contributor_set(report, candidate_run_id=candidate_run_id)
+    contributors: list[dict[str, Any]] = []
+    for entry in derived:
+        normalized = {
+            "wallet_address": entry["wallet"],
+            "weight_bps": entry["weight_bps"],
+        }
+        submission_ids = entry.get("submission_ids") or []
+        if submission_ids:
+            normalized["submission_id"] = submission_ids[0]
+        contributors.append(normalized)
+    return contributors
+
+
 def _normalize_contributor_list(raw: list[Any]) -> list[dict[str, Any]]:
     """Normalize a list of raw contributor dicts into validated wallet+weight_bps records.
 
@@ -1210,8 +1337,9 @@ def _build_mint_request(
         raise EventPayloadError(
             "contributors",
             f"no valid contributor wallet allocations found for model={acceptance_event.model_id} "
-            f"eval_id={acceptance_event.eval_id}; "
-            "populate spec['contributors'] or the 'hokusai.contributors' run tag",
+            f"eval_id={acceptance_event.eval_id}; provide a valid attribution report via "
+            f"'{ATTRIBUTION_REPORT_ARTIFACT_URI_TAG}' or fall back to spec['contributors'] "
+            "or the 'hokusai.contributors' run tag",
         )
 
     contributor_models = [
