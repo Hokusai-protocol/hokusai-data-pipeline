@@ -1331,6 +1331,8 @@ def _build_mint_request(
         model_id=acceptance_event.model_id,
         model_id_uint=acceptance_event.model_id_uint,
         eval_id=acceptance_event.eval_id,
+        benchmark_spec_id=acceptance_event.benchmark_spec_id,
+        dataset_hash=_normalise_to_0x_sha256(ctx_decision.dataset_hash, field="dataset_hash"),
         attestation_hash=acceptance_event.attestation_hash,
         idempotency_key=acceptance_event.idempotency_key,
         total_samples=total_samples,
@@ -1360,6 +1362,27 @@ def _derive_total_samples(value: Any) -> int:
             f"sample_size_candidate / totalSamples must be >= 1; got {value}",
         )
     return value
+
+
+def _normalise_to_0x_sha256(value: Any, *, field: str) -> str:
+    """Return a canonical 0x-prefixed lowercase SHA-256 hash."""
+    if not isinstance(value, str):
+        raise EventPayloadError(field, f"expected a string hash, got {type(value).__name__!r}")
+
+    lower = value.lower()
+    if lower.startswith("sha256:"):
+        bare = lower.removeprefix("sha256:")
+    elif lower.startswith("0x"):
+        bare = lower.removeprefix("0x")
+    else:
+        bare = lower
+
+    if len(bare) != 64 or any(char not in "0123456789abcdef" for char in bare):
+        raise EventPayloadError(
+            field,
+            f"expected sha256:<64 lowercase hex> or 0x<64 lowercase hex>, got {value!r}",
+        )
+    return f"0x{bare}"
 
 
 def _normalize_weights_to_10000(

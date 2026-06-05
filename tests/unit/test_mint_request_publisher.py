@@ -62,6 +62,7 @@ _IDEMPOTENCY_KEY = "0x" + "b" * 64
 _MODEL_ID_UINT = "12345678901234567890"
 _EVAL_ID = "eval-test-001"
 _SPEC_ID = "spec-test-v1"
+_DATASET_HASH = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +99,8 @@ def _valid_mint_request(**overrides) -> MintRequest:
         "model_id": "model-a",
         "model_id_uint": _MODEL_ID_UINT,
         "eval_id": _EVAL_ID,
+        "benchmark_spec_id": _SPEC_ID,
+        "dataset_hash": _DATASET_HASH,
         "attestation_hash": _ATT_HASH,
         "idempotency_key": _IDEMPOTENCY_KEY,
         "total_samples": 1000,
@@ -290,6 +293,14 @@ class TestMintRequest:
         msg = _valid_mint_request(idempotency_key=key)
         assert msg.idempotency_key == key
 
+    def test_benchmark_spec_id_required_nonempty(self) -> None:
+        with pytest.raises(ValidationError, match="benchmark_spec_id"):
+            _valid_mint_request(benchmark_spec_id="")
+
+    def test_dataset_hash_must_be_0x_lowercase_64hex(self) -> None:
+        with pytest.raises(ValidationError, match="dataset_hash"):
+            _valid_mint_request(dataset_hash="sha256:" + "a" * 64)
+
     def test_extra_fields_forbidden(self) -> None:
         with pytest.raises(ValidationError):
             _valid_mint_request(unknown_field="x")
@@ -343,6 +354,8 @@ class TestJsonSchemaDrift:
         assert dumped["model_id"] == data["model_id"]
         assert dumped["idempotency_key"] == data["idempotency_key"]
         assert dumped["attestation_hash"] == data["attestation_hash"]
+        assert dumped["benchmark_spec_id"] == data["benchmark_spec_id"]
+        assert dumped["dataset_hash"] == data["dataset_hash"]
         assert dumped["totalSamples"] == data["totalSamples"]
 
 
@@ -658,6 +671,8 @@ class TestBuildMintRequest:
         msg = _build_mint_request(event, ctx)
         assert isinstance(msg, MintRequest)
         assert msg.model_id == "model-a"
+        assert msg.benchmark_spec_id == _SPEC_ID
+        assert msg.dataset_hash == "0x" + "a" * 64
         assert msg.evaluation.baseline_score_bps == 7800
         assert msg.evaluation.new_score_bps == 8100
         assert len(msg.contributors) == 1
@@ -735,6 +750,8 @@ class TestBuildMintRequest:
         ctx = self._make_ctx_with_contributors(contribs)
         msg = _build_mint_request(event, ctx)
         assert msg.idempotency_key == event.idempotency_key
+        assert msg.benchmark_spec_id == event.benchmark_spec_id
+        assert msg.dataset_hash == "0x" + "a" * 64
 
     def test_sample_sizes_from_decision(self) -> None:
         event = _make_acceptance_event(
@@ -806,6 +823,36 @@ class TestBuildMintRequest:
         assert msg.contributors[0].submission_id == "sub-1"
         assert msg.contributors[0].contribution_batch_id == "batch-1"
         assert msg.contributors[1].submission_id == "sub-2"
+
+    @pytest.mark.parametrize(
+        ("decision_dataset_hash", "expected"),
+        [
+            ("sha256:" + "c" * 64, "0x" + "c" * 64),
+            ("0x" + "d" * 64, "0x" + "d" * 64),
+        ],
+    )
+    def test_build_mint_request_normalizes_dataset_hash(
+        self, decision_dataset_hash: str, expected: str
+    ) -> None:
+        event = _make_acceptance_event(
+            contributors=[{"wallet_address": _WALLET_A, "weight_bps": 10000}]
+        )
+        ctx = self._make_ctx_with_contributors([{"wallet_address": _WALLET_A, "weight_bps": 10000}])
+        ctx.decision.dataset_hash = decision_dataset_hash
+
+        msg = _build_mint_request(event, ctx)
+
+        assert msg.dataset_hash == expected
+
+    def test_build_mint_request_rejects_invalid_dataset_hash(self) -> None:
+        event = _make_acceptance_event(
+            contributors=[{"wallet_address": _WALLET_A, "weight_bps": 10000}]
+        )
+        ctx = self._make_ctx_with_contributors([{"wallet_address": _WALLET_A, "weight_bps": 10000}])
+        ctx.decision.dataset_hash = "invalid"
+
+        with pytest.raises(EventPayloadError, match="dataset_hash"):
+            _build_mint_request(event, ctx)
 
 
 # ---------------------------------------------------------------------------

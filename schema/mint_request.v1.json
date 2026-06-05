@@ -258,6 +258,17 @@
       "title": "Eval Id",
       "type": "string"
     },
+    "benchmark_spec_id": {
+      "description": "Stable benchmark spec identifier",
+      "minLength": 1,
+      "title": "Benchmark Spec Id",
+      "type": "string"
+    },
+    "dataset_hash": {
+      "description": "Dataset anchor, 0x-prefixed 64-hex SHA-256",
+      "title": "Dataset Hash",
+      "type": "string"
+    },
     "attestation_hash": {
       "description": "SHA-256 of HEM payload, 0x-prefixed 64-hex",
       "title": "Attestation Hash",
@@ -292,6 +303,8 @@
     "model_id",
     "model_id_uint",
     "eval_id",
+    "benchmark_spec_id",
+    "dataset_hash",
     "attestation_hash",
     "idempotency_key",
     "totalSamples",
