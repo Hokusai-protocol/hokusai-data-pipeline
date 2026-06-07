@@ -40,7 +40,7 @@ from src.evaluation.event_payload import (
     to_micro_usdc,
 )
 from src.evaluation.guardrails import evaluate_guardrails
-from src.evaluation.reward_cap import BudgetConfig, compute_reward
+from src.evaluation.reward_cap import BudgetConfig, RewardCapResult, compute_reward
 from src.evaluation.schema import AcceptanceDecision, ComparatorResult, GuardrailResult
 from src.evaluation.spec_translation import RuntimeGuardrailSpec
 from src.evaluation.tags import (
@@ -64,6 +64,8 @@ _MODEL_ID_UINT_TAG_KEYS = (
     "hokusai.model_id_uint",
     "model_id_uint",
 )
+_ACTUAL_COST_TAG_KEYS = (ACTUAL_COST_TAG, "hokusai.actual_cost_usd")
+_PROJECTED_COST_TAG_KEYS = (PROJECTED_COST_TAG, "hokusai.projected_cost_usd")
 
 _ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _AttributionReportLoader = Callable[[dict[str, str]], dict[str, Any] | None]
@@ -202,15 +204,7 @@ class DeltaOneMintOrchestrator:
         baseline_score = _resolve_metric_value(decision.metric_name, mlflow_name, baseline_metrics)
         delta_threshold_pp = getattr(self.evaluator, "delta_threshold_pp", 1.0)
 
-        actual_cost_usd: float | None = None
-        actual_cost_raw = candidate_tags.get(ACTUAL_COST_TAG) or candidate_tags.get(
-            PROJECTED_COST_TAG
-        )
-        if actual_cost_raw is not None:
-            try:
-                actual_cost_usd = float(actual_cost_raw)
-            except (ValueError, TypeError):
-                pass
+        actual_cost_usd = _resolve_cost_value(candidate_tags)
 
         attribution_report = self._load_attribution_report(candidate_tags, decision.run_id)
         contributors = self._resolve_contributors(
@@ -360,15 +354,7 @@ class DeltaOneMintOrchestrator:
             except (ValueError, TypeError):
                 pass
 
-        actual_cost_usd: float | None = None
-        actual_cost_raw = candidate_tags.get(ACTUAL_COST_TAG) or candidate_tags.get(
-            PROJECTED_COST_TAG
-        )
-        if actual_cost_raw is not None:
-            try:
-                actual_cost_usd = float(actual_cost_raw)
-            except (ValueError, TypeError):
-                pass
+        actual_cost_usd = _resolve_cost_value(candidate_tags)
 
         attribution_report = self._load_attribution_report(candidate_tags, decision.run_id)
         contributors = self._resolve_contributors(
@@ -454,16 +440,7 @@ class DeltaOneMintOrchestrator:
             tokens_per_delta_one=self._budget_config.tokens_per_delta_one,
             max_reward_per_eval=self._budget_config.max_reward_per_eval,
         )
-        if reward_result.capped:
-            logger.info(
-                "event=reward_capped run_id=%s delta_pp=%.4f tokens_per_delta_one=%s "
-                "max_reward_per_eval=%s reward_tokens=%.2f",
-                decision.run_id,
-                decision.delta_percentage_points,
-                self._budget_config.tokens_per_delta_one,
-                self._budget_config.max_reward_per_eval,
-                reward_result.reward_tokens,
-            )
+        self._log_reward_result(decision, reward_result)
 
         attestation_hash, attestation_payload = self._create_signed_attestation(
             decision,
@@ -507,6 +484,15 @@ class DeltaOneMintOrchestrator:
             event_context=event_context,
         )
         idempotency_key = acceptance_event.idempotency_key
+        ceiling_block = self._check_cost_ceiling(
+            decision=decision,
+            event_context=event_context,
+            attestation_hash=attestation_hash,
+            acceptance_event=acceptance_event,
+            reward_result=reward_result,
+        )
+        if ceiling_block is not None:
+            return ceiling_block
 
         dispatch_deltaone_webhook_event(
             event_type=DELTAONE_ACHIEVED_EVENT,
@@ -592,6 +578,67 @@ class DeltaOneMintOrchestrator:
             acceptance_event=acceptance_event,
             reward_tokens=reward_result.reward_tokens,
             reward_capped=reward_result.capped,
+        )
+
+    def _check_cost_ceiling(
+        self: DeltaOneMintOrchestrator,
+        *,
+        decision: DeltaOneDecision,
+        event_context: _EventContext | None,
+        attestation_hash: str,
+        acceptance_event: DeltaOneAcceptanceEvent,
+        reward_result: RewardCapResult,
+    ) -> MintOutcome | None:
+        if (
+            event_context is None
+            or event_context.actual_cost_usd is None
+            or self._budget_config.per_eval_budget_ceiling_usd is None
+        ):
+            return None
+        if event_context.actual_cost_usd <= self._budget_config.per_eval_budget_ceiling_usd:
+            return None
+
+        logger.warning(
+            "event=eval_cost_ceiling_exceeded run_id=%s actual_cost_usd=%.4f "
+            "per_eval_budget_ceiling_usd=%.4f",
+            decision.run_id,
+            event_context.actual_cost_usd,
+            self._budget_config.per_eval_budget_ceiling_usd,
+        )
+        return MintOutcome(
+            status="cost_ceiling_exceeded",
+            decision=decision,
+            attestation_hash=attestation_hash,
+            acceptance_event=acceptance_event,
+            reward_tokens=reward_result.reward_tokens,
+            reward_capped=reward_result.capped,
+        )
+
+    def _log_reward_result(
+        self: DeltaOneMintOrchestrator,
+        decision: DeltaOneDecision,
+        reward_result: RewardCapResult,
+    ) -> None:
+        if reward_result.capped:
+            logger.info(
+                "event=reward_capped run_id=%s delta_pp=%.4f tokens_per_delta_one=%s "
+                "max_reward_per_eval=%s reward_tokens=%.2f",
+                decision.run_id,
+                decision.delta_percentage_points,
+                self._budget_config.tokens_per_delta_one,
+                self._budget_config.max_reward_per_eval,
+                reward_result.reward_tokens,
+            )
+            return
+        if self._budget_config.max_reward_per_eval is None:
+            return
+        logger.info(
+            "event=reward_cap_checked run_id=%s delta_pp=%.4f max_reward_per_eval=%s "
+            "reward_tokens=%.2f",
+            decision.run_id,
+            decision.delta_percentage_points,
+            self._budget_config.max_reward_per_eval,
+            reward_result.reward_tokens,
         )
 
     def _run_secondary_mint_hook(
@@ -906,6 +953,20 @@ def _first_tag(tags: dict[str, str], keys: tuple[str, ...]) -> str | None:
         if value is not None and str(value).strip():
             return str(value)
     return None
+
+
+def _resolve_cost_value(candidate_tags: dict[str, str]) -> float | None:
+    """Resolve actual or projected cost from current or legacy MLflow tag names."""
+    actual_cost_raw = _first_tag(candidate_tags, _ACTUAL_COST_TAG_KEYS) or _first_tag(
+        candidate_tags,
+        _PROJECTED_COST_TAG_KEYS,
+    )
+    if actual_cost_raw is None:
+        return None
+    try:
+        return float(actual_cost_raw)
+    except (ValueError, TypeError):
+        return None
 
 
 def _resolve_metric_value(

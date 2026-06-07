@@ -2,7 +2,7 @@
 
 ## Overview
 
-When a DeltaOne evaluation is accepted, the pipeline publishes a durable `MintRequest` message to Redis as the primary handoff before advancing the canonical baseline score in MLflow. The legacy token mint hook still runs, but only as a secondary audit or dry-run side effect after Redis publication succeeds.
+When a DeltaOne evaluation is accepted, the pipeline publishes a durable `MintRequest` message to Redis as the primary handoff before advancing the canonical baseline score in MLflow. The legacy token mint hook still runs, but only as a secondary audit or dry-run side effect after Redis publication succeeds. See `docs/mint-rail.md` for the full mint topology, operator runbook, and scheduler enablement gate.
 
 The Redis payload authorizes a mint, but it is not the final mint result. When the downstream mint
 service enables vesting, the final reward may be split into immediate liquid and vested portions.
@@ -180,6 +180,7 @@ The `MintRequestPublisher` does not implement retries or a dead-letter queue. Th
 
 ## Related
 
+- `docs/mint-rail.md` — canonical mint topology, monitoring, and runbook
 - `docs/deltaone-acceptance-event.md` — the acceptance event published before the mint
 - `src/events/publishers/mint_request_publisher.py` — publisher implementation
 - `src/events/schemas.py` — `MintRequest`, `MintRequestEvaluation`, `MintRequestContributor`
