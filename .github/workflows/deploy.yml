@@ -56,6 +56,11 @@ jobs:
         # TODO: Remove '|| true' once tests are fixed (target: 80% coverage)
         # Current coverage: 0.38% - tracking in TECHNICAL_DEBT_STATUS.md
         pytest tests/unit/ -v --cov=src --cov-report=xml --cov-report=term-missing --timeout=30 --timeout-method=thread -n auto || true
+
+    - name: Run Gate 3 off-chain pipeline integration suite (blocking)
+      run: |
+        pytest tests/integration/test_gate3_offchain_pipeline.py \
+          -v --no-cov --timeout=120 -p no:randomly
     
     - name: Upload coverage reports
       uses: codecov/codecov-action@v3
