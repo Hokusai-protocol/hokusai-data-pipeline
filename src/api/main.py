@@ -341,7 +341,8 @@ async def startup_event() -> None:
     if os.getenv("ENABLE_MINT_QUEUE_MONITORING", "false").lower() == "true":
         app.state.mint_queue_monitor_task = asyncio.create_task(_mint_queue_monitor_loop())
 
-    # Start evaluation scheduler if enabled
+    # Start evaluation scheduler if enabled. Preflight failures log and skip
+    # scheduler startup without aborting the rest of startup_event.
     if os.getenv("ENABLE_EVALUATION_SCHEDULER", "false").lower() == "true":
         try:
             from src.api.dependencies import (
@@ -357,22 +358,22 @@ async def startup_event() -> None:
             from src.api.services.evaluation_service import EvaluationService
             from src.services.evaluation_queue import EvaluationQueueManager
 
-            redis_client = get_redis_client()
             try:
                 preflight_check()
             except SchedulerPreflightError as exc:
                 logger.error("Scheduler preflight failed; scheduler will stay disabled: %s", exc)
-                raise
-            scheduler = EvaluationScheduler(
-                schedule_service=get_evaluation_schedule_service(),
-                evaluation_service=EvaluationService(
-                    redis_client=redis_client,
-                    benchmark_spec_service=get_benchmark_spec_service(),
-                ),
-                queue_manager=EvaluationQueueManager(redis_client=redis_client),
-            )
-            app.state.evaluation_scheduler = scheduler
-            await scheduler.start()
+            else:
+                redis_client = get_redis_client()
+                scheduler = EvaluationScheduler(
+                    schedule_service=get_evaluation_schedule_service(),
+                    evaluation_service=EvaluationService(
+                        redis_client=redis_client,
+                        benchmark_spec_service=get_benchmark_spec_service(),
+                    ),
+                    queue_manager=EvaluationQueueManager(redis_client=redis_client),
+                )
+                app.state.evaluation_scheduler = scheduler
+                await scheduler.start()
         except Exception as e:
             logger.error(f"Failed to start evaluation scheduler: {e}")
 

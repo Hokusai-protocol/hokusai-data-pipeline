@@ -39,15 +39,18 @@ class MintQueueDepthEmitter:
             host = os.getenv("REDIS_HOST")
             if not host:
                 raise RuntimeError("MintQueueDepthEmitter requires REDIS_URL or REDIS_HOST")
-            port = os.getenv("REDIS_PORT", "6379")
-            auth_token = os.getenv("REDIS_AUTH_TOKEN")
+            port = int(os.getenv("REDIS_PORT", "6379"))
+            auth_token = os.getenv("REDIS_AUTH_TOKEN") or None
             tls_enabled = os.getenv("REDIS_TLS_ENABLED", "false").lower() == "true"
-            scheme = "rediss" if tls_enabled else "redis"
-            if auth_token:
-                redis_url = f"{scheme}://:{auth_token}@{host}:{port}/0"
-            else:
-                redis_url = f"{scheme}://{host}:{port}/0"
-            redis_client = redis.from_url(redis_url, decode_responses=True)
+            # Pass credentials as kwargs instead of embedding in URL so the
+            # auth token cannot leak into client error messages.
+            redis_client = redis.Redis(
+                host=host,
+                port=port,
+                password=auth_token,
+                ssl=tls_enabled,
+                decode_responses=True,
+            )
         return cls(
             redis_client=redis_client,
             namespace=os.getenv("MINT_QUEUE_CLOUDWATCH_NAMESPACE", "Hokusai/MintQueue"),
