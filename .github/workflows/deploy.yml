@@ -59,6 +59,7 @@ jobs:
 
     - name: Run Gate 3 off-chain pipeline integration suite (blocking)
       run: |
+        pip install fakeredis==2.31.0
         pytest tests/integration/test_gate3_offchain_pipeline.py \
           -v --no-cov --timeout=120 -p no:randomly
     
