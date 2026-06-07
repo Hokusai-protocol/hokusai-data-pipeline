@@ -394,5 +394,8 @@ async def shutdown_event() -> None:
         mint_queue_monitor_task.cancel()
         try:
             await mint_queue_monitor_task
-        except asyncio.CancelledError:
-            pass
+        except (asyncio.CancelledError, Exception) as exc:
+            # The monitor loop may have died before cancellation (e.g., bad
+            # Redis env config); swallow so shutdown doesn't propagate.
+            if not isinstance(exc, asyncio.CancelledError):
+                logger.warning("event=mint_queue_monitor_shutdown_error error=%s", exc)
