@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ class BudgetConfig:
 
     tokens_per_delta_one: float | None = None
     max_reward_per_eval: float | None = None
+    per_eval_budget_ceiling_usd: float | None = None
     mint_paused: bool = False
 
     @classmethod
@@ -39,8 +41,30 @@ class BudgetConfig:
         return cls(
             tokens_per_delta_one=_coerce_optional_float(raw.get("tokensPerDeltaOne")),
             max_reward_per_eval=_coerce_optional_float(raw.get("maxRewardPerEval")),
+            per_eval_budget_ceiling_usd=_coerce_optional_float(raw.get("perEvalBudgetCeilingUsd")),
             mint_paused=_coerce_bool(raw.get("mint_paused", False)),
         )
+
+    @classmethod
+    def from_env(cls: type[BudgetConfig]) -> BudgetConfig:
+        """Load economic guardrail settings from environment variables."""
+        return cls(
+            tokens_per_delta_one=_coerce_optional_float_env("MINT_TOKENS_PER_DELTA_ONE"),
+            max_reward_per_eval=_coerce_optional_float_env("MINT_MAX_REWARD"),
+            per_eval_budget_ceiling_usd=_coerce_optional_float_env("MINT_PER_EVAL_BUDGET_CEILING"),
+            mint_paused=_coerce_env_bool("MINT_PAUSED", default=False),
+        )
+
+    @classmethod
+    def from_yaml_or_env(cls: type[BudgetConfig], path: str | Path) -> BudgetConfig:
+        """Load config from YAML when present, otherwise from environment."""
+        config_path = Path(path)
+        if config_path.exists():
+            try:
+                return cls.from_yaml(config_path)
+            except Exception:
+                logger.exception("event=budget_config_yaml_load_failed path=%s", config_path)
+        return cls.from_env()
 
     @classmethod
     def from_yaml_safe(cls: type[BudgetConfig], path: str | Path) -> BudgetConfig:
@@ -82,3 +106,22 @@ def _coerce_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     raise ValueError("mint_paused must be a boolean")
+
+
+def _coerce_optional_float_env(name: str) -> float | None:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return None
+    return _coerce_optional_float(raw)
+
+
+def _coerce_env_bool(name: str, *, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean string")

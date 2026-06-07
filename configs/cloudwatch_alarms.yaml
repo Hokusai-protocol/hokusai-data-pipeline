@@ -1,0 +1,29 @@
+- AlarmName: hokusai-mint-requests-dlq-depth
+  Namespace: Hokusai/MintQueue
+  MetricName: MintRequestsDLQDepth
+  Threshold: 1
+  ComparisonOperator: GreaterThanOrEqualToThreshold
+  EvaluationPeriods: 1
+  Period: 300
+  Statistic: Maximum
+  AlarmDescription: DLQ for hokusai:mint_requests has items and needs operator action
+
+- AlarmName: hokusai-mint-requests-queue-depth-high
+  Namespace: Hokusai/MintQueue
+  MetricName: MintRequestsQueueDepth
+  Threshold: 50
+  ComparisonOperator: GreaterThanOrEqualToThreshold
+  EvaluationPeriods: 1
+  Period: 300
+  Statistic: Maximum
+  AlarmDescription: hokusai:mint_requests queue depth is elevated
+
+- AlarmName: hokusai-mint-requests-unsettled-proxy
+  Namespace: Hokusai/MintQueue
+  MetricName: MintRequestsQueueDepth
+  Threshold: 1
+  ComparisonOperator: GreaterThanOrEqualToThreshold
+  EvaluationPeriods: 3
+  Period: 300
+  Statistic: Maximum
+  AlarmDescription: Mint queue remained non-zero for 15 minutes after score advancement; investigate possible unsettled mints

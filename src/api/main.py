@@ -108,6 +108,22 @@ def _should_enable_sentry_debug_route() -> bool:
     return os.getenv("ENVIRONMENT", "development").lower() != "production"
 
 
+async def _mint_queue_monitor_loop() -> None:
+    """Emit mint queue metrics on a fixed interval until cancelled."""
+    from src.monitoring.mint_queue_monitor import MintQueueDepthEmitter
+
+    interval_seconds = int(os.getenv("MINT_QUEUE_MONITOR_INTERVAL_SECONDS", "60"))
+    emitter = MintQueueDepthEmitter.from_env()
+    try:
+        while True:
+            await asyncio.to_thread(emitter.emit_once)
+            await asyncio.sleep(interval_seconds)
+    except asyncio.CancelledError:
+        raise
+    finally:
+        emitter.close()
+
+
 _init_sentry()
 
 from src.api.endpoints import contributions, model_serving
@@ -322,6 +338,9 @@ async def startup_event() -> None:
 
     # Initialize database connections, caches, etc.
 
+    if os.getenv("ENABLE_MINT_QUEUE_MONITORING", "false").lower() == "true":
+        app.state.mint_queue_monitor_task = asyncio.create_task(_mint_queue_monitor_loop())
+
     # Start evaluation scheduler if enabled
     if os.getenv("ENABLE_EVALUATION_SCHEDULER", "false").lower() == "true":
         try:
@@ -330,11 +349,20 @@ async def startup_event() -> None:
                 get_evaluation_schedule_service,
                 get_redis_client,
             )
-            from src.api.services.evaluation_scheduler import EvaluationScheduler
+            from src.api.services.evaluation_scheduler import (
+                EvaluationScheduler,
+                SchedulerPreflightError,
+                preflight_check,
+            )
             from src.api.services.evaluation_service import EvaluationService
             from src.services.evaluation_queue import EvaluationQueueManager
 
             redis_client = get_redis_client()
+            try:
+                preflight_check()
+            except SchedulerPreflightError as exc:
+                logger.error("Scheduler preflight failed; scheduler will stay disabled: %s", exc)
+                return
             scheduler = EvaluationScheduler(
                 schedule_service=get_evaluation_schedule_service(),
                 evaluation_service=EvaluationService(
@@ -359,3 +387,11 @@ async def shutdown_event() -> None:
     scheduler = getattr(app.state, "evaluation_scheduler", None)
     if scheduler is not None:
         await scheduler.stop()
+
+    mint_queue_monitor_task = getattr(app.state, "mint_queue_monitor_task", None)
+    if mint_queue_monitor_task is not None:
+        mint_queue_monitor_task.cancel()
+        try:
+            await mint_queue_monitor_task
+        except asyncio.CancelledError:
+            pass
