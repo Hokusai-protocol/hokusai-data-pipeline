@@ -67,13 +67,19 @@ class MintQueueDepthEmitter:
             "MintRequestsQueueDepth": queue_depth,
             "MintRequestsDLQDepth": dlq_depth,
         }
-        self.cloudwatch_client.put_metric_data(
-            Namespace=self.namespace,
-            MetricData=[
-                {"MetricName": name, "Value": value, "Unit": "Count"}
-                for name, value in metrics.items()
-            ],
-        )
+        try:
+            self.cloudwatch_client.put_metric_data(
+                Namespace=self.namespace,
+                MetricData=[
+                    {"MetricName": name, "Value": value, "Unit": "Count"}
+                    for name, value in metrics.items()
+                ],
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Never let CloudWatch failures kill the background monitor loop.
+            logger.warning("event=mint_queue_metrics_emit_failed error=%s", exc)
+            return {}
+
         logger.info(
             "event=mint_queue_metrics_emitted queue_depth=%s dlq_depth=%s namespace=%s",
             queue_depth,

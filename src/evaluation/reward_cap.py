@@ -57,13 +57,19 @@ class BudgetConfig:
 
     @classmethod
     def from_yaml_or_env(cls: type[BudgetConfig], path: str | Path) -> BudgetConfig:
-        """Load config from YAML when present, otherwise from environment."""
+        """Load config from YAML when present, otherwise from environment.
+
+        Fails closed (mint_paused=True) if the YAML file exists but cannot be
+        parsed — falling through to env in that case could silently disable
+        every guardrail when env vars are unset.
+        """
         config_path = Path(path)
         if config_path.exists():
             try:
                 return cls.from_yaml(config_path)
             except Exception:
                 logger.exception("event=budget_config_yaml_load_failed path=%s", config_path)
+                return cls(mint_paused=True)
         return cls.from_env()
 
     @classmethod

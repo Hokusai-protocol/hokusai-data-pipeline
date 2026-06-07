@@ -362,7 +362,7 @@ async def startup_event() -> None:
                 preflight_check()
             except SchedulerPreflightError as exc:
                 logger.error("Scheduler preflight failed; scheduler will stay disabled: %s", exc)
-                return
+                raise
             scheduler = EvaluationScheduler(
                 schedule_service=get_evaluation_schedule_service(),
                 evaluation_service=EvaluationService(

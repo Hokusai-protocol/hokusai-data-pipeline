@@ -30,6 +30,40 @@ def test_budget_config_from_yaml_safe_fail_closed(tmp_path: Path) -> None:
     assert config.mint_paused is True
 
 
+def test_budget_config_from_yaml_or_env_fail_closed_on_corrupt_yaml(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Existing-but-corrupt YAML must NOT silently fall through to env vars,
+    # because empty env vars would disable every guardrail (fail-open).
+    bad_config = tmp_path / "budget.yaml"
+    bad_config.write_text("mint_paused: nope\n", encoding="utf-8")
+    monkeypatch.delenv("MINT_MAX_REWARD", raising=False)
+    monkeypatch.delenv("MINT_TOKENS_PER_DELTA_ONE", raising=False)
+    monkeypatch.delenv("MINT_PER_EVAL_BUDGET_CEILING", raising=False)
+    monkeypatch.delenv("MINT_PAUSED", raising=False)
+
+    config = BudgetConfig.from_yaml_or_env(bad_config)
+
+    assert config.mint_paused is True
+
+
+def test_budget_config_from_yaml_or_env_falls_back_when_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Missing YAML file is the intended "fall back to env" path.
+    missing_path = tmp_path / "missing.yaml"
+    monkeypatch.setenv("MINT_MAX_REWARD", "11")
+    monkeypatch.setenv("MINT_TOKENS_PER_DELTA_ONE", "2")
+    monkeypatch.delenv("MINT_PER_EVAL_BUDGET_CEILING", raising=False)
+    monkeypatch.delenv("MINT_PAUSED", raising=False)
+
+    config = BudgetConfig.from_yaml_or_env(missing_path)
+
+    assert config.max_reward_per_eval == 11.0
+    assert config.tokens_per_delta_one == 2.0
+    assert config.mint_paused is False
+
+
 def test_compute_reward_no_cap() -> None:
     result = compute_reward(2.0, tokens_per_delta_one=50.0)
     assert result.reward_tokens == 100.0
