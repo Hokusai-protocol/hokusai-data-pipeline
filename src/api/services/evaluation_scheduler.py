@@ -14,10 +14,57 @@ from croniter import croniter
 from src.api.schemas.evaluations import EvaluationConfig, EvaluationRequest
 from src.api.services.evaluation_service import EvaluationService
 from src.api.services.governance.evaluation_schedule import EvaluationScheduleService
+from src.api.services.signer_custody import (
+    SignerCustodyError,
+    SignerCustodyMode,
+    resolve_custody_mode,
+    validate_custody_for_env,
+)
+from src.evaluation.reward_cap import BudgetConfig
 from src.models.evaluation_job import EvaluationJob
 from src.services.evaluation_queue import EvaluationQueueManager
 
 logger = logging.getLogger(__name__)
+
+
+class SchedulerPreflightError(RuntimeError):
+    """Raised when scheduler guardrails are incomplete."""
+
+
+def preflight_check(settings_dict: dict[str, Any] | None = None) -> None:
+    """Validate scheduler guardrails before unattended startup."""
+    settings_dict = settings_dict or {}
+    environment = str(settings_dict.get("ENVIRONMENT") or os.getenv("ENVIRONMENT", "development"))
+    budget_config_path = str(
+        settings_dict.get("MINT_BUDGET_CONFIG_PATH")
+        or os.getenv("MINT_BUDGET_CONFIG_PATH", "configs/model_30_budget.yaml")
+    )
+    errors: list[str] = []
+
+    try:
+        explicit_mode = settings_dict.get("SIGNER_CUSTODY_MODE")
+        if explicit_mode is not None:
+            custody_mode = SignerCustodyMode(str(explicit_mode).strip().lower())
+        else:
+            custody_mode = resolve_custody_mode(environment)
+        validate_custody_for_env(custody_mode, environment)
+    except (SignerCustodyError, ValueError) as exc:
+        errors.append(str(exc))
+
+    try:
+        budget_config = BudgetConfig.from_yaml_or_env(budget_config_path)
+    except Exception as exc:  # noqa: BLE001
+        errors.append(f"failed to load budget config: {exc}")
+        budget_config = BudgetConfig()
+
+    if budget_config.max_reward_per_eval is None:
+        errors.append("max_reward_per_eval must be configured before enabling scheduler")
+
+    if errors:
+        raise SchedulerPreflightError("; ".join(errors))
+
+    if budget_config.mint_paused:
+        logger.warning("event=scheduler_preflight_mint_paused path=%s", budget_config_path)
 
 
 class EvaluationScheduler:

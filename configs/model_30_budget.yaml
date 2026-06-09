@@ -26,6 +26,7 @@ cold_memory_mb:
   hard: 1800
 
 # Economic guardrail (Gate 5 / HOK-2058)
-# tokensPerDeltaOne: null
-# maxRewardPerEval: null
-# mint_paused: false
+tokensPerDeltaOne: null
+maxRewardPerEval: null
+perEvalBudgetCeilingUsd: null
+mint_paused: false

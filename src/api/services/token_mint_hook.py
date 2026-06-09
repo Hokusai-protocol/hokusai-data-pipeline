@@ -1,4 +1,9 @@
-"""Token mint hook stub for contributor reward flows."""
+"""AUDIT/DRY-RUN ONLY: legacy token mint hook, not the real mint rail.
+
+Real mint rail: Redis `hokusai:mint_requests` -> contract-deployer -> DeltaVerifier.
+This hook runs after Redis publication as an audit/compatibility side effect and
+does not mint on-chain by itself.
+"""
 
 from __future__ import annotations
 

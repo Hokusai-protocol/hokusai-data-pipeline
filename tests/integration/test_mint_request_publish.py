@@ -22,6 +22,7 @@ from src.api.schemas.token_mint import TokenMintResult
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator
 from src.evaluation.event_payload import make_idempotency_key
+from src.evaluation.reward_cap import BudgetConfig
 from src.events.publishers.mint_request_publisher import QUEUE_NAME, MintRequestPublisher
 from src.events.schemas import MintRequest
 
@@ -110,6 +111,7 @@ def _build_orchestrator(
     eval_id: str,
     attestation_hash: str = "a" * 64,
     run_metrics: dict[str, float] | None = None,
+    budget_config: BudgetConfig | None = None,
 ) -> DeltaOneMintOrchestrator:
     monkeypatch.setattr(
         "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
@@ -143,6 +145,7 @@ def _build_orchestrator(
         mlflow_client=mlflow_client,
         mint_request_publisher=publisher,
         reward_entitlement_notifier=reward_notifier,
+        budget_config=budget_config,
     )
     monkeypatch.setattr(
         orchestrator,
@@ -585,3 +588,60 @@ class TestMintRequestPublishIntegration:
         assert outcome.status == "success"
         assert fake_redis_client.llen(QUEUE_NAME) == 1
         assert mlflow_client.tags["hokusai.canonical_score"] == "0.87"
+
+    def test_over_max_reward_is_capped_but_still_published(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        orchestrator = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id=_EVAL_ID,
+            budget_config=BudgetConfig(tokens_per_delta_one=100.0, max_reward_per_eval=1.0),
+        )
+
+        outcome = orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        assert outcome.status == "success"
+        assert outcome.reward_tokens == 1.0
+        assert outcome.reward_capped is True
+        assert fake_redis_client.llen(QUEUE_NAME) == 1
+
+    def test_cost_ceiling_blocks_publish(self, fake_redis_client, monkeypatch) -> None:
+        orchestrator = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id=_EVAL_ID,
+            budget_config=BudgetConfig(per_eval_budget_ceiling_usd=1.0),
+        )
+
+        outcome = orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        assert outcome.status == "cost_ceiling_exceeded"
+        assert outcome.canonical_score_advanced is False
+        assert fake_redis_client.llen(QUEUE_NAME) == 0
+
+    def test_cost_ceiling_boundary_allows_publish(self, fake_redis_client, monkeypatch) -> None:
+        orchestrator = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id=_EVAL_ID,
+            budget_config=BudgetConfig(per_eval_budget_ceiling_usd=2.34),
+        )
+
+        outcome = orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        assert outcome.status == "success"
+        assert fake_redis_client.llen(QUEUE_NAME) == 1
+
+    def test_mint_paused_blocks_publish(self, fake_redis_client, monkeypatch) -> None:
+        orchestrator = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id=_EVAL_ID,
+            budget_config=BudgetConfig(mint_paused=True),
+        )
+
+        outcome = orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        assert outcome.status == "paused"
+        assert fake_redis_client.llen(QUEUE_NAME) == 0
