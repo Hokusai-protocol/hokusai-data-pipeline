@@ -27,6 +27,7 @@ from src.api.services.privacy.pii_detector import PIIDetector
 from src.api.services.token_mint_hook import TokenMintHook
 from src.evaluation.deltaone_evaluator import DeltaOneEvaluator
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator, MintOutcome
+from src.evaluation.reward_cap import BudgetConfig
 from src.events.publishers.mint_request_publisher import MintRequestPublisher
 
 
@@ -320,6 +321,9 @@ class EvaluationService:
                 evaluator=evaluator,
                 mint_hook=mint_hook,
                 mint_request_publisher=mint_request_publisher,
+                budget_config=BudgetConfig.from_yaml_or_env(
+                    os.getenv("MINT_BUDGET_CONFIG_PATH", "configs/model_30_budget.yaml")
+                ),
             )
             self._deltaone_mint_orchestrator = orchestrator
 

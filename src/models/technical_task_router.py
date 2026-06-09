@@ -110,6 +110,50 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
         self._dataset: pd.DataFrame | None = None
         self._global_defaults: dict[str, RoleChoice] = {}
 
+    def __getstate__(self: TechnicalTaskRouterModel) -> dict[str, Any]:
+        """Return a deterministic serializer state for cloudpickle round-trips."""
+        dataset_state: dict[str, Any] | None = None
+        if self._dataset is not None:
+            dataset_state = {
+                "columns": list(self._dataset.columns),
+                "data": self._dataset.to_dict(orient="split")["data"],
+            }
+
+        defaults_state = {
+            role: {
+                "model_id": choice.model_id,
+                "score": choice.score,
+                "support": choice.support,
+                "expected_success": choice.expected_success,
+                "estimated_cost_usd": choice.estimated_cost_usd,
+            }
+            for role, choice in self._global_defaults.items()
+        }
+
+        return {
+            "k_neighbors": self.k_neighbors,
+            "dataset_state": dataset_state,
+            "global_defaults_state": defaults_state,
+        }
+
+    def __setstate__(self: TechnicalTaskRouterModel, state: dict[str, Any]) -> None:
+        """Restore the deterministic serializer state from cloudpickle."""
+        self.k_neighbors = int(state["k_neighbors"])
+
+        dataset_state = state["dataset_state"]
+        if dataset_state is None:
+            self._dataset = None
+        else:
+            self._dataset = pd.DataFrame(
+                data=dataset_state["data"],
+                columns=dataset_state["columns"],
+            )
+
+        self._global_defaults = {
+            role: RoleChoice(**choice_state)
+            for role, choice_state in state["global_defaults_state"].items()
+        }
+
     def load_context(
         self: TechnicalTaskRouterModel,
         context: mlflow.pyfunc.PythonModelContext,
