@@ -30,8 +30,8 @@ class WeightCommitment:
 
     root: str
     algorithm: str
-    files: list[tuple[str, str, int]]
-    excluded: list[str]
+    files: tuple[tuple[str, str, int], ...]
+    excluded: tuple[str, ...]
 
 
 def _is_excluded(rel_posix: str) -> bool:
@@ -117,6 +117,6 @@ def compute_weight_commitment(
     return WeightCommitment(
         root=_merkle_root(leaf_digests),
         algorithm=ALGORITHM,
-        files=files,
-        excluded=sorted(excluded_paths),
+        files=tuple(files),
+        excluded=tuple(sorted(excluded_paths)),
     )

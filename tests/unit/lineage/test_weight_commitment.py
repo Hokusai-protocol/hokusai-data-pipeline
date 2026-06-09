@@ -117,9 +117,9 @@ def test_nested_subdirectory_included(tmp_path: Path) -> None:
 
     commitment = compute_weight_commitment(tmp_path)
 
-    assert commitment.files == [
+    assert commitment.files == (
         ("sub/weights.bin", sha256(b"payload").hexdigest(), len(b"payload")),
-    ]
+    )
 
 
 def test_mlmodel_excluded(tmp_path: Path) -> None:
