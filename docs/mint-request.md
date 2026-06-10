@@ -33,6 +33,11 @@ That post-mint split is reported only after the secondary HTTP mint hook returns
 | `eval_id` | string | Evaluation run identifier |
 | `attestation_hash` | `0x`-prefixed 64-hex | SHA-256 of the canonical attestation payload |
 | `idempotency_key` | `0x`-prefixed 64-hex | Canonical dedup key (see below) |
+| `baseline` | `0x`-prefixed 64-hex (optional) | Latest on-chain block hash used as the authorization baseline |
+| `baselineCommitment` | `0x`-prefixed 64-hex (optional) | SHA-256 Merkle root of baseline weights |
+| `candidateCommitment` | `0x`-prefixed 64-hex (optional) | SHA-256 Merkle root of candidate weights |
+| `attesterSignature` | `0x`-prefixed 130-hex (optional) | Attester ECDSA signature over attestation payload |
+| `signingDigest` | `0x`-prefixed 64-hex (optional) | EIP-712 digest signed by the hardware-wallet attester |
 | `totalSamples` | integer `>= 1` | Required top-level sample count for DeltaVerifier ABI |
 | `evaluation` | object | Scores, costs, statistical metadata |
 | `contributors` | array | Wallet addresses + `weight_bps` with optional submission traceability fields |
@@ -107,6 +112,28 @@ If `publish()` raises a `RedisError`, the exception propagates and steps 5-6 are
 If the producer cannot derive a positive integer candidate sample size from the accepted DeltaOne decision, MintRequest construction fails closed before Redis publish. In that case, canonical score advancement and the legacy mint hook are both skipped.
 
 Auth-service notification failures are logged but do not roll back the already durable Redis handoff or the canonical advancement. Legacy hook failures, skips, and dry-runs are also non-blocking and are recorded separately in MLflow tags such as `hokusai.mint.legacy_status`.
+
+## Signing Flow
+
+When the mint authorization env block is configured, the producer builds the exact EIP-712 typed data from the draft `MintRequest`, derives the digest that the contract verifies, and logs a human-readable rendering of that exact typed data for the attester operator. The typed data includes:
+
+- `modelIdUint`
+- `baselineCommitment`
+- `candidateCommitment`
+- `baseline` (latest on-chain block hash)
+- `attestationHash`
+- `totalSamples`
+
+The intended operator sequence is:
+
+1. Producer resolves `baseline` from `ETH_RPC_URL`
+2. Producer builds and renders the exact typed data
+3. Hardware-wallet attester signs that typed data out-of-band
+4. Signature is injected through `ATTESTER_SIGNATURE`
+5. Producer verifies the signature against `MINT_ATTESTER_ADDRESS`
+6. Producer publishes `baseline`, commitments, `signingDigest`, and `attesterSignature` on the `MintRequest`
+
+If `MINT_REQUIRE_ONCHAIN_BASELINE` is set to anything other than `false`, `ETH_RPC_URL` becomes mandatory and a baseline-read failure aborts publish before canonical advancement.
 
 ## Post-mint vesting semantics
 

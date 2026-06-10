@@ -201,6 +201,7 @@ MINT_REQUEST_MESSAGE_TYPE = "mint_request"
 _UINT256_MAX = 2**256 - 1
 _ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _SHA256_HEX_RE = re.compile(r"^0x[0-9a-f]{64}$")
+_ECDSA_SIG_RE = re.compile(r"^0x[0-9a-f]{130}$")
 
 
 class MintRequestContributor(BaseModel):
@@ -285,6 +286,38 @@ class MintRequest(BaseModel):
     idempotency_key: str = Field(
         ..., description="sha256(model_id_uint:attestation_hash), 0x-prefixed"
     )
+    baseline: str | None = Field(
+        default=None,
+        description="On-chain head block hash at publish time, 0x-prefixed 64-hex",
+    )
+    baseline_commitment: str | None = Field(
+        default=None,
+        alias="baselineCommitment",
+        description=(
+            "SHA-256 Merkle root of baseline model weights, "
+            "0x-prefixed 64-hex (sha256-merkle-v1)"
+        ),
+    )
+    candidate_commitment: str | None = Field(
+        default=None,
+        alias="candidateCommitment",
+        description=(
+            "SHA-256 Merkle root of candidate model weights, "
+            "0x-prefixed 64-hex (sha256-merkle-v1)"
+        ),
+    )
+    attester_signature: str | None = Field(
+        default=None,
+        alias="attesterSignature",
+        description=(
+            "Attester ECDSA signature over attestation payload, " "0x-prefixed 130-hex (65 bytes)"
+        ),
+    )
+    signing_digest: str | None = Field(
+        default=None,
+        alias="signingDigest",
+        description="EIP-712 digest that was signed, 0x-prefixed 64-hex",
+    )
 
     total_samples: int = Field(
         ...,
@@ -318,6 +351,22 @@ class MintRequest(BaseModel):
     def _validate_0x_sha256(cls, v: str) -> str:
         if not _SHA256_HEX_RE.match(v):
             raise ValueError(f"hash field must be 0x-prefixed lowercase 64-hex SHA-256, got {v!r}")
+        return v
+
+    @field_validator("baseline", "baseline_commitment", "candidate_commitment", "signing_digest")
+    @classmethod
+    def _validate_optional_sha256(cls, v: str | None) -> str | None:
+        if v is not None and not _SHA256_HEX_RE.match(v):
+            raise ValueError(f"commitment must be 0x-prefixed lowercase 64-hex SHA-256, got {v!r}")
+        return v
+
+    @field_validator("attester_signature")
+    @classmethod
+    def _validate_attester_sig(cls, v: str | None) -> str | None:
+        if v is not None and not _ECDSA_SIG_RE.match(v):
+            raise ValueError(
+                "attesterSignature must be 0x-prefixed lowercase 130-hex " f"(65 bytes), got {v!r}"
+            )
         return v
 
     @model_validator(mode="after")

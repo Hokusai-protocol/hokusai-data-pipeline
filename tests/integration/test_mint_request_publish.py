@@ -19,6 +19,7 @@ import fakeredis
 import pytest
 
 from src.api.schemas.token_mint import TokenMintResult
+from src.eip712 import BaselineUnavailableError
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator
 from src.evaluation.event_payload import make_idempotency_key
@@ -550,6 +551,45 @@ class TestMintRequestPublishIntegration:
         }
         assert by_submission["sub-1"].contribution_batch_id == "batch-1"
         assert by_submission["sub-2"].weight_bps == 3000
+
+    def test_baseline_equals_onchain_head_when_rpc_configured(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("ETH_RPC_URL", "https://rpc.example")
+        monkeypatch.setenv("MINT_REQUIRE_ONCHAIN_BASELINE", "true")
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.read_onchain_head",
+            Mock(return_value="0x" + "9a" * 32),
+        )
+        orchestrator = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id=_EVAL_ID,
+        )
+
+        outcome = orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+        msg = _queued_mint_request(fake_redis_client)
+
+        assert outcome.status == "success"
+        assert msg.baseline == "0x" + "9a" * 32
+
+    def test_publish_raises_baseline_unavailable_on_rpc_failure(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("ETH_RPC_URL", "https://rpc.example")
+        monkeypatch.setenv("MINT_REQUIRE_ONCHAIN_BASELINE", "true")
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.read_onchain_head",
+            Mock(side_effect=BaselineUnavailableError("timeout")),
+        )
+        orchestrator = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id=_EVAL_ID,
+        )
+
+        with pytest.raises(BaselineUnavailableError, match="timeout"):
+            orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
 
     def test_reward_entitlement_failure_does_not_block_queue_or_canonical_advance(
         self, fake_redis_client, monkeypatch
