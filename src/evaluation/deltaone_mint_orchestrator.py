@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import tempfile
 import uuid
@@ -23,6 +24,15 @@ from src.api.schemas.token_mint import TokenMintResult
 from src.api.services.auth_service_notifier import AuthServiceNotifier
 from src.api.services.token_mint_hook import TokenMintHook
 from src.cli.attestation import create_attestation
+from src.eip712 import (
+    BaselineUnavailableError,
+    MintAuthorizationConfig,
+    build_typed_data,
+    compute_digest,
+    read_onchain_head,
+    render_for_human,
+    verify_signature,
+)
 from src.evaluation.attribution.contributor_set import (
     ContributorDerivationError,
     derive_contributor_set,
@@ -48,6 +58,8 @@ from src.evaluation.tags import (
     ATTRIBUTION_REPORT_ARTIFACT_URI_TAG,
     EVAL_SPEC_ID_TAG,
     PROJECTED_COST_TAG,
+    WEIGHT_COMMITMENT_BASELINE_TAG,
+    WEIGHT_COMMITMENT_CANDIDATE_TAG,
 )
 from src.evaluation.webhook_delivery import dispatch_deltaone_webhook_event
 from src.events.schemas import MintRequest, MintRequestContributor, MintRequestEvaluation
@@ -129,6 +141,8 @@ class _EventContext:
     guardrail_specs: list[RuntimeGuardrailSpec] = field(default_factory=list)
     max_cost_usd: float | None = None
     actual_cost_usd: float | None = None
+    baseline_commitment: str | None = None
+    candidate_commitment: str | None = None
     # Contributor allocations extracted from spec or run tags (HOK-1276)
     contributors: list[dict[str, Any]] = field(default_factory=list)
 
@@ -205,6 +219,14 @@ class DeltaOneMintOrchestrator:
         delta_threshold_pp = getattr(self.evaluator, "delta_threshold_pp", 1.0)
 
         actual_cost_usd = _resolve_cost_value(candidate_tags)
+        baseline_commitment = _resolve_optional_commitment_tag(
+            candidate_tags.get(WEIGHT_COMMITMENT_BASELINE_TAG),
+            field_name=WEIGHT_COMMITMENT_BASELINE_TAG,
+        )
+        candidate_commitment = _resolve_optional_commitment_tag(
+            candidate_tags.get(WEIGHT_COMMITMENT_CANDIDATE_TAG),
+            field_name=WEIGHT_COMMITMENT_CANDIDATE_TAG,
+        )
 
         attribution_report = self._load_attribution_report(candidate_tags, decision.run_id)
         contributors = self._resolve_contributors(
@@ -229,6 +251,8 @@ class DeltaOneMintOrchestrator:
             guardrail_specs=[],
             max_cost_usd=None,
             actual_cost_usd=actual_cost_usd,
+            baseline_commitment=baseline_commitment,
+            candidate_commitment=candidate_commitment,
             contributors=contributors,
         )
 
@@ -355,6 +379,14 @@ class DeltaOneMintOrchestrator:
                 pass
 
         actual_cost_usd = _resolve_cost_value(candidate_tags)
+        baseline_commitment = _resolve_optional_commitment_tag(
+            candidate_tags.get(WEIGHT_COMMITMENT_BASELINE_TAG),
+            field_name=WEIGHT_COMMITMENT_BASELINE_TAG,
+        )
+        candidate_commitment = _resolve_optional_commitment_tag(
+            candidate_tags.get(WEIGHT_COMMITMENT_CANDIDATE_TAG),
+            field_name=WEIGHT_COMMITMENT_CANDIDATE_TAG,
+        )
 
         attribution_report = self._load_attribution_report(candidate_tags, decision.run_id)
         contributors = self._resolve_contributors(
@@ -379,6 +411,8 @@ class DeltaOneMintOrchestrator:
             guardrail_specs=guardrail_specs,
             max_cost_usd=max_cost_usd,
             actual_cost_usd=actual_cost_usd,
+            baseline_commitment=baseline_commitment,
+            candidate_commitment=candidate_commitment,
             contributors=contributors,
         )
 
@@ -477,9 +511,8 @@ class DeltaOneMintOrchestrator:
                 "MintRequestPublisher is required for accepted DeltaOne mint handoff"
             )
 
-        # Validate the durable handoff payload up front so webhook consumers are not notified
-        # about a mint that later fails local schema or contributor checks.
-        mint_request = _build_mint_request(
+        mint_request = self._build_authorized_mint_request(
+            decision=decision,
             acceptance_event=acceptance_event,
             event_context=event_context,
         )
@@ -681,6 +714,96 @@ class DeltaOneMintOrchestrator:
             mint_result=mint_result,
         )
         return mint_result
+
+    def _resolve_onchain_baseline(self: DeltaOneMintOrchestrator) -> str | None:
+        """Resolve the latest block hash when baseline anchoring is configured."""
+        rpc_url = (os.getenv("ETH_RPC_URL") or "").strip()
+        require_env = os.getenv("MINT_REQUIRE_ONCHAIN_BASELINE")
+        baseline_required = require_env is not None and require_env.lower() != "false"
+        if rpc_url:
+            return read_onchain_head(rpc_url)
+        if baseline_required:
+            raise BaselineUnavailableError(
+                "ETH_RPC_URL must be configured when MINT_REQUIRE_ONCHAIN_BASELINE is enabled"
+            )
+        return None
+
+    def _build_authorized_mint_request(
+        self: DeltaOneMintOrchestrator,
+        *,
+        decision: DeltaOneDecision,
+        acceptance_event: DeltaOneAcceptanceEvent,
+        event_context: _EventContext | None,
+    ) -> MintRequest:
+        """Build a MintRequest and attach optional EIP-712 authorization fields."""
+        baseline = self._resolve_onchain_baseline()
+        attester_signature = _normalize_optional_signature(os.getenv("ATTESTER_SIGNATURE"))
+        draft_mint_request = _build_mint_request(
+            acceptance_event=acceptance_event,
+            event_context=event_context,
+            baseline=baseline,
+            baseline_commitment=event_context.baseline_commitment if event_context else None,
+            candidate_commitment=event_context.candidate_commitment if event_context else None,
+            attester_signature=attester_signature,
+        )
+        signing_digest = self._resolve_signing_digest(
+            decision=decision,
+            draft_mint_request=draft_mint_request,
+            attester_signature=attester_signature,
+        )
+        return _build_mint_request(
+            acceptance_event=acceptance_event,
+            event_context=event_context,
+            baseline=baseline,
+            baseline_commitment=event_context.baseline_commitment if event_context else None,
+            candidate_commitment=event_context.candidate_commitment if event_context else None,
+            attester_signature=attester_signature,
+            signing_digest=signing_digest,
+        )
+
+    def _resolve_signing_digest(
+        self: DeltaOneMintOrchestrator,
+        *,
+        decision: DeltaOneDecision,
+        draft_mint_request: MintRequest,
+        attester_signature: str | None,
+    ) -> str | None:
+        """Build typed data, render it for the operator, and verify any signature."""
+        auth_config = _load_optional_mint_authorization_config()
+        if auth_config is None:
+            return None
+        if (
+            draft_mint_request.baseline is None
+            or draft_mint_request.baseline_commitment is None
+            or draft_mint_request.candidate_commitment is None
+        ):
+            logger.warning(
+                "event=mint_authorization_skipped_missing_inputs run_id=%s baseline=%s "
+                "baseline_commitment=%s candidate_commitment=%s",
+                decision.run_id,
+                draft_mint_request.baseline is not None,
+                draft_mint_request.baseline_commitment is not None,
+                draft_mint_request.candidate_commitment is not None,
+            )
+            return None
+
+        typed_data = build_typed_data(draft_mint_request, auth_config)
+        signing_digest = f"0x{compute_digest(typed_data).hex()}"
+        logger.info(
+            "event=mint_authorization_typed_data run_id=%s digest=%s\n%s",
+            decision.run_id,
+            signing_digest,
+            render_for_human(typed_data),
+        )
+        if attester_signature is not None and not verify_signature(
+            typed_data,
+            attester_signature,
+            auth_config.attester_address,
+        ):
+            raise ValueError(
+                "ATTESTER_SIGNATURE did not recover the configured MINT_ATTESTER_ADDRESS"
+            )
+        return signing_digest
 
     def _notify_reward_entitlement(
         self: DeltaOneMintOrchestrator,
@@ -1318,6 +1441,12 @@ def _extract_optional_contributor_metadata(entry: dict[str, Any]) -> dict[str, s
 def _build_mint_request(
     acceptance_event: DeltaOneAcceptanceEvent,
     event_context: _EventContext | None,
+    *,
+    baseline: str | None = None,
+    baseline_commitment: str | None = None,
+    candidate_commitment: str | None = None,
+    attester_signature: str | None = None,
+    signing_digest: str | None = None,
 ) -> MintRequest:
     """Build a MintRequest from a validated DeltaOneAcceptanceEvent and optional EventContext.
 
@@ -1424,6 +1553,11 @@ def _build_mint_request(
         dataset_hash=_normalise_to_0x_sha256(ctx_decision.dataset_hash, field="dataset_hash"),
         attestation_hash=acceptance_event.attestation_hash,
         idempotency_key=acceptance_event.idempotency_key,
+        baseline=baseline,
+        baseline_commitment=baseline_commitment,
+        candidate_commitment=candidate_commitment,
+        attester_signature=attester_signature,
+        signing_digest=signing_digest,
         total_samples=total_samples,
         evaluation=evaluation,
         contributors=contributor_models,
@@ -1472,6 +1606,47 @@ def _normalise_to_0x_sha256(value: Any, *, field: str) -> str:
             f"expected sha256:<64 lowercase hex> or 0x<64 lowercase hex>, got {value!r}",
         )
     return f"0x{bare}"
+
+
+def _resolve_optional_commitment_tag(value: Any, *, field_name: str) -> str | None:
+    """Normalize a commitment tag to canonical 0x-prefixed lowercase hex."""
+    if value is None or not str(value).strip():
+        return None
+    try:
+        return _normalise_to_0x_sha256(str(value), field=field_name)
+    except EventPayloadError:
+        logger.warning("event=invalid_commitment_tag field=%s value=%r", field_name, value)
+        return None
+
+
+def _normalize_optional_signature(value: str | None) -> str | None:
+    """Normalize an optional env-provided attester signature."""
+    if value is None or not value.strip():
+        return None
+    stripped = value.strip()
+    prefix = stripped[:2].lower()
+    if prefix != "0x":
+        raise ValueError("ATTESTER_SIGNATURE must be 0x-prefixed hex")
+    return f"0x{stripped[2:].lower()}"
+
+
+def _load_optional_mint_authorization_config() -> MintAuthorizationConfig | None:
+    """Load EIP-712 config only when the full env block is present."""
+    env_names = (
+        "MINT_CHAIN_ID",
+        "MINT_VERIFYING_CONTRACT",
+        "MINT_ATTESTER_ADDRESS",
+    )
+    present = [name for name in env_names if os.getenv(name) and str(os.getenv(name)).strip()]
+    if not present:
+        return None
+    if len(present) != len(env_names):
+        missing = sorted(set(env_names) - set(present))
+        raise ValueError(
+            "Partial mint authorization configuration is not allowed; missing: "
+            + ", ".join(missing)
+        )
+    return MintAuthorizationConfig.from_env()
 
 
 def _normalize_weights_to_10000(

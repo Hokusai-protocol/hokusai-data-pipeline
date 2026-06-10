@@ -279,6 +279,19 @@
       "title": "Idempotency Key",
       "type": "string"
     },
+    "baseline": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "On-chain head block hash at publish time, 0x-prefixed 64-hex",
+      "title": "Baseline"
+    },
     "baselineCommitment": {
       "anyOf": [
         {
@@ -317,6 +330,19 @@
       "default": null,
       "description": "Attester ECDSA signature over attestation payload, 0x-prefixed 130-hex (65 bytes)",
       "title": "Attestersignature"
+    },
+    "signingDigest": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "EIP-712 digest that was signed, 0x-prefixed 64-hex",
+      "title": "Signingdigest"
     },
     "totalSamples": {
       "description": "Total sample count submitted to DeltaVerifier, derived from accepted candidate samples",

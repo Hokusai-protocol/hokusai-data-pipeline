@@ -286,6 +286,10 @@ class MintRequest(BaseModel):
     idempotency_key: str = Field(
         ..., description="sha256(model_id_uint:attestation_hash), 0x-prefixed"
     )
+    baseline: str | None = Field(
+        default=None,
+        description="On-chain head block hash at publish time, 0x-prefixed 64-hex",
+    )
     baseline_commitment: str | None = Field(
         default=None,
         alias="baselineCommitment",
@@ -308,6 +312,11 @@ class MintRequest(BaseModel):
         description=(
             "Attester ECDSA signature over attestation payload, " "0x-prefixed 130-hex (65 bytes)"
         ),
+    )
+    signing_digest: str | None = Field(
+        default=None,
+        alias="signingDigest",
+        description="EIP-712 digest that was signed, 0x-prefixed 64-hex",
     )
 
     total_samples: int = Field(
@@ -344,9 +353,9 @@ class MintRequest(BaseModel):
             raise ValueError(f"hash field must be 0x-prefixed lowercase 64-hex SHA-256, got {v!r}")
         return v
 
-    @field_validator("baseline_commitment", "candidate_commitment")
+    @field_validator("baseline", "baseline_commitment", "candidate_commitment", "signing_digest")
     @classmethod
-    def _validate_commitment(cls, v: str | None) -> str | None:
+    def _validate_optional_sha256(cls, v: str | None) -> str | None:
         if v is not None and not _SHA256_HEX_RE.match(v):
             raise ValueError(f"commitment must be 0x-prefixed lowercase 64-hex SHA-256, got {v!r}")
         return v

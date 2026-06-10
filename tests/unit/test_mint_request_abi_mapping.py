@@ -23,6 +23,9 @@ def test_mint_request_fixture_matches_abi_contract_invariants() -> None:
     assert fixture["benchmark_spec_id"] == fixture["benchmark_spec_id"].strip()
     assert fixture["dataset_hash"].startswith("0x")
     assert fixture["dataset_hash"] != "0x" + "0" * 64
+    if "baseline" in fixture:
+        assert fixture["baseline"].startswith("0x")
+        assert len(fixture["baseline"]) == 66
     assert fixture["attestation_hash"].startswith("0x")
     assert fixture["attestation_hash"] != "0x" + "0" * 64
     assert fixture["idempotency_key"] == make_idempotency_key(
@@ -35,6 +38,9 @@ def test_mint_request_fixture_matches_abi_contract_invariants() -> None:
         assert fixture["candidateCommitment"].startswith("0x")
     if "attesterSignature" in fixture:
         assert fixture["attesterSignature"].startswith("0x")
+    if "signingDigest" in fixture:
+        assert fixture["signingDigest"].startswith("0x")
+        assert len(fixture["signingDigest"]) == 66
     assert sum(contributor["weight_bps"] for contributor in contributors) == 10000
     assert fixture["totalSamples"] >= 1
     assert fixture["totalSamples"] == evaluation["sample_size_candidate"]
