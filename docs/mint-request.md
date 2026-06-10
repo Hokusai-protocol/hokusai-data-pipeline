@@ -33,6 +33,9 @@ That post-mint split is reported only after the secondary HTTP mint hook returns
 | `eval_id` | string | Evaluation run identifier |
 | `attestation_hash` | `0x`-prefixed 64-hex | SHA-256 of the canonical attestation payload |
 | `idempotency_key` | `0x`-prefixed 64-hex | Canonical dedup key (see below) |
+| `baselineCommitment` | `0x`-prefixed 64-hex (optional) | SHA-256 Merkle root of baseline weights |
+| `candidateCommitment` | `0x`-prefixed 64-hex (optional) | SHA-256 Merkle root of candidate weights |
+| `attesterSignature` | `0x`-prefixed 130-hex (optional) | Attester ECDSA signature over attestation payload |
 | `totalSamples` | integer `>= 1` | Required top-level sample count for DeltaVerifier ABI |
 | `evaluation` | object | Scores, costs, statistical metadata |
 | `contributors` | array | Wallet addresses + `weight_bps` with optional submission traceability fields |

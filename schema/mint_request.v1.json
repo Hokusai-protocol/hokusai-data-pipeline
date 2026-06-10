@@ -266,12 +266,11 @@
     },
     "dataset_hash": {
       "description": "Dataset anchor, 0x-prefixed 64-hex SHA-256",
-      "pattern": "^0x[0-9a-f]{64}$",
       "title": "Dataset Hash",
       "type": "string"
     },
     "attestation_hash": {
-      "description": "SHA-256 of the canonical attestation payload (benchmark_spec_id, dataset_hash, attribution_report_hash), 0x-prefixed 64-hex",
+      "description": "SHA-256 of HEM payload, 0x-prefixed 64-hex",
       "title": "Attestation Hash",
       "type": "string"
     },
@@ -279,6 +278,45 @@
       "description": "sha256(model_id_uint:attestation_hash), 0x-prefixed",
       "title": "Idempotency Key",
       "type": "string"
+    },
+    "baselineCommitment": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 Merkle root of baseline model weights, 0x-prefixed 64-hex (sha256-merkle-v1)",
+      "title": "Baselinecommitment"
+    },
+    "candidateCommitment": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "SHA-256 Merkle root of candidate model weights, 0x-prefixed 64-hex (sha256-merkle-v1)",
+      "title": "Candidatecommitment"
+    },
+    "attesterSignature": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Attester ECDSA signature over attestation payload, 0x-prefixed 130-hex (65 bytes)",
+      "title": "Attestersignature"
     },
     "totalSamples": {
       "description": "Total sample count submitted to DeltaVerifier, derived from accepted candidate samples",
