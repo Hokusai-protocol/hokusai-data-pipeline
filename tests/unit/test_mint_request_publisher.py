@@ -59,6 +59,9 @@ EXAMPLE_FILE = REPO_ROOT / "schema" / "examples" / "mint_request.v1.json"
 
 _ATT_HASH = "0x" + "a" * 64
 _IDEMPOTENCY_KEY = "0x" + "b" * 64
+_BASELINE_COMMITMENT = "0x" + "1a2b3c4d" * 8
+_CANDIDATE_COMMITMENT = "0x" + "2b3c4d5e" * 8
+_ATTESTER_SIGNATURE = "0x" + ("0123456789abcdef" * 8) + "1b"
 _MODEL_ID_UINT = "12345678901234567890"
 _EVAL_ID = "eval-test-001"
 _SPEC_ID = "spec-test-v1"
@@ -212,6 +215,36 @@ class TestMintRequest:
         with pytest.raises(ValidationError, match="totalSamples"):
             MintRequest.model_validate(data)
 
+    def test_new_fields_optional_when_absent(self) -> None:
+        msg = _valid_mint_request()
+        assert msg.baseline_commitment is None
+        assert msg.candidate_commitment is None
+        assert msg.attester_signature is None
+
+    def test_baseline_commitment_valid(self) -> None:
+        msg = _valid_mint_request(baseline_commitment=_BASELINE_COMMITMENT)
+        assert msg.baseline_commitment == _BASELINE_COMMITMENT
+
+    def test_candidate_commitment_invalid_uppercase(self) -> None:
+        with pytest.raises(ValidationError, match="candidate_commitment"):
+            _valid_mint_request(candidate_commitment="0x" + "ABCD" * 16)
+
+    def test_candidate_commitment_wrong_length(self) -> None:
+        with pytest.raises(ValidationError, match="candidate_commitment"):
+            _valid_mint_request(candidate_commitment="0x" + "a" * 32)
+
+    def test_attester_signature_valid(self) -> None:
+        msg = _valid_mint_request(attester_signature=_ATTESTER_SIGNATURE)
+        assert msg.attester_signature == _ATTESTER_SIGNATURE
+
+    def test_attester_signature_invalid(self) -> None:
+        with pytest.raises(ValidationError, match="attesterSignature"):
+            _valid_mint_request(attester_signature="a" * 130)
+
+    def test_attester_signature_wrong_length(self) -> None:
+        with pytest.raises(ValidationError, match="attesterSignature"):
+            _valid_mint_request(attester_signature="0x" + "a" * 64)
+
     @pytest.mark.parametrize("value", [0, -1])
     def test_total_samples_must_be_positive(self, value: int) -> None:
         with pytest.raises(ValidationError, match="total_samples"):
@@ -341,9 +374,13 @@ class TestJsonSchemaDrift:
             data = json.load(f)
         msg = MintRequest.model_validate(data)
         assert msg.model_id == data["model_id"]
+        assert msg.baseline_commitment == data["baselineCommitment"]
+        assert msg.candidate_commitment == data["candidateCommitment"]
+        assert msg.attester_signature == data["attesterSignature"]
         assert msg.total_samples == data["totalSamples"]
         assert msg.total_samples == msg.evaluation.sample_size_candidate
         assert sum(c.weight_bps for c in msg.contributors) == 10000
+        assert msg.contributors[0].contributor_id == data["contributors"][0]["contributorId"]
 
     def test_example_json_round_trip(self) -> None:
         with EXAMPLE_FILE.open() as f:
@@ -356,7 +393,13 @@ class TestJsonSchemaDrift:
         assert dumped["attestation_hash"] == data["attestation_hash"]
         assert dumped["benchmark_spec_id"] == data["benchmark_spec_id"]
         assert dumped["dataset_hash"] == data["dataset_hash"]
+        assert dumped["baselineCommitment"] == data["baselineCommitment"]
+        assert dumped["candidateCommitment"] == data["candidateCommitment"]
+        assert dumped["attesterSignature"] == data["attesterSignature"]
         assert dumped["totalSamples"] == data["totalSamples"]
+        assert (
+            dumped["contributors"][0]["contributorId"] == data["contributors"][0]["contributorId"]
+        )
 
 
 # ---------------------------------------------------------------------------
