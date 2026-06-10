@@ -10,6 +10,11 @@
   "dataset_hash": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   "attestation_hash": "0xd12b65d6be0c2170d427589cc027d4988031dc23356a7f83ecf476fc712bb543",
   "idempotency_key": "0x1c19c341d6c99e7e7dbd68f767cdf7d0969688fed7e3d3fdd82711b29ea69a65",
+  "baseline": "0x9a9b9c9d9e9f909192939495969798999a9b9c9d9e9f90919293949596979899",
+  "baselineCommitment": "0x1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b",
+  "candidateCommitment": "0x2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c",
+  "attesterSignature": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef1b",
+  "signingDigest": "0x8f2b7ac37d8e1f9d6c5b4a39281716151413121110fffefdfcfbfaf9f8f7f6f5",
   "totalSamples": 1000,
   "evaluation": {
     "metric_name": "accuracy",
@@ -32,12 +37,14 @@
       "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
       "weight_bps": 7000,
       "submissionId": "sub-001",
-      "contributionBatchId": "batch-001"
+      "contributionBatchId": "batch-001",
+      "contributorId": "contrib-001"
     },
     {
       "wallet_address": "0x6c3e007f281f6948b37c511a11e43c8026d2f069",
       "weight_bps": 3000,
-      "submissionId": "sub-002"
+      "submissionId": "sub-002",
+      "contributorId": "contrib-002"
     }
   ]
 }

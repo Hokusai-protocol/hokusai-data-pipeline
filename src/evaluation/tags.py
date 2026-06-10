@@ -18,3 +18,5 @@ BENCHMARK_SPEC_ID_TAG = "hokusai.benchmark_spec_id"
 EVAL_SPEC_ID_TAG = BENCHMARK_SPEC_ID_TAG
 PER_ROW_ARTIFACT_URI_TAG = "hokusai.per_row_artifact_uri"
 ATTRIBUTION_REPORT_ARTIFACT_URI_TAG = "hokusai.attribution_report_artifact_uri"
+WEIGHT_COMMITMENT_BASELINE_TAG = "hokusai.weight_commitment.baseline"
+WEIGHT_COMMITMENT_CANDIDATE_TAG = "hokusai.weight_commitment.candidate"
