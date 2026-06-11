@@ -96,13 +96,13 @@ def _post_json_rpc(
     except (requests.RequestException, ValueError) as exc:
         raise BaselineUnavailableError(f"failed to {error_context}: {exc}") from exc
 
-    error = payload.get("error")
-    if error is not None:
-        raise BaselineUnavailableError(f"RPC error while attempting to {error_context}: {error}")
     if not isinstance(payload, dict):
         raise BaselineUnavailableError(
             f"malformed JSON-RPC payload while attempting to {error_context}"
         )
+    error = payload.get("error")
+    if error is not None:
+        raise BaselineUnavailableError(f"RPC error while attempting to {error_context}: {error}")
     return payload
 
 
