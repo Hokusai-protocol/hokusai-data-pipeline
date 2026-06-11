@@ -617,14 +617,18 @@ class TestMintRequestPublishIntegration:
         assert by_submission["sub-1"].contribution_batch_id == "batch-1"
         assert by_submission["sub-2"].weight_bps == 3000
 
-    def test_publish_does_not_read_onchain_block_hash_for_signing(
+    def test_publish_re_reads_onchain_baseline_to_detect_drift(
         self, fake_redis_client, monkeypatch
     ) -> None:
+        # Phase 6: at publish time we re-read the on-chain head; the freshly read
+        # value drives the published baseline_commitment (registration-time MLflow
+        # tag is ignored when chain is reachable).
+        fresh_onchain_head = "0x" + "9a" * 32
         monkeypatch.setenv("ETH_RPC_URL", "https://rpc.example")
         monkeypatch.setenv("MINT_REQUIRE_ONCHAIN_BASELINE", "true")
         monkeypatch.setattr(
             "src.evaluation.deltaone_mint_orchestrator.read_current_model_head",
-            Mock(return_value="0x" + "9a" * 32),
+            Mock(return_value=fresh_onchain_head),
         )
         orchestrator = _build_orchestrator(
             fake_redis_client=fake_redis_client,
@@ -636,7 +640,7 @@ class TestMintRequestPublishIntegration:
         msg = _queued_mint_request(fake_redis_client)
 
         assert outcome.status == "success"
-        assert msg.baseline_commitment == _BASELINE_COMMITMENT
+        assert msg.baseline_commitment == fresh_onchain_head
 
     def test_publish_raises_baseline_unavailable_on_rpc_failure(
         self, fake_redis_client, monkeypatch

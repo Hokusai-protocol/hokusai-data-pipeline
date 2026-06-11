@@ -115,6 +115,102 @@ def read_is_attester(
     return _read_is_attester(rpc_url, contract_address=contract_address, address=address)
 
 
+def build_mint_request_for_run(client: Any, run_id: str) -> tuple[MintRequest, str]:
+    """Reconstruct the canonical MintRequest + on-chain baseline for an accepted run.
+
+    Public seam used by the attest CLI to rebuild the exact typed data the
+    orchestrator will sign at publish time. Reads the chain head fresh so a
+    rebuilt typed-data digest reflects current state, not a frozen MLflow tag.
+    """
+    run = client.get_run(run_id)
+    tags = getattr(getattr(run, "data", None), "tags", None) or {}
+    metrics = getattr(getattr(run, "data", None), "metrics", None) or {}
+
+    decision = _decision_from_run_tags(tags, run_id=run_id)
+    baseline_run = client.get_run(decision.baseline_run_id)
+    baseline_metrics = getattr(getattr(baseline_run, "data", None), "metrics", None) or {}
+
+    mlflow_name = derive_mlflow_name(decision.metric_name)
+    baseline_score = (
+        _resolve_metric_value(decision.metric_name, mlflow_name, baseline_metrics) or 0.0
+    )
+    candidate_score = _resolve_metric_value(decision.metric_name, mlflow_name, metrics) or 0.0
+    rpc_url = (os.getenv("ETH_RPC_URL") or "").strip()
+    verifying_contract = (os.getenv("MINT_VERIFYING_CONTRACT") or "").strip()
+    if not rpc_url or not verifying_contract:
+        raise EventPayloadError(
+            "baseline_commitment",
+            "ETH_RPC_URL and MINT_VERIFYING_CONTRACT must be set to rebuild MintRequest typed data",
+        )
+    baseline_commitment = read_current_model_head(
+        rpc_url,
+        contract_address=verifying_contract,
+        model_id_uint=tags["hokusai.model_id_uint"],
+    )
+    event_context = _EventContext(
+        decision=decision,
+        baseline_score=baseline_score,
+        candidate_score=candidate_score,
+        metric_family=str(tags.get("hokusai.metric_family") or "proportion"),
+        primary_metric_mlflow_name=mlflow_name,
+        benchmark_spec_id=str(tags.get("hokusai.benchmark_spec_id") or ""),
+        eval_id=str(tags.get("hokusai.eval_id") or ""),
+        model_id_uint=int(str(tags["hokusai.model_id_uint"])),
+        delta_threshold_pp=1.0,
+        max_cost_usd=None,
+        actual_cost_usd=_resolve_cost_value(tags),
+        baseline_commitment=baseline_commitment,
+        candidate_commitment=str(tags[WEIGHT_COMMITMENT_CANDIDATE_TAG]),
+        contributors=_extract_contributors_from_tags(tags),
+    )
+    acceptance_event = _build_acceptance_event(
+        ctx=event_context,
+        attestation_hash=_attestation_hash_from_run_tags(tags, run_id=run_id),
+    )
+    mint_request = _build_mint_request(
+        acceptance_event=acceptance_event,
+        event_context=event_context,
+        baseline_commitment=baseline_commitment,
+        candidate_commitment=event_context.candidate_commitment,
+        attester_signatures=[],
+    )
+    return mint_request, baseline_commitment
+
+
+def _decision_from_run_tags(tags: dict[str, str], *, run_id: str) -> DeltaOneDecision:
+    baseline_run_id = str(tags.get("hokusai.deltaone.baseline_run_id") or "")
+    if not baseline_run_id:
+        raise ValueError(f"run {run_id} is missing hokusai.deltaone.baseline_run_id")
+    evaluated_at = datetime.fromisoformat(str(tags["hokusai.deltaone.evaluated_at"]))
+    return DeltaOneDecision(
+        accepted=str(tags.get("hokusai.deltaone.accepted") or "").lower() == "true",
+        reason=str(tags["hokusai.deltaone.reason"]),
+        run_id=run_id,
+        baseline_run_id=baseline_run_id,
+        model_id=str(tags["hokusai.deltaone.model_id"]),
+        dataset_hash=str(tags["hokusai.deltaone.dataset_hash"]),
+        metric_name=str(tags["hokusai.deltaone.metric_name"]),
+        delta_percentage_points=float(tags["hokusai.deltaone.delta_pp"]),
+        ci95_low_percentage_points=float(tags["hokusai.deltaone.ci95_low_pp"]),
+        ci95_high_percentage_points=float(tags["hokusai.deltaone.ci95_high_pp"]),
+        n_current=int(tags["hokusai.deltaone.n_current"]),
+        n_baseline=int(tags["hokusai.deltaone.n_baseline"]),
+        evaluated_at=evaluated_at,
+    )
+
+
+def _attestation_hash_from_run_tags(tags: dict[str, str], *, run_id: str) -> str:
+    value = (
+        tags.get("hokusai_eval.attestation_hash")
+        or tags.get("hokusai.mint.attestation_hash")
+        or tags.get("hokusai.attestation_hash")
+    )
+    if not value:
+        raise ValueError(f"run {run_id} is missing a persisted attestation hash tag")
+    normalized = str(value).lower()
+    return normalized if normalized.startswith("0x") else f"0x{normalized}"
+
+
 class MlflowClientProtocol(Protocol):
     """Subset of MLflow client operations required for mint orchestration."""
 
@@ -767,23 +863,28 @@ class DeltaOneMintOrchestrator:
         model_id_uint: str,
         fallback_commitment: str | None,
     ) -> str:
-        """Resolve the canonical on-chain lineage head, with legacy fallback only when offline."""
+        """Resolve baseline_commitment at publish time.
+
+        Prefers a fresh on-chain read (Phase 6: catch baseline drift between attach
+        and publish). Falls back to the registration-time MLflow tag value only when
+        on-chain access is unavailable and `MINT_REQUIRE_ONCHAIN_BASELINE` is false.
+        """
         rpc_url = (os.getenv("ETH_RPC_URL") or "").strip()
         verifying_contract = (os.getenv("MINT_VERIFYING_CONTRACT") or "").strip()
         require_env = os.getenv("MINT_REQUIRE_ONCHAIN_BASELINE")
         baseline_required = require_env is None or require_env.lower() != "false"
-        if fallback_commitment is not None:
-            logger.warning(
-                "event=mint_request_baseline_commitment_fallback model_id_uint=%s",
-                model_id_uint,
-            )
-            return fallback_commitment
         if rpc_url and verifying_contract:
             return read_current_model_head(
                 rpc_url,
                 contract_address=verifying_contract,
                 model_id_uint=model_id_uint,
             )
+        if fallback_commitment is not None:
+            logger.warning(
+                "event=mint_request_baseline_commitment_fallback model_id_uint=%s",
+                model_id_uint,
+            )
+            return fallback_commitment
         if baseline_required:
             from src.eip712.onchain_head import BaselineUnavailableError
 
@@ -871,8 +972,15 @@ class DeltaOneMintOrchestrator:
             logger.warning("event=mint_authorization_skipped_local_dev run_id=%s", decision.run_id)
             return []
         if state.baseline_commitment != baseline_commitment:
+            logger.error(
+                "event=mint_authorization_baseline_drift_post_attach run_id=%s "
+                "attached_baseline=%s onchain_baseline=%s",
+                decision.run_id,
+                state.baseline_commitment,
+                baseline_commitment,
+            )
             raise _mint_request_signing_error(
-                "attestation baseline is stale; rebuild and re-attach"
+                "attestation baseline drifted between attach and publish; " "rebuild and re-attach"
             )
         return _verify_attestation_state(typed_data, signatures=state.signatures)
 

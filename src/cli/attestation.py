@@ -18,13 +18,10 @@ from src.eip712 import (
     build_typed_data,
     compute_digest,
     read_attester_threshold,
-    read_current_model_head,
     read_is_attester,
     recover_signer,
     validate_signatures_against_registry,
 )
-from src.evaluation.deltaone_evaluator import DeltaOneDecision
-from src.evaluation.tags import WEIGHT_COMMITMENT_CANDIDATE_TAG
 
 ATTESTATION_ARTIFACT_PATH = "attestation/attestation.json"
 ATTEST_BUILD_TAG = "hokusai.mint.attest.build_v1"
@@ -109,68 +106,9 @@ def record_attestation_signatures(client: Any, *, run_id: str, signatures: list[
 
 def build_typed_data_for_run(client: Any, run_id: str) -> AttestationBuildResult:
     """Rebuild the canonical MintRequest typed data for a previously accepted run."""
-    from src.evaluation.deltaone_mint_orchestrator import (
-        _build_acceptance_event,
-        _build_mint_request,
-        _EventContext,
-        _extract_contributors_from_tags,
-        _resolve_cost_value,
-        _resolve_metric_value,
-    )
-    from src.utils.metric_naming import derive_mlflow_name
+    from src.evaluation.deltaone_mint_orchestrator import build_mint_request_for_run
 
-    run = client.get_run(run_id)
-    tags = getattr(getattr(run, "data", None), "tags", None) or {}
-    metrics = getattr(getattr(run, "data", None), "metrics", None) or {}
-
-    decision = _decision_from_run_tags(tags, run_id=run_id)
-    baseline_run = client.get_run(decision.baseline_run_id)
-    baseline_metrics = getattr(getattr(baseline_run, "data", None), "metrics", None) or {}
-
-    baseline_score = (
-        _resolve_metric_value(
-            decision.metric_name, derive_mlflow_name(decision.metric_name), baseline_metrics
-        )
-        or 0.0
-    )
-    candidate_score = (
-        _resolve_metric_value(
-            decision.metric_name, derive_mlflow_name(decision.metric_name), metrics
-        )
-        or 0.0
-    )
-    baseline_commitment = read_current_model_head(
-        _require_env("ETH_RPC_URL"),
-        contract_address=_require_env("MINT_VERIFYING_CONTRACT"),
-        model_id_uint=tags["hokusai.model_id_uint"],
-    )
-    event_context = _EventContext(
-        decision=decision,
-        baseline_score=baseline_score,
-        candidate_score=candidate_score,
-        metric_family=str(tags.get("hokusai.metric_family") or "proportion"),
-        primary_metric_mlflow_name=derive_mlflow_name(decision.metric_name),
-        benchmark_spec_id=str(tags.get("hokusai.benchmark_spec_id") or ""),
-        eval_id=str(tags.get("hokusai.eval_id") or ""),
-        model_id_uint=int(str(tags["hokusai.model_id_uint"])),
-        delta_threshold_pp=1.0,
-        max_cost_usd=None,
-        actual_cost_usd=_resolve_cost_value(tags),
-        baseline_commitment=baseline_commitment,
-        candidate_commitment=str(tags[WEIGHT_COMMITMENT_CANDIDATE_TAG]),
-        contributors=_extract_contributors_from_tags(tags),
-    )
-    acceptance_event = _build_acceptance_event(
-        ctx=event_context,
-        attestation_hash=_attestation_hash_from_tags(tags, run_id=run_id),
-    )
-    mint_request = _build_mint_request(
-        acceptance_event=acceptance_event,
-        event_context=event_context,
-        baseline_commitment=baseline_commitment,
-        candidate_commitment=event_context.candidate_commitment,
-        attester_signatures=[],
-    )
+    mint_request, baseline_commitment = build_mint_request_for_run(client, run_id)
     typed_data = build_typed_data(mint_request, _load_signing_config())
     digest_hex = f"0x{compute_digest(typed_data).hex()}"
     return AttestationBuildResult(
@@ -324,44 +262,3 @@ def _write_typed_data_output(typed_data: dict[str, Any], output_path: str | Path
 
 def _load_signing_config() -> MintRequestSigningConfig:
     return MintRequestSigningConfig.from_env()
-
-
-def _require_env(name: str) -> str:
-    value = (os.getenv(name) or "").strip()
-    if not value:
-        raise ValueError(f"{name} must be configured")
-    return value
-
-
-def _decision_from_run_tags(tags: dict[str, str], *, run_id: str) -> DeltaOneDecision:
-    baseline_run_id = str(tags.get("hokusai.deltaone.baseline_run_id") or "")
-    if not baseline_run_id:
-        raise ValueError(f"run {run_id} is missing hokusai.deltaone.baseline_run_id")
-    evaluated_at = datetime.fromisoformat(str(tags["hokusai.deltaone.evaluated_at"]))
-    return DeltaOneDecision(
-        accepted=str(tags.get("hokusai.deltaone.accepted") or "").lower() == "true",
-        reason=str(tags["hokusai.deltaone.reason"]),
-        run_id=run_id,
-        baseline_run_id=baseline_run_id,
-        model_id=str(tags["hokusai.deltaone.model_id"]),
-        dataset_hash=str(tags["hokusai.deltaone.dataset_hash"]),
-        metric_name=str(tags["hokusai.deltaone.metric_name"]),
-        delta_percentage_points=float(tags["hokusai.deltaone.delta_pp"]),
-        ci95_low_percentage_points=float(tags["hokusai.deltaone.ci95_low_pp"]),
-        ci95_high_percentage_points=float(tags["hokusai.deltaone.ci95_high_pp"]),
-        n_current=int(tags["hokusai.deltaone.n_current"]),
-        n_baseline=int(tags["hokusai.deltaone.n_baseline"]),
-        evaluated_at=evaluated_at,
-    )
-
-
-def _attestation_hash_from_tags(tags: dict[str, str], *, run_id: str) -> str:
-    value = (
-        tags.get("hokusai_eval.attestation_hash")
-        or tags.get("hokusai.mint.attestation_hash")
-        or tags.get("hokusai.attestation_hash")
-    )
-    if not value:
-        raise ValueError(f"run {run_id} is missing a persisted attestation hash tag")
-    normalized = str(value).lower()
-    return normalized if normalized.startswith("0x") else f"0x{normalized}"

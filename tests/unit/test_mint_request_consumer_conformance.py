@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import jsonschema
+import pytest
 
 from src.events.schemas import MintRequest
 
@@ -11,10 +13,19 @@ REPO_ROOT = Path(__file__).parents[2]
 PIPELINE_SCHEMA_FILE = REPO_ROOT / "schema" / "mint_request.v1.json"
 CONSUMER_SCHEMA_FILE = REPO_ROOT / "schema" / "mint_request.consumer.v1.json"
 EXAMPLE_FILE = REPO_ROOT / "schema" / "examples" / "mint_request.v1.json"
-TOKEN_FIXTURE_FILE = (
-    Path("/Users/timothyogilvie/Dropbox/Hokusai/hokusai-token")
-    / "services/contract-deployer/tests/fixtures/mint_request.v1.json"
-)
+
+
+def _token_fixture_path() -> Path | None:
+    """Resolve the hokusai-token fixture path for cross-repo byte-parity checking."""
+    override = os.getenv("HOKUSAI_TOKEN_FIXTURE_PATH")
+    if override:
+        return Path(override)
+    sibling = (
+        REPO_ROOT.parent
+        / "hokusai-token"
+        / ("services/contract-deployer/tests/fixtures/mint_request.v1.json")
+    )
+    return sibling if sibling.is_file() else None
 
 
 def _load_json(path: Path) -> dict:
@@ -47,4 +58,10 @@ def test_example_round_trips_through_pydantic_without_legacy_keys() -> None:
 
 
 def test_pipeline_example_fixture_matches_token_fixture_bytes() -> None:
-    assert EXAMPLE_FILE.read_bytes() == TOKEN_FIXTURE_FILE.read_bytes()
+    fixture_path = _token_fixture_path()
+    if fixture_path is None:
+        pytest.skip(
+            "hokusai-token fixture not available; set HOKUSAI_TOKEN_FIXTURE_PATH or "
+            "checkout hokusai-token alongside this repo to run the parity check"
+        )
+    assert EXAMPLE_FILE.read_bytes() == fixture_path.read_bytes()

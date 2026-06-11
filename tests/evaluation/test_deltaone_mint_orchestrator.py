@@ -566,6 +566,10 @@ def test_valid_attestation_state_publishes_sorted_signatures(monkeypatch) -> Non
     client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
     sig_a = "0x" + ("1" * 128) + "1b"
     sig_b = "0x" + ("2" * 128) + "1b"
+    # Conftest globally mocks read_current_model_head -> "0x9a"*32 at publish time;
+    # AttestationState.baseline_commitment must match that for the post-attach drift
+    # check to pass.
+    onchain_baseline = "0x" + "9a" * 32
     monkeypatch.setenv("MINT_REQUIRE_ATTESTER_SIGNATURE", "true")
     monkeypatch.setattr(
         "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
@@ -576,7 +580,7 @@ def test_valid_attestation_state_publishes_sorted_signatures(monkeypatch) -> Non
         Mock(
             return_value=AttestationState(
                 digest_hex="0x" + "0" * 64,
-                baseline_commitment=_BASELINE_COMMITMENT,
+                baseline_commitment=onchain_baseline,
                 built_at="2026-06-11T00:00:00+00:00",
                 signatures=[sig_b, sig_a],
             )
@@ -601,3 +605,52 @@ def test_valid_attestation_state_publishes_sorted_signatures(monkeypatch) -> Non
     assert outcome.status == "success"
     payload = json.loads(redis_client.lindex(QUEUE_NAME, 0))
     assert payload["attester_signatures"] == [sig_a, sig_b]
+
+
+def test_post_attach_baseline_drift_blocks_publish(monkeypatch, caplog) -> None:
+    decision = _accepted_decision()
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+    mint_hook = Mock()
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
+    sig = "0x" + ("1" * 128) + "1b"
+    # AttestationState was built/attached against an old baseline; the conftest fixture
+    # returns a different on-chain head at publish time, so the drift check must fire.
+    stale_baseline = "0x" + "11" * 32
+    monkeypatch.setenv("MINT_REQUIRE_ATTESTER_SIGNATURE", "true")
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        Mock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.load_attestation_state",
+        Mock(
+            return_value=AttestationState(
+                digest_hex="0x" + "0" * 64,
+                baseline_commitment=stale_baseline,
+                built_at="2026-06-11T00:00:00+00:00",
+                signatures=[sig],
+            )
+        ),
+    )
+    monkeypatch.setattr("src.eip712.compute_digest", Mock(return_value=bytes.fromhex("00" * 32)))
+
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=_FakeRewardNotifier(),
+    )
+
+    with caplog.at_level("ERROR"):
+        with pytest.raises(ValueError, match="baseline drifted between attach and publish"):
+            orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert any(
+        "mint_authorization_baseline_drift_post_attach" in record.getMessage()
+        for record in caplog.records
+    )
+    assert redis_client.llen(QUEUE_NAME) == 0
