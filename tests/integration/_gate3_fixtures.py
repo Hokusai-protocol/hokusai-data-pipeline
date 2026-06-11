@@ -26,7 +26,12 @@ from src.evaluation.attribution.contributor_set import derive_contributor_set
 from src.evaluation.attribution.neighbor_provenance import attribute as attribute_neighbors
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator
+from src.evaluation.tags import (
+    WEIGHT_COMMITMENT_BASELINE_TAG,
+    WEIGHT_COMMITMENT_CANDIDATE_TAG,
+)
 from src.events.publishers.mint_request_publisher import MintRequestPublisher
+from src.lineage.weight_commitment import compute_weight_commitment
 from src.utils.metric_naming import derive_mlflow_name
 
 MODEL_ID = "model-30"
@@ -38,6 +43,9 @@ SPEC_ID = "spec-gate3-offchain-v1"
 PRIMARY_METRIC = "workflow_success_rate_under_budget"
 DATASET_HASH = "sha256:" + "d" * 64
 MANIFEST_HASH = "sha256:" + "m" * 64
+WEIGHT_ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "model_30_weight_artifact"
+WEIGHT_CANDIDATE_COMMITMENT = f"0x{compute_weight_commitment(WEIGHT_ARTIFACT_DIR).root}"
+WEIGHT_BASELINE_ONCHAIN_HEAD = "0x" + ("12ab" * 16)
 
 
 def _wallet(index: int) -> str:
@@ -268,6 +276,8 @@ def build_orchestrator(
         "hokusai.eval_id": EVAL_ID,
         "hokusai.actual_cost_usd": "2.34",
         "hokusai.model_id_uint": str(spec["model_id_uint"]),
+        WEIGHT_COMMITMENT_BASELINE_TAG: WEIGHT_BASELINE_ONCHAIN_HEAD,
+        WEIGHT_COMMITMENT_CANDIDATE_TAG: WEIGHT_CANDIDATE_COMMITMENT,
     }
     if candidate_tags:
         candidate_run_tags.update(candidate_tags)

@@ -132,6 +132,8 @@ The intended operator sequence is:
 
 The digest is recomputable from the published message and is not emitted on the wire. If `MINT_REQUIRE_ONCHAIN_BASELINE` is set to anything other than `false`, `ETH_RPC_URL` becomes mandatory and a lineage-head read failure aborts publish before canonical advancement.
 
+Missing or malformed weight commitments now fail the MintRequest build before Redis publish or canonical score advancement.
+
 ## Post-mint vesting semantics
 
 A successful `MintRequest` publish or `deltaone.achieved` webhook does **not** imply that 100% of

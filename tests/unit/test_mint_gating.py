@@ -23,6 +23,10 @@ from src.evaluation.deltaone_mint_orchestrator import (
 )
 from src.evaluation.schema import ComparatorResult, GuardrailResult
 from src.evaluation.spec_translation import RuntimeGuardrailSpec
+from src.evaluation.tags import (
+    WEIGHT_COMMITMENT_BASELINE_TAG,
+    WEIGHT_COMMITMENT_CANDIDATE_TAG,
+)
 
 HASH_A = "sha256:" + "a" * 64
 HASH_B = "sha256:" + "b" * 64
@@ -31,6 +35,8 @@ HASH_B = "sha256:" + "b" * 64
 _MODEL_ID_UINT = "99001"
 _EVAL_ID = "eval-test-001"
 _SPEC_ID = "spec-test-v1"
+_BASELINE_COMMITMENT = "0x" + "12" * 32
+_CANDIDATE_COMMITMENT = "0x" + "34" * 32
 
 
 class _FakeMlflowClient:
@@ -91,7 +97,11 @@ def _make_spec_with_guardrails(guardrails: list[dict]) -> dict:
 
 
 def _make_client_with_eval_id(run_metrics=None, extra_tags=None):
-    tags = {"hokusai.eval_id": _EVAL_ID}
+    tags = {
+        "hokusai.eval_id": _EVAL_ID,
+        WEIGHT_COMMITMENT_BASELINE_TAG: _BASELINE_COMMITMENT,
+        WEIGHT_COMMITMENT_CANDIDATE_TAG: _CANDIDATE_COMMITMENT,
+    }
     if extra_tags:
         tags.update(extra_tags)
     return _FakeMlflowClient(run_metrics=run_metrics or {}, initial_tags=tags)
@@ -560,7 +570,10 @@ class TestAcceptanceEventConstruction:
         # Client without hokusai.eval_id tag
         client = _FakeMlflowClient(
             run_metrics={"workflow_success_rate_under_budget": 0.87},
-            initial_tags={},  # No eval_id
+            initial_tags={
+                WEIGHT_COMMITMENT_BASELINE_TAG: _BASELINE_COMMITMENT,
+                WEIGHT_COMMITMENT_CANDIDATE_TAG: _CANDIDATE_COMMITMENT,
+            },  # No eval_id
         )
         orch = DeltaOneMintOrchestrator(
             evaluator=evaluator,

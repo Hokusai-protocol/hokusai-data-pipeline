@@ -12,7 +12,12 @@ from .mint_authorization import (
     render_for_human,
     verify_signature,
 )
-from .onchain_head import BaselineUnavailableError, read_current_model_head
+from .onchain_head import (
+    BaselineUnavailableError,
+    read_current_model_head,
+    read_model_weight_head,
+    read_onchain_head,
+)
 
 __all__ = [
     "BaselineUnavailableError",
@@ -22,9 +27,11 @@ __all__ = [
     "MESSAGE_TYPES",
     "MintAuthorizationConfig",
     "PRIMARY_TYPE",
+    "read_current_model_head",
+    "read_model_weight_head",
+    "read_onchain_head",
     "build_typed_data",
     "compute_digest",
-    "read_current_model_head",
     "render_for_human",
     "verify_signature",
 ]
