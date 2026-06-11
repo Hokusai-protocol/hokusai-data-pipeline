@@ -18,6 +18,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 LAZY_SUBCOMMANDS = {
+    "attest": (REPO_ROOT / "src/cli/attest_cli.py", "attest", "hokusai_lazy_attest"),
     "auth": (REPO_ROOT / "src/cli/auth.py", "auth_group", "hokusai_lazy_auth"),
     "benchmark": (
         REPO_ROOT / "src/cli/hokusai_eval.py",
@@ -39,6 +40,7 @@ LAZY_SUBCOMMANDS = {
 }
 
 LAZY_SHORT_HELP = {
+    "attest": "Build and attach MintRequest attester signatures.",
     "auth": "Manage API keys and authentication.",
     "benchmark": "Manage benchmark specification bindings.",
     "eval": "Manage evaluation commands.",

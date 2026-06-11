@@ -308,7 +308,7 @@ class MintRequest(BaseModel):
     )
     attester_signatures: list[AttesterSignatureHex] = Field(
         ...,
-        min_length=1,
+        min_length=0,
         max_length=8,
         description=(
             "Attester ECDSA signatures over the canonical MintRequest typed data, "

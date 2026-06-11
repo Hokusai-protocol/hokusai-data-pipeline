@@ -252,9 +252,9 @@ class TestMintRequest:
         with pytest.raises(ValidationError, match="attester_signatures"):
             _valid_mint_request(attester_signatures=["0x" + "a" * 64])
 
-    def test_attester_signatures_empty_rejected(self) -> None:
-        with pytest.raises(ValidationError, match="attester_signatures"):
-            _valid_mint_request(attester_signatures=[])
+    def test_attester_signatures_empty_allowed_for_local_dev(self) -> None:
+        msg = _valid_mint_request(attester_signatures=[])
+        assert msg.attester_signatures == []
 
     def test_attester_signatures_max_8(self) -> None:
         with pytest.raises(ValidationError, match="attester_signatures"):

@@ -15,6 +15,7 @@ import pytest
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from src.api.schemas.token_mint import TokenMintResult
+from src.cli.attestation import AttestationState
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator
 from src.evaluation.tags import (
@@ -516,3 +517,87 @@ def test_claimable_reward_entitlement_sent_when_vesting_present(monkeypatch) -> 
     orchestrator.process_evaluation("run-candidate", "run-baseline")
 
     assert [call["status"] for call in notifier.calls] == ["pending", "claimable"]
+
+
+def test_missing_attestation_state_blocks_publish_when_required(monkeypatch) -> None:
+    decision = _accepted_decision()
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+    mint_hook = Mock()
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
+    monkeypatch.setenv("MINT_REQUIRE_ATTESTER_SIGNATURE", "true")
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        Mock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.load_attestation_state",
+        Mock(return_value=None),
+    )
+
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=_FakeRewardNotifier(),
+    )
+
+    with pytest.raises(ValueError, match="verified attester signatures are required"):
+        orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert redis_client.llen(QUEUE_NAME) == 0
+
+
+def test_valid_attestation_state_publishes_sorted_signatures(monkeypatch) -> None:
+    decision = _accepted_decision()
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+    mint_hook = Mock()
+    mint_hook.mint.return_value = TokenMintResult(
+        status="success",
+        audit_ref="audit-1",
+        timestamp=datetime.now(timezone.utc),
+    )
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
+    sig_a = "0x" + ("1" * 128) + "1b"
+    sig_b = "0x" + ("2" * 128) + "1b"
+    monkeypatch.setenv("MINT_REQUIRE_ATTESTER_SIGNATURE", "true")
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        Mock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.load_attestation_state",
+        Mock(
+            return_value=AttestationState(
+                digest_hex="0x" + "0" * 64,
+                baseline_commitment=_BASELINE_COMMITMENT,
+                built_at="2026-06-11T00:00:00+00:00",
+                signatures=[sig_b, sig_a],
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator._verify_attestation_state",
+        Mock(return_value=[sig_a, sig_b]),
+    )
+
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=_FakeRewardNotifier(),
+    )
+
+    monkeypatch.setattr("src.eip712.compute_digest", Mock(return_value=bytes.fromhex("00" * 32)))
+    outcome = orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert outcome.status == "success"
+    payload = json.loads(redis_client.lindex(QUEUE_NAME, 0))
+    assert payload["attester_signatures"] == [sig_a, sig_b]

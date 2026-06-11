@@ -146,14 +146,14 @@ Field mapping for the signed payload:
 
 The intended operator sequence is:
 
-1. Producer builds and renders the exact typed data from the draft queue message
-2. Hardware-wallet attester signs that typed data out-of-band
-3. Signature is injected through `ATTESTER_SIGNATURE`
-4. Producer verifies the signature against `MINT_ATTESTER_ADDRESS`
-5. Producer sorts `attester_signatures` by ascending recovered signer address
-6. Producer publishes `baseline_commitment`, `candidate_commitment`, and `attester_signatures` on the `MintRequest`
+1. Run `hokusai attest build <run_id>` to rebuild the draft `MintRequest`, resolve the current on-chain `baseline_commitment`, print the full typed-data render, and write the exact JSON payload that the hardware wallet must sign.
+2. Sign that JSON out-of-band on the hardware wallet or Safe.
+3. Run `hokusai attest attach <run_id> <signature...>` to re-resolve the on-chain baseline, reject stale builds, verify each signature against the on-chain attester registry, enforce `attesterThreshold()`, and persist the sorted signature set.
+4. The publish path recomputes the typed-data digest from the final `MintRequest`, compares it to the stored build digest, re-checks baseline freshness, re-verifies every signature against the current on-chain registry and threshold, and only then hands the message to Redis.
 
-The digest is recomputable from the published message and is not emitted on the wire. If `MINT_REQUIRE_ONCHAIN_BASELINE` is set to anything other than `false`, `ETH_RPC_URL` becomes mandatory and a lineage-head read failure aborts publish before canonical advancement.
+`MINT_REQUIRE_ATTESTER_SIGNATURE` is `true` by default. When enabled, publish hard-fails if no verified attached signature set is present. The only legitimate `false` setting is local development, where the producer may publish with `attester_signatures=[]` and optionally use `MINT_ATTESTER_ADDRESS` as a single-address fallback when chain registry access is unavailable.
+
+The digest is recomputable from the published message and is not emitted on the wire. `MINT_CHAIN_ID`, `MINT_VERIFYING_CONTRACT`, and `ETH_RPC_URL` are required whenever attester signatures are required. The attester set and threshold come from the deployed contract, not from environment variables.
 
 Missing or malformed weight commitments now fail the MintRequest build before Redis publish or canonical score advancement.
 

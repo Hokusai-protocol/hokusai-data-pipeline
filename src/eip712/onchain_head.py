@@ -100,6 +100,47 @@ def read_model_weight_head(
     return genesis
 
 
+def read_attester_threshold(
+    rpc_url: str,
+    *,
+    contract_address: str,
+    timeout: float = 5.0,
+) -> int:
+    """Return DeltaVerifier.attesterThreshold() and reject an unconfigured zero threshold."""
+    normalized_contract = _normalize_address(contract_address, field="contract_address")
+    result = _eth_call_bytes32(
+        rpc_url,
+        to=normalized_contract,
+        function_signature="attesterThreshold()",
+        encoded_args=(),
+        timeout=timeout,
+    )
+    threshold = int(result.removeprefix("0x"), 16)
+    if threshold <= 0:
+        raise BaselineUnavailableError("attesterThreshold() must be configured to a positive value")
+    return threshold
+
+
+def read_is_attester(
+    rpc_url: str,
+    *,
+    contract_address: str,
+    address: str,
+    timeout: float = 5.0,
+) -> bool:
+    """Return DeltaVerifier.isAttester(address)."""
+    normalized_contract = _normalize_address(contract_address, field="contract_address")
+    encoded_address = _normalize_address(address, field="address").removeprefix("0x").rjust(64, "0")
+    result = _eth_call_bytes32(
+        rpc_url,
+        to=normalized_contract,
+        function_signature="isAttester(address)",
+        encoded_args=(encoded_address,),
+        timeout=timeout,
+    )
+    return int(result.removeprefix("0x"), 16) != 0
+
+
 def _post_json_rpc(
     rpc_url: str,
     *,

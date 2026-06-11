@@ -18,11 +18,13 @@ from src.eip712 import (
     MINT_REQUEST_TYPES,
     InvalidSignatureError,
     MintRequestSigningConfig,
+    SignatureRegistryError,
     build_typed_data,
     compute_digest,
     recover_signer,
     render_for_human,
     sort_signatures_by_signer,
+    validate_signatures_against_registry,
     verify_signature,
 )
 from src.events.schemas import MintRequest
@@ -48,7 +50,6 @@ def _make_config(vector: dict, **overrides) -> MintRequestSigningConfig:
     values = {
         "chain_id": vector["chain_id"],
         "verifying_contract": vector["verifying_contract"],
-        "attester_address": ADDRESS_A.lower(),
     }
     values.update(overrides)
     return MintRequestSigningConfig(**values)
@@ -160,12 +161,55 @@ def test_mutating_unsigned_wire_fields_does_not_change_digest() -> None:
 
 
 def test_render_for_human_uses_same_typed_data_and_ends_with_digest() -> None:
-    typed_data = build_typed_data(_make_mint_request(), _make_config(_vector("single_contributor")))
+    typed_data = build_typed_data(
+        _make_mint_request(),
+        _make_config(_vector("single_contributor")),
+    )
     digest_hex = f"0x{compute_digest(typed_data).hex()}"
     rendered = render_for_human(typed_data)
 
     assert json.loads(rendered.split("\n\ndigest:", 1)[0]) == typed_data
     assert rendered.endswith(f"digest: {digest_hex}")
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("message", "modelId"), 999),
+        (("message", "payload", "pipelineRunId"), "eval-mutated"),
+        (("message", "payload", "baselineScoreBps"), 100),
+        (("message", "payload", "candidateScoreBps"), 101),
+        (("message", "payload", "maxCostUsdMicro"), 1),
+        (("message", "payload", "actualCostUsdMicro"), 2),
+        (("message", "payload", "totalSamples"), 3),
+        (("message", "payload", "anchors", "benchmarkSpecHash"), "0x" + "11" * 32),
+        (("message", "payload", "anchors", "datasetHash"), "0x" + "22" * 32),
+        (("message", "payload", "anchors", "attestationHash"), "0x" + "33" * 32),
+        (("message", "payload", "anchors", "idempotencyKey"), "0x" + "44" * 32),
+        (("message", "payload", "anchors", "metricName"), "metric-2"),
+        (("message", "payload", "anchors", "metricFamily"), "continuous"),
+        (("message", "payload", "baselineCommitment"), "0x" + "55" * 32),
+        (("message", "payload", "candidateCommitment"), "0x" + "66" * 32),
+    ],
+)
+def test_mutating_signed_field_changes_render_and_digest(
+    path: tuple[str, ...], value: object
+) -> None:
+    typed_data = build_typed_data(
+        _make_mint_request(),
+        _make_config(_vector("single_contributor")),
+    )
+    original_render = render_for_human(typed_data)
+    original_digest = compute_digest(typed_data)
+    mutated = copy.deepcopy(typed_data)
+
+    target = mutated
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+
+    assert render_for_human(mutated) != original_render
+    assert compute_digest(mutated) != original_digest
 
 
 def test_verify_signature_accepts_checksum_and_lowercase_expected_addresses() -> None:
@@ -202,13 +246,41 @@ def test_sort_signatures_orders_by_recovered_address_and_rejects_duplicates() ->
         sort_signatures_by_signer(typed_data, [sig_a, sig_a])
 
 
+def test_validate_signatures_against_registry_sorts_and_checks_threshold() -> None:
+    typed_data = build_typed_data(_make_mint_request(), _make_config(_vector("single_contributor")))
+    sig_a = _sign_typed_data(typed_data, PRIVATE_KEY_A)
+    sig_b = _sign_typed_data(typed_data, PRIVATE_KEY_B)
+
+    ordered = validate_signatures_against_registry(
+        typed_data,
+        [sig_b, sig_a],
+        registry_check=lambda address: address.lower() in {ADDRESS_A.lower(), ADDRESS_B.lower()},
+        threshold=2,
+    )
+
+    assert [recover_signer(typed_data, signature).lower() for signature in ordered] == sorted(
+        [ADDRESS_A.lower(), ADDRESS_B.lower()]
+    )
+
+
+def test_validate_signatures_against_registry_rejects_non_attester() -> None:
+    typed_data = build_typed_data(_make_mint_request(), _make_config(_vector("single_contributor")))
+    sig_a = _sign_typed_data(typed_data, PRIVATE_KEY_A)
+
+    with pytest.raises(SignatureRegistryError, match="registered attester"):
+        validate_signatures_against_registry(
+            typed_data,
+            [sig_a],
+            registry_check=lambda _address: False,
+            threshold=1,
+        )
+
+
 def test_config_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MINT_CHAIN_ID", "8453")
     monkeypatch.setenv("MINT_VERIFYING_CONTRACT", "0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC")
-    monkeypatch.setenv("MINT_ATTESTER_ADDRESS", ADDRESS_A.upper())
 
     config = MintRequestSigningConfig.from_env()
 
     assert config.chain_id == 8453
     assert config.verifying_contract == "0xcccccccccccccccccccccccccccccccccccccccc"
-    assert config.attester_address == ADDRESS_A.lower()

@@ -17,11 +17,6 @@ from src.utils.config import get_test_config
 
 os.environ.setdefault("MLFLOW_SERVER_URL", "https://mlflow.test.local:5000")
 os.environ.setdefault("DB_PASSWORD", "test-password")
-os.environ.setdefault(
-    "ATTESTER_SIGNATURE",
-    "0x1111111111111111111111111111111111111111111111111111111111111111"
-    "22222222222222222222222222222222222222222222222222222222222222221b",
-)
 
 
 def pytest_collection_modifyitems(items):
@@ -202,7 +197,9 @@ def set_test_env_vars():
         "AWS_SESSION_TOKEN": "test_session_token",
         "AWS_DEFAULT_REGION": "us-east-1",
         "ETH_RPC_URL": "https://rpc.test.local",
+        "MINT_CHAIN_ID": "8453",
         "MINT_VERIFYING_CONTRACT": "0xcccccccccccccccccccccccccccccccccccccccc",
+        "MINT_REQUIRE_ATTESTER_SIGNATURE": "false",
     }
 
     original_env = {}
@@ -237,6 +234,14 @@ def mock_mint_lineage_head(monkeypatch):
     monkeypatch.setattr(
         "src.evaluation.deltaone_mint_orchestrator.read_current_model_head",
         Mock(return_value="0x" + "9a" * 32),
+    )
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.read_attester_threshold",
+        Mock(return_value=1),
+    )
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.read_is_attester",
+        Mock(return_value=True),
     )
 
 

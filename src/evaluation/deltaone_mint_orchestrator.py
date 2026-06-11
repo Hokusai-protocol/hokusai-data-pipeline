@@ -22,7 +22,7 @@ from pydantic import ValidationError
 
 from src.api.schemas.token_mint import TokenMintResult
 from src.api.services.token_mint_hook import TokenMintHook
-from src.cli.attestation import create_attestation
+from src.cli.attestation import create_attestation, load_attestation_state
 from src.evaluation.attribution.contributor_set import (
     ContributorDerivationError,
     derive_contributor_set,
@@ -90,6 +90,29 @@ def read_current_model_head(
         contract_address=contract_address,
         model_id_uint=model_id_uint,
     )
+
+
+def read_attester_threshold(
+    rpc_url: str,
+    *,
+    contract_address: str,
+) -> int:
+    """Read the current on-chain attester threshold."""
+    from src.eip712.onchain_head import read_attester_threshold as _read_attester_threshold
+
+    return _read_attester_threshold(rpc_url, contract_address=contract_address)
+
+
+def read_is_attester(
+    rpc_url: str,
+    *,
+    contract_address: str,
+    address: str,
+) -> bool:
+    """Check whether an address is currently registered as an attester."""
+    from src.eip712.onchain_head import read_is_attester as _read_is_attester
+
+    return _read_is_attester(rpc_url, contract_address=contract_address, address=address)
 
 
 class MlflowClientProtocol(Protocol):
@@ -796,49 +819,37 @@ class DeltaOneMintOrchestrator:
             event_context.candidate_commitment,
             acceptance_event.attestation_hash,
         )
-        attester_signature = _normalize_required_signature(os.getenv("ATTESTER_SIGNATURE"))
-        mint_request = _build_mint_request(
+        draft_mint_request = _build_mint_request(
             acceptance_event=acceptance_event,
             event_context=event_context,
             baseline_commitment=baseline_commitment,
             candidate_commitment=candidate_commitment,
-            attester_signatures=[attester_signature],
+            attester_signatures=[],
         )
-        _, ordered_signatures = self._resolve_signing_authorization(
+        ordered_signatures = self._resolve_attester_signatures(
             decision=decision,
-            draft_mint_request=mint_request,
-            attester_signatures=[attester_signature],
+            draft_mint_request=draft_mint_request,
+            baseline_commitment=baseline_commitment,
         )
-        if ordered_signatures != mint_request.attester_signatures:
-            mint_request = _build_mint_request(
-                acceptance_event=acceptance_event,
-                event_context=event_context,
-                baseline_commitment=baseline_commitment,
-                candidate_commitment=candidate_commitment,
-                attester_signatures=ordered_signatures,
-            )
-        return mint_request
+        return _build_mint_request(
+            acceptance_event=acceptance_event,
+            event_context=event_context,
+            baseline_commitment=baseline_commitment,
+            candidate_commitment=candidate_commitment,
+            attester_signatures=ordered_signatures,
+        )
 
-    def _resolve_signing_authorization(
+    def _resolve_attester_signatures(
         self: DeltaOneMintOrchestrator,
         *,
         decision: DeltaOneDecision,
         draft_mint_request: MintRequest,
-        attester_signatures: list[str] | None,
-    ) -> tuple[str | None, list[str] | None]:
-        """Build typed data, render it for the operator, and verify/sort any signatures."""
-        auth_config = _load_optional_mint_authorization_config()
-        if auth_config is None:
-            return None, attester_signatures
+        baseline_commitment: str,
+    ) -> list[str]:
+        """Load and verify attached attester signatures for this publish attempt."""
+        from src.eip712 import build_typed_data, compute_digest, render_for_human
 
-        from src.eip712 import (
-            build_typed_data,
-            compute_digest,
-            render_for_human,
-            sort_signatures_by_signer,
-            verify_signature,
-        )
-
+        auth_config = _load_mint_authorization_config()
         typed_data = build_typed_data(draft_mint_request, auth_config)
         signing_digest = f"0x{compute_digest(typed_data).hex()}"
         logger.info(
@@ -847,15 +858,23 @@ class DeltaOneMintOrchestrator:
             signing_digest,
             render_for_human(typed_data),
         )
-        ordered_signatures = attester_signatures
-        if attester_signatures:
-            for signature in attester_signatures:
-                if not verify_signature(typed_data, signature, auth_config.attester_address):
-                    raise ValueError(
-                        "ATTESTER_SIGNATURE did not recover the configured MINT_ATTESTER_ADDRESS"
-                    )
-            ordered_signatures = sort_signatures_by_signer(typed_data, attester_signatures)
-        return signing_digest, ordered_signatures
+        state = load_attestation_state(self._client, decision.run_id)
+        if state is None or state.digest_hex != signing_digest or not state.signatures:
+            if _attester_signature_required():
+                logger.error(
+                    "event=mint_authorization_required_no_signatures run_id=%s",
+                    decision.run_id,
+                )
+                raise _mint_request_signing_error(
+                    "verified attester signatures are required before publish"
+                )
+            logger.warning("event=mint_authorization_skipped_local_dev run_id=%s", decision.run_id)
+            return []
+        if state.baseline_commitment != baseline_commitment:
+            raise _mint_request_signing_error(
+                "attestation baseline is stale; rebuild and re-attach"
+            )
+        return _verify_attestation_state(typed_data, signatures=state.signatures)
 
     def _notify_reward_entitlement(
         self: DeltaOneMintOrchestrator,
@@ -1603,8 +1622,12 @@ def _build_mint_request(
     resolved_attester_signatures = (
         attester_signatures
         if attester_signatures is not None
-        else [_normalize_required_signature(os.getenv("ATTESTER_SIGNATURE"))]
+        else ([] if not _attester_signature_required() else None)
     )
+    if resolved_attester_signatures is None:
+        raise _mint_request_signing_error(
+            "attester_signatures must be supplied when attester signatures are required"
+        )
 
     return MintRequest(
         message_id=str(uuid.uuid4()),
@@ -1707,20 +1730,6 @@ def _resolve_required_commitment_tag(
         ) from exc
 
 
-def _normalize_required_signature(value: str | None) -> str:
-    """Normalize the required env-provided attester signature."""
-    if value is None or not value.strip():
-        raise EventPayloadError(
-            "attester_signatures",
-            "ATTESTER_SIGNATURE must be configured to publish canonical MintRequest messages",
-        )
-    stripped = value.strip()
-    prefix = stripped[:2].lower()
-    if prefix != "0x":
-        raise ValueError("ATTESTER_SIGNATURE must be 0x-prefixed hex")
-    return f"0x{stripped[2:].lower()}"
-
-
 def _resolve_candidate_commitment(
     candidate_commitment: str | None,
     attestation_hash: str,
@@ -1740,31 +1749,63 @@ def _fallback_commitment(label: str, seed: str) -> str:
 
 
 def _load_optional_mint_authorization_config() -> MintRequestSigningConfig | None:
-    """Load EIP-712 config only when the full env block is present."""
-    chain_id = (os.getenv("MINT_CHAIN_ID") or "").strip()
-    verifying_contract = (os.getenv("MINT_VERIFYING_CONTRACT") or "").strip()
-    attester_address = (os.getenv("MINT_ATTESTER_ADDRESS") or "").strip()
+    """Backward-compatible shim for older callers."""
+    if not _attester_signature_required():
+        chain_id = (os.getenv("MINT_CHAIN_ID") or "").strip()
+        verifying_contract = (os.getenv("MINT_VERIFYING_CONTRACT") or "").strip()
+        if not chain_id or not verifying_contract:
+            return None
+    return _load_mint_authorization_config()
 
-    if not chain_id and not attester_address:
-        return None
 
-    missing = [
-        name
-        for name, value in (
-            ("MINT_CHAIN_ID", chain_id),
-            ("MINT_VERIFYING_CONTRACT", verifying_contract),
-            ("MINT_ATTESTER_ADDRESS", attester_address),
-        )
-        if not value
-    ]
-    if missing:
-        raise ValueError(
-            "Partial mint authorization configuration is not allowed; missing: "
-            + ", ".join(sorted(missing))
-        )
+def _load_mint_authorization_config() -> MintRequestSigningConfig:
     from src.eip712.mint_authorization import MintRequestSigningConfig
 
     return MintRequestSigningConfig.from_env()
+
+
+def _attester_signature_required() -> bool:
+    return (os.getenv("MINT_REQUIRE_ATTESTER_SIGNATURE") or "").strip().lower() != "false"
+
+
+def _mint_request_signing_error(message: str) -> EventPayloadError:
+    return EventPayloadError("attester_signatures", message)
+
+
+def _verify_attestation_state(typed_data: dict[str, Any], *, signatures: list[str]) -> list[str]:
+    from src.eip712 import validate_signatures_against_registry
+
+    rpc_url = (os.getenv("ETH_RPC_URL") or "").strip()
+    verifying_contract = (os.getenv("MINT_VERIFYING_CONTRACT") or "").strip()
+    if not rpc_url or not verifying_contract:
+        if _attester_signature_required():
+            raise _mint_request_signing_error(
+                "ETH_RPC_URL and MINT_VERIFYING_CONTRACT are required for attester verification"
+            )
+        fallback = (os.getenv("MINT_ATTESTER_ADDRESS") or "").strip().lower()
+        if not fallback:
+            raise _mint_request_signing_error(
+                "MINT_ATTESTER_ADDRESS is required for local-dev fallback"
+            )
+
+        return validate_signatures_against_registry(
+            typed_data,
+            signatures,
+            registry_check=lambda address: address.lower() == fallback,
+            threshold=1,
+        )
+
+    threshold = read_attester_threshold(rpc_url, contract_address=verifying_contract)
+    return validate_signatures_against_registry(
+        typed_data,
+        signatures,
+        registry_check=lambda address: read_is_attester(
+            rpc_url,
+            contract_address=verifying_contract,
+            address=address,
+        ),
+        threshold=threshold,
+    )
 
 
 def _normalize_weights_to_10000(

@@ -6,7 +6,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from eth_account import Account
 from eth_account.messages import _hash_eip191_message, encode_typed_data
@@ -16,6 +16,9 @@ from src.events.schemas import MintRequest
 
 _ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _BYTES32_RE = re.compile(r"^0x[0-9a-f]{64}$")
+_SIGNATURE_RE = re.compile(r"^0x[0-9a-fA-F]{130}$")
+_SECP256K1_N = int("0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16)
+_SECP256K1_HALF_N = _SECP256K1_N // 2
 
 DOMAIN_NAME = "HokusaiDeltaVerifier"
 DOMAIN_VERSION = "1"
@@ -64,26 +67,27 @@ class InvalidSignatureError(MintRequestSigningError):
     """Raised when a signature cannot be parsed or recovered."""
 
 
+class SignatureRegistryError(InvalidSignatureError):
+    """Raised when a signature set fails registry or threshold checks."""
+
+
 @dataclass(frozen=True)
 class MintRequestSigningConfig:
     """Runtime configuration for the DeltaVerifier EIP-712 signing domain."""
 
     chain_id: int
     verifying_contract: str
-    attester_address: str
 
     @classmethod
     def from_env(cls: type[MintRequestSigningConfig]) -> MintRequestSigningConfig:
         raw_chain_id = os.getenv("MINT_CHAIN_ID")
         verifying_contract = os.getenv("MINT_VERIFYING_CONTRACT")
-        attester_address = os.getenv("MINT_ATTESTER_ADDRESS")
 
         missing = [
             name
             for name, value in (
                 ("MINT_CHAIN_ID", raw_chain_id),
                 ("MINT_VERIFYING_CONTRACT", verifying_contract),
-                ("MINT_ATTESTER_ADDRESS", attester_address),
             )
             if value is None or not str(value).strip()
         ]
@@ -106,9 +110,6 @@ class MintRequestSigningConfig:
             chain_id=chain_id,
             verifying_contract=_normalize_address(
                 str(verifying_contract), field_name="MINT_VERIFYING_CONTRACT"
-            ),
-            attester_address=_normalize_address(
-                str(attester_address), field_name="MINT_ATTESTER_ADDRESS"
             ),
         )
 
@@ -189,6 +190,41 @@ def sort_signatures_by_signer(typed_data: dict[str, Any], signatures: list[str])
     ordered_addresses = [address for address, _ in recovered_pairs]
     if len(set(ordered_addresses)) != len(ordered_addresses):
         raise InvalidSignatureError("duplicate recovered signer addresses are not allowed")
+    return [signature for _, signature in recovered_pairs]
+
+
+def validate_signatures_against_registry(
+    typed_data: dict[str, Any],
+    signatures: list[str],
+    *,
+    registry_check: Callable[[str], bool],
+    threshold: int,
+) -> list[str]:
+    """Verify, normalize, sort, and threshold-check signatures against an attester registry."""
+    if threshold <= 0:
+        raise SignatureRegistryError("attester threshold must be positive")
+    if len(signatures) > 8:
+        raise SignatureRegistryError("at most 8 attester signatures are allowed")
+
+    recovered_pairs: list[tuple[str, str]] = []
+    for raw_signature in signatures:
+        signature = _normalize_signature_hex(raw_signature)
+        recovered = recover_signer(typed_data, signature).lower()
+        if not registry_check(recovered):
+            raise SignatureRegistryError(
+                f"recovered signer is not a registered attester: {recovered}"
+            )
+        recovered_pairs.append((recovered, signature))
+
+    recovered_pairs.sort(key=lambda item: item[0])
+    ordered_addresses = [address for address, _ in recovered_pairs]
+    if len(set(ordered_addresses)) != len(ordered_addresses):
+        raise SignatureRegistryError("duplicate recovered signer addresses are not allowed")
+    if len(ordered_addresses) < threshold:
+        raise SignatureRegistryError(
+            "attester threshold not met: "
+            f"have {len(ordered_addresses)} signature(s), need {threshold}"
+        )
     return [signature for _, signature in recovered_pairs]
 
 
@@ -347,13 +383,23 @@ def _normalize_bytes32(value: str, *, field_name: str) -> str:
 
 def _normalize_signature_hex(signature_hex: str) -> str:
     stripped = signature_hex.strip()
-    if not stripped.startswith("0x"):
-        raise InvalidSignatureError("signature must be 0x-prefixed hex")
-    body = stripped.removeprefix("0x")
+    if not _SIGNATURE_RE.match(stripped):
+        raise InvalidSignatureError("signature must be 0x-prefixed 130-hex")
+    body = stripped[2:]
     if len(body) != 130:
         raise InvalidSignatureError(f"signature must be 65 bytes (130 hex chars), got {len(body)}")
     try:
-        bytes.fromhex(body)
+        raw = bytes.fromhex(body)
     except ValueError as exc:
         raise InvalidSignatureError("signature must be valid hexadecimal") from exc
-    return f"0x{body.lower()}"
+    r = raw[:32]
+    s = int.from_bytes(raw[32:64], byteorder="big")
+    v = raw[64]
+    if s > _SECP256K1_HALF_N:
+        raise InvalidSignatureError("signature must use low-s form")
+    if v in (0, 1):
+        v += 27
+    if v not in (27, 28):
+        raise InvalidSignatureError("signature v must be 27 or 28")
+    normalized = r + raw[32:64] + bytes([v])
+    return f"0x{normalized.hex()}"
