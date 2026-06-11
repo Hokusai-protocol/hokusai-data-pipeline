@@ -115,57 +115,8 @@ class MintRequestSigningConfig:
 
 def build_typed_data(mint_request: MintRequest, config: MintRequestSigningConfig) -> dict[str, Any]:
     """Build the contract-canonical MintRequest EIP-712 payload."""
-    if mint_request.baseline_commitment is None:
-        raise MintRequestSigningError(
-            "MintRequest.baseline_commitment is required for MintRequest signing"
-        )
-    if mint_request.candidate_commitment is None:
-        raise MintRequestSigningError(
-            "MintRequest.candidate_commitment is required for MintRequest signing"
-        )
     if not mint_request.contributors:
         raise MintRequestSigningError("MintRequest.contributors must be non-empty for signing")
-
-    evaluation = mint_request.evaluation
-    anchors = {
-        "benchmarkSpecHash": _benchmark_spec_hash(mint_request.benchmark_spec_id),
-        "datasetHash": _normalize_bytes32(mint_request.dataset_hash, field_name="datasetHash"),
-        "attestationHash": _normalize_bytes32(
-            mint_request.attestation_hash, field_name="attestationHash"
-        ),
-        "idempotencyKey": _normalize_bytes32(
-            mint_request.idempotency_key, field_name="idempotencyKey"
-        ),
-        "metricName": _require_non_empty(evaluation.metric_name, field_name="metricName"),
-        "metricFamily": _require_non_empty(evaluation.metric_family, field_name="metricFamily"),
-    }
-    message = {
-        "modelId": int(mint_request.model_id_uint),
-        "payload": {
-            "pipelineRunId": _require_non_empty(mint_request.eval_id, field_name="pipelineRunId"),
-            "baselineScoreBps": int(evaluation.baseline_score_bps),
-            "candidateScoreBps": int(evaluation.new_score_bps),
-            "maxCostUsdMicro": int(evaluation.max_cost_usd_micro),
-            "actualCostUsdMicro": int(evaluation.actual_cost_usd_micro),
-            "totalSamples": int(mint_request.total_samples),
-            "anchors": anchors,
-            "baselineCommitment": _normalize_bytes32(
-                mint_request.baseline_commitment, field_name="baselineCommitment"
-            ),
-            "candidateCommitment": _normalize_bytes32(
-                mint_request.candidate_commitment, field_name="candidateCommitment"
-            ),
-        },
-        "contributors": [
-            {
-                "walletAddress": _normalize_address(
-                    contributor.wallet_address, field_name=f"contributors[{index}].walletAddress"
-                ),
-                "weight": int(contributor.weight_bps),
-            }
-            for index, contributor in enumerate(mint_request.contributors)
-        ],
-    }
 
     return {
         "types": {
@@ -184,7 +135,7 @@ def build_typed_data(mint_request: MintRequest, config: MintRequestSigningConfig
                 config.verifying_contract, field_name="verifyingContract"
             ),
         },
-        "message": message,
+        "message": _build_message(mint_request),
     }
 
 
@@ -239,6 +190,52 @@ def sort_signatures_by_signer(typed_data: dict[str, Any], signatures: list[str])
     if len(set(ordered_addresses)) != len(ordered_addresses):
         raise InvalidSignatureError("duplicate recovered signer addresses are not allowed")
     return [signature for _, signature in recovered_pairs]
+
+
+def _build_message(mint_request: MintRequest) -> dict[str, Any]:
+    evaluation = mint_request.evaluation
+    return {
+        "modelId": int(mint_request.model_id_uint),
+        "payload": {
+            "pipelineRunId": _require_non_empty(mint_request.eval_id, field_name="pipelineRunId"),
+            "baselineScoreBps": int(evaluation.baseline_score_bps),
+            "candidateScoreBps": int(evaluation.new_score_bps),
+            "maxCostUsdMicro": int(evaluation.max_cost_usd_micro),
+            "actualCostUsdMicro": int(evaluation.actual_cost_usd_micro),
+            "totalSamples": int(mint_request.total_samples),
+            "anchors": {
+                "benchmarkSpecHash": _benchmark_spec_hash(mint_request.benchmark_spec_id),
+                "datasetHash": _normalize_bytes32(
+                    mint_request.dataset_hash, field_name="datasetHash"
+                ),
+                "attestationHash": _normalize_bytes32(
+                    mint_request.attestation_hash, field_name="attestationHash"
+                ),
+                "idempotencyKey": _normalize_bytes32(
+                    mint_request.idempotency_key, field_name="idempotencyKey"
+                ),
+                "metricName": _require_non_empty(evaluation.metric_name, field_name="metricName"),
+                "metricFamily": _require_non_empty(
+                    evaluation.metric_family, field_name="metricFamily"
+                ),
+            },
+            "baselineCommitment": _normalize_bytes32(
+                mint_request.baseline_commitment, field_name="baselineCommitment"
+            ),
+            "candidateCommitment": _normalize_bytes32(
+                mint_request.candidate_commitment, field_name="candidateCommitment"
+            ),
+        },
+        "contributors": [
+            {
+                "walletAddress": _normalize_address(
+                    contributor.wallet_address, field_name=f"contributors[{index}].walletAddress"
+                ),
+                "weight": int(contributor.weight_bps),
+            }
+            for index, contributor in enumerate(mint_request.contributors)
+        ],
+    }
 
 
 def _normalize_typed_data(typed_data: dict[str, Any]) -> dict[str, Any]:

@@ -100,6 +100,7 @@ def schema_validators() -> dict[str, jsonschema.Draft202012Validator]:
     return {
         "attribution_report": load_validator("attribution_report.v1.json"),
         "mint_request": load_validator("mint_request.v1.json"),
+        "mint_request_consumer": load_validator("mint_request.consumer.v1.json"),
     }
 
 

@@ -33,11 +33,9 @@ That post-mint split is reported only after the secondary HTTP mint hook returns
 | `eval_id` | string | Evaluation run identifier |
 | `attestation_hash` | `0x`-prefixed 64-hex | SHA-256 of the canonical attestation payload |
 | `idempotency_key` | `0x`-prefixed 64-hex | Canonical dedup key (see below) |
-| `baseline` | `0x`-prefixed 64-hex (optional) | Deprecated publish-only field; not signed and not the lineage anchor |
-| `baselineCommitment` | `0x`-prefixed 64-hex (optional schema field) | Required for accepted DeltaOne publish. Authoritative on-chain baseline weight head; must match the contract head/genesis at submit time |
-| `candidateCommitment` | `0x`-prefixed 64-hex (optional schema field) | Required for accepted DeltaOne publish. SHA-256 Merkle root of candidate weights |
-| `attester_signatures` | array of `0x`-prefixed 130-hex (optional) | EIP-712 signatures sorted by strictly ascending recovered signer address |
-| `signingDigest` | `0x`-prefixed 64-hex (optional) | EIP-712 digest signed by the hardware-wallet attester |
+| `baseline_commitment` | `0x`-prefixed 64-hex | Required canonical lineage head from `DeltaVerifier.currentModelHead(modelId)` |
+| `candidate_commitment` | `0x`-prefixed 64-hex | Required candidate weight commitment |
+| `attester_signatures` | array of `0x`-prefixed 130-hex | Required ECDSA signatures, sorted by ascending recovered signer address |
 | `totalSamples` | integer `>= 1` | Required top-level sample count for DeltaVerifier ABI |
 | `evaluation` | object | Scores, costs, statistical metadata |
 | `contributors` | array | Wallet addresses + `weight_bps` with optional submission traceability fields |
@@ -153,11 +151,11 @@ The intended operator sequence is:
 3. Signature is injected through `ATTESTER_SIGNATURE`
 4. Producer verifies the signature against `MINT_ATTESTER_ADDRESS`
 5. Producer sorts `attester_signatures` by ascending recovered signer address
-6. Producer publishes commitments, `signingDigest`, and `attester_signatures` on the `MintRequest`
+6. Producer publishes `baseline_commitment`, `candidate_commitment`, and `attester_signatures` on the `MintRequest`
 
-`baseline` block hash is not part of the signed contract struct and must not influence the digest. The lineage anchor is `baselineCommitment`.
+The digest is recomputable from the published message and is not emitted on the wire. If `MINT_REQUIRE_ONCHAIN_BASELINE` is set to anything other than `false`, `ETH_RPC_URL` becomes mandatory and a lineage-head read failure aborts publish before canonical advancement.
 
-`baselineCommitment` is resolved from `DeltaVerifier.modelWeightHead(modelId)` and falls back to `ModelRegistry.weightGenesis(modelId)` only when the on-chain head is zero. The producer may recompute the local baseline artifact commitment for drift detection, but it never substitutes the local hash for the chain-derived value. Missing or malformed weight commitments now fail the MintRequest build before Redis publish or canonical score advancement.
+Missing or malformed weight commitments now fail the MintRequest build before Redis publish or canonical score advancement.
 
 ## Post-mint vesting semantics
 

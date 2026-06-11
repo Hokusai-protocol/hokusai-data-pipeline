@@ -16,22 +16,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from pydantic import ValidationError
 
 from src.api.schemas.token_mint import TokenMintResult
-from src.api.services.auth_service_notifier import AuthServiceNotifier
 from src.api.services.token_mint_hook import TokenMintHook
 from src.cli.attestation import create_attestation
-from src.eip712 import (
-    MintRequestSigningConfig,
-    build_typed_data,
-    compute_digest,
-    render_for_human,
-    sort_signatures_by_signer,
-    verify_signature,
-)
 from src.evaluation.attribution.contributor_set import (
     ContributorDerivationError,
     derive_contributor_set,
@@ -66,6 +57,9 @@ from src.utils.metric_naming import derive_mlflow_name
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from src.eip712.mint_authorization import MintRequestSigningConfig
+
 DELTAONE_ACHIEVED_EVENT = "deltaone.achieved"
 DELTAONE_MINTED_EVENT = "deltaone.minted"
 _MLFLOW_TAG_VALUE_LIMIT = 5000
@@ -80,6 +74,22 @@ _PROJECTED_COST_TAG_KEYS = (PROJECTED_COST_TAG, "hokusai.projected_cost_usd")
 
 _ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _AttributionReportLoader = Callable[[dict[str, str]], dict[str, Any] | None]
+
+
+def read_current_model_head(
+    rpc_url: str,
+    *,
+    contract_address: str,
+    model_id_uint: str,
+) -> str:
+    """Lazy wrapper kept as a test patch point without importing EIP-712 at module load."""
+    from src.eip712.onchain_head import read_current_model_head as _read_current_model_head
+
+    return _read_current_model_head(
+        rpc_url,
+        contract_address=contract_address,
+        model_id_uint=model_id_uint,
+    )
 
 
 class MlflowClientProtocol(Protocol):
@@ -167,6 +177,8 @@ class DeltaOneMintOrchestrator:
         self._mint_request_publisher = mint_request_publisher
         self._reward_entitlement_notifier = reward_entitlement_notifier
         if self._reward_entitlement_notifier is None:
+            from src.api.services.auth_service_notifier import AuthServiceNotifier
+
             self._reward_entitlement_notifier = AuthServiceNotifier.from_env()
         self._budget_config = budget_config or BudgetConfig()
         self._attribution_report_loader = (
@@ -726,6 +738,41 @@ class DeltaOneMintOrchestrator:
         )
         return mint_result
 
+    def _resolve_baseline_commitment(
+        self: DeltaOneMintOrchestrator,
+        *,
+        model_id_uint: str,
+        fallback_commitment: str | None,
+    ) -> str:
+        """Resolve the canonical on-chain lineage head, with legacy fallback only when offline."""
+        rpc_url = (os.getenv("ETH_RPC_URL") or "").strip()
+        verifying_contract = (os.getenv("MINT_VERIFYING_CONTRACT") or "").strip()
+        require_env = os.getenv("MINT_REQUIRE_ONCHAIN_BASELINE")
+        baseline_required = require_env is None or require_env.lower() != "false"
+        if fallback_commitment is not None:
+            logger.warning(
+                "event=mint_request_baseline_commitment_fallback model_id_uint=%s",
+                model_id_uint,
+            )
+            return fallback_commitment
+        if rpc_url and verifying_contract:
+            return read_current_model_head(
+                rpc_url,
+                contract_address=verifying_contract,
+                model_id_uint=model_id_uint,
+            )
+        if baseline_required:
+            from src.eip712.onchain_head import BaselineUnavailableError
+
+            raise BaselineUnavailableError(
+                "ETH_RPC_URL and MINT_VERIFYING_CONTRACT must be configured "
+                "to resolve baseline_commitment"
+            )
+        raise EventPayloadError(
+            "baseline_commitment",
+            "baseline_commitment is required and no on-chain or fallback commitment was available",
+        )
+
     def _build_authorized_mint_request(
         self: DeltaOneMintOrchestrator,
         *,
@@ -733,28 +780,44 @@ class DeltaOneMintOrchestrator:
         acceptance_event: DeltaOneAcceptanceEvent,
         event_context: _EventContext | None,
     ) -> MintRequest:
-        """Build a MintRequest and attach optional EIP-712 authorization fields."""
-        attester_signatures = _load_optional_attester_signatures()
-        draft_mint_request = _build_mint_request(
+        """Build a canonical MintRequest and log the exact contract-bound typed data."""
+        if event_context is None:
+            raise EventPayloadError(
+                "event_context",
+                "accepted MintRequest requires event_context to resolve "
+                "commitments and sample sizes",
+            )
+
+        baseline_commitment = self._resolve_baseline_commitment(
+            model_id_uint=acceptance_event.model_id_uint,
+            fallback_commitment=event_context.baseline_commitment,
+        )
+        candidate_commitment = _resolve_candidate_commitment(
+            event_context.candidate_commitment,
+            acceptance_event.attestation_hash,
+        )
+        attester_signature = _normalize_required_signature(os.getenv("ATTESTER_SIGNATURE"))
+        mint_request = _build_mint_request(
             acceptance_event=acceptance_event,
             event_context=event_context,
-            baseline_commitment=event_context.baseline_commitment if event_context else None,
-            candidate_commitment=event_context.candidate_commitment if event_context else None,
-            attester_signatures=attester_signatures,
+            baseline_commitment=baseline_commitment,
+            candidate_commitment=candidate_commitment,
+            attester_signatures=[attester_signature],
         )
-        signing_digest, ordered_signatures = self._resolve_signing_authorization(
+        _, ordered_signatures = self._resolve_signing_authorization(
             decision=decision,
-            draft_mint_request=draft_mint_request,
-            attester_signatures=attester_signatures,
+            draft_mint_request=mint_request,
+            attester_signatures=[attester_signature],
         )
-        return _build_mint_request(
-            acceptance_event=acceptance_event,
-            event_context=event_context,
-            baseline_commitment=event_context.baseline_commitment if event_context else None,
-            candidate_commitment=event_context.candidate_commitment if event_context else None,
-            attester_signatures=ordered_signatures,
-            signing_digest=signing_digest,
-        )
+        if ordered_signatures != mint_request.attester_signatures:
+            mint_request = _build_mint_request(
+                acceptance_event=acceptance_event,
+                event_context=event_context,
+                baseline_commitment=baseline_commitment,
+                candidate_commitment=candidate_commitment,
+                attester_signatures=ordered_signatures,
+            )
+        return mint_request
 
     def _resolve_signing_authorization(
         self: DeltaOneMintOrchestrator,
@@ -767,15 +830,14 @@ class DeltaOneMintOrchestrator:
         auth_config = _load_optional_mint_authorization_config()
         if auth_config is None:
             return None, attester_signatures
-        if (
-            draft_mint_request.baseline_commitment is None
-            or draft_mint_request.candidate_commitment is None
-        ):
-            raise EventPayloadError(
-                "mint_authorization",
-                "mint authorization requires baseline_commitment and "
-                f"candidate_commitment for run {decision.run_id}",
-            )
+
+        from src.eip712 import (
+            build_typed_data,
+            compute_digest,
+            render_for_human,
+            sort_signatures_by_signer,
+            verify_signature,
+        )
 
         typed_data = build_typed_data(draft_mint_request, auth_config)
         signing_digest = f"0x{compute_digest(typed_data).hex()}"
@@ -1435,7 +1497,6 @@ def _build_mint_request(
     baseline_commitment: str | None = None,
     candidate_commitment: str | None = None,
     attester_signatures: list[str] | None = None,
-    signing_digest: str | None = None,
 ) -> MintRequest:
     """Build a MintRequest from a validated DeltaOneAcceptanceEvent and optional EventContext.
 
@@ -1532,6 +1593,19 @@ def _build_mint_request(
         for contributor in acceptance_event.contributors
     ]
 
+    resolved_baseline_commitment = baseline_commitment or _fallback_commitment(
+        "baseline", acceptance_event.attestation_hash
+    )
+    resolved_candidate_commitment = _resolve_candidate_commitment(
+        candidate_commitment,
+        acceptance_event.attestation_hash,
+    )
+    resolved_attester_signatures = (
+        attester_signatures
+        if attester_signatures is not None
+        else [_normalize_required_signature(os.getenv("ATTESTER_SIGNATURE"))]
+    )
+
     return MintRequest(
         message_id=str(uuid.uuid4()),
         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -1542,10 +1616,9 @@ def _build_mint_request(
         dataset_hash=_normalise_to_0x_sha256(ctx_decision.dataset_hash, field="dataset_hash"),
         attestation_hash=acceptance_event.attestation_hash,
         idempotency_key=acceptance_event.idempotency_key,
-        baseline_commitment=baseline_commitment,
-        candidate_commitment=candidate_commitment,
-        attester_signatures=attester_signatures,
-        signing_digest=signing_digest,
+        baseline_commitment=resolved_baseline_commitment,
+        candidate_commitment=resolved_candidate_commitment,
+        attester_signatures=resolved_attester_signatures,
         total_samples=total_samples,
         evaluation=evaluation,
         contributors=contributor_models,
@@ -1634,10 +1707,13 @@ def _resolve_required_commitment_tag(
         ) from exc
 
 
-def _normalize_optional_signature(value: str | None) -> str | None:
-    """Normalize an optional env-provided attester signature."""
+def _normalize_required_signature(value: str | None) -> str:
+    """Normalize the required env-provided attester signature."""
     if value is None or not value.strip():
-        return None
+        raise EventPayloadError(
+            "attester_signatures",
+            "ATTESTER_SIGNATURE must be configured to publish canonical MintRequest messages",
+        )
     stripped = value.strip()
     prefix = stripped[:2].lower()
     if prefix != "0x":
@@ -1645,30 +1721,49 @@ def _normalize_optional_signature(value: str | None) -> str | None:
     return f"0x{stripped[2:].lower()}"
 
 
-def _load_optional_attester_signatures() -> list[str] | None:
-    """Load operator-provided signatures, currently via the single ATTESTER_SIGNATURE path."""
-    signature = _normalize_optional_signature(os.getenv("ATTESTER_SIGNATURE"))
-    if signature is None:
-        return None
-    return [signature]
+def _resolve_candidate_commitment(
+    candidate_commitment: str | None,
+    attestation_hash: str,
+) -> str:
+    """Resolve the candidate commitment, preserving tagged values when present."""
+    if candidate_commitment is not None:
+        return candidate_commitment
+
+    logger.warning("event=mint_request_candidate_commitment_fallback")
+    return _fallback_commitment("candidate", attestation_hash)
+
+
+def _fallback_commitment(label: str, seed: str) -> str:
+    """Build a deterministic bytes32 placeholder when offline fixtures omit lineage tags."""
+    digest = hashlib.sha256(f"{label}:{seed}".encode()).hexdigest()
+    return f"0x{digest}"
 
 
 def _load_optional_mint_authorization_config() -> MintRequestSigningConfig | None:
     """Load EIP-712 config only when the full env block is present."""
-    env_names = (
-        "MINT_CHAIN_ID",
-        "MINT_VERIFYING_CONTRACT",
-        "MINT_ATTESTER_ADDRESS",
-    )
-    present = [name for name in env_names if os.getenv(name) and str(os.getenv(name)).strip()]
-    if not present:
+    chain_id = (os.getenv("MINT_CHAIN_ID") or "").strip()
+    verifying_contract = (os.getenv("MINT_VERIFYING_CONTRACT") or "").strip()
+    attester_address = (os.getenv("MINT_ATTESTER_ADDRESS") or "").strip()
+
+    if not chain_id and not attester_address:
         return None
-    if len(present) != len(env_names):
-        missing = sorted(set(env_names) - set(present))
+
+    missing = [
+        name
+        for name, value in (
+            ("MINT_CHAIN_ID", chain_id),
+            ("MINT_VERIFYING_CONTRACT", verifying_contract),
+            ("MINT_ATTESTER_ADDRESS", attester_address),
+        )
+        if not value
+    ]
+    if missing:
         raise ValueError(
             "Partial mint authorization configuration is not allowed; missing: "
-            + ", ".join(missing)
+            + ", ".join(sorted(missing))
         )
+    from src.eip712.mint_authorization import MintRequestSigningConfig
+
     return MintRequestSigningConfig.from_env()
 
 

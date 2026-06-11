@@ -153,9 +153,7 @@ def test_mutating_unsigned_wire_fields_does_not_change_digest() -> None:
     wire_message["message_id"] = "different"
     wire_message["timestamp"] = "2026-01-01T00:00:00+00:00"
     wire_message["schema_version"] = "1.0"
-    wire_message["baseline"] = "0x" + "99" * 32
     wire_message["attester_signatures"] = ["0x" + "90" * 65]
-    wire_message["signingDigest"] = "0x" + "ab" * 32
     mutated = build_typed_data(MintRequest.model_validate(wire_message), _make_config(vector))
 
     assert compute_digest(mutated) == compute_digest(original)
