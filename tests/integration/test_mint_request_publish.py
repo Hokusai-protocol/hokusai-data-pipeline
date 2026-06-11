@@ -617,7 +617,7 @@ class TestMintRequestPublishIntegration:
         assert by_submission["sub-1"].contribution_batch_id == "batch-1"
         assert by_submission["sub-2"].weight_bps == 3000
 
-    def test_baseline_equals_onchain_head_when_rpc_configured(
+    def test_publish_does_not_read_onchain_block_hash_for_signing(
         self, fake_redis_client, monkeypatch
     ) -> None:
         monkeypatch.setenv("ETH_RPC_URL", "https://rpc.example")

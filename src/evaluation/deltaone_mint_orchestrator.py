@@ -26,11 +26,12 @@ from src.api.services.token_mint_hook import TokenMintHook
 from src.cli.attestation import create_attestation
 from src.eip712 import (
     BaselineUnavailableError,
-    MintAuthorizationConfig,
+    MintRequestSigningConfig,
     build_typed_data,
     compute_digest,
     read_current_model_head,
     render_for_human,
+    sort_signatures_by_signer,
     verify_signature,
 )
 from src.evaluation.attribution.contributor_set import (
@@ -791,24 +792,32 @@ class DeltaOneMintOrchestrator:
             candidate_commitment=candidate_commitment,
             attester_signatures=[attester_signature],
         )
-        self._resolve_signing_digest(
+        _, ordered_signatures = self._resolve_signing_authorization(
             decision=decision,
             draft_mint_request=mint_request,
-            attester_signature=attester_signature,
+            attester_signatures=[attester_signature],
         )
+        if ordered_signatures != mint_request.attester_signatures:
+            mint_request = _build_mint_request(
+                acceptance_event=acceptance_event,
+                event_context=event_context,
+                baseline_commitment=baseline_commitment,
+                candidate_commitment=candidate_commitment,
+                attester_signatures=ordered_signatures,
+            )
         return mint_request
 
-    def _resolve_signing_digest(
+    def _resolve_signing_authorization(
         self: DeltaOneMintOrchestrator,
         *,
         decision: DeltaOneDecision,
         draft_mint_request: MintRequest,
-        attester_signature: str | None,
-    ) -> str | None:
-        """Build typed data, render it for the operator, and verify any signature."""
+        attester_signatures: list[str] | None,
+    ) -> tuple[str | None, list[str] | None]:
+        """Build typed data, render it for the operator, and verify/sort any signatures."""
         auth_config = _load_optional_mint_authorization_config()
         if auth_config is None:
-            return None
+            return None, attester_signatures
 
         typed_data = build_typed_data(draft_mint_request, auth_config)
         signing_digest = f"0x{compute_digest(typed_data).hex()}"
@@ -818,15 +827,15 @@ class DeltaOneMintOrchestrator:
             signing_digest,
             render_for_human(typed_data),
         )
-        if attester_signature is not None and not verify_signature(
-            typed_data,
-            attester_signature,
-            auth_config.attester_address,
-        ):
-            raise ValueError(
-                "ATTESTER_SIGNATURE did not recover the configured MINT_ATTESTER_ADDRESS"
-            )
-        return signing_digest
+        ordered_signatures = attester_signatures
+        if attester_signatures:
+            for signature in attester_signatures:
+                if not verify_signature(typed_data, signature, auth_config.attester_address):
+                    raise ValueError(
+                        "ATTESTER_SIGNATURE did not recover the configured MINT_ATTESTER_ADDRESS"
+                    )
+            ordered_signatures = sort_signatures_by_signer(typed_data, attester_signatures)
+        return signing_digest, ordered_signatures
 
     def _notify_reward_entitlement(
         self: DeltaOneMintOrchestrator,
@@ -1710,7 +1719,7 @@ def _fallback_commitment(label: str, seed: str) -> str:
     return f"0x{digest}"
 
 
-def _load_optional_mint_authorization_config() -> MintAuthorizationConfig | None:
+def _load_optional_mint_authorization_config() -> MintRequestSigningConfig | None:
     """Load EIP-712 config only when the full env block is present."""
     chain_id = (os.getenv("MINT_CHAIN_ID") or "").strip()
     verifying_contract = (os.getenv("MINT_VERIFYING_CONTRACT") or "").strip()
@@ -1733,7 +1742,7 @@ def _load_optional_mint_authorization_config() -> MintAuthorizationConfig | None
             "Partial mint authorization configuration is not allowed; missing: "
             + ", ".join(sorted(missing))
         )
-    return MintAuthorizationConfig.from_env()
+    return MintRequestSigningConfig.from_env()
 
 
 def _normalize_weights_to_10000(

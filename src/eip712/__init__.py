@@ -1,15 +1,22 @@
 """Helpers for MintRequest EIP-712 authorization payloads."""
 
 from .mint_authorization import (
+    BENCHMARK_ANCHORS_TYPES,
+    CONTRIBUTOR_TYPES,
     DOMAIN_NAME,
     DOMAIN_TYPES,
     DOMAIN_VERSION,
-    MESSAGE_TYPES,
+    MINT_REQUEST_PAYLOAD_TYPES,
+    MINT_REQUEST_TYPES,
     PRIMARY_TYPE,
-    MintAuthorizationConfig,
+    InvalidSignatureError,
+    MintRequestSigningConfig,
+    MintRequestSigningError,
     build_typed_data,
     compute_digest,
+    recover_signer,
     render_for_human,
+    sort_signatures_by_signer,
     verify_signature,
 )
 from .onchain_head import (
@@ -21,17 +28,24 @@ from .onchain_head import (
 
 __all__ = [
     "BaselineUnavailableError",
+    "BENCHMARK_ANCHORS_TYPES",
+    "CONTRIBUTOR_TYPES",
     "DOMAIN_NAME",
     "DOMAIN_TYPES",
     "DOMAIN_VERSION",
-    "MESSAGE_TYPES",
-    "MintAuthorizationConfig",
+    "InvalidSignatureError",
+    "MINT_REQUEST_PAYLOAD_TYPES",
+    "MINT_REQUEST_TYPES",
+    "MintRequestSigningConfig",
+    "MintRequestSigningError",
     "PRIMARY_TYPE",
     "read_current_model_head",
     "read_model_weight_head",
     "read_onchain_head",
     "build_typed_data",
     "compute_digest",
+    "recover_signer",
     "render_for_human",
+    "sort_signatures_by_signer",
     "verify_signature",
 ]

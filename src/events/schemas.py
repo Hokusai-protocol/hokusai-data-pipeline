@@ -196,8 +196,8 @@ class MessageEnvelope:
 # Published to hokusai:mint_requests on DeltaOne acceptance.
 # ---------------------------------------------------------------------------
 
-MINT_REQUEST_SCHEMA_VERSION = "1.0"
-MINT_REQUEST_MESSAGE_TYPE = "mint_request"
+MINT_REQUEST_SCHEMA_VERSION: Literal["1.0"] = "1.0"
+MINT_REQUEST_MESSAGE_TYPE: Literal["mint_request"] = "mint_request"
 _UINT256_MAX = 2**256 - 1
 _ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _SHA256_HEX_RE = re.compile(r"^0x[0-9a-f]{64}$")

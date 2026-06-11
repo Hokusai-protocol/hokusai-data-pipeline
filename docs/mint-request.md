@@ -113,22 +113,45 @@ Auth-service notification failures are logged but do not roll back the already d
 
 ## Signing Flow
 
-When the mint authorization env block is configured, the producer builds the exact EIP-712 typed data from the canonical `MintRequest`, derives the digest that the contract verifies, and logs a human-readable rendering of that exact typed data for the attester operator. The typed data covers the full contract tuple `(modelId, payload, contributors)` with:
+`DeltaVerifier.sol` is the source of truth for signing, especially `hashMintRequest()`. The producer must build the exact EIP-712 typed data that `DeltaVerifier.hashMintRequest()` verifies:
 
-- `payload.baselineCommitment`
-- `payload.candidateCommitment`
-- `payload.anchors.{benchmarkSpecHash,datasetHash,attestationHash,idempotencyKey}`
-- `payload.totalSamples`
-- `contributors[]`
+- Domain: `EIP712("HokusaiDeltaVerifier", "1")` + `chainId` + `verifyingContract`
+- Primary type: `MintRequest(uint256 modelId,MintRequestPayload payload,Contributor[] contributors)`
+- Nested types:
+  - `MintRequestPayload(string pipelineRunId,uint256 baselineScoreBps,uint256 candidateScoreBps,uint256 maxCostUsdMicro,uint256 actualCostUsdMicro,uint256 totalSamples,BenchmarkAnchors anchors,bytes32 baselineCommitment,bytes32 candidateCommitment)`
+  - `BenchmarkAnchors(bytes32 benchmarkSpecHash,bytes32 datasetHash,bytes32 attestationHash,bytes32 idempotencyKey,string metricName,string metricFamily)`
+  - `Contributor(address walletAddress,uint256 weight)`
+
+Verbatim typehash strings from `DeltaVerifier.sol`:
+
+```text
+BenchmarkAnchors(bytes32 benchmarkSpecHash,bytes32 datasetHash,bytes32 attestationHash,bytes32 idempotencyKey,string metricName,string metricFamily)
+Contributor(address walletAddress,uint256 weight)
+MintRequestPayload(string pipelineRunId,uint256 baselineScoreBps,uint256 candidateScoreBps,uint256 maxCostUsdMicro,uint256 actualCostUsdMicro,uint256 totalSamples,BenchmarkAnchors anchors,bytes32 baselineCommitment,bytes32 candidateCommitment)BenchmarkAnchors(bytes32 benchmarkSpecHash,bytes32 datasetHash,bytes32 attestationHash,bytes32 idempotencyKey,string metricName,string metricFamily)
+MintRequest(uint256 modelId,MintRequestPayload payload,Contributor[] contributors)BenchmarkAnchors(bytes32 benchmarkSpecHash,bytes32 datasetHash,bytes32 attestationHash,bytes32 idempotencyKey,string metricName,string metricFamily)Contributor(address walletAddress,uint256 weight)MintRequestPayload(string pipelineRunId,uint256 baselineScoreBps,uint256 candidateScoreBps,uint256 maxCostUsdMicro,uint256 actualCostUsdMicro,uint256 totalSamples,BenchmarkAnchors anchors,bytes32 baselineCommitment,bytes32 candidateCommitment)
+```
+
+Field mapping for the signed payload:
+
+- `modelId` <- `model_id_uint`
+- `pipelineRunId` <- `eval_id`
+- `baselineScoreBps` / `candidateScoreBps` <- `evaluation.baseline_score_bps` / `evaluation.new_score_bps`
+- `maxCostUsdMicro` / `actualCostUsdMicro` <- evaluation cost fields
+- `totalSamples` <- `totalSamples`
+- `anchors.benchmarkSpecHash` <- `keccak256(utf8(benchmark_spec_id))`
+- `anchors.datasetHash` / `attestationHash` / `idempotencyKey` <- passthrough
+- `anchors.metricName` / `metricFamily` <- evaluation metric fields
+- `baselineCommitment` / `candidateCommitment` <- commitment fields
+- `contributors[i]` <- queue order, unchanged
 
 The intended operator sequence is:
 
-1. Producer resolves `baseline_commitment` from `DeltaVerifier.currentModelHead(modelId)` via `ETH_RPC_URL`
-2. Producer builds and renders the exact typed data
-3. Hardware-wallet attester signs that typed data out-of-band
-4. Signature is injected through `ATTESTER_SIGNATURE`
-5. Producer verifies the signature against `MINT_ATTESTER_ADDRESS`
-6. Producer publishes `baseline_commitment`, `candidate_commitment`, and `attester_signatures[]` on the `MintRequest`
+1. Producer builds and renders the exact typed data from the draft queue message
+2. Hardware-wallet attester signs that typed data out-of-band
+3. Signature is injected through `ATTESTER_SIGNATURE`
+4. Producer verifies the signature against `MINT_ATTESTER_ADDRESS`
+5. Producer sorts `attester_signatures` by ascending recovered signer address
+6. Producer publishes `baseline_commitment`, `candidate_commitment`, and `attester_signatures` on the `MintRequest`
 
 The digest is recomputable from the published message and is not emitted on the wire. If `MINT_REQUIRE_ONCHAIN_BASELINE` is set to anything other than `false`, `ETH_RPC_URL` becomes mandatory and a lineage-head read failure aborts publish before canonical advancement.
 
@@ -181,7 +204,7 @@ Optional contributor traceability fields are preserved on each contributor row:
 - `contributionBatchId`: optional batch/job reference when one submission maps to a broader batch
 - `contributorId`: optional contributor identity distinct from the wallet address
 
-The producer sorts contributors deterministically by wallet and traceability metadata before building the acceptance event and MintRequest payload. This keeps serialized payloads stable across replays without changing the idempotency key formula.
+Contributor order in the queue payload is part of the signed EIP-712 message and must be preserved exactly through submission. Only `attester_signatures` are reordered, and they are sorted by recovered signer address.
 
 ## Auth-service reward entitlements
 
