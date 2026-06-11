@@ -37,10 +37,10 @@ def register_promote_and_smoke(args: argparse.Namespace) -> dict[str, Any]:
     if args.tracking_uri:
         mlflow.set_tracking_uri(args.tracking_uri)
 
-    registration = _register_or_resolve_model(args)
-    model_uri = registration["registered_model_uri"]
     client = MlflowClient()
     previous_alias = _alias_target(client, MODEL_NAME, args.alias)
+    registration = _register_or_resolve_model(args, previous_alias=previous_alias)
+    model_uri = registration["registered_model_uri"]
 
     local_smoke = _smoke_mlflow_model(model_uri)
     promotion: dict[str, Any] = {"alias": args.alias, "skipped": args.no_promote}
@@ -81,7 +81,9 @@ def register_promote_and_smoke(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def _register_or_resolve_model(args: argparse.Namespace) -> dict[str, Any]:
+def _register_or_resolve_model(
+    args: argparse.Namespace, *, previous_alias: dict[str, Any] | None
+) -> dict[str, Any]:
     if args.model_uri:
         version = _version_from_model_uri(args.model_uri)
         return {
@@ -103,9 +105,29 @@ def _register_or_resolve_model(args: argparse.Namespace) -> dict[str, Any]:
             experiment_name=args.experiment_name,
             run_name=args.run_name,
             k_neighbors=args.k_neighbors,
+            training_manifest=getattr(args, "training_manifest", None),
             smoke=True,
+            model_id_uint=args.model_id_uint,
+            baseline_artifact_uri=(
+                args.baseline_artifact_uri
+                if getattr(args, "baseline_artifact_uri", None) is not None
+                else _baseline_artifact_uri_from_alias(previous_alias)
+            ),
+            eth_rpc_url=args.eth_rpc_url,
+            delta_verifier_address=args.delta_verifier_address,
+            model_registry_address=args.model_registry_address,
+            onchain_timeout_seconds=args.onchain_timeout_seconds,
         )
     )
+
+
+def _baseline_artifact_uri_from_alias(previous_alias: dict[str, Any] | None) -> str | None:
+    if not previous_alias:
+        return None
+    version = previous_alias.get("version")
+    if not version:
+        return None
+    return f"models:/{MODEL_NAME}/{version}"
 
 
 def _smoke_mlflow_model(model_uri: str) -> list[dict[str, Any]]:
@@ -348,6 +370,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--experiment-name")
     parser.add_argument("--run-name", default="technical-task-router-v2-production")
     parser.add_argument("--k-neighbors", type=int, default=40)
+    parser.add_argument("--training-manifest")
+    parser.add_argument(
+        "--model-id-uint",
+        type=int,
+        default=int(os.getenv("MODEL_30_MODEL_ID_UINT", "30")),
+    )
+    parser.add_argument("--baseline-artifact-uri", default=None)
+    parser.add_argument("--eth-rpc-url", default=os.getenv("ETH_RPC_URL"))
+    parser.add_argument("--delta-verifier-address", default=os.getenv("DELTA_VERIFIER_ADDRESS"))
+    parser.add_argument("--model-registry-address", default=os.getenv("MODEL_REGISTRY_ADDRESS"))
+    parser.add_argument(
+        "--onchain-timeout-seconds",
+        type=float,
+        default=float(os.getenv("MINT_ONCHAIN_TIMEOUT_SECONDS", "5.0")),
+    )
     parser.add_argument("--alias", default="production")
     parser.add_argument("--no-promote", action="store_true")
     parser.add_argument("--production-smoke", action="store_true")

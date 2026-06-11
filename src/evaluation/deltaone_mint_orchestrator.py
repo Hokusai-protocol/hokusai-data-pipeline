@@ -219,13 +219,19 @@ class DeltaOneMintOrchestrator:
         delta_threshold_pp = getattr(self.evaluator, "delta_threshold_pp", 1.0)
 
         actual_cost_usd = _resolve_cost_value(candidate_tags)
-        baseline_commitment = _resolve_optional_commitment_tag(
+        baseline_commitment = _resolve_required_commitment_tag(
             candidate_tags.get(WEIGHT_COMMITMENT_BASELINE_TAG),
-            field_name=WEIGHT_COMMITMENT_BASELINE_TAG,
+            logical_name="baseline_commitment",
+            mlflow_tag=WEIGHT_COMMITMENT_BASELINE_TAG,
+            run_id=decision.run_id,
+            model_id=decision.model_id,
         )
-        candidate_commitment = _resolve_optional_commitment_tag(
+        candidate_commitment = _resolve_required_commitment_tag(
             candidate_tags.get(WEIGHT_COMMITMENT_CANDIDATE_TAG),
-            field_name=WEIGHT_COMMITMENT_CANDIDATE_TAG,
+            logical_name="candidate_commitment",
+            mlflow_tag=WEIGHT_COMMITMENT_CANDIDATE_TAG,
+            run_id=decision.run_id,
+            model_id=decision.model_id,
         )
 
         attribution_report = self._load_attribution_report(candidate_tags, decision.run_id)
@@ -379,13 +385,19 @@ class DeltaOneMintOrchestrator:
                 pass
 
         actual_cost_usd = _resolve_cost_value(candidate_tags)
-        baseline_commitment = _resolve_optional_commitment_tag(
+        baseline_commitment = _resolve_required_commitment_tag(
             candidate_tags.get(WEIGHT_COMMITMENT_BASELINE_TAG),
-            field_name=WEIGHT_COMMITMENT_BASELINE_TAG,
+            logical_name="baseline_commitment",
+            mlflow_tag=WEIGHT_COMMITMENT_BASELINE_TAG,
+            run_id=decision.run_id,
+            model_id=decision.model_id,
         )
-        candidate_commitment = _resolve_optional_commitment_tag(
+        candidate_commitment = _resolve_required_commitment_tag(
             candidate_tags.get(WEIGHT_COMMITMENT_CANDIDATE_TAG),
-            field_name=WEIGHT_COMMITMENT_CANDIDATE_TAG,
+            logical_name="candidate_commitment",
+            mlflow_tag=WEIGHT_COMMITMENT_CANDIDATE_TAG,
+            run_id=decision.run_id,
+            model_id=decision.model_id,
         )
 
         attribution_report = self._load_attribution_report(candidate_tags, decision.run_id)
@@ -777,15 +789,11 @@ class DeltaOneMintOrchestrator:
             or draft_mint_request.baseline_commitment is None
             or draft_mint_request.candidate_commitment is None
         ):
-            logger.warning(
-                "event=mint_authorization_skipped_missing_inputs run_id=%s baseline=%s "
-                "baseline_commitment=%s candidate_commitment=%s",
-                decision.run_id,
-                draft_mint_request.baseline is not None,
-                draft_mint_request.baseline_commitment is not None,
-                draft_mint_request.candidate_commitment is not None,
+            raise EventPayloadError(
+                "mint_authorization",
+                "mint authorization requires baseline, baseline_commitment, and "
+                f"candidate_commitment for run {decision.run_id}",
             )
-            return None
 
         typed_data = build_typed_data(draft_mint_request, auth_config)
         signing_digest = f"0x{compute_digest(typed_data).hex()}"
@@ -1608,15 +1616,42 @@ def _normalise_to_0x_sha256(value: Any, *, field: str) -> str:
     return f"0x{bare}"
 
 
-def _resolve_optional_commitment_tag(value: Any, *, field_name: str) -> str | None:
-    """Normalize a commitment tag to canonical 0x-prefixed lowercase hex."""
+def _resolve_required_commitment_tag(
+    value: Any,
+    *,
+    logical_name: str,
+    mlflow_tag: str,
+    run_id: str,
+    model_id: str | None,
+) -> str:
+    """Normalize a required commitment tag to canonical 0x-prefixed lowercase hex."""
     if value is None or not str(value).strip():
-        return None
+        raise EventPayloadError(
+            logical_name,
+            f"{logical_name} is required for run {run_id}"
+            + (f" model={model_id}" if model_id else "")
+            + f"; missing MLflow tag {mlflow_tag!r}",
+        )
+    raw_value = str(value).strip()
+    if raw_value != raw_value.lower():
+        raise EventPayloadError(
+            logical_name,
+            f"{logical_name} on run {run_id}"
+            + (f" model={model_id}" if model_id else "")
+            + (
+                f" from MLflow tag {mlflow_tag!r} must already be lowercase "
+                f"canonical hex: {raw_value!r}"
+            ),
+        )
     try:
-        return _normalise_to_0x_sha256(str(value), field=field_name)
-    except EventPayloadError:
-        logger.warning("event=invalid_commitment_tag field=%s value=%r", field_name, value)
-        return None
+        return _normalise_to_0x_sha256(raw_value, field=logical_name)
+    except EventPayloadError as exc:
+        raise EventPayloadError(
+            logical_name,
+            f"{logical_name} on run {run_id}"
+            + (f" model={model_id}" if model_id else "")
+            + f" from MLflow tag {mlflow_tag!r} is invalid: {value!r}",
+        ) from exc
 
 
 def _normalize_optional_signature(value: str | None) -> str | None:

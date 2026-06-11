@@ -13,6 +13,7 @@ import argparse
 import csv
 import hashlib
 import json
+import logging
 import os
 import re
 import sys
@@ -34,6 +35,12 @@ from scripts.model_30.evaluate_technical_task_router import (  # noqa: E402
     evaluate_model,
     parse_objectives,
 )
+from src.eip712 import read_model_weight_head  # noqa: E402
+from src.evaluation.tags import (  # noqa: E402
+    WEIGHT_COMMITMENT_BASELINE_TAG,
+    WEIGHT_COMMITMENT_CANDIDATE_TAG,
+)
+from src.lineage.weight_commitment import compute_weight_commitment  # noqa: E402
 from src.models.technical_task_router import (  # noqa: E402
     MODEL_NAME,
     ROUTER_DATASET_ARTIFACT,
@@ -50,6 +57,9 @@ MODEL_ID_COLUMNS = (
     "reviewer_model",
 )
 SELECTED_MODEL_ID_COLUMNS = ("planner_model", "coder_model", "reviewer_model")
+DEFAULT_BASELINE_ARTIFACT_URI = "models:/Technical Task Router@production"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -202,12 +212,124 @@ def _log_training_manifest(report_path: str) -> None:
     mlflow.log_dict(report, "training_manifest_report.json")
 
 
+def _normalize_commitment_root(root: str) -> str:
+    return f"0x{root.lower()}"
+
+
+def _resolve_required_arg(args: argparse.Namespace, attr_name: str, env_name: str) -> str:
+    value = getattr(args, attr_name, None) or os.getenv(env_name)
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise ValueError(f"{env_name} or --{attr_name.replace('_', '-')} is required")
+    return normalized
+
+
+def _resolve_model_id_uint(args: argparse.Namespace) -> int:
+    raw = getattr(args, "model_id_uint", None)
+    if raw is None:
+        raw = os.getenv("MODEL_30_MODEL_ID_UINT", "30")
+    try:
+        model_id_uint = int(str(raw).strip())
+    except ValueError as exc:
+        raise ValueError(f"model_id_uint must be an integer, got {raw!r}") from exc
+    if model_id_uint < 0:
+        raise ValueError(f"model_id_uint must be non-negative, got {model_id_uint}")
+    return model_id_uint
+
+
+def _resolve_baseline_artifact_uri(args: argparse.Namespace) -> str | None:
+    raw_value = getattr(args, "baseline_artifact_uri", None)
+    if raw_value is None:
+        raw_value = os.getenv("MODEL_30_BASELINE_ARTIFACT_URI", DEFAULT_BASELINE_ARTIFACT_URI)
+    normalized = str(raw_value or "").strip()
+    return normalized or None
+
+
+def _resolve_onchain_timeout_seconds(args: argparse.Namespace) -> float:
+    raw = getattr(args, "onchain_timeout_seconds", None)
+    if raw is None:
+        raw = os.getenv("MINT_ONCHAIN_TIMEOUT_SECONDS", "5.0")
+    try:
+        timeout = float(str(raw).strip())
+    except ValueError as exc:
+        raise ValueError(f"on-chain timeout must be numeric, got {raw!r}") from exc
+    if timeout <= 0:
+        raise ValueError(f"on-chain timeout must be positive, got {timeout}")
+    return timeout
+
+
+def _compute_weight_commitment_for_uri(uri: str) -> tuple[str, str]:
+    artifact_dir = mlflow.artifacts.download_artifacts(artifact_uri=uri)
+    commitment = compute_weight_commitment(artifact_dir)
+    return _normalize_commitment_root(commitment.root), artifact_dir
+
+
+def _tag_weight_commitments(
+    *,
+    model_uri: str,
+    model_id_uint: int,
+    rpc_url: str,
+    delta_verifier_address: str,
+    model_registry_address: str,
+    baseline_artifact_uri: str | None,
+    onchain_timeout: float,
+) -> dict[str, str | None]:
+    candidate_commitment, candidate_artifact_dir = _compute_weight_commitment_for_uri(model_uri)
+    baseline_commitment = read_model_weight_head(
+        rpc_url,
+        delta_verifier_address=delta_verifier_address,
+        model_registry_address=model_registry_address,
+        model_id_uint=model_id_uint,
+        timeout=onchain_timeout,
+    )
+    mlflow.set_tag(WEIGHT_COMMITMENT_CANDIDATE_TAG, candidate_commitment)
+    mlflow.set_tag(WEIGHT_COMMITMENT_BASELINE_TAG, baseline_commitment)
+
+    baseline_local_commitment: str | None = None
+    if baseline_artifact_uri is None:
+        logger.info(
+            "event=weight_commitment_baseline_drift_skipped " "reason=no_baseline_artifact_uri"
+        )
+    else:
+        baseline_local_commitment, _ = _compute_weight_commitment_for_uri(baseline_artifact_uri)
+        if baseline_local_commitment != baseline_commitment:
+            logger.warning(
+                "event=weight_commitment_baseline_drift model_id_uint=%s "
+                "onchain_commitment=%s local_commitment=%s baseline_artifact_uri=%s",
+                model_id_uint,
+                baseline_commitment,
+                baseline_local_commitment,
+                baseline_artifact_uri,
+            )
+    return {
+        "candidate_commitment": candidate_commitment,
+        "candidate_commitment_artifact_dir": candidate_artifact_dir,
+        "baseline_commitment": baseline_commitment,
+        "baseline_artifact_uri": baseline_artifact_uri,
+        "baseline_local_commitment": baseline_local_commitment,
+    }
+
+
 def register_model(args: argparse.Namespace) -> dict[str, Any]:
     """Log and register the callable Technical Task Router model."""
     dataset_path = Path(args.router_dataset).expanduser().resolve()
     if not dataset_path.exists():
         raise FileNotFoundError(f"Router dataset not found: {dataset_path}")
     dataset_summary = validate_router_dataset_model_ids(dataset_path)
+    model_id_uint = _resolve_model_id_uint(args)
+    rpc_url = _resolve_required_arg(args, "eth_rpc_url", "ETH_RPC_URL")
+    delta_verifier_address = _resolve_required_arg(
+        args,
+        "delta_verifier_address",
+        "DELTA_VERIFIER_ADDRESS",
+    )
+    model_registry_address = _resolve_required_arg(
+        args,
+        "model_registry_address",
+        "MODEL_REGISTRY_ADDRESS",
+    )
+    baseline_artifact_uri = _resolve_baseline_artifact_uri(args)
+    onchain_timeout = _resolve_onchain_timeout_seconds(args)
 
     if args.tracking_uri:
         mlflow.set_tracking_uri(args.tracking_uri)
@@ -302,6 +424,15 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
                 "pandas",
             ],
         )
+        commitment_result = _tag_weight_commitments(
+            model_uri=model_info.model_uri,
+            model_id_uint=model_id_uint,
+            rpc_url=rpc_url,
+            delta_verifier_address=delta_verifier_address,
+            model_registry_address=model_registry_address,
+            baseline_artifact_uri=baseline_artifact_uri,
+            onchain_timeout=onchain_timeout,
+        )
 
     version = getattr(model_info, "registered_model_version", None)
     model_uri = _registered_model_uri(MODEL_NAME, str(version) if version else None)
@@ -312,6 +443,7 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
         "registered_model_version": str(version) if version else None,
         "registered_model_uri": model_uri,
     }
+    result.update(commitment_result)
 
     if args.smoke:
         loaded = mlflow.pyfunc.load_model(model_uri)
@@ -357,6 +489,37 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--training-manifest",
         help="Optional assembler report.json used to tag the MLflow training run.",
+    )
+    parser.add_argument(
+        "--model-id-uint",
+        type=int,
+        default=int(os.getenv("MODEL_30_MODEL_ID_UINT", "30")),
+    )
+    parser.add_argument(
+        "--baseline-artifact-uri",
+        default=os.getenv("MODEL_30_BASELINE_ARTIFACT_URI", DEFAULT_BASELINE_ARTIFACT_URI),
+        help="MLflow artifact URI used for local baseline drift checks.",
+    )
+    parser.add_argument(
+        "--eth-rpc-url",
+        default=os.getenv("ETH_RPC_URL"),
+        help="Ethereum JSON-RPC endpoint used to read the authoritative weight head.",
+    )
+    parser.add_argument(
+        "--delta-verifier-address",
+        default=os.getenv("DELTA_VERIFIER_ADDRESS"),
+        help="DeltaVerifier contract address.",
+    )
+    parser.add_argument(
+        "--model-registry-address",
+        default=os.getenv("MODEL_REGISTRY_ADDRESS"),
+        help="ModelRegistry contract address.",
+    )
+    parser.add_argument(
+        "--onchain-timeout-seconds",
+        type=float,
+        default=float(os.getenv("MINT_ONCHAIN_TIMEOUT_SECONDS", "5.0")),
+        help="Timeout for on-chain commitment reads.",
     )
     return parser.parse_args()
 
