@@ -4,7 +4,7 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -201,7 +201,11 @@ MINT_REQUEST_MESSAGE_TYPE = "mint_request"
 _UINT256_MAX = 2**256 - 1
 _ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _SHA256_HEX_RE = re.compile(r"^0x[0-9a-f]{64}$")
-_ECDSA_SIG_RE = re.compile(r"^0x[0-9a-f]{130}$")
+_ECDSA_SIG_RE = re.compile(r"^0x[0-9a-fA-F]{130}$")
+_SHA256_HEX_PATTERN = r"^0x[0-9a-f]{64}$"
+_ECDSA_SIG_PATTERN = r"^0x[0-9a-fA-F]{130}$"
+Sha256Hex = Annotated[str, Field(pattern=_SHA256_HEX_PATTERN)]
+AttesterSignatureHex = Annotated[str, Field(pattern=_ECDSA_SIG_PATTERN)]
 
 
 class MintRequestContributor(BaseModel):
@@ -212,7 +216,7 @@ class MintRequestContributor(BaseModel):
     wallet_address: str = Field(
         ..., description="EIP-55 checksummed or lowercase 0x-prefixed Ethereum address"
     )
-    weight_bps: int = Field(..., ge=0, le=10000, description="Allocation weight in basis points")
+    weight_bps: int = Field(..., ge=1, le=10000, description="Allocation weight in basis points")
     submission_id: str | None = Field(default=None, alias="submissionId", min_length=1)
     contribution_batch_id: str | None = Field(
         default=None, alias="contributionBatchId", min_length=1
@@ -250,8 +254,8 @@ class MintRequestEvaluation(BaseModel):
     ci_high_bps: Optional[int] = Field(None, ge=0, le=10000)
     p_value: Optional[float] = Field(None, ge=0.0, le=1.0)
     effect_size_bps: Optional[int] = Field(None, ge=0, le=10000)
-    statistical_method: Optional[str] = None
-    statistical_reason: Optional[str] = None
+    statistical_method: Optional[str] = Field(None, max_length=128)
+    statistical_reason: Optional[str] = Field(None, max_length=1024)
 
 
 class MintRequest(BaseModel):
@@ -274,49 +278,42 @@ class MintRequest(BaseModel):
 
     # Model and eval references
     model_id: str = Field(..., min_length=1)
-    model_id_uint: str = Field(..., description="uint256 as decimal string")
+    model_id_uint: str = Field(..., pattern=r"^[1-9]\d*$", description="uint256 as decimal string")
     eval_id: str = Field(..., min_length=1)
 
     # Cryptographic anchors
     benchmark_spec_id: str = Field(
         ..., min_length=1, description="Stable benchmark spec identifier"
     )
-    dataset_hash: str = Field(..., description="Dataset anchor, 0x-prefixed 64-hex SHA-256")
-    attestation_hash: str = Field(..., description="SHA-256 of HEM payload, 0x-prefixed 64-hex")
-    idempotency_key: str = Field(
+    dataset_hash: Sha256Hex = Field(..., description="Dataset anchor, 0x-prefixed 64-hex SHA-256")
+    attestation_hash: Sha256Hex = Field(
+        ..., description="SHA-256 of HEM payload, 0x-prefixed 64-hex"
+    )
+    idempotency_key: Sha256Hex = Field(
         ..., description="sha256(model_id_uint:attestation_hash), 0x-prefixed"
     )
-    baseline: str | None = Field(
-        default=None,
-        description="On-chain head block hash at publish time, 0x-prefixed 64-hex",
-    )
-    baseline_commitment: str | None = Field(
-        default=None,
-        alias="baselineCommitment",
+    baseline_commitment: Sha256Hex = Field(
+        ...,
         description=(
-            "SHA-256 Merkle root of baseline model weights, "
+            "Canonical on-chain lineage head for the model, "
             "0x-prefixed 64-hex (sha256-merkle-v1)"
         ),
     )
-    candidate_commitment: str | None = Field(
-        default=None,
-        alias="candidateCommitment",
+    candidate_commitment: Sha256Hex = Field(
+        ...,
         description=(
             "SHA-256 Merkle root of candidate model weights, "
             "0x-prefixed 64-hex (sha256-merkle-v1)"
         ),
     )
-    attester_signature: str | None = Field(
-        default=None,
-        alias="attesterSignature",
+    attester_signatures: list[AttesterSignatureHex] = Field(
+        ...,
+        min_length=1,
+        max_length=8,
         description=(
-            "Attester ECDSA signature over attestation payload, " "0x-prefixed 130-hex (65 bytes)"
+            "Attester ECDSA signatures over the canonical MintRequest typed data, "
+            "ordered by ascending recovered signer address"
         ),
-    )
-    signing_digest: str | None = Field(
-        default=None,
-        alias="signingDigest",
-        description="EIP-712 digest that was signed, 0x-prefixed 64-hex",
     )
 
     total_samples: int = Field(
@@ -342,7 +339,7 @@ class MintRequest(BaseModel):
             n = int(v)
         except (ValueError, TypeError) as exc:
             raise ValueError(f"model_id_uint must be a decimal integer string, got {v!r}") from exc
-        if n < 0 or n > _UINT256_MAX:
+        if n <= 0 or n > _UINT256_MAX:
             raise ValueError(f"model_id_uint {v!r} is outside uint256 range")
         return v
 
@@ -353,21 +350,26 @@ class MintRequest(BaseModel):
             raise ValueError(f"hash field must be 0x-prefixed lowercase 64-hex SHA-256, got {v!r}")
         return v
 
-    @field_validator("baseline", "baseline_commitment", "candidate_commitment", "signing_digest")
+    @field_validator("baseline_commitment", "candidate_commitment")
     @classmethod
-    def _validate_optional_sha256(cls, v: str | None) -> str | None:
-        if v is not None and not _SHA256_HEX_RE.match(v):
+    def _validate_sha256(cls, v: str) -> str:
+        if not _SHA256_HEX_RE.match(v):
             raise ValueError(f"commitment must be 0x-prefixed lowercase 64-hex SHA-256, got {v!r}")
         return v
 
-    @field_validator("attester_signature")
+    @field_validator("attester_signatures")
     @classmethod
-    def _validate_attester_sig(cls, v: str | None) -> str | None:
-        if v is not None and not _ECDSA_SIG_RE.match(v):
-            raise ValueError(
-                "attesterSignature must be 0x-prefixed lowercase 130-hex " f"(65 bytes), got {v!r}"
-            )
-        return v
+    def _validate_attester_sigs(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            lowered = value.lower()
+            if not _ECDSA_SIG_RE.match(value):
+                raise ValueError(
+                    "attester_signatures entries must be 0x-prefixed 130-hex "
+                    f"(65 bytes), got {value!r}"
+                )
+            normalized.append(lowered)
+        return normalized
 
     @model_validator(mode="after")
     def _validate_contributors_sum(self) -> "MintRequest":
@@ -376,4 +378,14 @@ class MintRequest(BaseModel):
             raise ValueError(f"contributors weight_bps must sum to 10000; got {total}")
         if len(self.contributors) > 100:
             raise ValueError("contributors list exceeds maximum of 100 entries")
+        candidate_samples = self.evaluation.sample_size_candidate
+        if (
+            candidate_samples is not None
+            and candidate_samples > 0
+            and self.total_samples != candidate_samples
+        ):
+            raise ValueError(
+                "totalSamples must match evaluation.sample_size_candidate "
+                "when candidate sample size is present"
+            )
         return self

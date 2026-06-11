@@ -17,6 +17,11 @@ from src.utils.config import get_test_config
 
 os.environ.setdefault("MLFLOW_SERVER_URL", "https://mlflow.test.local:5000")
 os.environ.setdefault("DB_PASSWORD", "test-password")
+os.environ.setdefault(
+    "ATTESTER_SIGNATURE",
+    "0x1111111111111111111111111111111111111111111111111111111111111111"
+    "22222222222222222222222222222222222222222222222222222222222222221b",
+)
 
 
 def pytest_collection_modifyitems(items):
@@ -196,6 +201,8 @@ def set_test_env_vars():
         "AWS_SECRET_ACCESS_KEY": "test_secret_key",
         "AWS_SESSION_TOKEN": "test_session_token",
         "AWS_DEFAULT_REGION": "us-east-1",
+        "ETH_RPC_URL": "https://rpc.test.local",
+        "MINT_VERIFYING_CONTRACT": "0xcccccccccccccccccccccccccccccccccccccccc",
     }
 
     original_env = {}
@@ -222,6 +229,15 @@ def mock_aws_credentials(monkeypatch):
     monkeypatch.setenv("AWS_SECURITY_TOKEN", "testing")
     monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+
+
+@pytest.fixture(autouse=True)
+def mock_mint_lineage_head(monkeypatch):
+    """Keep MintRequest tests offline while requiring canonical baseline_commitment."""
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.read_current_model_head",
+        Mock(return_value="0x" + "9a" * 32),
+    )
 
 
 @pytest.fixture

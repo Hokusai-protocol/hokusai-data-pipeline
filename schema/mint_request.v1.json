@@ -12,7 +12,7 @@
         "weight_bps": {
           "description": "Allocation weight in basis points",
           "maximum": 10000,
-          "minimum": 0,
+          "minimum": 1,
           "title": "Weight Bps",
           "type": "integer"
         },
@@ -184,6 +184,7 @@
         "statistical_method": {
           "anyOf": [
             {
+              "maxLength": 128,
               "type": "string"
             },
             {
@@ -196,6 +197,7 @@
         "statistical_reason": {
           "anyOf": [
             {
+              "maxLength": 1024,
               "type": "string"
             },
             {
@@ -250,6 +252,7 @@
     },
     "model_id_uint": {
       "description": "uint256 as decimal string",
+      "pattern": "^[1-9]\\d*$",
       "title": "Model Id Uint",
       "type": "string"
     },
@@ -266,83 +269,44 @@
     },
     "dataset_hash": {
       "description": "Dataset anchor, 0x-prefixed 64-hex SHA-256",
+      "pattern": "^0x[0-9a-f]{64}$",
       "title": "Dataset Hash",
       "type": "string"
     },
     "attestation_hash": {
       "description": "SHA-256 of HEM payload, 0x-prefixed 64-hex",
+      "pattern": "^0x[0-9a-f]{64}$",
       "title": "Attestation Hash",
       "type": "string"
     },
     "idempotency_key": {
       "description": "sha256(model_id_uint:attestation_hash), 0x-prefixed",
+      "pattern": "^0x[0-9a-f]{64}$",
       "title": "Idempotency Key",
       "type": "string"
     },
-    "baseline": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "On-chain head block hash at publish time, 0x-prefixed 64-hex",
-      "title": "Baseline"
+    "baseline_commitment": {
+      "description": "Canonical on-chain lineage head for the model, 0x-prefixed 64-hex (sha256-merkle-v1)",
+      "pattern": "^0x[0-9a-f]{64}$",
+      "title": "Baseline Commitment",
+      "type": "string"
     },
-    "baselineCommitment": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "SHA-256 Merkle root of baseline model weights, 0x-prefixed 64-hex (sha256-merkle-v1)",
-      "title": "Baselinecommitment"
-    },
-    "candidateCommitment": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
+    "candidate_commitment": {
       "description": "SHA-256 Merkle root of candidate model weights, 0x-prefixed 64-hex (sha256-merkle-v1)",
-      "title": "Candidatecommitment"
+      "pattern": "^0x[0-9a-f]{64}$",
+      "title": "Candidate Commitment",
+      "type": "string"
     },
-    "attesterSignature": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Attester ECDSA signature over attestation payload, 0x-prefixed 130-hex (65 bytes)",
-      "title": "Attestersignature"
-    },
-    "signingDigest": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "EIP-712 digest that was signed, 0x-prefixed 64-hex",
-      "title": "Signingdigest"
+    "attester_signatures": {
+      "description": "Attester ECDSA signatures over the canonical MintRequest typed data, ordered by ascending recovered signer address",
+      "items": {
+        "pattern": "^0x[0-9a-fA-F]{130}$",
+        "type": "string"
+      },
+      "maxItems": 8,
+      "minItems": 1,
+      "title": "Attester Signatures",
+      "type": "array"
     },
     "totalSamples": {
       "description": "Total sample count submitted to DeltaVerifier, derived from accepted candidate samples",
@@ -372,6 +336,9 @@
     "dataset_hash",
     "attestation_hash",
     "idempotency_key",
+    "baseline_commitment",
+    "candidate_commitment",
+    "attester_signatures",
     "totalSamples",
     "evaluation",
     "contributors"

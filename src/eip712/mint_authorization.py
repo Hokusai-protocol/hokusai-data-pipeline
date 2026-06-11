@@ -1,4 +1,4 @@
-"""EIP-712 helpers for attester-authorized mint requests."""
+"""EIP-712 helpers for attester-authorized MintRequest payloads."""
 
 from __future__ import annotations
 
@@ -10,34 +10,57 @@ from typing import Any
 
 from eth_account import Account
 from eth_account.messages import _hash_eip191_message, encode_typed_data
+from eth_utils import keccak
 
 from src.events.schemas import MintRequest
 
 _ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _BYTES32_RE = re.compile(r"^0x[0-9a-f]{64}$")
 
-DOMAIN_NAME = "HokusaiMintAuthority"
+DOMAIN_NAME = "HokusaiDeltaVerifier"
 DOMAIN_VERSION = "1"
-PRIMARY_TYPE = "MintAuthorization"
+PRIMARY_TYPE = "MintRequest"
 DOMAIN_TYPES = [
     {"name": "name", "type": "string"},
     {"name": "version", "type": "string"},
     {"name": "chainId", "type": "uint256"},
     {"name": "verifyingContract", "type": "address"},
 ]
-MESSAGE_TYPES = [
-    {"name": "modelIdUint", "type": "uint256"},
-    {"name": "baselineCommitment", "type": "bytes32"},
-    {"name": "candidateCommitment", "type": "bytes32"},
-    {"name": "baseline", "type": "bytes32"},
-    {"name": "attestationHash", "type": "bytes32"},
-    {"name": "totalSamples", "type": "uint256"},
-]
+MESSAGE_TYPES = {
+    "MintRequest": [
+        {"name": "modelId", "type": "uint256"},
+        {"name": "payload", "type": "MintRequestPayload"},
+        {"name": "contributors", "type": "Contributor[]"},
+    ],
+    "MintRequestPayload": [
+        {"name": "pipelineRunId", "type": "string"},
+        {"name": "baselineScoreBps", "type": "uint256"},
+        {"name": "candidateScoreBps", "type": "uint256"},
+        {"name": "maxCostUsdMicro", "type": "uint256"},
+        {"name": "actualCostUsdMicro", "type": "uint256"},
+        {"name": "totalSamples", "type": "uint256"},
+        {"name": "anchors", "type": "BenchmarkAnchors"},
+        {"name": "baselineCommitment", "type": "bytes32"},
+        {"name": "candidateCommitment", "type": "bytes32"},
+    ],
+    "BenchmarkAnchors": [
+        {"name": "benchmarkSpecHash", "type": "bytes32"},
+        {"name": "datasetHash", "type": "bytes32"},
+        {"name": "attestationHash", "type": "bytes32"},
+        {"name": "idempotencyKey", "type": "bytes32"},
+        {"name": "metricName", "type": "string"},
+        {"name": "metricFamily", "type": "string"},
+    ],
+    "Contributor": [
+        {"name": "walletAddress", "type": "address"},
+        {"name": "weight", "type": "uint256"},
+    ],
+}
 
 
 @dataclass(frozen=True)
 class MintAuthorizationConfig:
-    """Runtime configuration for the MintAuthorization EIP-712 domain."""
+    """Runtime configuration for the MintRequest EIP-712 domain."""
 
     chain_id: int
     verifying_contract: str
@@ -84,33 +107,11 @@ class MintAuthorizationConfig:
 
 
 def build_typed_data(mint_request: MintRequest, config: MintAuthorizationConfig) -> dict[str, Any]:
-    """Build the full EIP-712 typed-data dict from a MintRequest."""
-    if mint_request.baseline_commitment is None:
-        raise ValueError("MintRequest.baseline_commitment is required for mint authorization")
-    if mint_request.candidate_commitment is None:
-        raise ValueError("MintRequest.candidate_commitment is required for mint authorization")
-    if mint_request.baseline is None:
-        raise ValueError("MintRequest.baseline is required for mint authorization")
-
-    message = {
-        "modelIdUint": int(mint_request.model_id_uint),
-        "baselineCommitment": _normalize_bytes32(
-            mint_request.baseline_commitment, field_name="baselineCommitment"
-        ),
-        "candidateCommitment": _normalize_bytes32(
-            mint_request.candidate_commitment, field_name="candidateCommitment"
-        ),
-        "baseline": _normalize_bytes32(mint_request.baseline, field_name="baseline"),
-        "attestationHash": _normalize_bytes32(
-            mint_request.attestation_hash, field_name="attestationHash"
-        ),
-        "totalSamples": mint_request.total_samples,
-    }
-
+    """Build the exact typed-data dict the token contract verifies."""
     return {
         "types": {
             "EIP712Domain": list(DOMAIN_TYPES),
-            PRIMARY_TYPE: list(MESSAGE_TYPES),
+            **{name: list(fields) for name, fields in MESSAGE_TYPES.items()},
         },
         "primaryType": PRIMARY_TYPE,
         "domain": {
@@ -121,7 +122,7 @@ def build_typed_data(mint_request: MintRequest, config: MintAuthorizationConfig)
                 config.verifying_contract, field_name="verifyingContract"
             ),
         },
-        "message": message,
+        "message": _build_message(mint_request),
     }
 
 
@@ -156,13 +157,60 @@ def verify_signature(
     )
 
 
+def _build_message(mint_request: MintRequest) -> dict[str, Any]:
+    return {
+        "modelId": int(mint_request.model_id_uint),
+        "payload": {
+            "pipelineRunId": mint_request.eval_id,
+            "baselineScoreBps": mint_request.evaluation.baseline_score_bps,
+            "candidateScoreBps": mint_request.evaluation.new_score_bps,
+            "maxCostUsdMicro": mint_request.evaluation.max_cost_usd_micro,
+            "actualCostUsdMicro": mint_request.evaluation.actual_cost_usd_micro,
+            "totalSamples": mint_request.total_samples,
+            "anchors": {
+                "benchmarkSpecHash": f"0x{keccak(text=mint_request.benchmark_spec_id).hex()}",
+                "datasetHash": _normalize_bytes32(
+                    mint_request.dataset_hash, field_name="datasetHash"
+                ),
+                "attestationHash": _normalize_bytes32(
+                    mint_request.attestation_hash, field_name="attestationHash"
+                ),
+                "idempotencyKey": _normalize_bytes32(
+                    mint_request.idempotency_key, field_name="idempotencyKey"
+                ),
+                "metricName": mint_request.evaluation.metric_name,
+                "metricFamily": mint_request.evaluation.metric_family,
+            },
+            "baselineCommitment": _normalize_bytes32(
+                mint_request.baseline_commitment, field_name="baselineCommitment"
+            ),
+            "candidateCommitment": _normalize_bytes32(
+                mint_request.candidate_commitment, field_name="candidateCommitment"
+            ),
+        },
+        "contributors": [
+            {
+                "walletAddress": _normalize_address(
+                    contributor.wallet_address, field_name="contributors.walletAddress"
+                ),
+                "weight": contributor.weight_bps,
+            }
+            for contributor in mint_request.contributors
+        ],
+    }
+
+
 def _normalize_typed_data(typed_data: dict[str, Any]) -> dict[str, Any]:
     domain = typed_data.get("domain") or {}
     message = typed_data.get("message") or {}
+    payload = message.get("payload") or {}
+    anchors = payload.get("anchors") or {}
+    contributors = message.get("contributors") or []
+
     return {
         "types": {
             "EIP712Domain": list(DOMAIN_TYPES),
-            PRIMARY_TYPE: list(MESSAGE_TYPES),
+            **{name: list(fields) for name, fields in MESSAGE_TYPES.items()},
         },
         "primaryType": PRIMARY_TYPE,
         "domain": {
@@ -174,18 +222,46 @@ def _normalize_typed_data(typed_data: dict[str, Any]) -> dict[str, Any]:
             ),
         },
         "message": {
-            "modelIdUint": int(message["modelIdUint"]),
-            "baselineCommitment": _normalize_bytes32(
-                str(message["baselineCommitment"]), field_name="baselineCommitment"
-            ),
-            "candidateCommitment": _normalize_bytes32(
-                str(message["candidateCommitment"]), field_name="candidateCommitment"
-            ),
-            "baseline": _normalize_bytes32(str(message["baseline"]), field_name="baseline"),
-            "attestationHash": _normalize_bytes32(
-                str(message["attestationHash"]), field_name="attestationHash"
-            ),
-            "totalSamples": int(message["totalSamples"]),
+            "modelId": int(message["modelId"]),
+            "payload": {
+                "pipelineRunId": str(payload["pipelineRunId"]),
+                "baselineScoreBps": int(payload["baselineScoreBps"]),
+                "candidateScoreBps": int(payload["candidateScoreBps"]),
+                "maxCostUsdMicro": int(payload["maxCostUsdMicro"]),
+                "actualCostUsdMicro": int(payload["actualCostUsdMicro"]),
+                "totalSamples": int(payload["totalSamples"]),
+                "anchors": {
+                    "benchmarkSpecHash": _normalize_bytes32(
+                        str(anchors["benchmarkSpecHash"]), field_name="benchmarkSpecHash"
+                    ),
+                    "datasetHash": _normalize_bytes32(
+                        str(anchors["datasetHash"]), field_name="datasetHash"
+                    ),
+                    "attestationHash": _normalize_bytes32(
+                        str(anchors["attestationHash"]), field_name="attestationHash"
+                    ),
+                    "idempotencyKey": _normalize_bytes32(
+                        str(anchors["idempotencyKey"]), field_name="idempotencyKey"
+                    ),
+                    "metricName": str(anchors["metricName"]),
+                    "metricFamily": str(anchors["metricFamily"]),
+                },
+                "baselineCommitment": _normalize_bytes32(
+                    str(payload["baselineCommitment"]), field_name="baselineCommitment"
+                ),
+                "candidateCommitment": _normalize_bytes32(
+                    str(payload["candidateCommitment"]), field_name="candidateCommitment"
+                ),
+            },
+            "contributors": [
+                {
+                    "walletAddress": _normalize_address(
+                        str(contributor["walletAddress"]), field_name="contributors.walletAddress"
+                    ),
+                    "weight": int(contributor["weight"]),
+                }
+                for contributor in contributors
+            ],
         },
     }
 

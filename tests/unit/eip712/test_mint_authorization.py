@@ -5,6 +5,7 @@ import copy
 import pytest
 from eth_account import Account
 from eth_account.messages import encode_typed_data
+from eth_utils import keccak
 
 from src.eip712 import (
     MintAuthorizationConfig,
@@ -31,11 +32,9 @@ def _make_mint_request(**overrides) -> MintRequest:
         "dataset_hash": "0x" + "ab" * 32,
         "attestation_hash": "0x" + "cd" * 32,
         "idempotency_key": "0x" + "ef" * 32,
-        "baseline": "0x" + "12" * 32,
-        "baselineCommitment": "0x" + "34" * 32,
-        "candidateCommitment": "0x" + "56" * 32,
-        "signingDigest": "0x" + "78" * 32,
-        "attesterSignature": "0x" + "90" * 65,
+        "baseline_commitment": "0x" + "34" * 32,
+        "candidate_commitment": "0x" + "56" * 32,
+        "attester_signatures": ["0x" + "90" * 65],
         "totalSamples": 321,
         "evaluation": MintRequestEvaluation(
             metric_name="accuracy",
@@ -44,6 +43,7 @@ def _make_mint_request(**overrides) -> MintRequest:
             new_score_bps=8100,
             max_cost_usd_micro=5_000_000,
             actual_cost_usd_micro=2_500_000,
+            sample_size_candidate=321,
         ),
         "contributors": [
             MintRequestContributor(
@@ -84,14 +84,29 @@ def test_compute_digest_known_vector() -> None:
 
     assert (
         compute_digest(typed_data).hex()
-        == "63210e4da17d33e7e36f652f87b694d7cfe994dfcd4510ab5d30db1921df52ab"
+        == "36adde27f0fc956f0477a8c96af9f28750112e832e20f76350c86f311769e901"
     )
+
+
+def test_build_typed_data_matches_contract_field_mapping() -> None:
+    typed_data = build_typed_data(_make_mint_request(), _make_config())
+    payload = typed_data["message"]["payload"]
+    anchors = payload["anchors"]
+
+    assert typed_data["message"]["modelId"] == 12345678901234567890
+    assert payload["pipelineRunId"] == "eval-1"
+    assert payload["baselineScoreBps"] == 7800
+    assert payload["candidateScoreBps"] == 8100
+    assert payload["baselineCommitment"] == "0x" + "34" * 32
+    assert payload["candidateCommitment"] == "0x" + "56" * 32
+    assert anchors["benchmarkSpecHash"] == f"0x{keccak(text='spec-1').hex()}"
+    assert anchors["datasetHash"] == "0x" + "ab" * 32
 
 
 def test_compute_digest_changes_on_field_mutation() -> None:
     typed_data = build_typed_data(_make_mint_request(), _make_config())
     mutated = copy.deepcopy(typed_data)
-    mutated["message"]["totalSamples"] += 1
+    mutated["message"]["payload"]["totalSamples"] += 1
 
     assert compute_digest(typed_data) != compute_digest(mutated)
 
@@ -122,7 +137,7 @@ def test_verify_signature_wrong_address() -> None:
 def test_verify_signature_mutated_typed_data() -> None:
     typed_data = build_typed_data(_make_mint_request(), _make_config())
     mutated = copy.deepcopy(typed_data)
-    mutated["message"]["baseline"] = "0x" + "99" * 32
+    mutated["message"]["payload"]["candidateCommitment"] = "0x" + "99" * 32
 
     assert verify_signature(mutated, _sign_typed_data(typed_data), _EXPECTED_ADDRESS) is False
 
@@ -141,25 +156,16 @@ def test_render_for_human_contains_digest() -> None:
     assert digest in render_for_human(typed_data)
 
 
-def test_render_and_digest_change_together() -> None:
-    typed_data = build_typed_data(_make_mint_request(), _make_config())
-    mutated = copy.deepcopy(typed_data)
-    mutated["message"]["candidateCommitment"] = "0x" + "aa" * 32
-
-    assert render_for_human(typed_data) != render_for_human(mutated)
-    assert compute_digest(typed_data) != compute_digest(mutated)
-
-
 def test_render_no_truncated_hex() -> None:
     typed_data = build_typed_data(_make_mint_request(), _make_config())
     rendered = render_for_human(typed_data)
 
     assert "..." not in rendered
     for value in (
-        typed_data["message"]["baselineCommitment"],
-        typed_data["message"]["candidateCommitment"],
-        typed_data["message"]["baseline"],
-        typed_data["message"]["attestationHash"],
+        typed_data["message"]["payload"]["baselineCommitment"],
+        typed_data["message"]["payload"]["candidateCommitment"],
+        typed_data["message"]["payload"]["anchors"]["attestationHash"],
+        typed_data["message"]["payload"]["anchors"]["benchmarkSpecHash"],
     ):
         assert value in rendered
 

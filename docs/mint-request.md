@@ -33,11 +33,9 @@ That post-mint split is reported only after the secondary HTTP mint hook returns
 | `eval_id` | string | Evaluation run identifier |
 | `attestation_hash` | `0x`-prefixed 64-hex | SHA-256 of the canonical attestation payload |
 | `idempotency_key` | `0x`-prefixed 64-hex | Canonical dedup key (see below) |
-| `baseline` | `0x`-prefixed 64-hex (optional) | Latest on-chain block hash used as the authorization baseline |
-| `baselineCommitment` | `0x`-prefixed 64-hex (optional) | SHA-256 Merkle root of baseline weights |
-| `candidateCommitment` | `0x`-prefixed 64-hex (optional) | SHA-256 Merkle root of candidate weights |
-| `attesterSignature` | `0x`-prefixed 130-hex (optional) | Attester ECDSA signature over attestation payload |
-| `signingDigest` | `0x`-prefixed 64-hex (optional) | EIP-712 digest signed by the hardware-wallet attester |
+| `baseline_commitment` | `0x`-prefixed 64-hex | Required canonical lineage head from `DeltaVerifier.currentModelHead(modelId)` |
+| `candidate_commitment` | `0x`-prefixed 64-hex | Required candidate weight commitment |
+| `attester_signatures` | array of `0x`-prefixed 130-hex | Required ECDSA signatures, sorted by ascending recovered signer address |
 | `totalSamples` | integer `>= 1` | Required top-level sample count for DeltaVerifier ABI |
 | `evaluation` | object | Scores, costs, statistical metadata |
 | `contributors` | array | Wallet addresses + `weight_bps` with optional submission traceability fields |
@@ -115,25 +113,24 @@ Auth-service notification failures are logged but do not roll back the already d
 
 ## Signing Flow
 
-When the mint authorization env block is configured, the producer builds the exact EIP-712 typed data from the draft `MintRequest`, derives the digest that the contract verifies, and logs a human-readable rendering of that exact typed data for the attester operator. The typed data includes:
+When the mint authorization env block is configured, the producer builds the exact EIP-712 typed data from the canonical `MintRequest`, derives the digest that the contract verifies, and logs a human-readable rendering of that exact typed data for the attester operator. The typed data covers the full contract tuple `(modelId, payload, contributors)` with:
 
-- `modelIdUint`
-- `baselineCommitment`
-- `candidateCommitment`
-- `baseline` (latest on-chain block hash)
-- `attestationHash`
-- `totalSamples`
+- `payload.baselineCommitment`
+- `payload.candidateCommitment`
+- `payload.anchors.{benchmarkSpecHash,datasetHash,attestationHash,idempotencyKey}`
+- `payload.totalSamples`
+- `contributors[]`
 
 The intended operator sequence is:
 
-1. Producer resolves `baseline` from `ETH_RPC_URL`
+1. Producer resolves `baseline_commitment` from `DeltaVerifier.currentModelHead(modelId)` via `ETH_RPC_URL`
 2. Producer builds and renders the exact typed data
 3. Hardware-wallet attester signs that typed data out-of-band
 4. Signature is injected through `ATTESTER_SIGNATURE`
 5. Producer verifies the signature against `MINT_ATTESTER_ADDRESS`
-6. Producer publishes `baseline`, commitments, `signingDigest`, and `attesterSignature` on the `MintRequest`
+6. Producer publishes `baseline_commitment`, `candidate_commitment`, and `attester_signatures[]` on the `MintRequest`
 
-If `MINT_REQUIRE_ONCHAIN_BASELINE` is set to anything other than `false`, `ETH_RPC_URL` becomes mandatory and a baseline-read failure aborts publish before canonical advancement.
+The digest is recomputable from the published message and is not emitted on the wire. If `MINT_REQUIRE_ONCHAIN_BASELINE` is set to anything other than `false`, `ETH_RPC_URL` becomes mandatory and a lineage-head read failure aborts publish before canonical advancement.
 
 ## Post-mint vesting semantics
 

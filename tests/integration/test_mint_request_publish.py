@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import fakeredis
+import jsonschema
 import pytest
 
 from src.api.schemas.token_mint import TokenMintResult
@@ -30,6 +32,12 @@ from src.events.schemas import MintRequest
 _EVAL_ID = "eval-integration-001"
 _SPEC_ID = "spec-integration-v1"
 _MODEL_ID_UINT = "99001"
+_CONSUMER_SCHEMA = json.loads(
+    (Path(__file__).resolve().parents[2] / "schema" / "mint_request.consumer.v1.json").read_text(
+        encoding="utf-8"
+    )
+)
+_CONSUMER_VALIDATOR = jsonschema.Draft202012Validator(_CONSUMER_SCHEMA)
 
 
 class _FakeRewardNotifier:
@@ -254,6 +262,12 @@ class TestMintRequestPublishIntegration:
         assert msg.total_samples == msg.evaluation.sample_size_candidate
         assert payload["totalSamples"] == msg.total_samples
         assert "total_samples" not in payload
+        _CONSUMER_VALIDATOR.validate(payload)
+        assert "baseline" not in payload
+        assert "baselineCommitment" not in payload
+        assert "candidateCommitment" not in payload
+        assert "attesterSignature" not in payload
+        assert "signingDigest" not in payload
 
     def test_contributors_present_and_sum_to_10000(self, orchestrator, fake_redis_client) -> None:
         orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
@@ -558,7 +572,7 @@ class TestMintRequestPublishIntegration:
         monkeypatch.setenv("ETH_RPC_URL", "https://rpc.example")
         monkeypatch.setenv("MINT_REQUIRE_ONCHAIN_BASELINE", "true")
         monkeypatch.setattr(
-            "src.evaluation.deltaone_mint_orchestrator.read_onchain_head",
+            "src.evaluation.deltaone_mint_orchestrator.read_current_model_head",
             Mock(return_value="0x" + "9a" * 32),
         )
         orchestrator = _build_orchestrator(
@@ -571,7 +585,7 @@ class TestMintRequestPublishIntegration:
         msg = _queued_mint_request(fake_redis_client)
 
         assert outcome.status == "success"
-        assert msg.baseline == "0x" + "9a" * 32
+        assert msg.baseline_commitment == "0x" + "9a" * 32
 
     def test_publish_raises_baseline_unavailable_on_rpc_failure(
         self, fake_redis_client, monkeypatch
@@ -579,7 +593,7 @@ class TestMintRequestPublishIntegration:
         monkeypatch.setenv("ETH_RPC_URL", "https://rpc.example")
         monkeypatch.setenv("MINT_REQUIRE_ONCHAIN_BASELINE", "true")
         monkeypatch.setattr(
-            "src.evaluation.deltaone_mint_orchestrator.read_onchain_head",
+            "src.evaluation.deltaone_mint_orchestrator.read_current_model_head",
             Mock(side_effect=BaselineUnavailableError("timeout")),
         )
         orchestrator = _build_orchestrator(

@@ -12,7 +12,7 @@ from .mint_authorization import (
     render_for_human,
     verify_signature,
 )
-from .onchain_head import BaselineUnavailableError, read_onchain_head
+from .onchain_head import BaselineUnavailableError, read_current_model_head
 
 __all__ = [
     "BaselineUnavailableError",
@@ -24,7 +24,7 @@ __all__ = [
     "PRIMARY_TYPE",
     "build_typed_data",
     "compute_digest",
-    "read_onchain_head",
+    "read_current_model_head",
     "render_for_human",
     "verify_signature",
 ]

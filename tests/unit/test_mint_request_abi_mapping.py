@@ -23,24 +23,22 @@ def test_mint_request_fixture_matches_abi_contract_invariants() -> None:
     assert fixture["benchmark_spec_id"] == fixture["benchmark_spec_id"].strip()
     assert fixture["dataset_hash"].startswith("0x")
     assert fixture["dataset_hash"] != "0x" + "0" * 64
-    if "baseline" in fixture:
-        assert fixture["baseline"].startswith("0x")
-        assert len(fixture["baseline"]) == 66
     assert fixture["attestation_hash"].startswith("0x")
     assert fixture["attestation_hash"] != "0x" + "0" * 64
     assert fixture["idempotency_key"] == make_idempotency_key(
         int(fixture["model_id_uint"]), fixture["attestation_hash"]
     )
     assert fixture["idempotency_key"] != "0x" + "0" * 64
-    if "baselineCommitment" in fixture:
-        assert fixture["baselineCommitment"].startswith("0x")
-    if "candidateCommitment" in fixture:
-        assert fixture["candidateCommitment"].startswith("0x")
-    if "attesterSignature" in fixture:
-        assert fixture["attesterSignature"].startswith("0x")
-    if "signingDigest" in fixture:
-        assert fixture["signingDigest"].startswith("0x")
-        assert len(fixture["signingDigest"]) == 66
+    assert fixture["baseline_commitment"].startswith("0x")
+    assert fixture["candidate_commitment"].startswith("0x")
+    assert len(fixture["attester_signatures"]) >= 1
+    assert len(fixture["attester_signatures"]) <= 8
+    assert all(signature.startswith("0x") for signature in fixture["attester_signatures"])
+    assert "baseline" not in fixture
+    assert "baselineCommitment" not in fixture
+    assert "candidateCommitment" not in fixture
+    assert "attesterSignature" not in fixture
+    assert "signingDigest" not in fixture
     assert sum(contributor["weight_bps"] for contributor in contributors) == 10000
     assert fixture["totalSamples"] >= 1
     assert fixture["totalSamples"] == evaluation["sample_size_candidate"]

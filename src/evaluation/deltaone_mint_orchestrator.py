@@ -29,7 +29,7 @@ from src.eip712 import (
     MintAuthorizationConfig,
     build_typed_data,
     compute_digest,
-    read_onchain_head,
+    read_current_model_head,
     render_for_human,
     verify_signature,
 )
@@ -715,18 +715,38 @@ class DeltaOneMintOrchestrator:
         )
         return mint_result
 
-    def _resolve_onchain_baseline(self: DeltaOneMintOrchestrator) -> str | None:
-        """Resolve the latest block hash when baseline anchoring is configured."""
+    def _resolve_baseline_commitment(
+        self: DeltaOneMintOrchestrator,
+        *,
+        model_id_uint: str,
+        fallback_commitment: str | None,
+    ) -> str:
+        """Resolve the canonical on-chain lineage head, with legacy fallback only when offline."""
         rpc_url = (os.getenv("ETH_RPC_URL") or "").strip()
+        verifying_contract = (os.getenv("MINT_VERIFYING_CONTRACT") or "").strip()
         require_env = os.getenv("MINT_REQUIRE_ONCHAIN_BASELINE")
-        baseline_required = require_env is not None and require_env.lower() != "false"
-        if rpc_url:
-            return read_onchain_head(rpc_url)
+        baseline_required = require_env is None or require_env.lower() != "false"
+        if rpc_url and verifying_contract:
+            return read_current_model_head(
+                rpc_url,
+                contract_address=verifying_contract,
+                model_id_uint=model_id_uint,
+            )
+        if fallback_commitment is not None:
+            logger.warning(
+                "event=mint_request_baseline_commitment_fallback model_id_uint=%s",
+                model_id_uint,
+            )
+            return fallback_commitment
         if baseline_required:
             raise BaselineUnavailableError(
-                "ETH_RPC_URL must be configured when MINT_REQUIRE_ONCHAIN_BASELINE is enabled"
+                "ETH_RPC_URL and MINT_VERIFYING_CONTRACT must be configured "
+                "to resolve baseline_commitment"
             )
-        return None
+        raise EventPayloadError(
+            "baseline_commitment",
+            "baseline_commitment is required and no on-chain or fallback commitment was available",
+        )
 
     def _build_authorized_mint_request(
         self: DeltaOneMintOrchestrator,
@@ -735,31 +755,36 @@ class DeltaOneMintOrchestrator:
         acceptance_event: DeltaOneAcceptanceEvent,
         event_context: _EventContext | None,
     ) -> MintRequest:
-        """Build a MintRequest and attach optional EIP-712 authorization fields."""
-        baseline = self._resolve_onchain_baseline()
-        attester_signature = _normalize_optional_signature(os.getenv("ATTESTER_SIGNATURE"))
-        draft_mint_request = _build_mint_request(
+        """Build a canonical MintRequest and log the exact contract-bound typed data."""
+        if event_context is None:
+            raise EventPayloadError(
+                "event_context",
+                "accepted MintRequest requires event_context to resolve "
+                "commitments and sample sizes",
+            )
+
+        baseline_commitment = self._resolve_baseline_commitment(
+            model_id_uint=acceptance_event.model_id_uint,
+            fallback_commitment=event_context.baseline_commitment,
+        )
+        candidate_commitment = _resolve_candidate_commitment(
+            event_context.candidate_commitment,
+            acceptance_event.attestation_hash,
+        )
+        attester_signature = _normalize_required_signature(os.getenv("ATTESTER_SIGNATURE"))
+        mint_request = _build_mint_request(
             acceptance_event=acceptance_event,
             event_context=event_context,
-            baseline=baseline,
-            baseline_commitment=event_context.baseline_commitment if event_context else None,
-            candidate_commitment=event_context.candidate_commitment if event_context else None,
-            attester_signature=attester_signature,
+            baseline_commitment=baseline_commitment,
+            candidate_commitment=candidate_commitment,
+            attester_signatures=[attester_signature],
         )
-        signing_digest = self._resolve_signing_digest(
+        self._resolve_signing_digest(
             decision=decision,
-            draft_mint_request=draft_mint_request,
+            draft_mint_request=mint_request,
             attester_signature=attester_signature,
         )
-        return _build_mint_request(
-            acceptance_event=acceptance_event,
-            event_context=event_context,
-            baseline=baseline,
-            baseline_commitment=event_context.baseline_commitment if event_context else None,
-            candidate_commitment=event_context.candidate_commitment if event_context else None,
-            attester_signature=attester_signature,
-            signing_digest=signing_digest,
-        )
+        return mint_request
 
     def _resolve_signing_digest(
         self: DeltaOneMintOrchestrator,
@@ -771,20 +796,6 @@ class DeltaOneMintOrchestrator:
         """Build typed data, render it for the operator, and verify any signature."""
         auth_config = _load_optional_mint_authorization_config()
         if auth_config is None:
-            return None
-        if (
-            draft_mint_request.baseline is None
-            or draft_mint_request.baseline_commitment is None
-            or draft_mint_request.candidate_commitment is None
-        ):
-            logger.warning(
-                "event=mint_authorization_skipped_missing_inputs run_id=%s baseline=%s "
-                "baseline_commitment=%s candidate_commitment=%s",
-                decision.run_id,
-                draft_mint_request.baseline is not None,
-                draft_mint_request.baseline_commitment is not None,
-                draft_mint_request.candidate_commitment is not None,
-            )
             return None
 
         typed_data = build_typed_data(draft_mint_request, auth_config)
@@ -1442,11 +1453,9 @@ def _build_mint_request(
     acceptance_event: DeltaOneAcceptanceEvent,
     event_context: _EventContext | None,
     *,
-    baseline: str | None = None,
     baseline_commitment: str | None = None,
     candidate_commitment: str | None = None,
-    attester_signature: str | None = None,
-    signing_digest: str | None = None,
+    attester_signatures: list[str] | None = None,
 ) -> MintRequest:
     """Build a MintRequest from a validated DeltaOneAcceptanceEvent and optional EventContext.
 
@@ -1543,6 +1552,19 @@ def _build_mint_request(
         for contributor in acceptance_event.contributors
     ]
 
+    resolved_baseline_commitment = baseline_commitment or _fallback_commitment(
+        "baseline", acceptance_event.attestation_hash
+    )
+    resolved_candidate_commitment = _resolve_candidate_commitment(
+        candidate_commitment,
+        acceptance_event.attestation_hash,
+    )
+    resolved_attester_signatures = (
+        attester_signatures
+        if attester_signatures is not None
+        else [_normalize_required_signature(os.getenv("ATTESTER_SIGNATURE"))]
+    )
+
     return MintRequest(
         message_id=str(uuid.uuid4()),
         timestamp=datetime.now(timezone.utc).isoformat(),
@@ -1553,11 +1575,9 @@ def _build_mint_request(
         dataset_hash=_normalise_to_0x_sha256(ctx_decision.dataset_hash, field="dataset_hash"),
         attestation_hash=acceptance_event.attestation_hash,
         idempotency_key=acceptance_event.idempotency_key,
-        baseline=baseline,
-        baseline_commitment=baseline_commitment,
-        candidate_commitment=candidate_commitment,
-        attester_signature=attester_signature,
-        signing_digest=signing_digest,
+        baseline_commitment=resolved_baseline_commitment,
+        candidate_commitment=resolved_candidate_commitment,
+        attester_signatures=resolved_attester_signatures,
         total_samples=total_samples,
         evaluation=evaluation,
         contributors=contributor_models,
@@ -1619,10 +1639,13 @@ def _resolve_optional_commitment_tag(value: Any, *, field_name: str) -> str | No
         return None
 
 
-def _normalize_optional_signature(value: str | None) -> str | None:
-    """Normalize an optional env-provided attester signature."""
+def _normalize_required_signature(value: str | None) -> str:
+    """Normalize the required env-provided attester signature."""
     if value is None or not value.strip():
-        return None
+        raise EventPayloadError(
+            "attester_signatures",
+            "ATTESTER_SIGNATURE must be configured to publish canonical MintRequest messages",
+        )
     stripped = value.strip()
     prefix = stripped[:2].lower()
     if prefix != "0x":
@@ -1630,21 +1653,46 @@ def _normalize_optional_signature(value: str | None) -> str | None:
     return f"0x{stripped[2:].lower()}"
 
 
+def _resolve_candidate_commitment(
+    candidate_commitment: str | None,
+    attestation_hash: str,
+) -> str:
+    """Resolve the candidate commitment, preserving tagged values when present."""
+    if candidate_commitment is not None:
+        return candidate_commitment
+
+    logger.warning("event=mint_request_candidate_commitment_fallback")
+    return _fallback_commitment("candidate", attestation_hash)
+
+
+def _fallback_commitment(label: str, seed: str) -> str:
+    """Build a deterministic bytes32 placeholder when offline fixtures omit lineage tags."""
+    digest = hashlib.sha256(f"{label}:{seed}".encode()).hexdigest()
+    return f"0x{digest}"
+
+
 def _load_optional_mint_authorization_config() -> MintAuthorizationConfig | None:
     """Load EIP-712 config only when the full env block is present."""
-    env_names = (
-        "MINT_CHAIN_ID",
-        "MINT_VERIFYING_CONTRACT",
-        "MINT_ATTESTER_ADDRESS",
-    )
-    present = [name for name in env_names if os.getenv(name) and str(os.getenv(name)).strip()]
-    if not present:
+    chain_id = (os.getenv("MINT_CHAIN_ID") or "").strip()
+    verifying_contract = (os.getenv("MINT_VERIFYING_CONTRACT") or "").strip()
+    attester_address = (os.getenv("MINT_ATTESTER_ADDRESS") or "").strip()
+
+    if not chain_id and not attester_address:
         return None
-    if len(present) != len(env_names):
-        missing = sorted(set(env_names) - set(present))
+
+    missing = [
+        name
+        for name, value in (
+            ("MINT_CHAIN_ID", chain_id),
+            ("MINT_VERIFYING_CONTRACT", verifying_contract),
+            ("MINT_ATTESTER_ADDRESS", attester_address),
+        )
+        if not value
+    ]
+    if missing:
         raise ValueError(
             "Partial mint authorization configuration is not allowed; missing: "
-            + ", ".join(missing)
+            + ", ".join(sorted(missing))
         )
     return MintAuthorizationConfig.from_env()
 
