@@ -12,13 +12,16 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import fakeredis
+import jsonschema
 import pytest
 
 from src.api.schemas.token_mint import TokenMintResult
+from src.eip712 import BaselineUnavailableError
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator
 from src.evaluation.event_payload import EventPayloadError, make_idempotency_key
@@ -35,6 +38,12 @@ _SPEC_ID = "spec-integration-v1"
 _MODEL_ID_UINT = "99001"
 _BASELINE_COMMITMENT = "0x" + "12" * 32
 _CANDIDATE_COMMITMENT = "0x" + "34" * 32
+_CONSUMER_SCHEMA = json.loads(
+    (Path(__file__).resolve().parents[2] / "schema" / "mint_request.consumer.v1.json").read_text(
+        encoding="utf-8"
+    )
+)
+_CONSUMER_VALIDATOR = jsonschema.Draft202012Validator(_CONSUMER_SCHEMA)
 
 
 class _FakeRewardNotifier:
@@ -262,6 +271,12 @@ class TestMintRequestPublishIntegration:
         assert msg.total_samples == msg.evaluation.sample_size_candidate
         assert payload["totalSamples"] == msg.total_samples
         assert "total_samples" not in payload
+        _CONSUMER_VALIDATOR.validate(payload)
+        assert "baseline" not in payload
+        assert "baselineCommitment" not in payload
+        assert "candidateCommitment" not in payload
+        assert "attesterSignature" not in payload
+        assert "signingDigest" not in payload
 
     def test_contributors_present_and_sum_to_10000(self, orchestrator, fake_redis_client) -> None:
         orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
@@ -602,10 +617,19 @@ class TestMintRequestPublishIntegration:
         assert by_submission["sub-1"].contribution_batch_id == "batch-1"
         assert by_submission["sub-2"].weight_bps == 3000
 
-    def test_publish_does_not_read_onchain_block_hash_for_signing(
+    def test_publish_re_reads_onchain_baseline_to_detect_drift(
         self, fake_redis_client, monkeypatch
     ) -> None:
+        # Phase 6: at publish time we re-read the on-chain head; the freshly read
+        # value drives the published baseline_commitment (registration-time MLflow
+        # tag is ignored when chain is reachable).
+        fresh_onchain_head = "0x" + "9a" * 32
         monkeypatch.setenv("ETH_RPC_URL", "https://rpc.example")
+        monkeypatch.setenv("MINT_REQUIRE_ONCHAIN_BASELINE", "true")
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.read_current_model_head",
+            Mock(return_value=fresh_onchain_head),
+        )
         orchestrator = _build_orchestrator(
             fake_redis_client=fake_redis_client,
             monkeypatch=monkeypatch,
@@ -616,7 +640,28 @@ class TestMintRequestPublishIntegration:
         msg = _queued_mint_request(fake_redis_client)
 
         assert outcome.status == "success"
-        assert msg.baseline is None
+        assert msg.baseline_commitment == fresh_onchain_head
+
+    def test_publish_raises_baseline_unavailable_on_rpc_failure(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("ETH_RPC_URL", "https://rpc.example")
+        monkeypatch.setenv("MINT_REQUIRE_ONCHAIN_BASELINE", "true")
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.read_current_model_head",
+            Mock(side_effect=BaselineUnavailableError("timeout")),
+        )
+        orchestrator = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id=_EVAL_ID,
+        )
+
+        with pytest.raises(BaselineUnavailableError, match="timeout"):
+            orchestrator._resolve_baseline_commitment(  # noqa: SLF001
+                model_id_uint=_MODEL_ID_UINT,
+                fallback_commitment=None,
+            )
 
     def test_reward_entitlement_failure_does_not_block_queue_or_canonical_advance(
         self, fake_redis_client, monkeypatch

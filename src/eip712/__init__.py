@@ -12,14 +12,23 @@ from .mint_authorization import (
     InvalidSignatureError,
     MintRequestSigningConfig,
     MintRequestSigningError,
+    SignatureRegistryError,
     build_typed_data,
     compute_digest,
     recover_signer,
     render_for_human,
     sort_signatures_by_signer,
+    validate_signatures_against_registry,
     verify_signature,
 )
-from .onchain_head import BaselineUnavailableError, read_model_weight_head, read_onchain_head
+from .onchain_head import (
+    BaselineUnavailableError,
+    read_attester_threshold,
+    read_current_model_head,
+    read_is_attester,
+    read_model_weight_head,
+    read_onchain_head,
+)
 
 __all__ = [
     "BaselineUnavailableError",
@@ -34,12 +43,17 @@ __all__ = [
     "MintRequestSigningConfig",
     "MintRequestSigningError",
     "PRIMARY_TYPE",
+    "SignatureRegistryError",
+    "read_attester_threshold",
+    "read_current_model_head",
+    "read_is_attester",
     "read_model_weight_head",
+    "read_onchain_head",
     "build_typed_data",
     "compute_digest",
-    "read_onchain_head",
     "recover_signer",
     "render_for_human",
     "sort_signatures_by_signer",
+    "validate_signatures_against_registry",
     "verify_signature",
 ]

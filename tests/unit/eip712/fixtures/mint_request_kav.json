@@ -16,9 +16,11 @@
         "dataset_hash": "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         "attestation_hash": "0xd12b65d6be0c2170d427589cc027d4988031dc23356a7f83ecf476fc712bb543",
         "idempotency_key": "0x1c19c341d6c99e7e7dbd68f767cdf7d0969688fed7e3d3fdd82711b29ea69a65",
-        "baseline": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "baselineCommitment": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "candidateCommitment": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "baseline_commitment": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "candidate_commitment": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "attester_signatures": [
+          "0x111111111111111111111111111111111111111111111111111111111111111122222222222222222222222222222222222222222222222222222222222222221b"
+        ],
         "totalSamples": 1000,
         "evaluation": {
           "metric_name": "accuracy",
@@ -63,9 +65,11 @@
         "dataset_hash": "0x89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567",
         "attestation_hash": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
         "idempotency_key": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-        "baseline": "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        "baselineCommitment": "0x1111111111111111111111111111111111111111111111111111111111111111",
-        "candidateCommitment": "0x2222222222222222222222222222222222222222222222222222222222222222",
+        "baseline_commitment": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "candidate_commitment": "0x2222222222222222222222222222222222222222222222222222222222222222",
+        "attester_signatures": [
+          "0x111111111111111111111111111111111111111111111111111111111111111122222222222222222222222222222222222222222222222222222222222222221b"
+        ],
         "totalSamples": 321,
         "evaluation": {
           "metric_name": "sales_margin",

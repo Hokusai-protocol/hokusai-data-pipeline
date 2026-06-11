@@ -63,11 +63,9 @@ EXAMPLE_FILE = REPO_ROOT / "schema" / "examples" / "mint_request.v1.json"
 
 _ATT_HASH = "0x" + "a" * 64
 _IDEMPOTENCY_KEY = "0x" + "b" * 64
-_BASELINE = "0x" + "c" * 64
 _BASELINE_COMMITMENT = "0x" + "1a2b3c4d" * 8
 _CANDIDATE_COMMITMENT = "0x" + "2b3c4d5e" * 8
 _ATTESTER_SIGNATURE = "0x" + ("0123456789abcdef" * 8) + "1b"
-_SIGNING_DIGEST = "0x" + "d" * 64
 _MODEL_ID_UINT = "12345678901234567890"
 _EVAL_ID = "eval-test-001"
 _SPEC_ID = "spec-test-v1"
@@ -114,8 +112,11 @@ def _valid_mint_request(**overrides) -> MintRequest:
         "dataset_hash": _DATASET_HASH,
         "attestation_hash": _ATT_HASH,
         "idempotency_key": _IDEMPOTENCY_KEY,
+        "baseline_commitment": _BASELINE_COMMITMENT,
+        "candidate_commitment": _CANDIDATE_COMMITMENT,
+        "attester_signatures": [_ATTESTER_SIGNATURE],
         "total_samples": 1000,
-        "evaluation": _valid_evaluation(),
+        "evaluation": _valid_evaluation(sample_size_candidate=1000),
         "contributors": [_valid_contributor()],
     }
     defaults.update(overrides)
@@ -152,11 +153,11 @@ class TestMintRequestContributor:
                 wallet_address="742d35cc6634c0532925a3b844bc9e7595f62341", weight_bps=5000
             )
 
-    def test_weight_bps_zero(self) -> None:
-        c = MintRequestContributor(
-            wallet_address="0x742d35cc6634c0532925a3b844bc9e7595f62341", weight_bps=0
-        )
-        assert c.weight_bps == 0
+    def test_weight_bps_zero_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            MintRequestContributor(
+                wallet_address="0x742d35cc6634c0532925a3b844bc9e7595f62341", weight_bps=0
+            )
 
     def test_weight_bps_max(self) -> None:
         c = MintRequestContributor(
@@ -223,17 +224,9 @@ class TestMintRequest:
         with pytest.raises(ValidationError, match="totalSamples"):
             MintRequest.model_validate(data)
 
-    def test_new_fields_optional_when_absent(self) -> None:
-        msg = _valid_mint_request()
-        assert msg.baseline is None
-        assert msg.baseline_commitment is None
-        assert msg.candidate_commitment is None
-        assert msg.attester_signatures is None
-        assert msg.signing_digest is None
-
-    def test_baseline_valid(self) -> None:
-        msg = _valid_mint_request(baseline=_BASELINE)
-        assert msg.baseline == _BASELINE
+    def test_new_fields_required(self) -> None:
+        with pytest.raises(ValidationError, match="baseline_commitment"):
+            _valid_mint_request(baseline_commitment=None)
 
     def test_baseline_commitment_valid(self) -> None:
         msg = _valid_mint_request(baseline_commitment=_BASELINE_COMMITMENT)
@@ -251,10 +244,6 @@ class TestMintRequest:
         msg = _valid_mint_request(attester_signatures=[_ATTESTER_SIGNATURE])
         assert msg.attester_signatures == [_ATTESTER_SIGNATURE]
 
-    def test_signing_digest_valid(self) -> None:
-        msg = _valid_mint_request(signing_digest=_SIGNING_DIGEST)
-        assert msg.signing_digest == _SIGNING_DIGEST
-
     def test_attester_signatures_invalid(self) -> None:
         with pytest.raises(ValidationError, match="attester_signatures"):
             _valid_mint_request(attester_signatures=["a" * 130])
@@ -263,13 +252,13 @@ class TestMintRequest:
         with pytest.raises(ValidationError, match="attester_signatures"):
             _valid_mint_request(attester_signatures=["0x" + "a" * 64])
 
-    def test_attester_signatures_empty_rejected(self) -> None:
-        with pytest.raises(ValidationError, match="attester_signatures"):
-            _valid_mint_request(attester_signatures=[])
+    def test_attester_signatures_empty_allowed_for_local_dev(self) -> None:
+        msg = _valid_mint_request(attester_signatures=[])
+        assert msg.attester_signatures == []
 
-    def test_signing_digest_invalid(self) -> None:
-        with pytest.raises(ValidationError, match="signing_digest"):
-            _valid_mint_request(signing_digest="0x" + "A" * 64)
+    def test_attester_signatures_max_8(self) -> None:
+        with pytest.raises(ValidationError, match="attester_signatures"):
+            _valid_mint_request(attester_signatures=[_ATTESTER_SIGNATURE] * 9)
 
     @pytest.mark.parametrize("value", [0, -1])
     def test_total_samples_must_be_positive(self, value: int) -> None:
@@ -332,6 +321,10 @@ class TestMintRequest:
     def test_model_id_uint_negative_rejected(self) -> None:
         with pytest.raises(ValidationError):
             _valid_mint_request(model_id_uint="-1")
+
+    def test_model_id_uint_zero_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            _valid_mint_request(model_id_uint="0")
 
     def test_model_id_uint_above_uint256_rejected(self) -> None:
         over = str(2**256)
@@ -400,15 +393,12 @@ class TestJsonSchemaDrift:
             data = json.load(f)
         msg = MintRequest.model_validate(data)
         assert msg.model_id == data["model_id"]
-        assert msg.baseline == data["baseline"]
-        assert msg.baseline_commitment == data["baselineCommitment"]
-        assert msg.candidate_commitment == data["candidateCommitment"]
+        assert msg.baseline_commitment == data["baseline_commitment"]
+        assert msg.candidate_commitment == data["candidate_commitment"]
         assert msg.attester_signatures == data["attester_signatures"]
-        assert msg.signing_digest == data["signingDigest"]
         assert msg.total_samples == data["totalSamples"]
         assert msg.total_samples == msg.evaluation.sample_size_candidate
         assert sum(c.weight_bps for c in msg.contributors) == 10000
-        assert msg.contributors[0].contributor_id == data["contributors"][0]["contributorId"]
 
     def test_example_json_round_trip(self) -> None:
         with EXAMPLE_FILE.open() as f:
@@ -418,18 +408,18 @@ class TestJsonSchemaDrift:
         # Verify key fields survive the round-trip
         assert dumped["model_id"] == data["model_id"]
         assert dumped["idempotency_key"] == data["idempotency_key"]
-        assert dumped["baseline"] == data["baseline"]
         assert dumped["attestation_hash"] == data["attestation_hash"]
         assert dumped["benchmark_spec_id"] == data["benchmark_spec_id"]
         assert dumped["dataset_hash"] == data["dataset_hash"]
-        assert dumped["baselineCommitment"] == data["baselineCommitment"]
-        assert dumped["candidateCommitment"] == data["candidateCommitment"]
+        assert dumped["baseline_commitment"] == data["baseline_commitment"]
+        assert dumped["candidate_commitment"] == data["candidate_commitment"]
         assert dumped["attester_signatures"] == data["attester_signatures"]
-        assert dumped["signingDigest"] == data["signingDigest"]
         assert dumped["totalSamples"] == data["totalSamples"]
-        assert (
-            dumped["contributors"][0]["contributorId"] == data["contributors"][0]["contributorId"]
-        )
+        assert "baseline" not in dumped
+        assert "baselineCommitment" not in dumped
+        assert "candidateCommitment" not in dumped
+        assert "attesterSignature" not in dumped
+        assert "signingDigest" not in dumped
 
 
 # ---------------------------------------------------------------------------
@@ -914,16 +904,6 @@ class TestBuildMintRequest:
         assert msg.baseline_commitment == _BASELINE_COMMITMENT
         assert msg.candidate_commitment == _CANDIDATE_COMMITMENT
         assert msg.attester_signatures == [_ATTESTER_SIGNATURE]
-
-    def test_build_mint_request_signing_digest_populated(self) -> None:
-        event = _make_acceptance_event(
-            contributors=[{"wallet_address": _WALLET_A, "weight_bps": 10000}]
-        )
-        ctx = self._make_ctx_with_contributors([{"wallet_address": _WALLET_A, "weight_bps": 10000}])
-
-        msg = _build_mint_request(event, ctx, signing_digest=_SIGNING_DIGEST)
-
-        assert msg.signing_digest == _SIGNING_DIGEST
 
     @pytest.mark.parametrize(
         ("decision_dataset_hash", "expected"),
