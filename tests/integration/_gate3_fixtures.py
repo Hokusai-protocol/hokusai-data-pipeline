@@ -46,6 +46,7 @@ MANIFEST_HASH = "sha256:" + "m" * 64
 WEIGHT_ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "model_30_weight_artifact"
 WEIGHT_CANDIDATE_COMMITMENT = f"0x{compute_weight_commitment(WEIGHT_ARTIFACT_DIR).root}"
 WEIGHT_BASELINE_ONCHAIN_HEAD = "0x" + ("12ab" * 16)
+GATE3_ATTESTER_SIGNATURE = "0x" + ("1" * 128) + "1b"
 
 
 def _wallet(index: int) -> str:
@@ -100,6 +101,7 @@ def schema_validators() -> dict[str, jsonschema.Draft202012Validator]:
     return {
         "attribution_report": load_validator("attribution_report.v1.json"),
         "mint_request": load_validator("mint_request.v1.json"),
+        "mint_request_consumer": load_validator("mint_request.consumer.v1.json"),
     }
 
 
@@ -247,6 +249,14 @@ def build_orchestrator(
     monkeypatch.setattr(
         "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
         Mock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.read_current_model_head",
+        Mock(return_value=WEIGHT_BASELINE_ONCHAIN_HEAD),
+    )
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.DeltaOneMintOrchestrator._resolve_attester_signatures",
+        Mock(return_value=[GATE3_ATTESTER_SIGNATURE]),
     )
     evaluator = Mock()
     evaluator.evaluate_for_model.return_value = decision or make_decision()

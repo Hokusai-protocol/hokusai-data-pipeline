@@ -11,10 +11,11 @@ from eth_utils import keccak
 
 _BYTES32_RE = re.compile(r"^0x[0-9a-f]{64}$")
 _ADDRESS_RE = re.compile(r"^0x[0-9a-f]{40}$")
+_UINT_RE = re.compile(r"^[1-9]\d*$")
 
 
 class BaselineUnavailableError(RuntimeError):
-    """Raised when the latest on-chain head cannot be resolved safely."""
+    """Raised when the canonical on-chain lineage head cannot be resolved safely."""
 
 
 def read_onchain_head(rpc_url: str, *, timeout: float = 5.0) -> str:
@@ -31,6 +32,35 @@ def read_onchain_head(rpc_url: str, *, timeout: float = 5.0) -> str:
         raise BaselineUnavailableError("RPC response missing latest block result object")
 
     return _extract_block_hash(result)
+
+
+def read_current_model_head(
+    rpc_url: str,
+    *,
+    contract_address: str,
+    model_id_uint: str,
+    timeout: float = 5.0,
+) -> str:
+    """Return DeltaVerifier.currentModelHead(modelId) as a lowercase 0x-prefixed bytes32."""
+    normalized_contract = _normalize_address(contract_address, field="contract_address")
+    calldata = _build_current_model_head_calldata(model_id_uint)
+    payload = _post_json_rpc(
+        rpc_url,
+        method="eth_call",
+        params=[{"to": normalized_contract, "data": calldata}, "latest"],
+        timeout=timeout,
+        error_context=f"read currentModelHead({model_id_uint})",
+    )
+    result = payload.get("result")
+    if not isinstance(result, str):
+        raise BaselineUnavailableError("RPC response missing eth_call result")
+
+    normalized = _normalize_bytes32(result, field="currentModelHead")
+    if _is_zero_bytes32(normalized):
+        raise BaselineUnavailableError(
+            f"currentModelHead({model_id_uint}) returned zero; model genesis is not seeded"
+        )
+    return normalized
 
 
 def read_model_weight_head(
@@ -68,6 +98,47 @@ def read_model_weight_head(
             f"no on-chain weight head or genesis configured for model_id_uint={model_id_uint}"
         )
     return genesis
+
+
+def read_attester_threshold(
+    rpc_url: str,
+    *,
+    contract_address: str,
+    timeout: float = 5.0,
+) -> int:
+    """Return DeltaVerifier.attesterThreshold() and reject an unconfigured zero threshold."""
+    normalized_contract = _normalize_address(contract_address, field="contract_address")
+    result = _eth_call_bytes32(
+        rpc_url,
+        to=normalized_contract,
+        function_signature="attesterThreshold()",
+        encoded_args=(),
+        timeout=timeout,
+    )
+    threshold = int(result.removeprefix("0x"), 16)
+    if threshold <= 0:
+        raise BaselineUnavailableError("attesterThreshold() must be configured to a positive value")
+    return threshold
+
+
+def read_is_attester(
+    rpc_url: str,
+    *,
+    contract_address: str,
+    address: str,
+    timeout: float = 5.0,
+) -> bool:
+    """Return DeltaVerifier.isAttester(address)."""
+    normalized_contract = _normalize_address(contract_address, field="contract_address")
+    encoded_address = _normalize_address(address, field="address").removeprefix("0x").rjust(64, "0")
+    result = _eth_call_bytes32(
+        rpc_url,
+        to=normalized_contract,
+        function_signature="isAttester(address)",
+        encoded_args=(encoded_address,),
+        timeout=timeout,
+    )
+    return int(result.removeprefix("0x"), 16) != 0
 
 
 def _post_json_rpc(
@@ -140,6 +211,14 @@ def _extract_block_hash(result: dict[str, Any]) -> str:
             f"latest block hash must be 0x-prefixed 64-hex, got {block_hash!r}"
         )
     return normalized
+
+
+def _build_current_model_head_calldata(model_id_uint: str) -> str:
+    if not _UINT_RE.match(model_id_uint):
+        raise BaselineUnavailableError(
+            f"model_id_uint must be a positive decimal string, got {model_id_uint!r}"
+        )
+    return _encode_call_data("currentModelHead(uint256)", (_encode_uint256(int(model_id_uint)),))
 
 
 def _normalize_bytes32(value: str, *, field: str) -> str:
