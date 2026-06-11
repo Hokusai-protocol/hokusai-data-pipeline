@@ -56,7 +56,8 @@ def _attester_signature_required() -> bool:
 
 def load_attestation_state(client: Any, run_id: str) -> AttestationState | None:
     """Load persisted build/signature state from MLflow tags."""
-    tags = ((client.get_run(run_id).data.tags) or {}) if client.get_run(run_id) else {}
+    run = client.get_run(run_id)
+    tags = (getattr(getattr(run, "data", None), "tags", None) or {}) if run else {}
     build_raw = tags.get(ATTEST_BUILD_TAG)
     if not build_raw:
         return None

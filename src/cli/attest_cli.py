@@ -64,11 +64,16 @@ def attest_attach(run_id: str, signatures: tuple[str, ...]) -> None:
         raise click.ClickException("attestation build state is missing; run `attest build` first")
 
     build = build_typed_data_for_run(client, run_id)
-    if (
-        build.baseline_commitment != state.baseline_commitment
-        or build.digest_hex != state.digest_hex
-    ):
-        raise click.ClickException("event=attest_attach_baseline_stale")
+    if build.baseline_commitment != state.baseline_commitment:
+        raise click.ClickException(
+            "event=attest_attach_baseline_stale on-chain head moved since "
+            "`attest build`; re-run `attest build` and re-sign"
+        )
+    if build.digest_hex != state.digest_hex:
+        raise click.ClickException(
+            "event=attest_attach_digest_mismatch run inputs (tags/metrics) "
+            "changed since `attest build`; investigate run mutations before re-running"
+        )
 
     fallback_addresses = []
     fallback = (os.getenv("MINT_ATTESTER_ADDRESS") or "").strip()

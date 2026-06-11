@@ -960,14 +960,26 @@ class DeltaOneMintOrchestrator:
             render_for_human(typed_data),
         )
         state = load_attestation_state(self._client, decision.run_id)
-        if state is None or state.digest_hex != signing_digest or not state.signatures:
+        if state is None:
+            failure_event = "mint_authorization_required_no_attestation_state"
+            failure_detail = "no AttestationState on run; run `attest build` and `attest attach`"
+        elif state.digest_hex != signing_digest:
+            failure_event = "mint_authorization_required_digest_mismatch"
+            failure_detail = (
+                "AttestationState digest does not match publish-time digest; "
+                "run inputs changed after `attest build`"
+            )
+        elif not state.signatures:
+            failure_event = "mint_authorization_required_no_signatures"
+            failure_detail = "AttestationState has no signatures; run `attest attach`"
+        else:
+            failure_event = None
+            failure_detail = None
+        if failure_event is not None:
             if _attester_signature_required():
-                logger.error(
-                    "event=mint_authorization_required_no_signatures run_id=%s",
-                    decision.run_id,
-                )
+                logger.error("event=%s run_id=%s", failure_event, decision.run_id)
                 raise _mint_request_signing_error(
-                    "verified attester signatures are required before publish"
+                    f"verified attester signatures are required before publish ({failure_detail})"
                 )
             logger.warning("event=mint_authorization_skipped_local_dev run_id=%s", decision.run_id)
             return []
