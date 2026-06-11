@@ -138,21 +138,30 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
 
     def __setstate__(self: TechnicalTaskRouterModel, state: dict[str, Any]) -> None:
         """Restore the deterministic serializer state from cloudpickle."""
-        self.k_neighbors = int(state["k_neighbors"])
+        self.k_neighbors = int(state.get("k_neighbors", 40))
 
-        dataset_state = state["dataset_state"]
-        if dataset_state is None:
-            self._dataset = None
+        if "dataset_state" in state:
+            dataset_state = state["dataset_state"]
+            if dataset_state is None:
+                self._dataset = None
+            else:
+                self._dataset = pd.DataFrame(
+                    data=dataset_state["data"],
+                    columns=dataset_state["columns"],
+                )
         else:
-            self._dataset = pd.DataFrame(
-                data=dataset_state["data"],
-                columns=dataset_state["columns"],
-            )
+            # Older MLflow artifacts were pickled before the deterministic
+            # serializer existed. Preserve any embedded dataset if present;
+            # otherwise MLflow will populate it via load_context().
+            self._dataset = state.get("_dataset")
 
-        self._global_defaults = {
-            role: RoleChoice(**choice_state)
-            for role, choice_state in state["global_defaults_state"].items()
-        }
+        if "global_defaults_state" in state:
+            self._global_defaults = {
+                role: RoleChoice(**choice_state)
+                for role, choice_state in state["global_defaults_state"].items()
+            }
+        else:
+            self._global_defaults = state.get("_global_defaults") or {}
 
     def load_context(
         self: TechnicalTaskRouterModel,

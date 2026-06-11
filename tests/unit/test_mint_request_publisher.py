@@ -45,7 +45,11 @@ from src.evaluation.event_payload import (
     EventPayloadError,
     make_idempotency_key,
 )
-from src.evaluation.tags import ATTRIBUTION_REPORT_ARTIFACT_URI_TAG
+from src.evaluation.tags import (
+    ATTRIBUTION_REPORT_ARTIFACT_URI_TAG,
+    WEIGHT_COMMITMENT_BASELINE_TAG,
+    WEIGHT_COMMITMENT_CANDIDATE_TAG,
+)
 from src.events.publishers.mint_request_publisher import QUEUE_NAME, MintRequestPublisher
 from src.events.schemas import (
     MintRequest,
@@ -68,6 +72,8 @@ _MODEL_ID_UINT = "12345678901234567890"
 _EVAL_ID = "eval-test-001"
 _SPEC_ID = "spec-test-v1"
 _DATASET_HASH = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+_ORCH_BASELINE_COMMITMENT = "0x" + "12" * 32
+_ORCH_CANDIDATE_COMMITMENT = "0x" + "34" * 32
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +228,7 @@ class TestMintRequest:
         assert msg.baseline is None
         assert msg.baseline_commitment is None
         assert msg.candidate_commitment is None
-        assert msg.attester_signature is None
+        assert msg.attester_signatures is None
         assert msg.signing_digest is None
 
     def test_baseline_valid(self) -> None:
@@ -241,21 +247,25 @@ class TestMintRequest:
         with pytest.raises(ValidationError, match="candidate_commitment"):
             _valid_mint_request(candidate_commitment="0x" + "a" * 32)
 
-    def test_attester_signature_valid(self) -> None:
-        msg = _valid_mint_request(attester_signature=_ATTESTER_SIGNATURE)
-        assert msg.attester_signature == _ATTESTER_SIGNATURE
+    def test_attester_signatures_valid(self) -> None:
+        msg = _valid_mint_request(attester_signatures=[_ATTESTER_SIGNATURE])
+        assert msg.attester_signatures == [_ATTESTER_SIGNATURE]
 
     def test_signing_digest_valid(self) -> None:
         msg = _valid_mint_request(signing_digest=_SIGNING_DIGEST)
         assert msg.signing_digest == _SIGNING_DIGEST
 
-    def test_attester_signature_invalid(self) -> None:
-        with pytest.raises(ValidationError, match="attesterSignature"):
-            _valid_mint_request(attester_signature="a" * 130)
+    def test_attester_signatures_invalid(self) -> None:
+        with pytest.raises(ValidationError, match="attester_signatures"):
+            _valid_mint_request(attester_signatures=["a" * 130])
 
-    def test_attester_signature_wrong_length(self) -> None:
-        with pytest.raises(ValidationError, match="attesterSignature"):
-            _valid_mint_request(attester_signature="0x" + "a" * 64)
+    def test_attester_signatures_wrong_length(self) -> None:
+        with pytest.raises(ValidationError, match="attester_signatures"):
+            _valid_mint_request(attester_signatures=["0x" + "a" * 64])
+
+    def test_attester_signatures_empty_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="attester_signatures"):
+            _valid_mint_request(attester_signatures=[])
 
     def test_signing_digest_invalid(self) -> None:
         with pytest.raises(ValidationError, match="signing_digest"):
@@ -393,7 +403,7 @@ class TestJsonSchemaDrift:
         assert msg.baseline == data["baseline"]
         assert msg.baseline_commitment == data["baselineCommitment"]
         assert msg.candidate_commitment == data["candidateCommitment"]
-        assert msg.attester_signature == data["attesterSignature"]
+        assert msg.attester_signatures == data["attester_signatures"]
         assert msg.signing_digest == data["signingDigest"]
         assert msg.total_samples == data["totalSamples"]
         assert msg.total_samples == msg.evaluation.sample_size_candidate
@@ -414,7 +424,7 @@ class TestJsonSchemaDrift:
         assert dumped["dataset_hash"] == data["dataset_hash"]
         assert dumped["baselineCommitment"] == data["baselineCommitment"]
         assert dumped["candidateCommitment"] == data["candidateCommitment"]
-        assert dumped["attesterSignature"] == data["attesterSignature"]
+        assert dumped["attester_signatures"] == data["attester_signatures"]
         assert dumped["signingDigest"] == data["signingDigest"]
         assert dumped["totalSamples"] == data["totalSamples"]
         assert (
@@ -898,22 +908,12 @@ class TestBuildMintRequest:
             ctx,
             baseline_commitment=_BASELINE_COMMITMENT,
             candidate_commitment=_CANDIDATE_COMMITMENT,
-            attester_signature=_ATTESTER_SIGNATURE,
+            attester_signatures=[_ATTESTER_SIGNATURE],
         )
 
         assert msg.baseline_commitment == _BASELINE_COMMITMENT
         assert msg.candidate_commitment == _CANDIDATE_COMMITMENT
-        assert msg.attester_signature == _ATTESTER_SIGNATURE
-
-    def test_build_mint_request_baseline_populated(self) -> None:
-        event = _make_acceptance_event(
-            contributors=[{"wallet_address": _WALLET_A, "weight_bps": 10000}]
-        )
-        ctx = self._make_ctx_with_contributors([{"wallet_address": _WALLET_A, "weight_bps": 10000}])
-
-        msg = _build_mint_request(event, ctx, baseline=_BASELINE)
-
-        assert msg.baseline == _BASELINE
+        assert msg.attester_signatures == [_ATTESTER_SIGNATURE]
 
     def test_build_mint_request_signing_digest_populated(self) -> None:
         event = _make_acceptance_event(
@@ -1027,7 +1027,11 @@ def _make_orchestrator_with_publisher(
         audit_ref="audit-ok",
         timestamp=datetime.now(timezone.utc),
     )
-    tags = {"hokusai.eval_id": _EVAL_ID}
+    tags = {
+        "hokusai.eval_id": _EVAL_ID,
+        WEIGHT_COMMITMENT_BASELINE_TAG: _ORCH_BASELINE_COMMITMENT,
+        WEIGHT_COMMITMENT_CANDIDATE_TAG: _ORCH_CANDIDATE_COMMITMENT,
+    }
     if extra_tags:
         tags.update(extra_tags)
     client = _FakeMlflowClient(run_metrics=run_metrics or {}, initial_tags=tags)
@@ -1203,7 +1207,11 @@ class TestOrchestratorPublishesOnAcceptance:
             timestamp=datetime.now(timezone.utc),
         )
 
-        tags = {"hokusai.eval_id": _EVAL_ID}
+        tags = {
+            "hokusai.eval_id": _EVAL_ID,
+            WEIGHT_COMMITMENT_BASELINE_TAG: _ORCH_BASELINE_COMMITMENT,
+            WEIGHT_COMMITMENT_CANDIDATE_TAG: _ORCH_CANDIDATE_COMMITMENT,
+        }
 
         class TrackingMlflowClient(_FakeMlflowClient):
             def set_tag(self, run_id, key, value):

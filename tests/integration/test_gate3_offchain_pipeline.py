@@ -11,6 +11,7 @@ from src.evaluation.attribution.retraining_attributor import Cohort, RetrainingC
 from src.evaluation.event_payload import EventPayloadError, make_idempotency_key
 from src.events.publishers.mint_request_publisher import QUEUE_NAME
 from src.events.schemas import MintRequest
+from src.lineage.weight_commitment import compute_weight_commitment
 from tests.integration import _gate3_fixtures as gate3_fixtures
 from tests.integration._gate3_fixtures import (
     BASELINE_RUN_ID,
@@ -18,6 +19,9 @@ from tests.integration._gate3_fixtures import (
     DATASET_HASH,
     MANIFEST_HASH,
     MODEL_ID,
+    WEIGHT_ARTIFACT_DIR,
+    WEIGHT_BASELINE_ONCHAIN_HEAD,
+    WEIGHT_CANDIDATE_COMMITMENT,
     attribution_report,
     build_orchestrator,
     gate3_spec,
@@ -110,6 +114,11 @@ class TestHappyPath:
         assert queued[0].idempotency_key == make_idempotency_key(
             int(spec["model_id_uint"]), queued[0].attestation_hash
         )
+        assert queued[0].candidate_commitment == WEIGHT_CANDIDATE_COMMITMENT
+        assert queued[0].candidate_commitment == (
+            f"0x{compute_weight_commitment(WEIGHT_ARTIFACT_DIR).root}"
+        )
+        assert queued[0].baseline_commitment == WEIGHT_BASELINE_ONCHAIN_HEAD
         assert "hokusai.canonical_score" not in pre_tags
         assert client.tags_for(CANDIDATE_RUN_ID)["hokusai.canonical_score"] == "0.87"
 
@@ -163,6 +172,41 @@ class TestAttestationCoversAttribution:
 
 
 class TestSeedDeterminism:
+    def test_weight_commitment_fixture_is_stable_across_copy_orderings(self, tmp_path) -> None:
+        first_copy = tmp_path / "first"
+        second_copy = tmp_path / "second"
+        for target, names in (
+            (
+                first_copy,
+                sorted(
+                    path.relative_to(WEIGHT_ARTIFACT_DIR) for path in WEIGHT_ARTIFACT_DIR.rglob("*")
+                ),
+            ),
+            (
+                second_copy,
+                sorted(
+                    (
+                        path.relative_to(WEIGHT_ARTIFACT_DIR)
+                        for path in WEIGHT_ARTIFACT_DIR.rglob("*")
+                    ),
+                    reverse=True,
+                ),
+            ),
+        ):
+            for rel_path in names:
+                source = WEIGHT_ARTIFACT_DIR / rel_path
+                destination = target / rel_path
+                if source.is_dir():
+                    destination.mkdir(parents=True, exist_ok=True)
+                else:
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes(source.read_bytes())
+
+        assert (
+            compute_weight_commitment(first_copy).root
+            == compute_weight_commitment(second_copy).root
+        )
+
     def test_neighbor_provenance_seeded_fixture_is_structurally_deterministic(self) -> None:
         first = attribution_report(seeded_per_row_frames(seed=1729))
         second = attribution_report(seeded_per_row_frames(seed=1729))

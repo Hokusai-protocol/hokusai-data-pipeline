@@ -306,11 +306,11 @@ class MintRequest(BaseModel):
             "0x-prefixed 64-hex (sha256-merkle-v1)"
         ),
     )
-    attester_signature: str | None = Field(
+    attester_signatures: list[str] | None = Field(
         default=None,
-        alias="attesterSignature",
         description=(
-            "Attester ECDSA signature over attestation payload, " "0x-prefixed 130-hex (65 bytes)"
+            "Attester ECDSA signatures over the contract MintRequest typed data, "
+            "sorted by ascending recovered signer address"
         ),
     )
     signing_digest: str | None = Field(
@@ -360,14 +360,22 @@ class MintRequest(BaseModel):
             raise ValueError(f"commitment must be 0x-prefixed lowercase 64-hex SHA-256, got {v!r}")
         return v
 
-    @field_validator("attester_signature")
+    @field_validator("attester_signatures")
     @classmethod
-    def _validate_attester_sig(cls, v: str | None) -> str | None:
-        if v is not None and not _ECDSA_SIG_RE.match(v):
-            raise ValueError(
-                "attesterSignature must be 0x-prefixed lowercase 130-hex " f"(65 bytes), got {v!r}"
-            )
-        return v
+    def _validate_attester_signatures(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        if not v:
+            raise ValueError("attester_signatures must be non-empty when provided")
+        normalized: list[str] = []
+        for signature in v:
+            if not _ECDSA_SIG_RE.match(signature):
+                raise ValueError(
+                    "attester_signatures entries must be 0x-prefixed lowercase 130-hex "
+                    f"(65 bytes), got {signature!r}"
+                )
+            normalized.append(signature)
+        return normalized
 
     @model_validator(mode="after")
     def _validate_contributors_sum(self) -> "MintRequest":

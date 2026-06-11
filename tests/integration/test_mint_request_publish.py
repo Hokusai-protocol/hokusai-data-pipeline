@@ -19,17 +19,22 @@ import fakeredis
 import pytest
 
 from src.api.schemas.token_mint import TokenMintResult
-from src.eip712 import BaselineUnavailableError
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator
-from src.evaluation.event_payload import make_idempotency_key
+from src.evaluation.event_payload import EventPayloadError, make_idempotency_key
 from src.evaluation.reward_cap import BudgetConfig
+from src.evaluation.tags import (
+    WEIGHT_COMMITMENT_BASELINE_TAG,
+    WEIGHT_COMMITMENT_CANDIDATE_TAG,
+)
 from src.events.publishers.mint_request_publisher import QUEUE_NAME, MintRequestPublisher
 from src.events.schemas import MintRequest
 
 _EVAL_ID = "eval-integration-001"
 _SPEC_ID = "spec-integration-v1"
 _MODEL_ID_UINT = "99001"
+_BASELINE_COMMITMENT = "0x" + "12" * 32
+_CANDIDATE_COMMITMENT = "0x" + "34" * 32
 
 
 class _FakeRewardNotifier:
@@ -105,6 +110,15 @@ def _make_technical_task_router_spec() -> dict:
     return spec
 
 
+def _default_tags(eval_id: str) -> dict[str, str]:
+    return {
+        "hokusai.eval_id": eval_id,
+        "hokusai.actual_cost_usd": "2.34",
+        WEIGHT_COMMITMENT_BASELINE_TAG: _BASELINE_COMMITMENT,
+        WEIGHT_COMMITMENT_CANDIDATE_TAG: _CANDIDATE_COMMITMENT,
+    }
+
+
 def _build_orchestrator(
     *,
     fake_redis_client,
@@ -133,10 +147,7 @@ def _build_orchestrator(
             "workflow_success_rate_under_budget": 0.87,
             "hokusai_workflow_success_rate_under_budget": 0.87,
         },
-        initial_tags={
-            "hokusai.eval_id": eval_id,
-            "hokusai.actual_cost_usd": "2.34",
-        },
+        initial_tags=_default_tags(eval_id),
     )
     publisher = MintRequestPublisher(redis_client=fake_redis_client)
     reward_notifier = _FakeRewardNotifier()
@@ -204,10 +215,7 @@ def orchestrator(publisher, monkeypatch):
             "workflow_success_rate_under_budget": 0.87,
             "hokusai_workflow_success_rate_under_budget": 0.87,
         },
-        initial_tags={
-            "hokusai.eval_id": _EVAL_ID,
-            "hokusai.actual_cost_usd": "2.34",
-        },
+        initial_tags=_default_tags(_EVAL_ID),
     )
     return DeltaOneMintOrchestrator(
         evaluator=evaluator,
@@ -405,7 +413,7 @@ class TestMintRequestPublishIntegration:
         evaluator.evaluate_for_model.return_value = _make_decision(accepted=False)
         evaluator.delta_threshold_pp = 1.0
         mint_hook = Mock()
-        mlflow_client = _FakeMlflowClient(initial_tags={"hokusai.eval_id": _EVAL_ID})
+        mlflow_client = _FakeMlflowClient(initial_tags=_default_tags(_EVAL_ID))
         publisher = MintRequestPublisher(redis_client=fake_redis_client)
         orch = DeltaOneMintOrchestrator(
             evaluator=evaluator,
@@ -418,6 +426,54 @@ class TestMintRequestPublishIntegration:
 
         assert outcome.status == "not_eligible"
         assert fake_redis_client.llen(QUEUE_NAME) == 0
+
+    def test_missing_candidate_commitment_aborts_before_publish(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        orchestrator = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id=_EVAL_ID,
+        )
+        orchestrator._client.tags.pop(WEIGHT_COMMITMENT_CANDIDATE_TAG)  # noqa: SLF001
+
+        with pytest.raises(EventPayloadError, match="candidate_commitment"):
+            orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        assert fake_redis_client.llen(QUEUE_NAME) == 0
+        assert "hokusai.canonical_score" not in orchestrator._client.tags  # noqa: SLF001
+
+    def test_missing_baseline_commitment_aborts_before_publish(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        orchestrator = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id=_EVAL_ID,
+        )
+        orchestrator._client.tags.pop(WEIGHT_COMMITMENT_BASELINE_TAG)  # noqa: SLF001
+
+        with pytest.raises(EventPayloadError, match="baseline_commitment"):
+            orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        assert fake_redis_client.llen(QUEUE_NAME) == 0
+        assert "hokusai.canonical_score" not in orchestrator._client.tags  # noqa: SLF001
+
+    def test_invalid_commitment_tag_aborts_before_publish(
+        self, fake_redis_client, monkeypatch
+    ) -> None:
+        orchestrator = _build_orchestrator(
+            fake_redis_client=fake_redis_client,
+            monkeypatch=monkeypatch,
+            eval_id=_EVAL_ID,
+        )
+        orchestrator._client.tags[WEIGHT_COMMITMENT_CANDIDATE_TAG] = "0x" + "ABCD" * 16  # noqa: SLF001
+
+        with pytest.raises(EventPayloadError, match="candidate_commitment"):
+            orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+
+        assert fake_redis_client.llen(QUEUE_NAME) == 0
+        assert "hokusai.canonical_score" not in orchestrator._client.tags  # noqa: SLF001
 
     def test_secondary_dry_run_still_publishes_and_advances(
         self, fake_redis_client, monkeypatch
@@ -440,10 +496,7 @@ class TestMintRequestPublishIntegration:
                 "workflow_success_rate_under_budget": 0.87,
                 "hokusai_workflow_success_rate_under_budget": 0.87,
             },
-            initial_tags={
-                "hokusai.eval_id": _EVAL_ID,
-                "hokusai.actual_cost_usd": "2.34",
-            },
+            initial_tags=_default_tags(_EVAL_ID),
         )
         publisher = MintRequestPublisher(redis_client=fake_redis_client)
         orch = DeltaOneMintOrchestrator(
@@ -489,10 +542,7 @@ class TestMintRequestPublishIntegration:
                 "technical_task_router.success_under_budget/v1": 0.87,
                 "technical_task_router_success_under_budget_v1": 0.87,
             },
-            initial_tags={
-                "hokusai.eval_id": _EVAL_ID,
-                "hokusai.actual_cost_usd": "2.34",
-            },
+            initial_tags=_default_tags(_EVAL_ID),
         )
         publisher = MintRequestPublisher(redis_client=fake_redis_client)
         orch = DeltaOneMintOrchestrator(
@@ -531,7 +581,7 @@ class TestMintRequestPublishIntegration:
                 "workflow_success_rate_under_budget": 0.87,
                 "hokusai_workflow_success_rate_under_budget": 0.87,
             },
-            initial_tags={"hokusai.eval_id": _EVAL_ID, "hokusai.actual_cost_usd": "2.34"},
+            initial_tags=_default_tags(_EVAL_ID),
         )
         reward_notifier = _FakeRewardNotifier()
         orch = DeltaOneMintOrchestrator(
@@ -552,15 +602,10 @@ class TestMintRequestPublishIntegration:
         assert by_submission["sub-1"].contribution_batch_id == "batch-1"
         assert by_submission["sub-2"].weight_bps == 3000
 
-    def test_baseline_equals_onchain_head_when_rpc_configured(
+    def test_publish_does_not_read_onchain_block_hash_for_signing(
         self, fake_redis_client, monkeypatch
     ) -> None:
         monkeypatch.setenv("ETH_RPC_URL", "https://rpc.example")
-        monkeypatch.setenv("MINT_REQUIRE_ONCHAIN_BASELINE", "true")
-        monkeypatch.setattr(
-            "src.evaluation.deltaone_mint_orchestrator.read_onchain_head",
-            Mock(return_value="0x" + "9a" * 32),
-        )
         orchestrator = _build_orchestrator(
             fake_redis_client=fake_redis_client,
             monkeypatch=monkeypatch,
@@ -571,25 +616,7 @@ class TestMintRequestPublishIntegration:
         msg = _queued_mint_request(fake_redis_client)
 
         assert outcome.status == "success"
-        assert msg.baseline == "0x" + "9a" * 32
-
-    def test_publish_raises_baseline_unavailable_on_rpc_failure(
-        self, fake_redis_client, monkeypatch
-    ) -> None:
-        monkeypatch.setenv("ETH_RPC_URL", "https://rpc.example")
-        monkeypatch.setenv("MINT_REQUIRE_ONCHAIN_BASELINE", "true")
-        monkeypatch.setattr(
-            "src.evaluation.deltaone_mint_orchestrator.read_onchain_head",
-            Mock(side_effect=BaselineUnavailableError("timeout")),
-        )
-        orchestrator = _build_orchestrator(
-            fake_redis_client=fake_redis_client,
-            monkeypatch=monkeypatch,
-            eval_id=_EVAL_ID,
-        )
-
-        with pytest.raises(BaselineUnavailableError, match="timeout"):
-            orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+        assert msg.baseline is None
 
     def test_reward_entitlement_failure_does_not_block_queue_or_canonical_advance(
         self, fake_redis_client, monkeypatch
@@ -612,7 +639,7 @@ class TestMintRequestPublishIntegration:
                 "workflow_success_rate_under_budget": 0.87,
                 "hokusai_workflow_success_rate_under_budget": 0.87,
             },
-            initial_tags={"hokusai.eval_id": _EVAL_ID, "hokusai.actual_cost_usd": "2.34"},
+            initial_tags=_default_tags(_EVAL_ID),
         )
         reward_notifier = _FakeRewardNotifier(fail_statuses={"pending"})
         orch = DeltaOneMintOrchestrator(

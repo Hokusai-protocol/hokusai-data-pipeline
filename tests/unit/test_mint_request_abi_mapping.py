@@ -36,8 +36,9 @@ def test_mint_request_fixture_matches_abi_contract_invariants() -> None:
         assert fixture["baselineCommitment"].startswith("0x")
     if "candidateCommitment" in fixture:
         assert fixture["candidateCommitment"].startswith("0x")
-    if "attesterSignature" in fixture:
-        assert fixture["attesterSignature"].startswith("0x")
+    if "attester_signatures" in fixture:
+        assert fixture["attester_signatures"]
+        assert all(signature.startswith("0x") for signature in fixture["attester_signatures"])
     if "signingDigest" in fixture:
         assert fixture["signingDigest"].startswith("0x")
         assert len(fixture["signingDigest"]) == 66

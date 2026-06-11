@@ -17,11 +17,17 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from src.api.schemas.token_mint import TokenMintResult
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator
+from src.evaluation.tags import (
+    WEIGHT_COMMITMENT_BASELINE_TAG,
+    WEIGHT_COMMITMENT_CANDIDATE_TAG,
+)
 from src.events.publishers.mint_request_publisher import QUEUE_NAME, MintRequestPublisher
 
 _CONTRIBUTORS_TAG = json.dumps(
     [{"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 10000}]
 )
+_BASELINE_COMMITMENT = "0x" + "12" * 32
+_CANDIDATE_COMMITMENT = "0x" + "34" * 32
 
 
 class _FakeRewardNotifier:
@@ -83,6 +89,8 @@ def _default_tags() -> dict[str, str]:
         "hokusai.benchmark_spec_id": "spec-123",
         "hokusai.model_id_uint": "123",
         "hokusai.contributors": _CONTRIBUTORS_TAG,
+        WEIGHT_COMMITMENT_BASELINE_TAG: _BASELINE_COMMITMENT,
+        WEIGHT_COMMITMENT_CANDIDATE_TAG: _CANDIDATE_COMMITMENT,
     }
 
 
