@@ -318,18 +318,21 @@
       "description": "SHA-256 Merkle root of candidate model weights, 0x-prefixed 64-hex (sha256-merkle-v1)",
       "title": "Candidatecommitment"
     },
-    "attesterSignature": {
+    "attester_signatures": {
       "anyOf": [
         {
-          "type": "string"
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         {
           "type": "null"
         }
       ],
       "default": null,
-      "description": "Attester ECDSA signature over attestation payload, 0x-prefixed 130-hex (65 bytes)",
-      "title": "Attestersignature"
+      "description": "Attester ECDSA signatures over the contract MintRequest typed data, sorted by ascending recovered signer address",
+      "title": "Attester Signatures"
     },
     "signingDigest": {
       "anyOf": [
