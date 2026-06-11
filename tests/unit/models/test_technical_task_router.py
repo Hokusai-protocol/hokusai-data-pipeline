@@ -7,6 +7,7 @@ paths; these unit tests use local file-backed MLflow.
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -14,12 +15,14 @@ from unittest.mock import patch
 
 import mlflow.pyfunc
 import pandas as pd
+import pytest
 
 from scripts.model_30.clean_router_dataset import clean_router_datasets
 from scripts.model_30.register_technical_task_router import (
     register_model,
     validate_router_dataset_model_ids,
 )
+from src.lineage.weight_commitment import compute_weight_commitment
 from src.models.technical_task_router import (
     ROUTER_DATASET_ARTIFACT,
     TechnicalTaskRouterModel,
@@ -57,6 +60,36 @@ def _feature_frame() -> pd.DataFrame:
             }
         ]
     )
+
+
+def _registration_args(**overrides: Any) -> SimpleNamespace:
+    defaults: dict[str, Any] = {
+        "router_dataset": str(FIXTURE),
+        "tracking_uri": None,
+        "experiment_name": "technical-task-router-test",
+        "run_name": "test-run",
+        "k_neighbors": 2,
+        "smoke": False,
+        "holdout_dataset": None,
+        "evaluation_objectives": "all",
+        "training_manifest": None,
+        "model_id_uint": 30,
+        "baseline_artifact_uri": "models:/Technical Task Router/4",
+        "eth_rpc_url": "https://rpc.example",
+        "delta_verifier_address": "0x" + "11" * 20,
+        "model_registry_address": "0x" + "22" * 20,
+        "onchain_timeout_seconds": 5.0,
+    }
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def _artifact_dir(tmp_path: Path, name: str, content: str) -> Path:
+    artifact_dir = tmp_path / name
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "model.bin").write_text(content, encoding="utf-8")
+    (artifact_dir / "MLmodel").write_text("ignored", encoding="utf-8")
+    return artifact_dir
 
 
 def test_load_context_loads_router_dataset_artifact() -> None:
@@ -201,13 +234,8 @@ def test_registration_fails_before_mlflow_logging_for_invalid_model_ids(tmp_path
         ),
         encoding="utf-8",
     )
-    args = SimpleNamespace(
+    args = _registration_args(
         router_dataset=str(bad_dataset),
-        tracking_uri=None,
-        experiment_name="unused",
-        run_name="unused",
-        k_neighbors=2,
-        smoke=False,
     )
 
     with (
@@ -226,7 +254,7 @@ def test_registration_fails_before_mlflow_logging_for_invalid_model_ids(tmp_path
     start_run.assert_not_called()
 
 
-def test_registration_logs_dataset_provenance_to_mlflow() -> None:
+def test_registration_logs_dataset_provenance_to_mlflow(tmp_path: Path) -> None:
     class RunContext:
         def __enter__(self: RunContext) -> SimpleNamespace:
             return SimpleNamespace(info=SimpleNamespace(run_id="run-123"))
@@ -234,15 +262,11 @@ def test_registration_logs_dataset_provenance_to_mlflow() -> None:
         def __exit__(self: RunContext, *args: Any) -> None:
             return None
 
-    args = SimpleNamespace(
-        router_dataset=str(FIXTURE),
-        tracking_uri=None,
-        experiment_name="technical-task-router-test",
-        run_name="test-run",
-        k_neighbors=2,
-        smoke=False,
-    )
+    args = _registration_args()
     model_info = SimpleNamespace(model_uri="runs:/run-123/model", registered_model_version="7")
+    candidate_dir = _artifact_dir(tmp_path, "candidate", "candidate")
+    baseline_dir = _artifact_dir(tmp_path, "baseline", "baseline")
+    baseline_commitment = f"0x{compute_weight_commitment(baseline_dir).root}"
 
     with (
         patch("scripts.model_30.register_technical_task_router.mlflow.set_experiment"),
@@ -250,6 +274,14 @@ def test_registration_logs_dataset_provenance_to_mlflow() -> None:
         patch("scripts.model_30.register_technical_task_router.mlflow.log_param") as log_param,
         patch("scripts.model_30.register_technical_task_router.mlflow.set_tag") as set_tag,
         patch("scripts.model_30.register_technical_task_router.mlflow.log_dict") as log_dict,
+        patch(
+            "scripts.model_30.register_technical_task_router.mlflow.artifacts.download_artifacts",
+            side_effect=[str(candidate_dir), str(baseline_dir)],
+        ),
+        patch(
+            "scripts.model_30.register_technical_task_router.read_model_weight_head",
+            return_value=baseline_commitment,
+        ),
         patch(
             "scripts.model_30.register_technical_task_router.mlflow.pyfunc.log_model",
             return_value=model_info,
@@ -266,10 +298,14 @@ def test_registration_logs_dataset_provenance_to_mlflow() -> None:
     assert "claude-sonnet-4-6" in logged_params["router_dataset_model_distribution"]
     assert logged_tags["hokusai.dataset.id"] == "wavemill-hokusai-router-dataset-v1"
     assert logged_tags["hokusai.dataset.num_samples"] == "3"
+    assert logged_tags["hokusai.weight_commitment.baseline"] == baseline_commitment
+    assert logged_tags["hokusai.weight_commitment.candidate"] == (
+        f"0x{compute_weight_commitment(candidate_dir).root}"
+    )
     log_dict.assert_called_once()
 
 
-def test_registration_logs_holdout_evaluation_metrics_to_mlflow() -> None:
+def test_registration_logs_holdout_evaluation_metrics_to_mlflow(tmp_path: Path) -> None:
     class RunContext:
         def __enter__(self: RunContext) -> SimpleNamespace:
             return SimpleNamespace(info=SimpleNamespace(run_id="run-123"))
@@ -277,17 +313,14 @@ def test_registration_logs_holdout_evaluation_metrics_to_mlflow() -> None:
         def __exit__(self: RunContext, *args: Any) -> None:
             return None
 
-    args = SimpleNamespace(
-        router_dataset=str(FIXTURE),
+    args = _registration_args(
         holdout_dataset=str(FIXTURE),
         evaluation_objectives="highest_reliability",
-        tracking_uri=None,
-        experiment_name="technical-task-router-test",
-        run_name="test-run",
-        k_neighbors=2,
-        smoke=False,
     )
     model_info = SimpleNamespace(model_uri="runs:/run-123/model", registered_model_version="7")
+    candidate_dir = _artifact_dir(tmp_path, "candidate", "candidate")
+    baseline_dir = _artifact_dir(tmp_path, "baseline", "baseline")
+    baseline_commitment = f"0x{compute_weight_commitment(baseline_dir).root}"
 
     with (
         patch("scripts.model_30.register_technical_task_router.mlflow.set_experiment"),
@@ -296,6 +329,14 @@ def test_registration_logs_holdout_evaluation_metrics_to_mlflow() -> None:
         patch("scripts.model_30.register_technical_task_router.mlflow.set_tag") as set_tag,
         patch("scripts.model_30.register_technical_task_router.mlflow.log_metric") as log_metric,
         patch("scripts.model_30.register_technical_task_router.mlflow.log_dict") as log_dict,
+        patch(
+            "scripts.model_30.register_technical_task_router.mlflow.artifacts.download_artifacts",
+            side_effect=[str(candidate_dir), str(baseline_dir)],
+        ),
+        patch(
+            "scripts.model_30.register_technical_task_router.read_model_weight_head",
+            return_value=baseline_commitment,
+        ),
         patch(
             "scripts.model_30.register_technical_task_router.mlflow.pyfunc.log_model",
             return_value=model_info,
@@ -332,16 +373,13 @@ def test_registration_logs_training_manifest_report_to_mlflow(tmp_path: Path) ->
         ),
         encoding="utf-8",
     )
-    args = SimpleNamespace(
-        router_dataset=str(FIXTURE),
-        tracking_uri=None,
-        experiment_name="technical-task-router-test",
-        run_name="test-run",
-        k_neighbors=2,
-        smoke=False,
+    args = _registration_args(
         training_manifest=str(manifest_report),
     )
     model_info = SimpleNamespace(model_uri="runs:/run-123/model", registered_model_version="7")
+    candidate_dir = _artifact_dir(tmp_path, "candidate", "candidate")
+    baseline_dir = _artifact_dir(tmp_path, "baseline", "baseline")
+    baseline_commitment = f"0x{compute_weight_commitment(baseline_dir).root}"
 
     with (
         patch("scripts.model_30.register_technical_task_router.mlflow.set_experiment"),
@@ -349,6 +387,14 @@ def test_registration_logs_training_manifest_report_to_mlflow(tmp_path: Path) ->
         patch("scripts.model_30.register_technical_task_router.mlflow.log_param"),
         patch("scripts.model_30.register_technical_task_router.mlflow.set_tag") as set_tag,
         patch("scripts.model_30.register_technical_task_router.mlflow.log_dict") as log_dict,
+        patch(
+            "scripts.model_30.register_technical_task_router.mlflow.artifacts.download_artifacts",
+            side_effect=[str(candidate_dir), str(baseline_dir)],
+        ),
+        patch(
+            "scripts.model_30.register_technical_task_router.read_model_weight_head",
+            return_value=baseline_commitment,
+        ),
         patch(
             "scripts.model_30.register_technical_task_router.mlflow.pyfunc.log_model",
             return_value=model_info,
@@ -362,6 +408,85 @@ def test_registration_logs_training_manifest_report_to_mlflow(tmp_path: Path) ->
     assert logged_tags["training_manifest_digest"] == "sha256:" + "b" * 64
     assert logged_tags["training_as_of"] == "2026-06-01T00:00:00Z"
     assert any(call.args[1] == "training_manifest_report.json" for call in log_dict.call_args_list)
+
+
+def test_registration_warns_on_baseline_drift_and_keeps_onchain_value(
+    tmp_path: Path, caplog
+) -> None:
+    class RunContext:
+        def __enter__(self: RunContext) -> SimpleNamespace:
+            return SimpleNamespace(info=SimpleNamespace(run_id="run-123"))
+
+        def __exit__(self: RunContext, *args: Any) -> None:
+            return None
+
+    args = _registration_args()
+    model_info = SimpleNamespace(model_uri="runs:/run-123/model", registered_model_version="7")
+    candidate_dir = _artifact_dir(tmp_path, "candidate", "candidate")
+    baseline_dir = _artifact_dir(tmp_path, "baseline", "baseline")
+    onchain_commitment = "0x" + "ab" * 32
+
+    with (
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_experiment"),
+        patch("scripts.model_30.register_technical_task_router.mlflow.start_run") as start_run,
+        patch("scripts.model_30.register_technical_task_router.mlflow.log_param"),
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_tag") as set_tag,
+        patch("scripts.model_30.register_technical_task_router.mlflow.log_dict"),
+        patch(
+            "scripts.model_30.register_technical_task_router.mlflow.artifacts.download_artifacts",
+            side_effect=[str(candidate_dir), str(baseline_dir)],
+        ),
+        patch(
+            "scripts.model_30.register_technical_task_router.read_model_weight_head",
+            return_value=onchain_commitment,
+        ),
+        patch(
+            "scripts.model_30.register_technical_task_router.mlflow.pyfunc.log_model",
+            return_value=model_info,
+        ),
+    ):
+        start_run.return_value = RunContext()
+        with caplog.at_level(logging.WARNING):
+            register_model(args)
+
+    assert "weight_commitment_baseline_drift" in caplog.text
+    logged_tags = {call.args[0]: call.args[1] for call in set_tag.call_args_list}
+    assert logged_tags["hokusai.weight_commitment.baseline"] == onchain_commitment
+
+
+def test_registration_raises_when_candidate_artifact_has_no_committable_files(
+    tmp_path: Path,
+) -> None:
+    class RunContext:
+        def __enter__(self: RunContext) -> SimpleNamespace:
+            return SimpleNamespace(info=SimpleNamespace(run_id="run-123"))
+
+        def __exit__(self: RunContext, *args: Any) -> None:
+            return None
+
+    args = _registration_args()
+    model_info = SimpleNamespace(model_uri="runs:/run-123/model", registered_model_version="7")
+    empty_candidate_dir = tmp_path / "candidate"
+    empty_candidate_dir.mkdir()
+
+    with (
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_experiment"),
+        patch("scripts.model_30.register_technical_task_router.mlflow.start_run") as start_run,
+        patch("scripts.model_30.register_technical_task_router.mlflow.log_param"),
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_tag"),
+        patch("scripts.model_30.register_technical_task_router.mlflow.log_dict"),
+        patch(
+            "scripts.model_30.register_technical_task_router.mlflow.artifacts.download_artifacts",
+            return_value=str(empty_candidate_dir),
+        ),
+        patch(
+            "scripts.model_30.register_technical_task_router.mlflow.pyfunc.log_model",
+            return_value=model_info,
+        ),
+    ):
+        start_run.return_value = RunContext()
+        with pytest.raises(ValueError, match="no files to commit"):
+            register_model(args)
 
 
 def test_clean_router_dataset_merges_removes_available_fakes_and_drops_bad_labels(

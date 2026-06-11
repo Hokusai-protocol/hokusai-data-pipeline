@@ -34,8 +34,8 @@ That post-mint split is reported only after the secondary HTTP mint hook returns
 | `attestation_hash` | `0x`-prefixed 64-hex | SHA-256 of the canonical attestation payload |
 | `idempotency_key` | `0x`-prefixed 64-hex | Canonical dedup key (see below) |
 | `baseline` | `0x`-prefixed 64-hex (optional) | Latest on-chain block hash used as the authorization baseline |
-| `baselineCommitment` | `0x`-prefixed 64-hex (optional) | SHA-256 Merkle root of baseline weights |
-| `candidateCommitment` | `0x`-prefixed 64-hex (optional) | SHA-256 Merkle root of candidate weights |
+| `baselineCommitment` | `0x`-prefixed 64-hex | Required. Authoritative on-chain baseline weight head |
+| `candidateCommitment` | `0x`-prefixed 64-hex | Required. SHA-256 Merkle root of candidate weights |
 | `attesterSignature` | `0x`-prefixed 130-hex (optional) | Attester ECDSA signature over attestation payload |
 | `signingDigest` | `0x`-prefixed 64-hex (optional) | EIP-712 digest signed by the hardware-wallet attester |
 | `totalSamples` | integer `>= 1` | Required top-level sample count for DeltaVerifier ABI |
@@ -134,6 +134,8 @@ The intended operator sequence is:
 6. Producer publishes `baseline`, commitments, `signingDigest`, and `attesterSignature` on the `MintRequest`
 
 If `MINT_REQUIRE_ONCHAIN_BASELINE` is set to anything other than `false`, `ETH_RPC_URL` becomes mandatory and a baseline-read failure aborts publish before canonical advancement.
+
+`baselineCommitment` is resolved from `DeltaVerifier.modelWeightHead(modelId)` and falls back to `ModelRegistry.weightGenesis(modelId)` only when the on-chain head is zero. The producer may recompute the local baseline artifact commitment for drift detection, but it never substitutes the local hash for the chain-derived value. Missing or malformed weight commitments now fail the MintRequest build before Redis publish or canonical score advancement.
 
 ## Post-mint vesting semantics
 
