@@ -16,24 +16,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from pydantic import ValidationError
 
 from src.api.schemas.token_mint import TokenMintResult
-from src.api.services.auth_service_notifier import AuthServiceNotifier
 from src.api.services.token_mint_hook import TokenMintHook
 from src.cli.attestation import create_attestation
-from src.eip712 import (
-    BaselineUnavailableError,
-    MintRequestSigningConfig,
-    build_typed_data,
-    compute_digest,
-    read_current_model_head,
-    render_for_human,
-    sort_signatures_by_signer,
-    verify_signature,
-)
 from src.evaluation.attribution.contributor_set import (
     ContributorDerivationError,
     derive_contributor_set,
@@ -68,6 +57,9 @@ from src.utils.metric_naming import derive_mlflow_name
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from src.eip712.mint_authorization import MintRequestSigningConfig
+
 DELTAONE_ACHIEVED_EVENT = "deltaone.achieved"
 DELTAONE_MINTED_EVENT = "deltaone.minted"
 _MLFLOW_TAG_VALUE_LIMIT = 5000
@@ -82,6 +74,22 @@ _PROJECTED_COST_TAG_KEYS = (PROJECTED_COST_TAG, "hokusai.projected_cost_usd")
 
 _ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _AttributionReportLoader = Callable[[dict[str, str]], dict[str, Any] | None]
+
+
+def read_current_model_head(
+    rpc_url: str,
+    *,
+    contract_address: str,
+    model_id_uint: str,
+) -> str:
+    """Lazy wrapper kept as a test patch point without importing EIP-712 at module load."""
+    from src.eip712.onchain_head import read_current_model_head as _read_current_model_head
+
+    return _read_current_model_head(
+        rpc_url,
+        contract_address=contract_address,
+        model_id_uint=model_id_uint,
+    )
 
 
 class MlflowClientProtocol(Protocol):
@@ -169,6 +177,8 @@ class DeltaOneMintOrchestrator:
         self._mint_request_publisher = mint_request_publisher
         self._reward_entitlement_notifier = reward_entitlement_notifier
         if self._reward_entitlement_notifier is None:
+            from src.api.services.auth_service_notifier import AuthServiceNotifier
+
             self._reward_entitlement_notifier = AuthServiceNotifier.from_env()
         self._budget_config = budget_config or BudgetConfig()
         self._attribution_report_loader = (
@@ -739,19 +749,21 @@ class DeltaOneMintOrchestrator:
         verifying_contract = (os.getenv("MINT_VERIFYING_CONTRACT") or "").strip()
         require_env = os.getenv("MINT_REQUIRE_ONCHAIN_BASELINE")
         baseline_required = require_env is None or require_env.lower() != "false"
-        if rpc_url and verifying_contract:
-            return read_current_model_head(
-                rpc_url,
-                contract_address=verifying_contract,
-                model_id_uint=model_id_uint,
-            )
         if fallback_commitment is not None:
             logger.warning(
                 "event=mint_request_baseline_commitment_fallback model_id_uint=%s",
                 model_id_uint,
             )
             return fallback_commitment
+        if rpc_url and verifying_contract:
+            return read_current_model_head(
+                rpc_url,
+                contract_address=verifying_contract,
+                model_id_uint=model_id_uint,
+            )
         if baseline_required:
+            from src.eip712.onchain_head import BaselineUnavailableError
+
             raise BaselineUnavailableError(
                 "ETH_RPC_URL and MINT_VERIFYING_CONTRACT must be configured "
                 "to resolve baseline_commitment"
@@ -818,6 +830,14 @@ class DeltaOneMintOrchestrator:
         auth_config = _load_optional_mint_authorization_config()
         if auth_config is None:
             return None, attester_signatures
+
+        from src.eip712 import (
+            build_typed_data,
+            compute_digest,
+            render_for_human,
+            sort_signatures_by_signer,
+            verify_signature,
+        )
 
         typed_data = build_typed_data(draft_mint_request, auth_config)
         signing_digest = f"0x{compute_digest(typed_data).hex()}"
@@ -1742,6 +1762,8 @@ def _load_optional_mint_authorization_config() -> MintRequestSigningConfig | Non
             "Partial mint authorization configuration is not allowed; missing: "
             + ", ".join(sorted(missing))
         )
+    from src.eip712.mint_authorization import MintRequestSigningConfig
+
     return MintRequestSigningConfig.from_env()
 
 

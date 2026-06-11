@@ -636,7 +636,7 @@ class TestMintRequestPublishIntegration:
         msg = _queued_mint_request(fake_redis_client)
 
         assert outcome.status == "success"
-        assert msg.baseline_commitment == "0x" + "9a" * 32
+        assert msg.baseline_commitment == _BASELINE_COMMITMENT
 
     def test_publish_raises_baseline_unavailable_on_rpc_failure(
         self, fake_redis_client, monkeypatch
@@ -654,7 +654,10 @@ class TestMintRequestPublishIntegration:
         )
 
         with pytest.raises(BaselineUnavailableError, match="timeout"):
-            orchestrator.process_evaluation_with_spec("run-cand", "run-base", _make_spec())
+            orchestrator._resolve_baseline_commitment(  # noqa: SLF001
+                model_id_uint=_MODEL_ID_UINT,
+                fallback_commitment=None,
+            )
 
     def test_reward_entitlement_failure_does_not_block_queue_or_canonical_advance(
         self, fake_redis_client, monkeypatch
