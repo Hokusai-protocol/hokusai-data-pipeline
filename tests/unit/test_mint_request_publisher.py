@@ -45,7 +45,11 @@ from src.evaluation.event_payload import (
     EventPayloadError,
     make_idempotency_key,
 )
-from src.evaluation.tags import ATTRIBUTION_REPORT_ARTIFACT_URI_TAG
+from src.evaluation.tags import (
+    ATTRIBUTION_REPORT_ARTIFACT_URI_TAG,
+    WEIGHT_COMMITMENT_BASELINE_TAG,
+    WEIGHT_COMMITMENT_CANDIDATE_TAG,
+)
 from src.events.publishers.mint_request_publisher import QUEUE_NAME, MintRequestPublisher
 from src.events.schemas import (
     MintRequest,
@@ -68,6 +72,8 @@ _MODEL_ID_UINT = "12345678901234567890"
 _EVAL_ID = "eval-test-001"
 _SPEC_ID = "spec-test-v1"
 _DATASET_HASH = "0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+_ORCH_BASELINE_COMMITMENT = "0x" + "12" * 32
+_ORCH_CANDIDATE_COMMITMENT = "0x" + "34" * 32
 
 
 # ---------------------------------------------------------------------------
@@ -1021,7 +1027,11 @@ def _make_orchestrator_with_publisher(
         audit_ref="audit-ok",
         timestamp=datetime.now(timezone.utc),
     )
-    tags = {"hokusai.eval_id": _EVAL_ID}
+    tags = {
+        "hokusai.eval_id": _EVAL_ID,
+        WEIGHT_COMMITMENT_BASELINE_TAG: _ORCH_BASELINE_COMMITMENT,
+        WEIGHT_COMMITMENT_CANDIDATE_TAG: _ORCH_CANDIDATE_COMMITMENT,
+    }
     if extra_tags:
         tags.update(extra_tags)
     client = _FakeMlflowClient(run_metrics=run_metrics or {}, initial_tags=tags)
@@ -1197,7 +1207,11 @@ class TestOrchestratorPublishesOnAcceptance:
             timestamp=datetime.now(timezone.utc),
         )
 
-        tags = {"hokusai.eval_id": _EVAL_ID}
+        tags = {
+            "hokusai.eval_id": _EVAL_ID,
+            WEIGHT_COMMITMENT_BASELINE_TAG: _ORCH_BASELINE_COMMITMENT,
+            WEIGHT_COMMITMENT_CANDIDATE_TAG: _ORCH_CANDIDATE_COMMITMENT,
+        }
 
         class TrackingMlflowClient(_FakeMlflowClient):
             def set_tag(self, run_id, key, value):

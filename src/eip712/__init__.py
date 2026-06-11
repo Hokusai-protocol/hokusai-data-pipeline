@@ -19,7 +19,7 @@ from .mint_authorization import (
     sort_signatures_by_signer,
     verify_signature,
 )
-from .onchain_head import BaselineUnavailableError, read_onchain_head
+from .onchain_head import BaselineUnavailableError, read_model_weight_head, read_onchain_head
 
 __all__ = [
     "BaselineUnavailableError",
@@ -34,6 +34,7 @@ __all__ = [
     "MintRequestSigningConfig",
     "MintRequestSigningError",
     "PRIMARY_TYPE",
+    "read_model_weight_head",
     "build_typed_data",
     "compute_digest",
     "read_onchain_head",
