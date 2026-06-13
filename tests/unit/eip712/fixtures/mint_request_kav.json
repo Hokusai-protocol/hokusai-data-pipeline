@@ -44,9 +44,10 @@
             "weight_bps": 10000,
             "submissionId": "sub-single-1"
           }
-        ]
+        ],
+        "deadline": 4102444800
       },
-      "expected_digest": "0x4baca19fe510c3b776bbae712f0c949675f61654457ba989a2400e892eba2911",
+      "expected_digest": "0x283623bbca1721c278ed4699a8b91003da9cc6a5a4d50dd64e18b00558c31e9a",
       "provenance": "TypedDataEncoder parity fixture; token repo test/DeltaVerifier.attesterSignature.test.js asserts hashMintRequest() == TypedDataEncoder.hash(...)"
     },
     {
@@ -98,9 +99,10 @@
             "weight_bps": 3000,
             "submissionId": "sub-multi-2"
           }
-        ]
+        ],
+        "deadline": 4102444800
       },
-      "expected_digest": "0x5176e098160105cc7bdbe61a93d95cacddb20780b775e794e814a0d901c0bb3a",
+      "expected_digest": "0xb1fc787def68a577176fcd6721458506c07a91c8a983ba807882643d052f60cf",
       "provenance": "TypedDataEncoder parity fixture; token repo test/DeltaVerifier.attesterSignature.test.js asserts hashMintRequest() == TypedDataEncoder.hash(...)"
     }
   ]
