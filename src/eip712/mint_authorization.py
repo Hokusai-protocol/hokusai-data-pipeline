@@ -51,6 +51,7 @@ MINT_REQUEST_PAYLOAD_TYPES = [
     {"name": "anchors", "type": "BenchmarkAnchors"},
     {"name": "baselineCommitment", "type": "bytes32"},
     {"name": "candidateCommitment", "type": "bytes32"},
+    {"name": "deadline", "type": "uint256"},
 ]
 MINT_REQUEST_TYPES = [
     {"name": "modelId", "type": "uint256"},
@@ -261,6 +262,7 @@ def _build_message(mint_request: MintRequest) -> dict[str, Any]:
             "candidateCommitment": _normalize_bytes32(
                 mint_request.candidate_commitment, field_name="candidateCommitment"
             ),
+            "deadline": int(mint_request.deadline),
         },
         "contributors": [
             {
@@ -335,6 +337,7 @@ def _normalize_typed_data(typed_data: dict[str, Any]) -> dict[str, Any]:
                 "candidateCommitment": _normalize_bytes32(
                     str(payload["candidateCommitment"]), field_name="candidateCommitment"
                 ),
+                "deadline": int(payload["deadline"]),
             },
             "contributors": [
                 {

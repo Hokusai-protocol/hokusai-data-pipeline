@@ -116,6 +116,7 @@ def _valid_mint_request(**overrides) -> MintRequest:
         "candidate_commitment": _CANDIDATE_COMMITMENT,
         "attester_signatures": [_ATTESTER_SIGNATURE],
         "total_samples": 1000,
+        "deadline": 4102444800,
         "evaluation": _valid_evaluation(sample_size_candidate=1000),
         "contributors": [_valid_contributor()],
     }
