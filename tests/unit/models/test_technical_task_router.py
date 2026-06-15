@@ -199,6 +199,9 @@ def test_registration_dataset_validation_accepts_public_model_ids() -> None:
         "coder_model": {"claude-sonnet-4-6": 2, "gpt-5.4": 1},
         "reviewer_model": {"claude-sonnet-4-6": 2, "gpt-5.4": 1},
     }
+    assert summary.selected_model_distribution_by_group["task_type"]["feature"]["coder_model"] == {
+        "claude-sonnet-4-6": 1
+    }
     assert summary.in_pool_evidence_coverage["overall"]["coder"]["in_pool_fraction"] == 1.0
 
 
@@ -234,6 +237,15 @@ def test_registration_dataset_validation_reports_stale_label_in_pool_coverage(
     assert coverage["excluded_selected_model_distribution"]["coder"] == {
         "claude-sonnet-4-5-20250929": 1
     }
+    assert summary.selected_model_distribution_by_group["task_type"]["feature"]["coder_model"] == {
+        "claude-sonnet-4-5-20250929": 1
+    }
+    assert summary.selected_model_distribution_by_group["domain"]["frontend"]["coder_model"] == {
+        "gpt-5.4": 1
+    }
+    assert summary.to_mlflow_dict()["selected_model_distribution_by_group"]["complexity"]["high"][
+        "coder_model"
+    ] == {"claude-sonnet-4-5-20250929": 1}
     assert coverage["by_group"]["domain"]["backend"]["coder"]["in_pool_fraction"] == 0.0
     assert coverage["by_group"]["task_type"]["bugfix"]["coder"]["in_pool_fraction"] == 1.0
 
