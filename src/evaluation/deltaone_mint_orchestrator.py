@@ -380,7 +380,7 @@ class DeltaOneMintOrchestrator:
             decision=decision,
             baseline_score=baseline_score if baseline_score is not None else 0.0,
             candidate_score=candidate_score if candidate_score is not None else 0.0,
-            metric_family="proportion",
+            metric_family=str(candidate_tags.get("hokusai.metric_family") or "proportion"),
             primary_metric_mlflow_name=mlflow_name,
             benchmark_spec_id=benchmark_spec_id,
             attribution_report=attribution_report,

@@ -32,11 +32,17 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts.model_30.assemble_training_set import load_json  # noqa: E402
 from scripts.model_30.evaluate_technical_task_router import (  # noqa: E402
+    DEFAULT_V2_PRIMARY_METRIC,
+    V2_BENCHMARK_SPEC_ID,
     evaluate_model,
     parse_objectives,
 )
 from src.eip712 import read_model_weight_head  # noqa: E402
 from src.evaluation.tags import (  # noqa: E402
+    BENCHMARK_SPEC_ID_TAG,
+    MLFLOW_NAME_TAG,
+    PRIMARY_METRIC_TAG,
+    SCORER_REF_TAG,
     WEIGHT_COMMITMENT_BASELINE_TAG,
     WEIGHT_COMMITMENT_CANDIDATE_TAG,
 )
@@ -58,6 +64,13 @@ MODEL_ID_COLUMNS = (
 )
 SELECTED_MODEL_ID_COLUMNS = ("planner_model", "coder_model", "reviewer_model")
 DEFAULT_BASELINE_ARTIFACT_URI = "models:/Technical Task Router@production"
+MODEL_30_V2_METRIC_FAMILY = "continuous"
+MODEL_30_V2_COMPONENT_METRICS = (
+    "technical_task_router.success_under_budget_v1",
+    "technical_task_router.cost_efficiency_v2",
+    "technical_task_router.sparse_cell_generalization_v2",
+    "technical_task_router.candidate_pool_robustness_v2",
+)
 
 logger = logging.getLogger(__name__)
 
@@ -359,6 +372,9 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
             model_id=MODEL_NAME,
             holdout_path=holdout_path,
             objectives=parse_objectives(getattr(args, "evaluation_objectives", "all")),
+            benchmark_spec_id=getattr(args, "benchmark_spec_id", None),
+            benchmark_version=getattr(args, "benchmark_version", "v2"),
+            primary_metric=getattr(args, "primary_metric", None),
         )
 
     with mlflow.start_run(run_name=args.run_name) as run:
@@ -380,34 +396,7 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
         if training_manifest:
             _log_training_manifest(training_manifest)
         if evaluation_report is not None:
-            for metric_name, metric_value in evaluation_report["metrics"].items():
-                if metric_value is None:
-                    continue
-                mlflow.log_metric(metric_name, float(metric_value))
-            mlflow.set_tag(
-                "hokusai.model_30.holdout_hash",
-                evaluation_report["holdout_dataset_sha256"],
-            )
-            mlflow.set_tag(
-                "hokusai.model_30.holdout_rows",
-                str(evaluation_report["row_counts"]["evaluated_rows"]),
-            )
-            mlflow.set_tag(
-                "hokusai.model_30.quarantined_rows",
-                str(evaluation_report["row_counts"]["quarantined_rows"]),
-            )
-            mlflow.set_tag(
-                "hokusai.model_30.duration_positive_label_rows",
-                str(evaluation_report["duration_coverage"]["positive_label_rows"]),
-            )
-            mlflow.set_tag(
-                "hokusai.model_30.duration_positive_label_fraction",
-                str(evaluation_report["duration_coverage"]["positive_label_fraction"]),
-            )
-            mlflow.set_tag(
-                "hokusai.model_30.duration_mae_available",
-                str(evaluation_report["duration_coverage"]["duration_mae_available"]).lower(),
-            )
+            _log_evaluation_report_to_mlflow(evaluation_report, model_id_uint=model_id_uint)
             mlflow.log_dict(
                 {key: value for key, value in evaluation_report.items() if key != "benchmark_rows"},
                 "model_30_evaluation_report.json",
@@ -457,6 +446,85 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
+def _log_evaluation_report_to_mlflow(
+    evaluation_report: dict[str, Any],
+    *,
+    model_id_uint: int,
+) -> None:
+    """Log Model 30 evaluation metrics and reward metadata to the active MLflow run."""
+    for metric_name, metric_value in evaluation_report["metrics"].items():
+        if metric_value is None:
+            continue
+        mlflow.log_metric(metric_name, float(metric_value))
+    primary_metric = str(evaluation_report.get("primary_metric") or DEFAULT_V2_PRIMARY_METRIC)
+    benchmark_spec_id = str(evaluation_report.get("benchmark_spec_id") or V2_BENCHMARK_SPEC_ID)
+    benchmark_version = str(evaluation_report.get("benchmark_version") or "v2")
+    metric_family = MODEL_30_V2_METRIC_FAMILY if benchmark_version == "v2" else "proportion"
+    mlflow.set_tag(PRIMARY_METRIC_TAG, _metric_name_from_mlflow_key(primary_metric))
+    mlflow.set_tag(MLFLOW_NAME_TAG, primary_metric)
+    mlflow.set_tag(SCORER_REF_TAG, _metric_name_from_mlflow_key(primary_metric))
+    mlflow.set_tag(BENCHMARK_SPEC_ID_TAG, benchmark_spec_id)
+    mlflow.set_tag("hokusai.metric_family", metric_family)
+    mlflow.set_tag("hokusai.model_id_uint", str(model_id_uint))
+    mlflow.set_tag("hokusai.model_30.benchmark_version", benchmark_version)
+    mlflow.set_tag("hokusai.model_30.primary_metric", primary_metric)
+    mlflow.set_tag("hokusai.model_30.holdout_hash", evaluation_report["holdout_dataset_sha256"])
+    mlflow.set_tag(
+        "hokusai.model_30.holdout_rows",
+        str(evaluation_report["row_counts"]["evaluated_rows"]),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.benchmark_rows",
+        str(evaluation_report["row_counts"]["benchmark_rows"]),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.quarantined_rows",
+        str(evaluation_report["row_counts"]["quarantined_rows"]),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.duration_positive_label_rows",
+        str(evaluation_report["duration_coverage"]["positive_label_rows"]),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.duration_positive_label_fraction",
+        str(evaluation_report["duration_coverage"]["positive_label_fraction"]),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.duration_mae_available",
+        str(evaluation_report["duration_coverage"]["duration_mae_available"]).lower(),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.scenario_counts",
+        json.dumps(evaluation_report.get("scenario_counts", {}), sort_keys=True),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.support_coverage",
+        json.dumps(evaluation_report.get("support_coverage", {}), sort_keys=True),
+    )
+    component_summary = _component_metric_summary(evaluation_report["metrics"])
+    if component_summary:
+        mlflow.set_tag(
+            "hokusai.model_30.component_summary",
+            json.dumps(component_summary, sort_keys=True),
+        )
+
+
+def _component_metric_summary(metrics: dict[str, Any]) -> dict[str, float]:
+    return {
+        metric_name: float(metrics[metric_name])
+        for metric_name in MODEL_30_V2_COMPONENT_METRICS
+        if metrics.get(metric_name) is not None
+    }
+
+
+def _metric_name_from_mlflow_key(metric_key: str) -> str:
+    if metric_key == DEFAULT_V2_PRIMARY_METRIC:
+        return "technical_task_router.benchmark_score/v2"
+    if metric_key == "technical_task_router.benchmark_score_v1":
+        return "technical_task_router.benchmark_score/v1"
+    return metric_key
+
+
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -481,6 +549,9 @@ def parse_args() -> argparse.Namespace:
         default="all",
         help="Routing objectives to evaluate: all or comma-separated objective names.",
     )
+    parser.add_argument("--benchmark-version", choices=("v1", "v2"), default="v2")
+    parser.add_argument("--primary-metric")
+    parser.add_argument("--benchmark-spec-id")
     parser.add_argument(
         "--smoke",
         action="store_true",

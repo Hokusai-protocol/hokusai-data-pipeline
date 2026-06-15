@@ -72,6 +72,9 @@ def _registration_args(**overrides: Any) -> SimpleNamespace:
         "smoke": False,
         "holdout_dataset": None,
         "evaluation_objectives": "all",
+        "benchmark_version": "v2",
+        "primary_metric": None,
+        "benchmark_spec_id": None,
         "training_manifest": None,
         "model_id_uint": 30,
         "baseline_artifact_uri": "models:/Technical Task Router/4",
@@ -348,9 +351,31 @@ def test_registration_logs_holdout_evaluation_metrics_to_mlflow(tmp_path: Path) 
     logged_metrics = {call.args[0]: call.args[1] for call in log_metric.call_args_list}
     logged_tags = {call.args[0]: call.args[1] for call in set_tag.call_args_list}
     assert result["evaluation_report"]["row_counts"]["evaluated_rows"] == 3
+    assert (
+        result["evaluation_report"]["primary_metric"] == "technical_task_router.benchmark_score_v2"
+    )
     assert "technical_task_router.benchmark_score_v1" in logged_metrics
+    assert "technical_task_router.benchmark_score_v2" in logged_metrics
+    assert logged_tags["hokusai.primary_metric"] == "technical_task_router.benchmark_score/v2"
+    assert logged_tags["hokusai.mlflow_name"] == "technical_task_router.benchmark_score_v2"
+    assert logged_tags["hokusai.scorer_ref"] == "technical_task_router.benchmark_score/v2"
+    assert logged_tags["hokusai.benchmark_spec_id"] == "technical_task_router.benchmark_score/v2"
+    assert logged_tags["hokusai.metric_family"] == "continuous"
+    assert logged_tags["hokusai.model_id_uint"] == "30"
+    assert logged_tags["hokusai.model_30.benchmark_version"] == "v2"
+    assert logged_tags["hokusai.model_30.primary_metric"] == (
+        "technical_task_router.benchmark_score_v2"
+    )
     assert logged_tags["hokusai.model_30.holdout_rows"] == "3"
+    assert logged_tags["hokusai.model_30.benchmark_rows"] == "15"
     assert logged_tags["hokusai.model_30.quarantined_rows"] == "0"
+    component_summary = json.loads(logged_tags["hokusai.model_30.component_summary"])
+    assert sorted(component_summary) == [
+        "technical_task_router.candidate_pool_robustness_v2",
+        "technical_task_router.cost_efficiency_v2",
+        "technical_task_router.sparse_cell_generalization_v2",
+        "technical_task_router.success_under_budget_v1",
+    ]
     assert log_dict.call_count == 2
 
 

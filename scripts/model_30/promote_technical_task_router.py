@@ -101,6 +101,9 @@ def _register_or_resolve_model(
             router_dataset=args.router_dataset,
             holdout_dataset=args.holdout_dataset,
             evaluation_objectives=args.evaluation_objectives,
+            benchmark_version=args.benchmark_version,
+            primary_metric=args.primary_metric,
+            benchmark_spec_id=args.benchmark_spec_id,
             tracking_uri=args.tracking_uri,
             experiment_name=args.experiment_name,
             run_name=args.run_name,
@@ -365,6 +368,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--router-dataset")
     parser.add_argument("--holdout-dataset")
     parser.add_argument("--evaluation-objectives", default="all")
+    parser.add_argument("--benchmark-version", choices=("v1", "v2"), default="v2")
+    parser.add_argument("--primary-metric")
+    parser.add_argument("--benchmark-spec-id")
     parser.add_argument("--model-uri", help="Existing registered model URI to promote.")
     parser.add_argument("--tracking-uri", default=os.getenv("MLFLOW_TRACKING_URI"))
     parser.add_argument("--experiment-name")
