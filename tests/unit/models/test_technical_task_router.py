@@ -75,6 +75,9 @@ def _registration_args(**overrides: Any) -> SimpleNamespace:
         "benchmark_version": "v2",
         "primary_metric": None,
         "benchmark_spec_id": None,
+        "in_pool_coverage_gate": "warn",
+        "min_in_pool_evidence_coverage": 0.70,
+        "min_group_in_pool_evidence_coverage": 0.50,
         "training_manifest": None,
         "model_id_uint": 30,
         "baseline_artifact_uri": "models:/Technical Task Router/4",
@@ -194,6 +197,43 @@ def test_registration_dataset_validation_accepts_public_model_ids() -> None:
         "coder_model": {"claude-sonnet-4-6": 2, "gpt-5.4": 1},
         "reviewer_model": {"claude-sonnet-4-6": 2, "gpt-5.4": 1},
     }
+    assert summary.in_pool_evidence_coverage["overall"]["coder"]["in_pool_fraction"] == 1.0
+
+
+def test_registration_dataset_validation_reports_stale_label_in_pool_coverage(
+    tmp_path: Path,
+) -> None:
+    stale_dataset = tmp_path / "stale-router-dataset.csv"
+    stale_dataset.write_text(
+        "\n".join(
+            [
+                "task_type,domain,complexity,"
+                "available_planner_models,available_coder_models,available_reviewer_models,"
+                "planner_model,coder_model,reviewer_model",
+                'feature,backend,high,"[""gpt-5.4""]","[""gpt-5.4""]","[""gpt-5.4""]",'
+                "gpt-5.4,claude-sonnet-4-5-20250929,gpt-5.4",
+                'bugfix,frontend,low,"[""gpt-5.4""]","[""gpt-5.4""]","[""gpt-5.4""]",'
+                "gpt-5.4,gpt-5.4,gpt-5.4",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    summary = validate_router_dataset_model_ids(stale_dataset)
+    coverage = summary.in_pool_evidence_coverage
+
+    assert coverage["overall"]["coder"] == {
+        "selected_rows": 2,
+        "in_pool_rows": 1,
+        "out_of_pool_rows": 1,
+        "in_pool_fraction": 0.5,
+    }
+    assert coverage["excluded_selected_model_distribution"]["coder"] == {
+        "claude-sonnet-4-5-20250929": 1
+    }
+    assert coverage["by_group"]["domain"]["backend"]["coder"]["in_pool_fraction"] == 0.0
+    assert coverage["by_group"]["task_type"]["bugfix"]["coder"]["in_pool_fraction"] == 1.0
 
 
 def test_registration_dataset_validation_rejects_fake_model_ids(tmp_path: Path) -> None:
@@ -257,6 +297,43 @@ def test_registration_fails_before_mlflow_logging_for_invalid_model_ids(tmp_path
     start_run.assert_not_called()
 
 
+def test_registration_in_pool_coverage_gate_can_fail_before_mlflow(
+    tmp_path: Path,
+) -> None:
+    stale_dataset = tmp_path / "stale-router-dataset.csv"
+    stale_dataset.write_text(
+        "\n".join(
+            [
+                "task_type,domain,complexity,"
+                "available_planner_models,available_coder_models,available_reviewer_models,"
+                "planner_model,coder_model,reviewer_model",
+                'feature,backend,high,"[""gpt-5.4""]","[""gpt-5.4""]","[""gpt-5.4""]",'
+                "gpt-5.4,claude-sonnet-4-5-20250929,gpt-5.4",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    args = _registration_args(
+        router_dataset=str(stale_dataset),
+        in_pool_coverage_gate="fail",
+        min_in_pool_evidence_coverage=0.99,
+        min_group_in_pool_evidence_coverage=0.99,
+    )
+
+    with (
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_experiment") as set_exp,
+        patch("scripts.model_30.register_technical_task_router.mlflow.start_run") as start_run,
+    ):
+        with pytest.raises(ValueError, match="in-pool evidence coverage gate violated") as exc:
+            register_model(args)
+
+    assert "coder overall in-pool coverage 0/1=0.000 below 0.990" in str(exc.value)
+    assert "claude-sonnet-4-5-20250929" not in str(exc.value)
+    set_exp.assert_not_called()
+    start_run.assert_not_called()
+
+
 def test_registration_logs_dataset_provenance_to_mlflow(tmp_path: Path) -> None:
     class RunContext:
         def __enter__(self: RunContext) -> SimpleNamespace:
@@ -299,8 +376,12 @@ def test_registration_logs_dataset_provenance_to_mlflow(tmp_path: Path) -> None:
     assert logged_params["router_dataset_rows"] == 3
     assert str(logged_params["router_dataset_sha256"]).startswith("sha256:")
     assert "claude-sonnet-4-6" in logged_params["router_dataset_model_distribution"]
+    assert logged_params["in_pool_coverage_gate"] == "warn"
+    assert logged_params["min_in_pool_evidence_coverage"] == 0.70
+    assert logged_params["min_group_in_pool_evidence_coverage"] == 0.50
     assert logged_tags["hokusai.dataset.id"] == "wavemill-hokusai-router-dataset-v1"
     assert logged_tags["hokusai.dataset.num_samples"] == "3"
+    assert logged_tags["hokusai.model_30.in_pool_coverage_gate_violations"] == "[]"
     assert logged_tags["hokusai.weight_commitment.baseline"] == baseline_commitment
     assert logged_tags["hokusai.weight_commitment.candidate"] == (
         f"0x{compute_weight_commitment(candidate_dir).root}"

@@ -63,7 +63,15 @@ MODEL_ID_COLUMNS = (
     "reviewer_model",
 )
 SELECTED_MODEL_ID_COLUMNS = ("planner_model", "coder_model", "reviewer_model")
+ROLE_MODEL_COLUMNS = {
+    "planner": ("planner_model", "available_planner_models"),
+    "coder": ("coder_model", "available_coder_models"),
+    "reviewer": ("reviewer_model", "available_reviewer_models"),
+}
+IN_POOL_GROUP_COLUMNS = ("task_type", "domain", "complexity")
 DEFAULT_BASELINE_ARTIFACT_URI = "models:/Technical Task Router@production"
+DEFAULT_MIN_IN_POOL_EVIDENCE_COVERAGE = 0.70
+DEFAULT_MIN_GROUP_IN_POOL_EVIDENCE_COVERAGE = 0.50
 MODEL_30_V2_METRIC_FAMILY = "continuous"
 MODEL_30_V2_COMPONENT_METRICS = (
     "technical_task_router.success_under_budget_v1",
@@ -82,6 +90,7 @@ class RouterDatasetSummary:
     row_count: int
     sha256: str
     selected_model_distribution: dict[str, dict[str, int]]
+    in_pool_evidence_coverage: dict[str, Any]
 
     def to_mlflow_dict(self: RouterDatasetSummary) -> dict[str, Any]:
         """Return a JSON-serializable summary suitable for MLflow artifacts."""
@@ -89,6 +98,7 @@ class RouterDatasetSummary:
             "row_count": self.row_count,
             "sha256": f"sha256:{self.sha256}",
             "selected_model_distribution": self.selected_model_distribution,
+            "in_pool_evidence_coverage": self.in_pool_evidence_coverage,
         }
 
 
@@ -176,6 +186,91 @@ def _validate_model_row(
     return invalid
 
 
+def _empty_coverage_counts() -> dict[str, dict[str, int]]:
+    return {
+        role: {
+            "selected_rows": 0,
+            "in_pool_rows": 0,
+            "out_of_pool_rows": 0,
+        }
+        for role in ROLE_MODEL_COLUMNS
+    }
+
+
+def _coverage_fraction(in_pool_rows: int, selected_rows: int) -> float:
+    return in_pool_rows / selected_rows if selected_rows else 0.0
+
+
+def _coverage_counts_to_report(counts: dict[str, dict[str, int]]) -> dict[str, dict[str, Any]]:
+    return {
+        role: {
+            **role_counts,
+            "in_pool_fraction": _coverage_fraction(
+                role_counts["in_pool_rows"],
+                role_counts["selected_rows"],
+            ),
+        }
+        for role, role_counts in counts.items()
+    }
+
+
+def _group_value(row: dict[str, str], column: str) -> str:
+    value = str(row.get(column, "")).strip()
+    return value or "<missing>"
+
+
+def _build_in_pool_evidence_coverage(dataset_path: Path) -> dict[str, Any]:
+    """Summarize selected-label support that remains usable under available pools."""
+    overall_counts = _empty_coverage_counts()
+    excluded_labels = {role: Counter() for role in ROLE_MODEL_COLUMNS}
+    group_counts: dict[str, dict[str, dict[str, dict[str, int]]]] = {
+        column: {} for column in IN_POOL_GROUP_COLUMNS
+    }
+
+    with dataset_path.open(newline="", encoding="utf-8") as dataset_file:
+        reader = csv.DictReader(dataset_file)
+        for row in reader:
+            for role, (selected_column, available_column) in ROLE_MODEL_COLUMNS.items():
+                selected_models = _parse_model_values(row.get(selected_column, ""))
+                available_models = set(_parse_model_values(row.get(available_column, "")))
+                if not selected_models:
+                    continue
+                selected_model = selected_models[0]
+                in_pool = selected_model in available_models
+                overall_counts[role]["selected_rows"] += 1
+                if in_pool:
+                    overall_counts[role]["in_pool_rows"] += 1
+                else:
+                    overall_counts[role]["out_of_pool_rows"] += 1
+                    excluded_labels[role][selected_model] += 1
+
+                for group_column in IN_POOL_GROUP_COLUMNS:
+                    group_key = _group_value(row, group_column)
+                    role_counts = group_counts[group_column].setdefault(
+                        group_key,
+                        _empty_coverage_counts(),
+                    )[role]
+                    role_counts["selected_rows"] += 1
+                    if in_pool:
+                        role_counts["in_pool_rows"] += 1
+                    else:
+                        role_counts["out_of_pool_rows"] += 1
+
+    return {
+        "overall": _coverage_counts_to_report(overall_counts),
+        "by_group": {
+            group_column: {
+                group_key: _coverage_counts_to_report(counts)
+                for group_key, counts in sorted(groups.items())
+            }
+            for group_column, groups in group_counts.items()
+        },
+        "excluded_selected_model_distribution": {
+            role: dict(sorted(counter.items())) for role, counter in excluded_labels.items()
+        },
+    }
+
+
 def validate_router_dataset_model_ids(dataset_path: Path) -> RouterDatasetSummary:
     """Reject router datasets with synthetic or malformed model identifiers."""
     invalid: list[str] = []
@@ -208,7 +303,85 @@ def validate_router_dataset_model_ids(dataset_path: Path) -> RouterDatasetSummar
             column: dict(sorted(counter.items()))
             for column, counter in selected_distribution.items()
         },
+        in_pool_evidence_coverage=_build_in_pool_evidence_coverage(dataset_path),
     )
+
+
+def _in_pool_coverage_gate_violations(
+    coverage: dict[str, Any],
+    *,
+    min_role_coverage: float,
+    min_group_coverage: float,
+) -> list[str]:
+    violations: list[str] = []
+    for role, role_report in coverage.get("overall", {}).items():
+        if (
+            role_report.get("selected_rows", 0)
+            and role_report["in_pool_fraction"] < min_role_coverage
+        ):
+            violations.append(
+                f"{role} overall in-pool coverage "
+                f"{role_report['in_pool_rows']}/{role_report['selected_rows']}="
+                f"{role_report['in_pool_fraction']:.3f} below {min_role_coverage:.3f}"
+            )
+
+    for group_column, group_reports in coverage.get("by_group", {}).items():
+        for group_value, roles in group_reports.items():
+            for role, role_report in roles.items():
+                if (
+                    role_report.get("selected_rows", 0)
+                    and role_report["in_pool_fraction"] < min_group_coverage
+                ):
+                    violations.append(
+                        f"{role} {group_column}={group_value!r} in-pool coverage "
+                        f"{role_report['in_pool_rows']}/{role_report['selected_rows']}="
+                        f"{role_report['in_pool_fraction']:.3f} below {min_group_coverage:.3f}"
+                    )
+    return violations
+
+
+def _enforce_in_pool_evidence_gate(
+    summary: RouterDatasetSummary,
+    *,
+    mode: str,
+    min_role_coverage: float,
+    min_group_coverage: float,
+) -> list[str]:
+    if mode == "off":
+        return []
+    violations = _in_pool_coverage_gate_violations(
+        summary.in_pool_evidence_coverage,
+        min_role_coverage=min_role_coverage,
+        min_group_coverage=min_group_coverage,
+    )
+    if not violations:
+        return []
+    message = "Router dataset in-pool evidence coverage gate violated: " + "; ".join(violations)
+    if mode == "fail":
+        raise ValueError(message)
+    logger.warning(message)
+    return violations
+
+
+def _resolve_coverage_threshold(
+    args: argparse.Namespace,
+    attr_name: str,
+    default: float,
+) -> float:
+    raw_value = getattr(args, attr_name, None)
+    if raw_value is None:
+        raw_value = default
+    value = float(raw_value)
+    if not 0 <= value <= 1:
+        raise ValueError(f"{attr_name} must be between 0 and 1, got {value}")
+    return value
+
+
+def _resolve_in_pool_coverage_gate_mode(args: argparse.Namespace) -> str:
+    mode = str(getattr(args, "in_pool_coverage_gate", "warn") or "warn")
+    if mode not in {"off", "warn", "fail"}:
+        raise ValueError(f"in_pool_coverage_gate must be off, warn, or fail, got {mode!r}")
+    return mode
 
 
 def _registered_model_uri(model_name: str, version: str | None) -> str:
@@ -329,6 +502,23 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
     if not dataset_path.exists():
         raise FileNotFoundError(f"Router dataset not found: {dataset_path}")
     dataset_summary = validate_router_dataset_model_ids(dataset_path)
+    gate_mode = _resolve_in_pool_coverage_gate_mode(args)
+    min_role_coverage = _resolve_coverage_threshold(
+        args,
+        "min_in_pool_evidence_coverage",
+        DEFAULT_MIN_IN_POOL_EVIDENCE_COVERAGE,
+    )
+    min_group_coverage = _resolve_coverage_threshold(
+        args,
+        "min_group_in_pool_evidence_coverage",
+        DEFAULT_MIN_GROUP_IN_POOL_EVIDENCE_COVERAGE,
+    )
+    gate_violations = _enforce_in_pool_evidence_gate(
+        dataset_summary,
+        mode=gate_mode,
+        min_role_coverage=min_role_coverage,
+        min_group_coverage=min_group_coverage,
+    )
     model_id_uint = _resolve_model_id_uint(args)
     rpc_url = _resolve_required_arg(args, "eth_rpc_url", "ETH_RPC_URL")
     delta_verifier_address = _resolve_required_arg(
@@ -386,11 +576,18 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
             "router_dataset_model_distribution",
             json.dumps(dataset_summary.selected_model_distribution, sort_keys=True),
         )
+        mlflow.log_param("in_pool_coverage_gate", gate_mode)
+        mlflow.log_param("min_in_pool_evidence_coverage", min_role_coverage)
+        mlflow.log_param("min_group_in_pool_evidence_coverage", min_group_coverage)
         mlflow.log_param("k_neighbors", args.k_neighbors)
         mlflow.set_tag("hokusai.dataset.id", "wavemill-hokusai-router-dataset-v1")
         mlflow.set_tag("hokusai.dataset.hash", f"sha256:{dataset_summary.sha256}")
         mlflow.set_tag("hokusai.dataset.num_samples", str(dataset_summary.row_count))
         mlflow.set_tag("hokusai.dataset.source", "wavemill-router-export")
+        mlflow.set_tag(
+            "hokusai.model_30.in_pool_coverage_gate_violations",
+            json.dumps(gate_violations, sort_keys=True),
+        )
         mlflow.log_dict(dataset_summary.to_mlflow_dict(), "router_dataset_summary.json")
         training_manifest = getattr(args, "training_manifest", None)
         if training_manifest:
@@ -552,6 +749,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--benchmark-version", choices=("v1", "v2"), default="v2")
     parser.add_argument("--primary-metric")
     parser.add_argument("--benchmark-spec-id")
+    parser.add_argument(
+        "--in-pool-coverage-gate",
+        choices=("off", "warn", "fail"),
+        default="warn",
+        help=(
+            "How to enforce selected-model evidence coverage after applying each "
+            "role's available candidate pool."
+        ),
+    )
+    parser.add_argument(
+        "--min-in-pool-evidence-coverage",
+        type=float,
+        default=DEFAULT_MIN_IN_POOL_EVIDENCE_COVERAGE,
+        help="Minimum overall per-role selected-label coverage required by the gate.",
+    )
+    parser.add_argument(
+        "--min-group-in-pool-evidence-coverage",
+        type=float,
+        default=DEFAULT_MIN_GROUP_IN_POOL_EVIDENCE_COVERAGE,
+        help="Minimum per-role coverage required within task_type/domain/complexity groups.",
+    )
     parser.add_argument(
         "--smoke",
         action="store_true",
