@@ -163,6 +163,9 @@ def test_register_promote_and_smoke_passes_benchmark_args_to_registration(monkey
             benchmark_version="v2",
             primary_metric="technical_task_router.benchmark_score_v2",
             benchmark_spec_id="technical_task_router.benchmark_score/v2",
+            in_pool_coverage_gate="fail",
+            min_in_pool_evidence_coverage=0.75,
+            min_group_in_pool_evidence_coverage=0.60,
             experiment_name=None,
             run_name="test",
             k_neighbors=40,
@@ -186,3 +189,6 @@ def test_register_promote_and_smoke_passes_benchmark_args_to_registration(monkey
     assert captured_args[0].benchmark_version == "v2"
     assert captured_args[0].primary_metric == "technical_task_router.benchmark_score_v2"
     assert captured_args[0].benchmark_spec_id == "technical_task_router.benchmark_score/v2"
+    assert captured_args[0].in_pool_coverage_gate == "fail"
+    assert captured_args[0].min_in_pool_evidence_coverage == 0.75
+    assert captured_args[0].min_group_in_pool_evidence_coverage == 0.60
