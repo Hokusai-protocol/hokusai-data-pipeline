@@ -68,9 +68,14 @@ class TestModelRegistryHooks:
             proposal_identifier="test-token",
             status="registered",
             contributor_address="0x1234567890123456789012345678901234567890",
+            model_supplier_recipient=None,
             experiment_name="test_experiment",
             tags={"tag1": "value1"},
             api_schema=None,
+            eval_spec=None,
+            scorer_ref=None,
+            primary_metric=None,
+            benchmark_spec_id=None,
         )
 
         # Verify validation was performed

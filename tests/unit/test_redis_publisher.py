@@ -17,7 +17,7 @@ class TestRedisPublisher:
 
     @pytest.fixture
     def mock_redis(self):
-        with patch("redis.ConnectionPool.from_url") as mock_pool:
+        with patch("redis.ConnectionPool.from_url"):
             mock_client = MagicMock(spec=redis.Redis)
             mock_client.ping.return_value = True
             mock_client.lpush.return_value = 1
@@ -111,6 +111,7 @@ class TestRedisPublisher:
                 model_version="1",
                 mlflow_run_id="run123",
                 contributor_address="0x1234567890123456789012345678901234567890",
+                model_supplier_recipient="0xabcabcabcabcabcabcabcabcabcabcabcabcabca",
                 experiment_name="test_experiment",
             )
 
@@ -119,6 +120,11 @@ class TestRedisPublisher:
             assert published_message["model_id"] == "model-123"
             assert published_message["token_symbol"] == "test-token"
             assert published_message["improvement_percentage"] == pytest.approx(6.25)
+            # The per-model supplier (launcher wallet) flows through to the event. (HOK-2230)
+            assert (
+                published_message["model_supplier_recipient"]
+                == "0xabcabcabcabcabcabcabcabcabcabcabcabcabca"
+            )
 
     def test_health_check_healthy(self, mock_redis):
         publisher = RedisPublisherWithCircuitBreaker()

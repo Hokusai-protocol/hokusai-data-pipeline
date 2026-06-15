@@ -30,6 +30,9 @@ class TokenizedRegistrationEventRequest(BaseModel):
     benchmark_spec_id: str | None = Field(default=None, max_length=MAX_REGISTRATION_METADATA_LENGTH)
     api_schema: dict[str, Any] | None = None
     tags: dict[str, str] | None = None
+    # Launcher wallet (from hokusai-site) that receives the supplier allocation when
+    # the token is deployed. Forwarded to the model_ready_to_deploy event. (HOK-2230)
+    model_supplier_recipient: str | None = Field(default=None, pattern=r"^0x[a-fA-F0-9]{40}$")
 
     @field_validator(
         "model_name",

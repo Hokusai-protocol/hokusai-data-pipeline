@@ -41,6 +41,7 @@ class ModelRegistryHooks:
         current_value: float,
         tags: Optional[dict[str, str]] = None,
         contributor_address: Optional[str] = None,
+        model_supplier_recipient: Optional[str] = None,
         experiment_name: Optional[str] = None,
         model_uri: Optional[str] = None,
         api_schema: Optional[dict[str, Any]] = None,
@@ -65,6 +66,7 @@ class ModelRegistryHooks:
             current_value: Current model's performance value
             tags: Optional model tags
             contributor_address: Optional contributor Ethereum address
+            model_supplier_recipient: Optional launcher/supplier Ethereum address
             experiment_name: Optional experiment name
             model_uri: Optional MLflow model URI used to derive api_schema when api_schema is None
             api_schema: Optional pre-computed api_schema dict; takes precedence over model_uri
@@ -115,6 +117,7 @@ class ModelRegistryHooks:
                 proposal_identifier=proposal_identifier,
                 status="registered",
                 contributor_address=contributor_address,
+                model_supplier_recipient=model_supplier_recipient,
                 experiment_name=experiment_name,
                 tags=tags,
                 api_schema=resolved_api_schema,

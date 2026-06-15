@@ -266,6 +266,7 @@ async def create_tokenized_registration_event(
             baseline_value=payload.baseline_value,
             current_value=current_value,
             tags=tags,
+            model_supplier_recipient=payload.model_supplier_recipient,
             model_uri=hook_model_uri,
             api_schema=payload.api_schema,
             eval_spec=payload.eval_spec,

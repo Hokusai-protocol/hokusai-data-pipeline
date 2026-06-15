@@ -42,6 +42,11 @@ class ModelReadyToDeployMessage:
     # Optional metadata
     improvement_percentage: Optional[float] = None
     contributor_address: Optional[str] = None
+    # The model supplier / launcher wallet (the person launching the token in
+    # hokusai-site) that receives the supplier allocation when the token is
+    # deployed. Per-model; the contract-deployer prefers this over its global
+    # config. (HOK-2230)
+    model_supplier_recipient: Optional[str] = None
     experiment_name: Optional[str] = None
     tags: Optional[dict[str, str]] = None
     api_schema: Optional[dict[str, Any]] = None
@@ -130,6 +135,10 @@ class ModelReadyToDeployMessage:
                 "proposal_identifier": {"type": ["string", "null"], "minLength": 1},
                 "improvement_percentage": {"type": ["number", "null"]},
                 "contributor_address": {
+                    "type": ["string", "null"],
+                    "pattern": "^0x[a-fA-F0-9]{40}$",
+                },
+                "model_supplier_recipient": {
                     "type": ["string", "null"],
                     "pattern": "^0x[a-fA-F0-9]{40}$",
                 },
