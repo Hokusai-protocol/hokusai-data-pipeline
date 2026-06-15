@@ -70,6 +70,9 @@ ROLE_MODEL_COLUMNS = {
 }
 IN_POOL_GROUP_COLUMNS = ("task_type", "domain", "complexity")
 DEFAULT_BASELINE_ARTIFACT_URI = "models:/Technical Task Router@production"
+DEFAULT_LAUNCH_PRIORITY_MODELS_PATH = (
+    REPO_ROOT / "configs" / "model_30_launch_priority_models.v1.json"
+)
 DEFAULT_MIN_IN_POOL_EVIDENCE_COVERAGE = 0.70
 DEFAULT_MIN_GROUP_IN_POOL_EVIDENCE_COVERAGE = 0.50
 MODEL_30_V2_METRIC_FAMILY = "continuous"
@@ -91,15 +94,19 @@ class RouterDatasetSummary:
     sha256: str
     selected_model_distribution: dict[str, dict[str, int]]
     in_pool_evidence_coverage: dict[str, Any]
+    launch_priority_coverage: dict[str, Any] | None = None
 
     def to_mlflow_dict(self: RouterDatasetSummary) -> dict[str, Any]:
         """Return a JSON-serializable summary suitable for MLflow artifacts."""
-        return {
+        summary = {
             "row_count": self.row_count,
             "sha256": f"sha256:{self.sha256}",
             "selected_model_distribution": self.selected_model_distribution,
             "in_pool_evidence_coverage": self.in_pool_evidence_coverage,
         }
+        if self.launch_priority_coverage is not None:
+            summary["launch_priority_coverage"] = self.launch_priority_coverage
+        return summary
 
 
 def _sample_features() -> pd.DataFrame:
@@ -223,6 +230,7 @@ def _build_in_pool_evidence_coverage(dataset_path: Path) -> dict[str, Any]:
     """Summarize selected-label support that remains usable under available pools."""
     overall_counts = _empty_coverage_counts()
     excluded_labels = {role: Counter() for role in ROLE_MODEL_COLUMNS}
+    available_labels = {role: Counter() for role in ROLE_MODEL_COLUMNS}
     group_counts: dict[str, dict[str, dict[str, dict[str, int]]]] = {
         column: {} for column in IN_POOL_GROUP_COLUMNS
     }
@@ -233,6 +241,7 @@ def _build_in_pool_evidence_coverage(dataset_path: Path) -> dict[str, Any]:
             for role, (selected_column, available_column) in ROLE_MODEL_COLUMNS.items():
                 selected_models = _parse_model_values(row.get(selected_column, ""))
                 available_models = set(_parse_model_values(row.get(available_column, "")))
+                available_labels[role].update(sorted(available_models))
                 if not selected_models:
                     continue
                 selected_model = selected_models[0]
@@ -268,10 +277,127 @@ def _build_in_pool_evidence_coverage(dataset_path: Path) -> dict[str, Any]:
         "excluded_selected_model_distribution": {
             role: dict(sorted(counter.items())) for role, counter in excluded_labels.items()
         },
+        "available_model_distribution": {
+            role: dict(sorted(counter.items())) for role, counter in available_labels.items()
+        },
     }
 
 
-def validate_router_dataset_model_ids(dataset_path: Path) -> RouterDatasetSummary:
+def _load_launch_priority_models(priority_path: Path | None) -> dict[str, Any] | None:
+    if priority_path is None:
+        return None
+    if not priority_path.exists():
+        raise FileNotFoundError(f"Launch priority model list not found: {priority_path}")
+    priority_set = load_json(priority_path)
+    if priority_set.get("schema_version") != "model_30_launch_priority_models/v1":
+        raise ValueError(
+            "Launch priority model list must use schema_version "
+            "model_30_launch_priority_models/v1"
+        )
+    if not isinstance(priority_set.get("models"), list) or not priority_set["models"]:
+        raise ValueError("Launch priority model list must contain at least one model")
+    return priority_set
+
+
+def _priority_model_aliases(model: dict[str, Any]) -> set[str]:
+    aliases = {str(model["model_id"])}
+    aliases.update(str(alias) for alias in model.get("aliases", []) if str(alias).strip())
+    return aliases
+
+
+def _sum_distribution_aliases(distribution: dict[str, int], aliases: set[str]) -> int:
+    return sum(distribution.get(alias, 0) for alias in aliases)
+
+
+def _build_launch_priority_coverage(
+    priority_set: dict[str, Any] | None,
+    *,
+    selected_distribution: dict[str, dict[str, int]],
+    in_pool_evidence_coverage: dict[str, Any],
+) -> dict[str, Any] | None:
+    if priority_set is None:
+        return None
+
+    available_distribution = in_pool_evidence_coverage.get("available_model_distribution", {})
+    priority_models: dict[str, Any] = {}
+    zero_direct_evidence: list[dict[str, Any]] = []
+    below_target: list[dict[str, Any]] = []
+
+    for model in priority_set["models"]:
+        model_id = str(model["model_id"])
+        aliases = _priority_model_aliases(model)
+        role_reports: dict[str, Any] = {}
+        for role in model["role_eligibility"]:
+            direct_rows = _sum_distribution_aliases(
+                selected_distribution.get(f"{role}_model", {}),
+                aliases,
+            )
+            available_rows = _sum_distribution_aliases(
+                available_distribution.get(role, {}),
+                aliases,
+            )
+            target = int(model.get("minimum_direct_evidence_target", 0))
+            gap = max(0, target - direct_rows)
+            role_report = {
+                "direct_evidence_rows": direct_rows,
+                "available_pool_rows": available_rows,
+                "minimum_direct_evidence_target": target,
+                "direct_evidence_gap": gap,
+                "zero_direct_evidence": direct_rows == 0,
+            }
+            role_reports[role] = role_report
+            if direct_rows == 0:
+                zero_direct_evidence.append(
+                    {
+                        "model_id": model_id,
+                        "role": role,
+                        "priority_tier": model["priority_tier"],
+                        "status": model["status"],
+                    }
+                )
+            if gap:
+                below_target.append(
+                    {
+                        "model_id": model_id,
+                        "role": role,
+                        "priority_tier": model["priority_tier"],
+                        "status": model["status"],
+                        "direct_evidence_rows": direct_rows,
+                        "minimum_direct_evidence_target": target,
+                        "direct_evidence_gap": gap,
+                    }
+                )
+
+        priority_models[model_id] = {
+            "provider": model["provider"],
+            "family": model["family"],
+            "aliases": sorted(aliases),
+            "priority_tier": model["priority_tier"],
+            "status": model["status"],
+            "role_eligibility": model["role_eligibility"],
+            "minimum_eval_attempts_target": model.get("minimum_eval_attempts_target"),
+            "roles": role_reports,
+        }
+
+    return {
+        "schema_version": priority_set["schema_version"],
+        "source": priority_set.get("source", {}),
+        "model_count": len(priority_set["models"]),
+        "priority_models": priority_models,
+        "gap_summary": {
+            "zero_direct_evidence_count": len(zero_direct_evidence),
+            "below_target_count": len(below_target),
+            "zero_direct_evidence": zero_direct_evidence,
+            "below_target": below_target,
+        },
+    }
+
+
+def validate_router_dataset_model_ids(
+    dataset_path: Path,
+    *,
+    launch_priority_models: dict[str, Any] | None = None,
+) -> RouterDatasetSummary:
     """Reject router datasets with synthetic or malformed model identifiers."""
     invalid: list[str] = []
     selected_distribution = {column: Counter() for column in SELECTED_MODEL_ID_COLUMNS}
@@ -296,14 +422,20 @@ def validate_router_dataset_model_ids(dataset_path: Path) -> RouterDatasetSummar
             f"{details}. Regenerate or clean the Wavemill export before registration."
         )
 
+    selected_model_distribution = {
+        column: dict(sorted(counter.items())) for column, counter in selected_distribution.items()
+    }
+    in_pool_evidence_coverage = _build_in_pool_evidence_coverage(dataset_path)
     return RouterDatasetSummary(
         row_count=row_count,
         sha256=_dataset_sha256(dataset_path),
-        selected_model_distribution={
-            column: dict(sorted(counter.items()))
-            for column, counter in selected_distribution.items()
-        },
-        in_pool_evidence_coverage=_build_in_pool_evidence_coverage(dataset_path),
+        selected_model_distribution=selected_model_distribution,
+        in_pool_evidence_coverage=in_pool_evidence_coverage,
+        launch_priority_coverage=_build_launch_priority_coverage(
+            launch_priority_models,
+            selected_distribution=selected_model_distribution,
+            in_pool_evidence_coverage=in_pool_evidence_coverage,
+        ),
     )
 
 
@@ -363,6 +495,41 @@ def _enforce_in_pool_evidence_gate(
     return violations
 
 
+def _launch_priority_gate_violations(
+    launch_priority_coverage: dict[str, Any] | None,
+) -> list[str]:
+    if not launch_priority_coverage:
+        return []
+    violations: list[str] = []
+    for gap in launch_priority_coverage.get("gap_summary", {}).get("below_target", []):
+        if gap.get("status") not in {"active", "watchlist"}:
+            continue
+        violations.append(
+            f"{gap['model_id']} role={gap['role']} direct evidence "
+            f"{gap['direct_evidence_rows']}/{gap['minimum_direct_evidence_target']} "
+            f"below target by {gap['direct_evidence_gap']} "
+            f"(tier={gap['priority_tier']})"
+        )
+    return violations
+
+
+def _enforce_launch_priority_gate(
+    summary: RouterDatasetSummary,
+    *,
+    mode: str,
+) -> list[str]:
+    if mode == "off":
+        return []
+    violations = _launch_priority_gate_violations(summary.launch_priority_coverage)
+    if not violations:
+        return []
+    message = "Router dataset launch-priority evidence gate violated: " + "; ".join(violations)
+    if mode == "fail":
+        raise ValueError(message)
+    logger.warning(message)
+    return violations
+
+
 def _resolve_coverage_threshold(
     args: argparse.Namespace,
     attr_name: str,
@@ -382,6 +549,23 @@ def _resolve_in_pool_coverage_gate_mode(args: argparse.Namespace) -> str:
     if mode not in {"off", "warn", "fail"}:
         raise ValueError(f"in_pool_coverage_gate must be off, warn, or fail, got {mode!r}")
     return mode
+
+
+def _resolve_launch_priority_gate_mode(args: argparse.Namespace) -> str:
+    mode = str(getattr(args, "launch_priority_gate", "warn") or "warn")
+    if mode not in {"off", "warn", "fail"}:
+        raise ValueError(f"launch_priority_gate must be off, warn, or fail, got {mode!r}")
+    return mode
+
+
+def _resolve_launch_priority_models_path(args: argparse.Namespace) -> Path | None:
+    raw_value = getattr(args, "launch_priority_models", None)
+    if raw_value is None:
+        return DEFAULT_LAUNCH_PRIORITY_MODELS_PATH
+    normalized = str(raw_value).strip()
+    if not normalized:
+        return None
+    return Path(normalized).expanduser().resolve()
 
 
 def _registered_model_uri(model_name: str, version: str | None) -> str:
@@ -501,8 +685,14 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
     dataset_path = Path(args.router_dataset).expanduser().resolve()
     if not dataset_path.exists():
         raise FileNotFoundError(f"Router dataset not found: {dataset_path}")
-    dataset_summary = validate_router_dataset_model_ids(dataset_path)
+    launch_priority_models_path = _resolve_launch_priority_models_path(args)
+    launch_priority_models = _load_launch_priority_models(launch_priority_models_path)
+    dataset_summary = validate_router_dataset_model_ids(
+        dataset_path,
+        launch_priority_models=launch_priority_models,
+    )
     gate_mode = _resolve_in_pool_coverage_gate_mode(args)
+    launch_priority_gate_mode = _resolve_launch_priority_gate_mode(args)
     min_role_coverage = _resolve_coverage_threshold(
         args,
         "min_in_pool_evidence_coverage",
@@ -518,6 +708,10 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
         mode=gate_mode,
         min_role_coverage=min_role_coverage,
         min_group_coverage=min_group_coverage,
+    )
+    launch_priority_gate_violations = _enforce_launch_priority_gate(
+        dataset_summary,
+        mode=launch_priority_gate_mode,
     )
     model_id_uint = _resolve_model_id_uint(args)
     rpc_url = _resolve_required_arg(args, "eth_rpc_url", "ETH_RPC_URL")
@@ -579,6 +773,11 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
         mlflow.log_param("in_pool_coverage_gate", gate_mode)
         mlflow.log_param("min_in_pool_evidence_coverage", min_role_coverage)
         mlflow.log_param("min_group_in_pool_evidence_coverage", min_group_coverage)
+        mlflow.log_param("launch_priority_gate", launch_priority_gate_mode)
+        mlflow.log_param(
+            "launch_priority_models",
+            str(launch_priority_models_path) if launch_priority_models_path else "",
+        )
         mlflow.log_param("k_neighbors", args.k_neighbors)
         mlflow.set_tag("hokusai.dataset.id", "wavemill-hokusai-router-dataset-v1")
         mlflow.set_tag("hokusai.dataset.hash", f"sha256:{dataset_summary.sha256}")
@@ -587,6 +786,14 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
         mlflow.set_tag(
             "hokusai.model_30.in_pool_coverage_gate_violations",
             json.dumps(gate_violations, sort_keys=True),
+        )
+        mlflow.set_tag(
+            "hokusai.model_30.launch_priority_gap_count",
+            str(len(launch_priority_gate_violations)),
+        )
+        mlflow.set_tag(
+            "hokusai.model_30.launch_priority_gate_violations",
+            json.dumps(launch_priority_gate_violations, sort_keys=True),
         )
         mlflow.log_dict(dataset_summary.to_mlflow_dict(), "router_dataset_summary.json")
         training_manifest = getattr(args, "training_manifest", None)
@@ -769,6 +976,20 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=DEFAULT_MIN_GROUP_IN_POOL_EVIDENCE_COVERAGE,
         help="Minimum per-role coverage required within task_type/domain/complexity groups.",
+    )
+    parser.add_argument(
+        "--launch-priority-models",
+        default=str(DEFAULT_LAUNCH_PRIORITY_MODELS_PATH),
+        help=(
+            "Versioned JSON list of launch-priority coding models. Pass an empty "
+            "string to skip launch-priority diagnostics."
+        ),
+    )
+    parser.add_argument(
+        "--launch-priority-gate",
+        choices=("off", "warn", "fail"),
+        default="warn",
+        help="How to enforce direct evidence targets for launch-priority models.",
     )
     parser.add_argument(
         "--smoke",

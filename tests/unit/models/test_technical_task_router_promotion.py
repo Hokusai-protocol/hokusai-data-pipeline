@@ -166,6 +166,8 @@ def test_register_promote_and_smoke_passes_benchmark_args_to_registration(monkey
             in_pool_coverage_gate="fail",
             min_in_pool_evidence_coverage=0.75,
             min_group_in_pool_evidence_coverage=0.60,
+            launch_priority_models="configs/model_30_launch_priority_models.v1.json",
+            launch_priority_gate="warn",
             experiment_name=None,
             run_name="test",
             k_neighbors=40,
@@ -192,3 +194,7 @@ def test_register_promote_and_smoke_passes_benchmark_args_to_registration(monkey
     assert captured_args[0].in_pool_coverage_gate == "fail"
     assert captured_args[0].min_in_pool_evidence_coverage == 0.75
     assert captured_args[0].min_group_in_pool_evidence_coverage == 0.60
+    assert (
+        captured_args[0].launch_priority_models == "configs/model_30_launch_priority_models.v1.json"
+    )
+    assert captured_args[0].launch_priority_gate == "warn"
