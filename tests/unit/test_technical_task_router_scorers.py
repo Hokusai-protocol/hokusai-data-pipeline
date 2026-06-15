@@ -18,6 +18,10 @@ def _load_example(name: str) -> dict:
     return json.loads((EXAMPLES_DIR / name).read_text(encoding="utf-8"))
 
 
+def _load_v2_golden() -> dict:
+    return _load_example("technical_task_router_benchmark_score.v2.golden.json")
+
+
 def _valid_fixture_rows() -> list[dict]:
     return [
         _load_example("technical_task_router_row.success.v1.json"),
@@ -95,6 +99,10 @@ def test_task_router_scorers_return_zero_for_empty_rows() -> None:
         "technical_task_router.highest_reliability_success_under_budget/v1",
     ]:
         assert _score(ref, []) == 0.0
+
+
+def test_task_router_v2_cost_efficiency_returns_zero_for_empty_rows() -> None:
+    assert _score("technical_task_router.cost_efficiency/v2", []) == 0.0
 
 
 def test_task_router_negative_or_zero_budget_is_infeasible() -> None:
@@ -182,3 +190,46 @@ def test_task_router_objective_specific_success_rates() -> None:
     assert _score("technical_task_router.highest_reliability_success_under_budget/v1", rows) == (
         pytest.approx(0.0)
     )
+
+
+def test_task_router_v2_golden_fixture_scores_match_spec() -> None:
+    golden = _load_v2_golden()
+    rows = golden["rows"]
+    expected = golden["expected"]["components"]
+
+    assert _score("technical_task_router.success_under_budget/v1", rows) == pytest.approx(
+        expected["success_under_budget"]
+    )
+    assert _score("technical_task_router.cost_efficiency/v2", rows) == pytest.approx(
+        expected["cost_efficiency"]
+    )
+    assert _score("technical_task_router.sparse_cell_generalization/v2", rows) == pytest.approx(
+        expected["sparse_cell_generalization"]
+    )
+    assert _score("technical_task_router.candidate_pool_robustness/v2", rows) == pytest.approx(
+        expected["candidate_pool_robustness"]
+    )
+    assert _score("technical_task_router.benchmark_score/v2", rows) == pytest.approx(
+        golden["expected"]["final_score"]
+    )
+
+
+def test_task_router_v2_benchmark_score_is_bounded() -> None:
+    row = copy.deepcopy(_load_v2_golden()["rows"][0])
+    row["scenario"] = "sparse_cell"
+    row["actual_cost_usd"] = 0.0
+    rows = [
+        row,
+        {**copy.deepcopy(row), "scenario": "challenger_present"},
+        {**copy.deepcopy(row), "scenario": "dominant_model_removed"},
+        {**copy.deepcopy(row), "scenario": "low_budget"},
+    ]
+
+    assert _score("technical_task_router.benchmark_score/v2", rows) == pytest.approx(1.0)
+
+
+def test_task_router_v2_missing_required_scenario_slice_fails() -> None:
+    rows = [row for row in _load_v2_golden()["rows"] if row["scenario"] != "sparse_cell"]
+
+    with pytest.raises(ValueError, match="missing scenario rows: sparse_cell"):
+        _score("technical_task_router.benchmark_score/v2", rows)

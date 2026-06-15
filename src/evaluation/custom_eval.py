@@ -387,7 +387,14 @@ def _metric_specs_with_scorers(
         for guardrail in spec.guardrails
         if guardrail.scorer_ref
     )
-    return scored_specs
+    deduped_specs: list[tuple[str, str]] = []
+    seen_specs: set[tuple[str, str]] = set()
+    for scored_spec in scored_specs:
+        if scored_spec in seen_specs:
+            continue
+        deduped_specs.append(scored_spec)
+        seen_specs.add(scored_spec)
+    return deduped_specs
 
 
 def _count_rows(local_path: str | None) -> int | None:
@@ -853,7 +860,7 @@ def _load_sales_outcome_rows(dataset_reference: str) -> list[dict[str, Any]]:
 def _load_task_router_rows(dataset_reference: str) -> list[dict[str, Any]]:
     rows = _load_rows_for_schema(
         dataset_reference=dataset_reference,
-        schema_version="technical_task_router_row/v1",
+        schema_version=("technical_task_router_row/v1", "technical_task_router_row/v2"),
         dataset_label="task-router",
     )
     return rows
@@ -862,7 +869,7 @@ def _load_task_router_rows(dataset_reference: str) -> list[dict[str, Any]]:
 def _load_rows_for_schema(
     *,
     dataset_reference: str,
-    schema_version: str,
+    schema_version: str | tuple[str, ...],
     dataset_label: str,
 ) -> list[dict[str, Any]]:
     if dataset_reference.startswith("s3://"):
@@ -897,7 +904,10 @@ def _load_rows_for_schema(
     for index, row in enumerate(rows):
         if not isinstance(row, dict):
             raise DatasetLoadError(f"row {index} is not an object")
-        if row.get("schema_version") != schema_version:
+        supported_versions = (
+            (schema_version,) if isinstance(schema_version, str) else schema_version
+        )
+        if row.get("schema_version") not in supported_versions:
             raise DatasetLoadError(
                 f"row {index} has unsupported schema_version {row.get('schema_version')!r}"
             )

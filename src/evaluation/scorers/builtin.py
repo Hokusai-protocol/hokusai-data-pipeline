@@ -39,7 +39,21 @@ _TASK_ROUTER_ROW_SCHEMA: dict = {
     "items": {
         "type": "object",
         "properties": {
-            "schema_version": {"type": "string", "const": "technical_task_router_row/v1"},
+            "schema_version": {
+                "type": "string",
+                "enum": ["technical_task_router_row/v1", "technical_task_router_row/v2"],
+            },
+            "scenario": {
+                "type": "string",
+                "enum": [
+                    "production_pool",
+                    "challenger_present",
+                    "dominant_model_removed",
+                    "low_budget",
+                    "sparse_cell",
+                ],
+            },
+            "candidate_pool_id": {"type": "string", "minLength": 1},
             "allowed_models": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -274,8 +288,60 @@ def _task_router_benchmark_score(rows: list[dict]) -> float:
     return _task_router_success_under_budget(rows)
 
 
+def _task_router_cost_efficiency_v2(rows: list[dict]) -> float:
+    """Mean successful budget headroom for the v2 composite benchmark."""
+    return _bounded_score(_mean([_task_router_row_cost_efficiency_v2(row) for row in rows]))
+
+
+def _task_router_sparse_cell_generalization_v2(rows: list[dict]) -> float:
+    """Success-under-budget rate for rows in the sparse-cell scenario slice."""
+    return _task_router_required_scenario_success_rate(rows, {"sparse_cell"})
+
+
+def _task_router_candidate_pool_robustness_v2(rows: list[dict]) -> float:
+    """Success-under-budget rate for challenger, no-dominant, and low-budget slices."""
+    return _task_router_required_scenario_success_rate(
+        rows,
+        {"challenger_present", "dominant_model_removed", "low_budget"},
+    )
+
+
+def _task_router_benchmark_score_v2(rows: list[dict]) -> float:
+    """Bounded composite Model 30 reward benchmark score."""
+    success = _task_router_success_under_budget(rows)
+    cost_efficiency = _task_router_cost_efficiency_v2(rows)
+    sparse_cell = _task_router_sparse_cell_generalization_v2(rows)
+    candidate_pool = _task_router_candidate_pool_robustness_v2(rows)
+    return _bounded_score(
+        (0.70 * success) + (0.15 * cost_efficiency) + (0.10 * sparse_cell) + (0.05 * candidate_pool)
+    )
+
+
 def _task_router_row_is_success_under_budget(row: dict) -> bool:
     return _task_router_row_is_feasible(row) and row.get("completed_successfully") is True
+
+
+def _task_router_row_cost_efficiency_v2(row: dict) -> float:
+    if not _task_router_row_is_success_under_budget(row):
+        return 0.0
+    try:
+        actual_cost_usd = float(row["actual_cost_usd"])
+        max_cost_usd = float(row["max_cost_usd"])
+    except (KeyError, TypeError, ValueError):
+        return 0.0
+    if actual_cost_usd < 0 or max_cost_usd <= 0:
+        return 0.0
+    return _bounded_score(1.0 - _clamp(actual_cost_usd / max_cost_usd, 0.0, 1.0))
+
+
+def _task_router_required_scenario_success_rate(rows: list[dict], scenarios: set[str]) -> float:
+    scenario_rows = [row for row in rows if row.get("scenario") in scenarios]
+    if not scenario_rows:
+        joined = ", ".join(sorted(scenarios))
+        raise ValueError(
+            f"technical_task_router.benchmark_score/v2 missing scenario rows: {joined}"
+        )
+    return _task_router_success_under_budget(scenario_rows)
 
 
 def _task_router_invalid_selection_rate(rows: list[dict]) -> float:
@@ -359,6 +425,14 @@ def _has_number(row: dict, key: str) -> bool:
     except (KeyError, TypeError, ValueError):
         return False
     return True
+
+
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return min(max(value, lower), upper)
+
+
+def _bounded_score(value: float) -> float:
+    return _clamp(value, 0.0, 1.0)
 
 
 _OUTCOME_SCORERS = [
@@ -503,6 +577,47 @@ _TASK_ROUTER_SCORERS = [
         ),
         Aggregation.PASS_RATE,
         MetricFamily.OUTCOME,
+    ),
+    (
+        "technical_task_router.cost_efficiency/v2",
+        _task_router_cost_efficiency_v2,
+        (
+            "V2 component metric: mean successful budget headroom. Each row contributes "
+            "success_under_budget(row) * (1 - clamp(actual_cost_usd / max_cost_usd, 0, 1))."
+        ),
+        Aggregation.MEAN,
+        MetricFamily.QUALITY,
+    ),
+    (
+        "technical_task_router.sparse_cell_generalization/v2",
+        _task_router_sparse_cell_generalization_v2,
+        (
+            "V2 component metric: success-under-budget rate for rows with "
+            "scenario=sparse_cell. Missing sparse-cell rows make the benchmark invalid."
+        ),
+        Aggregation.PASS_RATE,
+        MetricFamily.OUTCOME,
+    ),
+    (
+        "technical_task_router.candidate_pool_robustness/v2",
+        _task_router_candidate_pool_robustness_v2,
+        (
+            "V2 component metric: success-under-budget rate for challenger_present, "
+            "dominant_model_removed, and low_budget scenario rows."
+        ),
+        Aggregation.PASS_RATE,
+        MetricFamily.OUTCOME,
+    ),
+    (
+        "technical_task_router.benchmark_score/v2",
+        _task_router_benchmark_score_v2,
+        (
+            "Primary Model 30 v2 reward benchmark score. Bounded [0, 1] composite of "
+            "70% success-under-budget, 15% cost-efficiency, 10% sparse-cell "
+            "generalization, and 5% candidate-pool robustness."
+        ),
+        Aggregation.WEIGHTED_MEAN,
+        MetricFamily.QUALITY,
     ),
     (
         "technical_task_router.cost_mae_usd/v1",
