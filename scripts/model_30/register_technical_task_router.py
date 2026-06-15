@@ -93,6 +93,7 @@ class RouterDatasetSummary:
     row_count: int
     sha256: str
     selected_model_distribution: dict[str, dict[str, int]]
+    selected_model_distribution_by_group: dict[str, Any]
     in_pool_evidence_coverage: dict[str, Any]
     launch_priority_coverage: dict[str, Any] | None = None
 
@@ -102,6 +103,7 @@ class RouterDatasetSummary:
             "row_count": self.row_count,
             "sha256": f"sha256:{self.sha256}",
             "selected_model_distribution": self.selected_model_distribution,
+            "selected_model_distribution_by_group": self.selected_model_distribution_by_group,
             "in_pool_evidence_coverage": self.in_pool_evidence_coverage,
         }
         if self.launch_priority_coverage is not None:
@@ -283,6 +285,36 @@ def _build_in_pool_evidence_coverage(dataset_path: Path) -> dict[str, Any]:
     }
 
 
+def _build_selected_model_distribution_by_group(dataset_path: Path) -> dict[str, Any]:
+    grouped: dict[str, dict[str, dict[str, Counter[str]]]] = {
+        column: {} for column in IN_POOL_GROUP_COLUMNS
+    }
+    with dataset_path.open(newline="", encoding="utf-8") as dataset_file:
+        reader = csv.DictReader(dataset_file)
+        for row in reader:
+            for group_column in IN_POOL_GROUP_COLUMNS:
+                group_key = _group_value(row, group_column)
+                role_distribution = grouped[group_column].setdefault(
+                    group_key,
+                    {column: Counter() for column in SELECTED_MODEL_ID_COLUMNS},
+                )
+                for selected_column in SELECTED_MODEL_ID_COLUMNS:
+                    selected_models = _parse_model_values(row.get(selected_column, ""))
+                    if selected_models:
+                        role_distribution[selected_column][selected_models[0]] += 1
+
+    return {
+        group_column: {
+            group_key: {
+                selected_column: dict(sorted(counter.items()))
+                for selected_column, counter in role_distribution.items()
+            }
+            for group_key, role_distribution in sorted(groups.items())
+        }
+        for group_column, groups in grouped.items()
+    }
+
+
 def _load_launch_priority_models(priority_path: Path | None) -> dict[str, Any] | None:
     if priority_path is None:
         return None
@@ -430,6 +462,9 @@ def validate_router_dataset_model_ids(
         row_count=row_count,
         sha256=_dataset_sha256(dataset_path),
         selected_model_distribution=selected_model_distribution,
+        selected_model_distribution_by_group=_build_selected_model_distribution_by_group(
+            dataset_path
+        ),
         in_pool_evidence_coverage=in_pool_evidence_coverage,
         launch_priority_coverage=_build_launch_priority_coverage(
             launch_priority_models,
