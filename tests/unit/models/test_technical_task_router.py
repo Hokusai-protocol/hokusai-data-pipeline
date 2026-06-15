@@ -78,6 +78,8 @@ def _registration_args(**overrides: Any) -> SimpleNamespace:
         "in_pool_coverage_gate": "warn",
         "min_in_pool_evidence_coverage": 0.70,
         "min_group_in_pool_evidence_coverage": 0.50,
+        "launch_priority_models": "",
+        "launch_priority_gate": "warn",
         "training_manifest": None,
         "model_id_uint": 30,
         "baseline_artifact_uri": "models:/Technical Task Router/4",
@@ -236,6 +238,53 @@ def test_registration_dataset_validation_reports_stale_label_in_pool_coverage(
     assert coverage["by_group"]["task_type"]["bugfix"]["coder"]["in_pool_fraction"] == 1.0
 
 
+def test_registration_dataset_validation_reports_launch_priority_model_gaps() -> None:
+    priority_set = {
+        "schema_version": "model_30_launch_priority_models/v1",
+        "source": {"name": "test", "url": "test", "snapshot_date": "2026-06-15"},
+        "models": [
+            {
+                "model_id": "openai/gpt-5.4",
+                "aliases": ["gpt-5.4"],
+                "provider": "openai",
+                "family": "gpt",
+                "role_eligibility": ["coder"],
+                "priority_tier": "anchor",
+                "status": "active",
+                "minimum_direct_evidence_target": 1,
+            },
+            {
+                "model_id": "qwen/qwen3.7-max",
+                "aliases": ["qwen3.7-max"],
+                "provider": "qwen",
+                "family": "qwen",
+                "role_eligibility": ["coder"],
+                "priority_tier": "low_cost_challenger",
+                "status": "active",
+                "minimum_direct_evidence_target": 2,
+            },
+        ],
+    }
+
+    summary = validate_router_dataset_model_ids(FIXTURE, launch_priority_models=priority_set)
+    priority_coverage = summary.launch_priority_coverage
+
+    assert priority_coverage is not None
+    assert priority_coverage["priority_models"]["openai/gpt-5.4"]["roles"]["coder"] == {
+        "direct_evidence_rows": 1,
+        "available_pool_rows": 3,
+        "minimum_direct_evidence_target": 1,
+        "direct_evidence_gap": 0,
+        "zero_direct_evidence": False,
+    }
+    qwen_role = priority_coverage["priority_models"]["qwen/qwen3.7-max"]["roles"]["coder"]
+    assert qwen_role["direct_evidence_rows"] == 0
+    assert qwen_role["available_pool_rows"] == 0
+    assert qwen_role["direct_evidence_gap"] == 2
+    assert priority_coverage["gap_summary"]["zero_direct_evidence_count"] == 1
+    assert priority_coverage["gap_summary"]["below_target"][0]["model_id"] == "qwen/qwen3.7-max"
+
+
 def test_registration_dataset_validation_rejects_fake_model_ids(tmp_path: Path) -> None:
     bad_dataset = tmp_path / "bad-router-dataset.csv"
     bad_dataset.write_text(
@@ -334,6 +383,48 @@ def test_registration_in_pool_coverage_gate_can_fail_before_mlflow(
     start_run.assert_not_called()
 
 
+def test_registration_launch_priority_gate_can_fail_before_mlflow(tmp_path: Path) -> None:
+    priority_path = tmp_path / "priority.json"
+    priority_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "model_30_launch_priority_models/v1",
+                "source": {"name": "test", "url": "test", "snapshot_date": "2026-06-15"},
+                "generated_at": "2026-06-15T00:00:00Z",
+                "models": [
+                    {
+                        "model_id": "qwen/qwen3.7-max",
+                        "aliases": ["qwen3.7-max"],
+                        "provider": "qwen",
+                        "family": "qwen",
+                        "role_eligibility": ["coder"],
+                        "priority_tier": "low_cost_challenger",
+                        "status": "active",
+                        "minimum_direct_evidence_target": 2,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    args = _registration_args(
+        launch_priority_models=str(priority_path),
+        launch_priority_gate="fail",
+        in_pool_coverage_gate="off",
+    )
+
+    with (
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_experiment") as set_exp,
+        patch("scripts.model_30.register_technical_task_router.mlflow.start_run") as start_run,
+    ):
+        with pytest.raises(ValueError, match="launch-priority evidence gate violated") as exc:
+            register_model(args)
+
+    assert "qwen/qwen3.7-max role=coder direct evidence 0/2" in str(exc.value)
+    set_exp.assert_not_called()
+    start_run.assert_not_called()
+
+
 def test_registration_logs_dataset_provenance_to_mlflow(tmp_path: Path) -> None:
     class RunContext:
         def __enter__(self: RunContext) -> SimpleNamespace:
@@ -379,9 +470,12 @@ def test_registration_logs_dataset_provenance_to_mlflow(tmp_path: Path) -> None:
     assert logged_params["in_pool_coverage_gate"] == "warn"
     assert logged_params["min_in_pool_evidence_coverage"] == 0.70
     assert logged_params["min_group_in_pool_evidence_coverage"] == 0.50
+    assert logged_params["launch_priority_gate"] == "warn"
+    assert logged_params["launch_priority_models"] == ""
     assert logged_tags["hokusai.dataset.id"] == "wavemill-hokusai-router-dataset-v1"
     assert logged_tags["hokusai.dataset.num_samples"] == "3"
     assert logged_tags["hokusai.model_30.in_pool_coverage_gate_violations"] == "[]"
+    assert logged_tags["hokusai.model_30.launch_priority_gap_count"] == "0"
     assert logged_tags["hokusai.weight_commitment.baseline"] == baseline_commitment
     assert logged_tags["hokusai.weight_commitment.candidate"] == (
         f"0x{compute_weight_commitment(candidate_dir).root}"
