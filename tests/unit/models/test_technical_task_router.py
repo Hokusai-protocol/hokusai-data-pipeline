@@ -736,6 +736,78 @@ def test_predict_honors_unseen_allowed_model_when_history_has_no_match() -> None
     assert result.iloc[0]["selected_models"] == ["gpt-5.5"]
 
 
+def test_predict_borrows_retired_sonnet_evidence_for_current_allowed_sonnet(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        {
+            "task_type": "feature",
+            "language": "python",
+            "domain": "backend",
+            "completed_successfully": True,
+            "score": 0.98,
+            "planner_model": "gpt-5.4",
+            "coder_model": "claude-sonnet-4-5-20250929",
+            "reviewer_model": "gpt-5.4",
+            "expected_cost_usd": 0.3,
+            "actual_cost_usd": 0.3,
+        },
+        {
+            "task_type": "feature",
+            "language": "python",
+            "domain": "backend",
+            "completed_successfully": True,
+            "score": 0.94,
+            "planner_model": "gpt-5.4",
+            "coder_model": "claude-sonnet-4-5-20250929",
+            "reviewer_model": "gpt-5.4",
+            "expected_cost_usd": 0.4,
+            "actual_cost_usd": 0.4,
+        },
+        {
+            "task_type": "feature",
+            "language": "python",
+            "domain": "backend",
+            "completed_successfully": False,
+            "score": 0.10,
+            "planner_model": "gpt-5.4",
+            "coder_model": "gpt-5.4",
+            "reviewer_model": "gpt-5.4",
+            "expected_cost_usd": 0.2,
+            "actual_cost_usd": 0.2,
+        },
+    ]
+    csv_path = tmp_path / "router.csv"
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
+    router = TechnicalTaskRouterModel(k_neighbors=len(rows))
+    router.load_context(SimpleNamespace(artifacts={ROUTER_DATASET_ARTIFACT: str(csv_path)}))
+    features = pd.DataFrame(
+        [
+            {
+                "task_type": "feature",
+                "language": "python",
+                "domain": "backend",
+                "workflow_stages": '["code"]',
+                "routing_objective": "highest_reliability",
+                "available_coder_models": '["claude-sonnet-4-6","gpt-5.4"]',
+                "available_planner_models": '["gpt-5.4"]',
+                "available_reviewer_models": '["gpt-5.4"]',
+            }
+        ]
+    )
+
+    out = router.predict(None, features).iloc[0]
+    strategy = out["recommended_strategy"]
+    coder_evidence = strategy["role_evidence"]["coder"]
+
+    assert strategy["coder_model"] == "claude-sonnet-4-6"
+    assert out["selected_model"] == "claude-sonnet-4-6"
+    assert out["selected_models"] == ["claude-sonnet-4-6"]
+    assert coder_evidence["direct_support"] == 0
+    assert coder_evidence["borrowed_support"] == 2
+    assert coder_evidence["borrowed_from"] == {"claude-sonnet-4-5-20250929": 2}
+
+
 def test_mlflow_pyfunc_save_load_and_predict_smoke(tmp_path: Path) -> None:
     model_path = tmp_path / "technical-task-router-model"
     mlflow.pyfunc.save_model(

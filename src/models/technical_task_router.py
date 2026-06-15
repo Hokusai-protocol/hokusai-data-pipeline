@@ -18,6 +18,7 @@ import pandas as pd
 
 ROUTER_DATASET_ARTIFACT = "router_dataset"
 MODEL_NAME = "Technical Task Router"
+BORROWED_EVIDENCE_WEIGHT = 0.75
 
 ROLE_COLUMNS = {
     "planner": "planner_model",
@@ -39,6 +40,33 @@ ROLE_STAGES = {
 
 STRATEGY_OBJECTIVES = ("lowest_cost", "fastest_completion", "highest_reliability")
 
+MODEL_SUCCESSOR_MAP = {
+    "claude-sonnet-4-5-20250929": (
+        "claude-sonnet-4-6",
+        "anthropic/claude-sonnet-4.6",
+    ),
+    "claude-sonnet-4-5-20251001": (
+        "claude-sonnet-4-6",
+        "anthropic/claude-sonnet-4.6",
+    ),
+    "claude-sonnet-4.5": (
+        "claude-sonnet-4-6",
+        "anthropic/claude-sonnet-4.6",
+    ),
+    "gpt-5.3-codex": (
+        "gpt-5.4",
+        "openai/gpt-5.4",
+        "gpt-5.2-codex",
+        "openai/gpt-5.2-codex",
+    ),
+    "gpt-5.1-codex": (
+        "gpt-5.2-codex",
+        "openai/gpt-5.2-codex",
+        "gpt-5.4",
+        "openai/gpt-5.4",
+    ),
+}
+
 FEATURE_DEFAULTS = {
     "task_type": "unknown",
     "language": "unknown",
@@ -59,6 +87,9 @@ class RoleChoice:
     support: int
     expected_success: float
     estimated_cost_usd: float | None
+    direct_support: int = 0
+    borrowed_support: int = 0
+    borrowed_from: dict[str, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +107,7 @@ class StrategyCandidate:
     confidence: float
     support: int
     rationale: str
+    role_evidence: dict[str, dict[str, Any]]
 
     def to_dict(self: StrategyCandidate) -> dict[str, Any]:
         """Return a public response-friendly strategy mapping."""
@@ -91,6 +123,7 @@ class StrategyCandidate:
             "confidence": self.confidence,
             "support": self.support,
             "rationale": self.rationale,
+            "role_evidence": self.role_evidence,
         }
 
 
@@ -126,6 +159,9 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
                 "support": choice.support,
                 "expected_success": choice.expected_success,
                 "estimated_cost_usd": choice.estimated_cost_usd,
+                "direct_support": choice.direct_support,
+                "borrowed_support": choice.borrowed_support,
+                "borrowed_from": choice.borrowed_from,
             }
             for role, choice in self._global_defaults.items()
         }
@@ -317,6 +353,9 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
                 support=0,
                 expected_success=0.35,
                 estimated_cost_usd=_feature_float(features, "expected_cost_usd"),
+                direct_support=0,
+                borrowed_support=0,
+                borrowed_from={},
             )
         return self._global_defaults[role]
 
@@ -339,6 +378,9 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             support=strategy.support,
             expected_success=strategy.estimated_success_under_budget,
             estimated_cost_usd=strategy.estimated_cost_usd,
+            direct_support=0,
+            borrowed_support=0,
+            borrowed_from={},
         )
 
     def _nearest_neighbors(
@@ -383,6 +425,9 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
                 support=0,
                 expected_success=0.35,
                 estimated_cost_usd=_feature_float(features, "expected_cost_usd"),
+                direct_support=0,
+                borrowed_support=0,
+                borrowed_from={},
             )
 
         return self._global_defaults[role]
@@ -400,22 +445,33 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
         role_column = ROLE_COLUMNS[role]
         candidates = rows.dropna(subset=[role_column]).copy()
         candidates = candidates[candidates[role_column].astype(str).str.len() > 0]
-        if allowed_models:
-            candidates = candidates[candidates[role_column].isin(set(allowed_models))]
+        candidates = _effective_role_evidence(candidates, role_column, allowed_models)
         if candidates.empty:
             return []
 
         max_cost = _feature_float(features, "max_cost_usd")
         choices: list[RoleChoice] = []
-        for model_id, group in candidates.groupby(role_column):
-            success = _mean_bool(group["completed_successfully"], default=0.5)
-            quality = _mean_number(group["score"], default=success)
+        for model_id, group in candidates.groupby("_effective_model_id"):
+            weights = group["_evidence_weight"]
+            success = _weighted_mean_bool(group["completed_successfully"], weights, default=0.5)
+            quality = _weighted_mean_number(group["score"], weights, default=success)
             cost = _median_number(group["actual_cost_usd"])
             if cost is None:
                 cost = _median_number(group["expected_cost_usd"])
 
-            support = int(len(group))
-            support_bonus = min(math.log1p(support) / 10.0, 0.2)
+            direct_support = int((group["_evidence_source"] == "direct").sum())
+            borrowed = group[group["_evidence_source"] == "borrowed"]
+            borrowed_support = int(len(borrowed))
+            borrowed_from = {
+                str(source): int(count)
+                for source, count in borrowed["_source_model_id"]
+                .value_counts()
+                .sort_index()
+                .items()
+            }
+            weighted_support = float(weights.sum())
+            support = int(math.ceil(weighted_support))
+            support_bonus = min(math.log1p(weighted_support) / 10.0, 0.2)
             cost_penalty = _cost_penalty(cost, max_cost)
             route_score = 0.55 * success + 0.30 * quality + support_bonus - cost_penalty
             choices.append(
@@ -425,6 +481,9 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
                     support=support,
                     expected_success=_clamp((success + quality) / 2.0, 0.0, 1.0),
                     estimated_cost_usd=cost,
+                    direct_support=direct_support,
+                    borrowed_support=borrowed_support,
+                    borrowed_from=borrowed_from,
                 )
             )
 
@@ -693,6 +752,7 @@ def _estimate_strategy(
         confidence=confidence,
         support=support,
         rationale=rationale,
+        role_evidence=_strategy_role_evidence(role_choices),
     )
 
 
@@ -706,8 +766,38 @@ def _matching_strategy_rows(
     for role, choice in role_choices.items():
         if choice is None:
             continue
-        mask &= rows[ROLE_COLUMNS[role]].astype(str) == choice.model_id
+        selected_model_id = choice.model_id
+        mask &= rows[ROLE_COLUMNS[role]].map(
+            lambda model_id, selected_model_id=selected_model_id: _role_row_matches_choice(
+                model_id,
+                selected_model_id,
+            )
+        )
     return rows[mask]
+
+
+def _strategy_role_evidence(
+    role_choices: dict[str, RoleChoice | None],
+) -> dict[str, dict[str, Any]]:
+    evidence: dict[str, dict[str, Any]] = {}
+    for role, choice in role_choices.items():
+        if choice is None:
+            continue
+        evidence[role] = {
+            "model_id": choice.model_id,
+            "support": choice.support,
+            "direct_support": choice.direct_support,
+            "borrowed_support": choice.borrowed_support,
+            "borrowed_from": choice.borrowed_from or {},
+        }
+    return evidence
+
+
+def _role_row_matches_choice(value: Any, selected_model_id: str) -> bool:
+    source_model_id = str(value or "")
+    if source_model_id == selected_model_id:
+        return True
+    return selected_model_id in _successor_candidates(source_model_id)
 
 
 def _estimate_success_under_budget(
@@ -919,6 +1009,66 @@ def _positive_duration_values(values: Iterable[Any]) -> list[float]:
     return [float(v) for v in values if _is_finite_number(v) and float(v) > 0.0]
 
 
+def _effective_role_evidence(
+    rows: pd.DataFrame,
+    role_column: str,
+    allowed_models: list[str],
+) -> pd.DataFrame:
+    """Expand retired role labels into weighted evidence for allowed successors."""
+    if rows.empty:
+        return _empty_effective_evidence(rows)
+
+    allowed = set(allowed_models)
+    if not allowed:
+        direct = rows.copy()
+        direct["_effective_model_id"] = direct[role_column].astype(str)
+        direct["_source_model_id"] = direct[role_column].astype(str)
+        direct["_evidence_source"] = "direct"
+        direct["_evidence_weight"] = 1.0
+        return direct
+
+    frames: list[pd.DataFrame] = []
+    direct_mask = rows[role_column].isin(allowed)
+    if direct_mask.any():
+        direct = rows[direct_mask].copy()
+        direct["_effective_model_id"] = direct[role_column].astype(str)
+        direct["_source_model_id"] = direct[role_column].astype(str)
+        direct["_evidence_source"] = "direct"
+        direct["_evidence_weight"] = 1.0
+        frames.append(direct)
+
+    for source_model_id, group in rows[~direct_mask].groupby(role_column):
+        successors = [
+            successor
+            for successor in _successor_candidates(str(source_model_id))
+            if successor in allowed
+        ]
+        for successor in successors:
+            borrowed = group.copy()
+            borrowed["_effective_model_id"] = successor
+            borrowed["_source_model_id"] = str(source_model_id)
+            borrowed["_evidence_source"] = "borrowed"
+            borrowed["_evidence_weight"] = BORROWED_EVIDENCE_WEIGHT
+            frames.append(borrowed)
+
+    if not frames:
+        return _empty_effective_evidence(rows)
+    return pd.concat(frames, ignore_index=True)
+
+
+def _empty_effective_evidence(rows: pd.DataFrame) -> pd.DataFrame:
+    empty = rows.iloc[0:0].copy()
+    empty["_effective_model_id"] = pd.Series(dtype="object")
+    empty["_source_model_id"] = pd.Series(dtype="object")
+    empty["_evidence_source"] = pd.Series(dtype="object")
+    empty["_evidence_weight"] = pd.Series(dtype="float64")
+    return empty
+
+
+def _successor_candidates(model_id: str) -> tuple[str, ...]:
+    return MODEL_SUCCESSOR_MAP.get(str(model_id or ""), ())
+
+
 def _mean_bool(values: Iterable[Any], *, default: float) -> float:
     coerced = [_coerce_bool(value) for value in values]
     return sum(coerced) / len(coerced) if coerced else default
@@ -927,6 +1077,40 @@ def _mean_bool(values: Iterable[Any], *, default: float) -> float:
 def _mean_number(values: Iterable[Any], *, default: float) -> float:
     numbers = [float(value) for value in values if _is_finite_number(value)]
     return sum(numbers) / len(numbers) if numbers else default
+
+
+def _weighted_mean_bool(
+    values: Iterable[Any],
+    weights: Iterable[Any],
+    *,
+    default: float,
+) -> float:
+    weighted_values = [
+        (1.0 if _coerce_bool(value) else 0.0, float(weight))
+        for value, weight in zip(values, weights)
+        if _is_finite_number(weight) and float(weight) > 0
+    ]
+    total_weight = sum(weight for _, weight in weighted_values)
+    if total_weight <= 0:
+        return default
+    return sum(value * weight for value, weight in weighted_values) / total_weight
+
+
+def _weighted_mean_number(
+    values: Iterable[Any],
+    weights: Iterable[Any],
+    *,
+    default: float,
+) -> float:
+    weighted_values = [
+        (float(value), float(weight))
+        for value, weight in zip(values, weights)
+        if _is_finite_number(value) and _is_finite_number(weight) and float(weight) > 0
+    ]
+    total_weight = sum(weight for _, weight in weighted_values)
+    if total_weight <= 0:
+        return default
+    return sum(value * weight for value, weight in weighted_values) / total_weight
 
 
 def _median_number(values: Iterable[Any]) -> float | None:
