@@ -328,6 +328,10 @@ _TASK_ROUTER_REFS = [
     "technical_task_router.success_under_budget/v1",
     "technical_task_router.benchmark_score/v1",
     "technical_task_router.invalid_selection_rate/v1",
+    "technical_task_router.cost_efficiency/v2",
+    "technical_task_router.sparse_cell_generalization/v2",
+    "technical_task_router.candidate_pool_robustness/v2",
+    "technical_task_router.benchmark_score/v2",
     "technical_task_router.cost_mae_usd/v1",
     "technical_task_router.duration_mae_seconds/v1",
     "technical_task_router.reliability_brier_score/v1",
@@ -337,6 +341,8 @@ _TASK_ROUTER_REFS = [
 ]
 
 _TASK_ROUTER_QUALITY_REFS = {
+    "technical_task_router.cost_efficiency/v2",
+    "technical_task_router.benchmark_score/v2",
     "technical_task_router.cost_mae_usd/v1",
     "technical_task_router.duration_mae_seconds/v1",
     "technical_task_router.reliability_brier_score/v1",
@@ -398,9 +404,11 @@ def test_task_router_scorer_metadata_fields(ref):
     expected_family = (
         MetricFamily.QUALITY if ref in _TASK_ROUTER_QUALITY_REFS else MetricFamily.OUTCOME
     )
-    expected_aggregation = (
-        Aggregation.MEAN if ref in _TASK_ROUTER_QUALITY_REFS else Aggregation.PASS_RATE
-    )
+    expected_aggregation = Aggregation.PASS_RATE
+    if ref == "technical_task_router.benchmark_score/v2":
+        expected_aggregation = Aggregation.WEIGHTED_MEAN
+    elif ref in _TASK_ROUTER_QUALITY_REFS:
+        expected_aggregation = Aggregation.MEAN
     assert meta.metric_family == expected_family
     assert meta.input_schema is not None
     assert meta.output_metric_keys == (ref,)
@@ -458,7 +466,9 @@ def test_sales_scorer_aggregation(ref):
 @pytest.mark.parametrize("ref", _TASK_ROUTER_REFS)
 def test_task_router_scorer_aggregation(ref):
     meta = resolve_scorer(ref).metadata
-    if ref in _TASK_ROUTER_QUALITY_REFS:
+    if ref == "technical_task_router.benchmark_score/v2":
+        assert meta.aggregation == Aggregation.WEIGHTED_MEAN
+    elif ref in _TASK_ROUTER_QUALITY_REFS:
         assert meta.aggregation == Aggregation.MEAN
     else:
         assert meta.aggregation == Aggregation.PASS_RATE

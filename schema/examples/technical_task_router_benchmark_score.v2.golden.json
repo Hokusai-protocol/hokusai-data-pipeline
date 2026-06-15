@@ -1,0 +1,241 @@
+{
+  "benchmark_spec_id": "technical_task_router.benchmark_score/v2",
+  "row_schema_version": "technical_task_router_row/v2",
+  "description": "Golden conformance fixture for the Model 30 technical task router composite reward benchmark. Cross-repo implementations should compute the component scores and final score below from the rows without external state.",
+  "weights": {
+    "success_under_budget": 0.7,
+    "cost_efficiency": 0.15,
+    "sparse_cell_generalization": 0.1,
+    "candidate_pool_robustness": 0.05
+  },
+  "rows": [
+    {
+      "schema_version": "technical_task_router_row/v2",
+      "row_id": "golden-prod-backend-001",
+      "benchmark_spec_id": "technical_task_router.benchmark_score/v2",
+      "eval_id": "technical-task-router-v2-golden",
+      "model_id": "model-30-router-candidate",
+      "scenario": "production_pool",
+      "candidate_pool_id": "production-2026-06",
+      "task_descriptor": {
+        "task_type": "feature",
+        "domain": "backend",
+        "complexity": "medium",
+        "tags": [
+          "api",
+          "database"
+        ]
+      },
+      "allowed_models": [
+        "gpt-5.4",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+        "qwen3-coder-plus"
+      ],
+      "selected_models": [
+        "gpt-5.4",
+        "gpt-5.4",
+        "claude-sonnet-4-6"
+      ],
+      "selected_strategy": {
+        "planner_model": "gpt-5.4",
+        "coder_model": "gpt-5.4",
+        "reviewer_model": "claude-sonnet-4-6",
+        "routing_objective": "highest_reliability"
+      },
+      "max_cost_usd": 0.1,
+      "actual_cost_usd": 0.04,
+      "estimated_cost_usd": 0.045,
+      "actual_time_seconds": 640,
+      "estimated_duration_seconds": 700,
+      "estimated_success_under_budget": 0.82,
+      "completed_successfully": true,
+      "scorer_ref": "technical_task_router.benchmark_score/v2",
+      "observed_at": "2026-06-15T00:00:00Z"
+    },
+    {
+      "schema_version": "technical_task_router_row/v2",
+      "row_id": "golden-qwen-frontend-001",
+      "benchmark_spec_id": "technical_task_router.benchmark_score/v2",
+      "eval_id": "technical-task-router-v2-golden",
+      "model_id": "model-30-router-candidate",
+      "scenario": "challenger_present",
+      "candidate_pool_id": "qwen-challenger-2026-06",
+      "task_descriptor": {
+        "task_type": "bugfix",
+        "domain": "frontend",
+        "complexity": "medium",
+        "tags": [
+          "react",
+          "routing"
+        ]
+      },
+      "allowed_models": [
+        "gpt-5.4",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+        "qwen3-coder-plus"
+      ],
+      "selected_models": [
+        "claude-sonnet-4-6",
+        "qwen3-coder-plus",
+        "claude-haiku-4-5-20251001"
+      ],
+      "selected_strategy": {
+        "planner_model": "claude-sonnet-4-6",
+        "coder_model": "qwen3-coder-plus",
+        "reviewer_model": "claude-haiku-4-5-20251001",
+        "routing_objective": "lowest_cost"
+      },
+      "max_cost_usd": 0.08,
+      "actual_cost_usd": 0.012,
+      "estimated_cost_usd": 0.014,
+      "actual_time_seconds": 520,
+      "estimated_duration_seconds": 560,
+      "estimated_success_under_budget": 0.76,
+      "completed_successfully": true,
+      "scorer_ref": "technical_task_router.benchmark_score/v2",
+      "observed_at": "2026-06-15T00:00:00Z"
+    },
+    {
+      "schema_version": "technical_task_router_row/v2",
+      "row_id": "golden-no-dominant-backend-001",
+      "benchmark_spec_id": "technical_task_router.benchmark_score/v2",
+      "eval_id": "technical-task-router-v2-golden",
+      "model_id": "model-30-router-candidate",
+      "scenario": "dominant_model_removed",
+      "candidate_pool_id": "no-gpt-5.4-2026-06",
+      "task_descriptor": {
+        "task_type": "feature",
+        "domain": "backend",
+        "complexity": "high",
+        "tags": [
+          "distributed-systems",
+          "migration"
+        ]
+      },
+      "allowed_models": [
+        "claude-sonnet-4-6",
+        "claude-opus-4-7",
+        "qwen3-coder-plus"
+      ],
+      "selected_models": [
+        "claude-sonnet-4-6",
+        "qwen3-coder-plus",
+        "claude-sonnet-4-6"
+      ],
+      "selected_strategy": {
+        "planner_model": "claude-sonnet-4-6",
+        "coder_model": "qwen3-coder-plus",
+        "reviewer_model": "claude-sonnet-4-6",
+        "routing_objective": "lowest_cost"
+      },
+      "max_cost_usd": 0.08,
+      "actual_cost_usd": 0.02,
+      "estimated_cost_usd": 0.018,
+      "actual_time_seconds": 900,
+      "estimated_duration_seconds": 820,
+      "estimated_success_under_budget": 0.58,
+      "completed_successfully": false,
+      "scorer_ref": "technical_task_router.benchmark_score/v2",
+      "observed_at": "2026-06-15T00:00:00Z"
+    },
+    {
+      "schema_version": "technical_task_router_row/v2",
+      "row_id": "golden-low-budget-fullstack-001",
+      "benchmark_spec_id": "technical_task_router.benchmark_score/v2",
+      "eval_id": "technical-task-router-v2-golden",
+      "model_id": "model-30-router-candidate",
+      "scenario": "low_budget",
+      "candidate_pool_id": "low-budget-2026-06",
+      "task_descriptor": {
+        "task_type": "bugfix",
+        "domain": "fullstack",
+        "complexity": "low",
+        "tags": [
+          "typescript",
+          "api"
+        ]
+      },
+      "allowed_models": [
+        "gpt-5.4",
+        "claude-haiku-4-5-20251001",
+        "qwen3-coder-plus"
+      ],
+      "selected_models": [
+        "claude-haiku-4-5-20251001",
+        "qwen3-coder-plus",
+        "claude-haiku-4-5-20251001"
+      ],
+      "selected_strategy": {
+        "planner_model": "claude-haiku-4-5-20251001",
+        "coder_model": "qwen3-coder-plus",
+        "reviewer_model": "claude-haiku-4-5-20251001",
+        "routing_objective": "lowest_cost"
+      },
+      "max_cost_usd": 0.03,
+      "actual_cost_usd": 0.015,
+      "estimated_cost_usd": 0.014,
+      "actual_time_seconds": 460,
+      "estimated_duration_seconds": 500,
+      "estimated_success_under_budget": 0.71,
+      "completed_successfully": true,
+      "scorer_ref": "technical_task_router.benchmark_score/v2",
+      "observed_at": "2026-06-15T00:00:00Z"
+    },
+    {
+      "schema_version": "technical_task_router_row/v2",
+      "row_id": "golden-sparse-infra-001",
+      "benchmark_spec_id": "technical_task_router.benchmark_score/v2",
+      "eval_id": "technical-task-router-v2-golden",
+      "model_id": "model-30-router-candidate",
+      "scenario": "sparse_cell",
+      "candidate_pool_id": "sparse-infra-refactor-2026-06",
+      "task_descriptor": {
+        "task_type": "refactor",
+        "domain": "infrastructure",
+        "complexity": "medium",
+        "tags": [
+          "terraform",
+          "ci"
+        ]
+      },
+      "allowed_models": [
+        "gpt-5.4",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+        "qwen3-coder-plus"
+      ],
+      "selected_models": [
+        "claude-sonnet-4-6",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001"
+      ],
+      "selected_strategy": {
+        "planner_model": "claude-sonnet-4-6",
+        "coder_model": "claude-sonnet-4-6",
+        "reviewer_model": "claude-haiku-4-5-20251001",
+        "routing_objective": "highest_reliability"
+      },
+      "max_cost_usd": 0.05,
+      "actual_cost_usd": 0.025,
+      "estimated_cost_usd": 0.03,
+      "actual_time_seconds": 700,
+      "estimated_duration_seconds": 760,
+      "estimated_success_under_budget": 0.68,
+      "completed_successfully": true,
+      "scorer_ref": "technical_task_router.benchmark_score/v2",
+      "observed_at": "2026-06-15T00:00:00Z"
+    }
+  ],
+  "expected": {
+    "components": {
+      "success_under_budget": 0.8,
+      "cost_efficiency": 0.49,
+      "sparse_cell_generalization": 1,
+      "candidate_pool_robustness": 0.6666666667
+    },
+    "final_score": 0.7668333333,
+    "metric_family": "continuous"
+  }
+}

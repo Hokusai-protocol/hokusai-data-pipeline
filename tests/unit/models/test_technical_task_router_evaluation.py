@@ -149,6 +149,7 @@ def test_evaluate_model_scores_all_objectives(tmp_path: Path) -> None:
         model_id="baseline",
         holdout_path=holdout_path,
         objectives=list(parse_objectives("all")),
+        benchmark_version="v1",
         eval_id="eval-1",
     )
 
@@ -185,6 +186,7 @@ def test_compare_models_reports_primary_delta(tmp_path: Path) -> None:
         model_id="baseline",
         holdout_path=holdout_path,
         objectives=["highest_reliability"],
+        benchmark_version="v1",
         eval_id="eval-1",
     )
     candidate = evaluate_model(
@@ -192,6 +194,7 @@ def test_compare_models_reports_primary_delta(tmp_path: Path) -> None:
         model_id="candidate",
         holdout_path=holdout_path,
         objectives=["highest_reliability"],
+        benchmark_version="v1",
         eval_id="eval-1",
     )
 
@@ -228,6 +231,7 @@ def test_evaluate_model_reports_unavailable_duration_mae_without_positive_labels
         model_id="candidate",
         holdout_path=holdout_path,
         objectives=["highest_reliability"],
+        benchmark_version="v1",
         eval_id="eval-1",
     )
 
@@ -253,6 +257,7 @@ def test_compare_models_keeps_duration_delta_null_when_metric_unavailable(tmp_pa
         model_id="baseline",
         holdout_path=holdout_path,
         objectives=["highest_reliability"],
+        benchmark_version="v1",
         eval_id="eval-1",
     )
     candidate = evaluate_model(
@@ -260,6 +265,7 @@ def test_compare_models_keeps_duration_delta_null_when_metric_unavailable(tmp_pa
         model_id="candidate",
         holdout_path=holdout_path,
         objectives=["highest_reliability"],
+        benchmark_version="v1",
         eval_id="eval-1",
     )
 
@@ -316,6 +322,7 @@ def test_build_benchmark_rows_resolves_neighbor_provenance(tmp_path: Path) -> No
         benchmark_spec_id="spec-1",
         eval_id="eval-1",
         objectives=["highest_reliability"],
+        benchmark_version="v1",
         neighbor_resolver=resolver,
     )
 
@@ -324,6 +331,108 @@ def test_build_benchmark_rows_resolves_neighbor_provenance(tmp_path: Path) -> No
     assert provenance[0]["submission_id"] == "sub-a"
     assert provenance[0]["wallet"] == "0x" + "1" * 40
     assert provenance[1]["row_id"] == "sub-b:0"
+
+
+def test_evaluate_model_v2_default_emits_scenarios_and_component_metrics(
+    tmp_path: Path,
+) -> None:
+    holdout_path = tmp_path / "holdout.csv"
+    row = _valid_row("success")
+    row["actual_cost_usd"] = "0.2"
+    _write_holdout(holdout_path, [row])
+
+    report = evaluate_model(
+        FixedRouterModel(model_id="claude-sonnet-4-6"),
+        model_id="candidate",
+        holdout_path=holdout_path,
+        objectives=["lowest_cost"],
+        eval_id="eval-v2",
+    )
+
+    assert report["benchmark_version"] == "v2"
+    assert report["benchmark_spec_id"] == "technical_task_router.benchmark_score/v2"
+    assert report["primary_metric"] == "technical_task_router.benchmark_score_v2"
+    assert report["row_counts"]["benchmark_rows"] == 5
+    assert report["scenario_counts"] == {
+        "challenger_present": 1,
+        "dominant_model_removed": 1,
+        "low_budget": 1,
+        "production_pool": 1,
+        "sparse_cell": 1,
+    }
+    assert report["support_coverage"]["missing_scenarios"] == []
+    assert "technical_task_router.cost_efficiency_v2" in report["metrics"]
+    assert "technical_task_router.sparse_cell_generalization_v2" in report["metrics"]
+    assert "technical_task_router.candidate_pool_robustness_v2" in report["metrics"]
+    assert "technical_task_router.benchmark_score_v2" in report["metrics"]
+    assert {row["schema_version"] for row in report["benchmark_rows"]} == {
+        "technical_task_router_row/v2"
+    }
+    assert {row["scenario"] for row in report["benchmark_rows"]} == {
+        "production_pool",
+        "challenger_present",
+        "dominant_model_removed",
+        "low_budget",
+        "sparse_cell",
+    }
+    assert all("per_row_metrics" in row for row in report["benchmark_rows"])
+
+
+def test_compare_models_uses_v2_primary_metric_by_default(tmp_path: Path) -> None:
+    holdout_path = tmp_path / "holdout.csv"
+    row = _valid_row("success")
+    row["actual_cost_usd"] = "0.2"
+    _write_holdout(holdout_path, [row])
+
+    baseline = evaluate_model(
+        FixedRouterModel(model_id="gpt-5.4"),
+        model_id="baseline",
+        holdout_path=holdout_path,
+        objectives=["highest_reliability"],
+        eval_id="eval-1",
+    )
+    candidate = evaluate_model(
+        FixedRouterModel(model_id="claude-sonnet-4-6"),
+        model_id="candidate",
+        holdout_path=holdout_path,
+        objectives=["highest_reliability"],
+        eval_id="eval-1",
+    )
+
+    comparison = compare_models(baseline, candidate)
+
+    assert comparison["primary_metric"] == "technical_task_router.benchmark_score_v2"
+    assert comparison["primary_delta"] == pytest.approx(
+        comparison["deltas"]["technical_task_router.benchmark_score_v2"]
+    )
+    assert comparison["primary_delta"] > 0
+
+
+def test_compare_models_can_report_negative_v2_delta(tmp_path: Path) -> None:
+    holdout_path = tmp_path / "holdout.csv"
+    row = _valid_row("success")
+    row["actual_cost_usd"] = "0.2"
+    _write_holdout(holdout_path, [row])
+
+    baseline = evaluate_model(
+        FixedRouterModel(model_id="claude-sonnet-4-6"),
+        model_id="baseline",
+        holdout_path=holdout_path,
+        objectives=["highest_reliability"],
+        eval_id="eval-1",
+    )
+    candidate = evaluate_model(
+        FixedRouterModel(model_id="gpt-5.4"),
+        model_id="candidate",
+        holdout_path=holdout_path,
+        objectives=["highest_reliability"],
+        eval_id="eval-1",
+    )
+
+    comparison = compare_models(baseline, candidate)
+
+    assert comparison["primary_metric"] == "technical_task_router.benchmark_score_v2"
+    assert comparison["primary_delta"] < 0
 
 
 def test_neighbor_resolver_raises_for_out_of_range_index(tmp_path: Path) -> None:
