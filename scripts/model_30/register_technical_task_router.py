@@ -611,9 +611,25 @@ def _registered_model_uri(model_name: str, version: str | None) -> str:
 
 def _log_training_manifest(report_path: str) -> None:
     report = load_json(Path(report_path).expanduser().resolve())
-    mlflow.set_tag("training_dataset_hash", report["dataset_hash"])
-    mlflow.set_tag("training_manifest_digest", report["manifest_digest"])
-    mlflow.set_tag("training_as_of", report["as_of"])
+    dataset_hash = report.get("dataset_hash") or report.get("train_dataset_sha256")
+    if not dataset_hash:
+        raise KeyError("training manifest must include dataset_hash or train_dataset_sha256")
+    mlflow.set_tag("training_dataset_hash", dataset_hash)
+
+    manifest_digest = report.get("manifest_digest")
+    if manifest_digest:
+        mlflow.set_tag("training_manifest_digest", manifest_digest)
+
+    as_of = report.get("as_of")
+    if as_of:
+        mlflow.set_tag("training_as_of", as_of)
+
+    if holdout_hash := report.get("holdout_dataset_sha256"):
+        mlflow.set_tag("hokusai.model_30.holdout_dataset_hash", holdout_hash)
+    if quarantine_hash := report.get("quarantine_dataset_sha256"):
+        mlflow.set_tag("hokusai.model_30.quarantine_dataset_hash", quarantine_hash)
+    if input_hash := report.get("input_dataset_sha256"):
+        mlflow.set_tag("hokusai.model_30.input_dataset_hash", input_hash)
     mlflow.log_dict(report, "training_manifest_report.json")
 
 

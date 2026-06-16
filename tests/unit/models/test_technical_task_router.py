@@ -622,6 +622,66 @@ def test_registration_logs_training_manifest_report_to_mlflow(tmp_path: Path) ->
     assert any(call.args[1] == "training_manifest_report.json" for call in log_dict.call_args_list)
 
 
+def test_registration_logs_split_report_manifest_to_mlflow(tmp_path: Path) -> None:
+    class RunContext:
+        def __enter__(self: RunContext) -> SimpleNamespace:
+            return SimpleNamespace(info=SimpleNamespace(run_id="run-123"))
+
+        def __exit__(self: RunContext, *args: Any) -> None:
+            return None
+
+    split_report = tmp_path / "split-report.json"
+    split_report.write_text(
+        json.dumps(
+            {
+                "input_dataset_sha256": "sha256:" + "1" * 64,
+                "train_dataset_sha256": "sha256:" + "2" * 64,
+                "holdout_dataset_sha256": "sha256:" + "3" * 64,
+                "quarantine_dataset_sha256": "sha256:" + "4" * 64,
+            }
+        ),
+        encoding="utf-8",
+    )
+    args = _registration_args(
+        training_manifest=str(split_report),
+    )
+    model_info = SimpleNamespace(model_uri="runs:/run-123/model", registered_model_version="7")
+    candidate_dir = _artifact_dir(tmp_path, "candidate", "candidate")
+    baseline_dir = _artifact_dir(tmp_path, "baseline", "baseline")
+    baseline_commitment = f"0x{compute_weight_commitment(baseline_dir).root}"
+
+    with (
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_experiment"),
+        patch("scripts.model_30.register_technical_task_router.mlflow.start_run") as start_run,
+        patch("scripts.model_30.register_technical_task_router.mlflow.log_param"),
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_tag") as set_tag,
+        patch("scripts.model_30.register_technical_task_router.mlflow.log_dict") as log_dict,
+        patch(
+            "scripts.model_30.register_technical_task_router.mlflow.artifacts.download_artifacts",
+            side_effect=[str(candidate_dir), str(baseline_dir)],
+        ),
+        patch(
+            "scripts.model_30.register_technical_task_router.read_model_weight_head",
+            return_value=baseline_commitment,
+        ),
+        patch(
+            "scripts.model_30.register_technical_task_router.mlflow.pyfunc.log_model",
+            return_value=model_info,
+        ),
+    ):
+        start_run.return_value = RunContext()
+        register_model(args)
+
+    logged_tags = {call.args[0]: call.args[1] for call in set_tag.call_args_list}
+    assert logged_tags["training_dataset_hash"] == "sha256:" + "2" * 64
+    assert "training_manifest_digest" not in logged_tags
+    assert "training_as_of" not in logged_tags
+    assert logged_tags["hokusai.model_30.input_dataset_hash"] == "sha256:" + "1" * 64
+    assert logged_tags["hokusai.model_30.holdout_dataset_hash"] == "sha256:" + "3" * 64
+    assert logged_tags["hokusai.model_30.quarantine_dataset_hash"] == "sha256:" + "4" * 64
+    assert any(call.args[1] == "training_manifest_report.json" for call in log_dict.call_args_list)
+
+
 def test_registration_warns_on_baseline_drift_and_keeps_onchain_value(
     tmp_path: Path, caplog
 ) -> None:
