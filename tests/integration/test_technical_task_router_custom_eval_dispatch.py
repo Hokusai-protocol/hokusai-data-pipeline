@@ -192,3 +192,63 @@ def test_task_router_benchmark_spec_scores_all_rows_and_persists_artifact(
     assert len(written) == 4
 
     UUID(result["benchmark_spec_id"])
+
+
+def test_task_router_v2_benchmark_spec_dispatches_composite_scorers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    eval_spec = _load_example("technical_task_router_spec.v2.json")
+    golden = _load_example("technical_task_router_benchmark_score.v2.golden.json")
+    rows = golden["rows"]
+    dataset_path = tmp_path / "technical_task_router_rows_v2.json"
+    dataset_path.write_text(json.dumps(rows), encoding="utf-8")
+
+    fake_mlflow = _FakeMlflow()
+    monkeypatch.setattr(
+        "src.evaluation.custom_eval.tempfile.TemporaryDirectory",
+        lambda: _PersistTempDir(tmp_path),
+    )
+
+    result = run_custom_eval(
+        model_id=MODEL_ID,
+        benchmark_spec=_build_benchmark_spec(dataset_path, eval_spec),
+        benchmark_spec_id=SPEC_ID,
+        mlflow_module=fake_mlflow,
+        mlflow_client=None,
+        cli_max_cost=None,
+        seed=None,
+        temperature=None,
+    )
+
+    primary_name = "technical_task_router.benchmark_score/v2"
+    component_names = {
+        "success_under_budget": "technical_task_router.success_under_budget/v1",
+        "cost_efficiency": "technical_task_router.cost_efficiency/v2",
+        "sparse_cell_generalization": "technical_task_router.sparse_cell_generalization/v2",
+        "candidate_pool_robustness": "technical_task_router.candidate_pool_robustness/v2",
+    }
+
+    assert result["status"] == "success"
+    assert result["metrics"][derive_mlflow_name(primary_name)] == pytest.approx(
+        golden["expected"]["final_score"]
+    )
+    for component, scorer_ref in component_names.items():
+        assert result["metrics"][derive_mlflow_name(scorer_ref)] == pytest.approx(
+            golden["expected"]["components"][component]
+        )
+
+    assert fake_mlflow.tags[PRIMARY_METRIC_TAG] == primary_name
+    assert fake_mlflow.tags[SCORER_REF_TAG] == ",".join(
+        sorted(
+            {
+                "technical_task_router.benchmark_score/v2",
+                "technical_task_router.success_under_budget/v1",
+                "technical_task_router.cost_efficiency/v2",
+                "technical_task_router.sparse_cell_generalization/v2",
+                "technical_task_router.candidate_pool_robustness/v2",
+                "technical_task_router.invalid_selection_rate/v1",
+                "technical_task_router.cost_mae_usd/v1",
+                "technical_task_router.reliability_brier_score/v1",
+            }
+        )
+    )

@@ -72,6 +72,14 @@ def _registration_args(**overrides: Any) -> SimpleNamespace:
         "smoke": False,
         "holdout_dataset": None,
         "evaluation_objectives": "all",
+        "benchmark_version": "v2",
+        "primary_metric": None,
+        "benchmark_spec_id": None,
+        "in_pool_coverage_gate": "warn",
+        "min_in_pool_evidence_coverage": 0.70,
+        "min_group_in_pool_evidence_coverage": 0.50,
+        "launch_priority_models": "",
+        "launch_priority_gate": "warn",
         "training_manifest": None,
         "model_id_uint": 30,
         "baseline_artifact_uri": "models:/Technical Task Router/4",
@@ -191,6 +199,102 @@ def test_registration_dataset_validation_accepts_public_model_ids() -> None:
         "coder_model": {"claude-sonnet-4-6": 2, "gpt-5.4": 1},
         "reviewer_model": {"claude-sonnet-4-6": 2, "gpt-5.4": 1},
     }
+    assert summary.selected_model_distribution_by_group["task_type"]["feature"]["coder_model"] == {
+        "claude-sonnet-4-6": 1
+    }
+    assert summary.in_pool_evidence_coverage["overall"]["coder"]["in_pool_fraction"] == 1.0
+
+
+def test_registration_dataset_validation_reports_stale_label_in_pool_coverage(
+    tmp_path: Path,
+) -> None:
+    stale_dataset = tmp_path / "stale-router-dataset.csv"
+    stale_dataset.write_text(
+        "\n".join(
+            [
+                "task_type,domain,complexity,"
+                "available_planner_models,available_coder_models,available_reviewer_models,"
+                "planner_model,coder_model,reviewer_model",
+                'feature,backend,high,"[""gpt-5.4""]","[""gpt-5.4""]","[""gpt-5.4""]",'
+                "gpt-5.4,claude-sonnet-4-5-20250929,gpt-5.4",
+                'bugfix,frontend,low,"[""gpt-5.4""]","[""gpt-5.4""]","[""gpt-5.4""]",'
+                "gpt-5.4,gpt-5.4,gpt-5.4",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    summary = validate_router_dataset_model_ids(stale_dataset)
+    coverage = summary.in_pool_evidence_coverage
+
+    assert coverage["overall"]["coder"] == {
+        "selected_rows": 2,
+        "in_pool_rows": 1,
+        "out_of_pool_rows": 1,
+        "in_pool_fraction": 0.5,
+    }
+    assert coverage["excluded_selected_model_distribution"]["coder"] == {
+        "claude-sonnet-4-5-20250929": 1
+    }
+    assert summary.selected_model_distribution_by_group["task_type"]["feature"]["coder_model"] == {
+        "claude-sonnet-4-5-20250929": 1
+    }
+    assert summary.selected_model_distribution_by_group["domain"]["frontend"]["coder_model"] == {
+        "gpt-5.4": 1
+    }
+    assert summary.to_mlflow_dict()["selected_model_distribution_by_group"]["complexity"]["high"][
+        "coder_model"
+    ] == {"claude-sonnet-4-5-20250929": 1}
+    assert coverage["by_group"]["domain"]["backend"]["coder"]["in_pool_fraction"] == 0.0
+    assert coverage["by_group"]["task_type"]["bugfix"]["coder"]["in_pool_fraction"] == 1.0
+
+
+def test_registration_dataset_validation_reports_launch_priority_model_gaps() -> None:
+    priority_set = {
+        "schema_version": "model_30_launch_priority_models/v1",
+        "source": {"name": "test", "url": "test", "snapshot_date": "2026-06-15"},
+        "models": [
+            {
+                "model_id": "openai/gpt-5.4",
+                "aliases": ["gpt-5.4"],
+                "provider": "openai",
+                "family": "gpt",
+                "role_eligibility": ["coder"],
+                "priority_tier": "anchor",
+                "status": "active",
+                "minimum_direct_evidence_target": 1,
+            },
+            {
+                "model_id": "qwen/qwen3.7-max",
+                "aliases": ["qwen3.7-max"],
+                "provider": "qwen",
+                "family": "qwen",
+                "role_eligibility": ["coder"],
+                "priority_tier": "low_cost_challenger",
+                "status": "active",
+                "minimum_direct_evidence_target": 2,
+            },
+        ],
+    }
+
+    summary = validate_router_dataset_model_ids(FIXTURE, launch_priority_models=priority_set)
+    priority_coverage = summary.launch_priority_coverage
+
+    assert priority_coverage is not None
+    assert priority_coverage["priority_models"]["openai/gpt-5.4"]["roles"]["coder"] == {
+        "direct_evidence_rows": 1,
+        "available_pool_rows": 3,
+        "minimum_direct_evidence_target": 1,
+        "direct_evidence_gap": 0,
+        "zero_direct_evidence": False,
+    }
+    qwen_role = priority_coverage["priority_models"]["qwen/qwen3.7-max"]["roles"]["coder"]
+    assert qwen_role["direct_evidence_rows"] == 0
+    assert qwen_role["available_pool_rows"] == 0
+    assert qwen_role["direct_evidence_gap"] == 2
+    assert priority_coverage["gap_summary"]["zero_direct_evidence_count"] == 1
+    assert priority_coverage["gap_summary"]["below_target"][0]["model_id"] == "qwen/qwen3.7-max"
 
 
 def test_registration_dataset_validation_rejects_fake_model_ids(tmp_path: Path) -> None:
@@ -254,6 +358,85 @@ def test_registration_fails_before_mlflow_logging_for_invalid_model_ids(tmp_path
     start_run.assert_not_called()
 
 
+def test_registration_in_pool_coverage_gate_can_fail_before_mlflow(
+    tmp_path: Path,
+) -> None:
+    stale_dataset = tmp_path / "stale-router-dataset.csv"
+    stale_dataset.write_text(
+        "\n".join(
+            [
+                "task_type,domain,complexity,"
+                "available_planner_models,available_coder_models,available_reviewer_models,"
+                "planner_model,coder_model,reviewer_model",
+                'feature,backend,high,"[""gpt-5.4""]","[""gpt-5.4""]","[""gpt-5.4""]",'
+                "gpt-5.4,claude-sonnet-4-5-20250929,gpt-5.4",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    args = _registration_args(
+        router_dataset=str(stale_dataset),
+        in_pool_coverage_gate="fail",
+        min_in_pool_evidence_coverage=0.99,
+        min_group_in_pool_evidence_coverage=0.99,
+    )
+
+    with (
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_experiment") as set_exp,
+        patch("scripts.model_30.register_technical_task_router.mlflow.start_run") as start_run,
+    ):
+        with pytest.raises(ValueError, match="in-pool evidence coverage gate violated") as exc:
+            register_model(args)
+
+    assert "coder overall in-pool coverage 0/1=0.000 below 0.990" in str(exc.value)
+    assert "claude-sonnet-4-5-20250929" not in str(exc.value)
+    set_exp.assert_not_called()
+    start_run.assert_not_called()
+
+
+def test_registration_launch_priority_gate_can_fail_before_mlflow(tmp_path: Path) -> None:
+    priority_path = tmp_path / "priority.json"
+    priority_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "model_30_launch_priority_models/v1",
+                "source": {"name": "test", "url": "test", "snapshot_date": "2026-06-15"},
+                "generated_at": "2026-06-15T00:00:00Z",
+                "models": [
+                    {
+                        "model_id": "qwen/qwen3.7-max",
+                        "aliases": ["qwen3.7-max"],
+                        "provider": "qwen",
+                        "family": "qwen",
+                        "role_eligibility": ["coder"],
+                        "priority_tier": "low_cost_challenger",
+                        "status": "active",
+                        "minimum_direct_evidence_target": 2,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    args = _registration_args(
+        launch_priority_models=str(priority_path),
+        launch_priority_gate="fail",
+        in_pool_coverage_gate="off",
+    )
+
+    with (
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_experiment") as set_exp,
+        patch("scripts.model_30.register_technical_task_router.mlflow.start_run") as start_run,
+    ):
+        with pytest.raises(ValueError, match="launch-priority evidence gate violated") as exc:
+            register_model(args)
+
+    assert "qwen/qwen3.7-max role=coder direct evidence 0/2" in str(exc.value)
+    set_exp.assert_not_called()
+    start_run.assert_not_called()
+
+
 def test_registration_logs_dataset_provenance_to_mlflow(tmp_path: Path) -> None:
     class RunContext:
         def __enter__(self: RunContext) -> SimpleNamespace:
@@ -296,8 +479,15 @@ def test_registration_logs_dataset_provenance_to_mlflow(tmp_path: Path) -> None:
     assert logged_params["router_dataset_rows"] == 3
     assert str(logged_params["router_dataset_sha256"]).startswith("sha256:")
     assert "claude-sonnet-4-6" in logged_params["router_dataset_model_distribution"]
+    assert logged_params["in_pool_coverage_gate"] == "warn"
+    assert logged_params["min_in_pool_evidence_coverage"] == 0.70
+    assert logged_params["min_group_in_pool_evidence_coverage"] == 0.50
+    assert logged_params["launch_priority_gate"] == "warn"
+    assert logged_params["launch_priority_models"] == ""
     assert logged_tags["hokusai.dataset.id"] == "wavemill-hokusai-router-dataset-v1"
     assert logged_tags["hokusai.dataset.num_samples"] == "3"
+    assert logged_tags["hokusai.model_30.in_pool_coverage_gate_violations"] == "[]"
+    assert logged_tags["hokusai.model_30.launch_priority_gap_count"] == "0"
     assert logged_tags["hokusai.weight_commitment.baseline"] == baseline_commitment
     assert logged_tags["hokusai.weight_commitment.candidate"] == (
         f"0x{compute_weight_commitment(candidate_dir).root}"
@@ -348,9 +538,31 @@ def test_registration_logs_holdout_evaluation_metrics_to_mlflow(tmp_path: Path) 
     logged_metrics = {call.args[0]: call.args[1] for call in log_metric.call_args_list}
     logged_tags = {call.args[0]: call.args[1] for call in set_tag.call_args_list}
     assert result["evaluation_report"]["row_counts"]["evaluated_rows"] == 3
+    assert (
+        result["evaluation_report"]["primary_metric"] == "technical_task_router.benchmark_score_v2"
+    )
     assert "technical_task_router.benchmark_score_v1" in logged_metrics
+    assert "technical_task_router.benchmark_score_v2" in logged_metrics
+    assert logged_tags["hokusai.primary_metric"] == "technical_task_router.benchmark_score/v2"
+    assert logged_tags["hokusai.mlflow_name"] == "technical_task_router.benchmark_score_v2"
+    assert logged_tags["hokusai.scorer_ref"] == "technical_task_router.benchmark_score/v2"
+    assert logged_tags["hokusai.benchmark_spec_id"] == "technical_task_router.benchmark_score/v2"
+    assert logged_tags["hokusai.metric_family"] == "continuous"
+    assert logged_tags["hokusai.model_id_uint"] == "30"
+    assert logged_tags["hokusai.model_30.benchmark_version"] == "v2"
+    assert logged_tags["hokusai.model_30.primary_metric"] == (
+        "technical_task_router.benchmark_score_v2"
+    )
     assert logged_tags["hokusai.model_30.holdout_rows"] == "3"
+    assert logged_tags["hokusai.model_30.benchmark_rows"] == "15"
     assert logged_tags["hokusai.model_30.quarantined_rows"] == "0"
+    component_summary = json.loads(logged_tags["hokusai.model_30.component_summary"])
+    assert sorted(component_summary) == [
+        "technical_task_router.candidate_pool_robustness_v2",
+        "technical_task_router.cost_efficiency_v2",
+        "technical_task_router.sparse_cell_generalization_v2",
+        "technical_task_router.success_under_budget_v1",
+    ]
     assert log_dict.call_count == 2
 
 
@@ -407,6 +619,66 @@ def test_registration_logs_training_manifest_report_to_mlflow(tmp_path: Path) ->
     assert logged_tags["training_dataset_hash"] == "sha256:" + "a" * 64
     assert logged_tags["training_manifest_digest"] == "sha256:" + "b" * 64
     assert logged_tags["training_as_of"] == "2026-06-01T00:00:00Z"
+    assert any(call.args[1] == "training_manifest_report.json" for call in log_dict.call_args_list)
+
+
+def test_registration_logs_split_report_manifest_to_mlflow(tmp_path: Path) -> None:
+    class RunContext:
+        def __enter__(self: RunContext) -> SimpleNamespace:
+            return SimpleNamespace(info=SimpleNamespace(run_id="run-123"))
+
+        def __exit__(self: RunContext, *args: Any) -> None:
+            return None
+
+    split_report = tmp_path / "split-report.json"
+    split_report.write_text(
+        json.dumps(
+            {
+                "input_dataset_sha256": "sha256:" + "1" * 64,
+                "train_dataset_sha256": "sha256:" + "2" * 64,
+                "holdout_dataset_sha256": "sha256:" + "3" * 64,
+                "quarantine_dataset_sha256": "sha256:" + "4" * 64,
+            }
+        ),
+        encoding="utf-8",
+    )
+    args = _registration_args(
+        training_manifest=str(split_report),
+    )
+    model_info = SimpleNamespace(model_uri="runs:/run-123/model", registered_model_version="7")
+    candidate_dir = _artifact_dir(tmp_path, "candidate", "candidate")
+    baseline_dir = _artifact_dir(tmp_path, "baseline", "baseline")
+    baseline_commitment = f"0x{compute_weight_commitment(baseline_dir).root}"
+
+    with (
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_experiment"),
+        patch("scripts.model_30.register_technical_task_router.mlflow.start_run") as start_run,
+        patch("scripts.model_30.register_technical_task_router.mlflow.log_param"),
+        patch("scripts.model_30.register_technical_task_router.mlflow.set_tag") as set_tag,
+        patch("scripts.model_30.register_technical_task_router.mlflow.log_dict") as log_dict,
+        patch(
+            "scripts.model_30.register_technical_task_router.mlflow.artifacts.download_artifacts",
+            side_effect=[str(candidate_dir), str(baseline_dir)],
+        ),
+        patch(
+            "scripts.model_30.register_technical_task_router.read_model_weight_head",
+            return_value=baseline_commitment,
+        ),
+        patch(
+            "scripts.model_30.register_technical_task_router.mlflow.pyfunc.log_model",
+            return_value=model_info,
+        ),
+    ):
+        start_run.return_value = RunContext()
+        register_model(args)
+
+    logged_tags = {call.args[0]: call.args[1] for call in set_tag.call_args_list}
+    assert logged_tags["training_dataset_hash"] == "sha256:" + "2" * 64
+    assert "training_manifest_digest" not in logged_tags
+    assert "training_as_of" not in logged_tags
+    assert logged_tags["hokusai.model_30.input_dataset_hash"] == "sha256:" + "1" * 64
+    assert logged_tags["hokusai.model_30.holdout_dataset_hash"] == "sha256:" + "3" * 64
+    assert logged_tags["hokusai.model_30.quarantine_dataset_hash"] == "sha256:" + "4" * 64
     assert any(call.args[1] == "training_manifest_report.json" for call in log_dict.call_args_list)
 
 
@@ -534,6 +806,78 @@ def test_predict_honors_unseen_allowed_model_when_history_has_no_match() -> None
 
     assert result.iloc[0]["selected_model"] == "gpt-5.5"
     assert result.iloc[0]["selected_models"] == ["gpt-5.5"]
+
+
+def test_predict_borrows_retired_sonnet_evidence_for_current_allowed_sonnet(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        {
+            "task_type": "feature",
+            "language": "python",
+            "domain": "backend",
+            "completed_successfully": True,
+            "score": 0.98,
+            "planner_model": "gpt-5.4",
+            "coder_model": "claude-sonnet-4-5-20250929",
+            "reviewer_model": "gpt-5.4",
+            "expected_cost_usd": 0.3,
+            "actual_cost_usd": 0.3,
+        },
+        {
+            "task_type": "feature",
+            "language": "python",
+            "domain": "backend",
+            "completed_successfully": True,
+            "score": 0.94,
+            "planner_model": "gpt-5.4",
+            "coder_model": "claude-sonnet-4-5-20250929",
+            "reviewer_model": "gpt-5.4",
+            "expected_cost_usd": 0.4,
+            "actual_cost_usd": 0.4,
+        },
+        {
+            "task_type": "feature",
+            "language": "python",
+            "domain": "backend",
+            "completed_successfully": False,
+            "score": 0.10,
+            "planner_model": "gpt-5.4",
+            "coder_model": "gpt-5.4",
+            "reviewer_model": "gpt-5.4",
+            "expected_cost_usd": 0.2,
+            "actual_cost_usd": 0.2,
+        },
+    ]
+    csv_path = tmp_path / "router.csv"
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
+    router = TechnicalTaskRouterModel(k_neighbors=len(rows))
+    router.load_context(SimpleNamespace(artifacts={ROUTER_DATASET_ARTIFACT: str(csv_path)}))
+    features = pd.DataFrame(
+        [
+            {
+                "task_type": "feature",
+                "language": "python",
+                "domain": "backend",
+                "workflow_stages": '["code"]',
+                "routing_objective": "highest_reliability",
+                "available_coder_models": '["claude-sonnet-4-6","gpt-5.4"]',
+                "available_planner_models": '["gpt-5.4"]',
+                "available_reviewer_models": '["gpt-5.4"]',
+            }
+        ]
+    )
+
+    out = router.predict(None, features).iloc[0]
+    strategy = out["recommended_strategy"]
+    coder_evidence = strategy["role_evidence"]["coder"]
+
+    assert strategy["coder_model"] == "claude-sonnet-4-6"
+    assert out["selected_model"] == "claude-sonnet-4-6"
+    assert out["selected_models"] == ["claude-sonnet-4-6"]
+    assert coder_evidence["direct_support"] == 0
+    assert coder_evidence["borrowed_support"] == 2
+    assert coder_evidence["borrowed_from"] == {"claude-sonnet-4-5-20250929": 2}
 
 
 def test_mlflow_pyfunc_save_load_and_predict_smoke(tmp_path: Path) -> None:

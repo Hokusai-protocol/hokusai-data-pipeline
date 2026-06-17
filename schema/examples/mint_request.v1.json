@@ -13,9 +13,10 @@
   "baseline_commitment": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "candidate_commitment": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "attester_signatures": [
-    "0x111111111111111111111111111111111111111111111111111111111111111122222222222222222222222222222222222222222222222222222222222222221b"
+    "0xed82c458a5ebaf6aa382389bf85450acc1dac5ba83b2f132397a25f08c8d878c38f21a71feb9c25e016e4cb2756a14cfaf5f3c269b3d0c097e6adcbbd503539c1b"
   ],
   "totalSamples": 1000,
+  "deadline": 4102444800,
   "evaluation": {
     "metric_name": "accuracy",
     "metric_family": "proportion",

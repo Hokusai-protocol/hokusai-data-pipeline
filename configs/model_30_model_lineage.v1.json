@@ -1,0 +1,52 @@
+{
+  "schema_version": "model_30_model_lineage/v1",
+  "generated_at": "2026-06-15T00:00:00Z",
+  "evidence_weight_default": 0.75,
+  "mappings": [
+    {
+      "deprecated_model_id": "claude-sonnet-4-5-20250929",
+      "successor_model_ids": ["claude-sonnet-4-6", "anthropic/claude-sonnet-4.6"],
+      "evidence_weight": 0.75,
+      "family": "claude-sonnet",
+      "rationale": "Carry retired Sonnet 4.5 task-router evidence forward to the current Sonnet 4.6 launch aliases without emitting the retired label."
+    },
+    {
+      "deprecated_model_id": "claude-sonnet-4-5-20251001",
+      "successor_model_ids": ["claude-sonnet-4-6", "anthropic/claude-sonnet-4.6"],
+      "evidence_weight": 0.75,
+      "family": "claude-sonnet",
+      "rationale": "Carry retired Sonnet 4.5 task-router evidence forward to the current Sonnet 4.6 launch aliases without emitting the retired label."
+    },
+    {
+      "deprecated_model_id": "claude-sonnet-4.5",
+      "successor_model_ids": ["claude-sonnet-4-6", "anthropic/claude-sonnet-4.6"],
+      "evidence_weight": 0.75,
+      "family": "claude-sonnet",
+      "rationale": "Carry generic Sonnet 4.5 task-router evidence forward to the current Sonnet 4.6 launch aliases without emitting the retired label."
+    },
+    {
+      "deprecated_model_id": "gpt-5.3-codex",
+      "successor_model_ids": [
+        "gpt-5.4",
+        "openai/gpt-5.4",
+        "gpt-5.2-codex",
+        "openai/gpt-5.2-codex"
+      ],
+      "evidence_weight": 0.75,
+      "family": "gpt-codex",
+      "rationale": "Carry retired GPT Codex evidence to active GPT and Codex launch aliases while preserving direct evidence preference."
+    },
+    {
+      "deprecated_model_id": "gpt-5.1-codex",
+      "successor_model_ids": [
+        "gpt-5.2-codex",
+        "openai/gpt-5.2-codex",
+        "gpt-5.4",
+        "openai/gpt-5.4"
+      ],
+      "evidence_weight": 0.75,
+      "family": "gpt-codex",
+      "rationale": "Carry retired GPT Codex evidence to active GPT and Codex launch aliases while preserving direct evidence preference."
+    }
+  ]
+}

@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hokusai.ai/schemas/model_30_launch_priority_models.v1.json",
+  "title": "Model 30 Launch Priority Models",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source", "generated_at", "models"],
+  "properties": {
+    "schema_version": {
+      "const": "model_30_launch_priority_models/v1"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "url", "snapshot_date"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1
+        },
+        "snapshot_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "selection_method": {
+          "type": "string"
+        }
+      }
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "models": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "model_id",
+          "provider",
+          "family",
+          "role_eligibility",
+          "priority_tier",
+          "status",
+          "minimum_direct_evidence_target"
+        ],
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "aliases": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "provider": {
+            "type": "string",
+            "minLength": 1
+          },
+          "family": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role_eligibility": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": ["planner", "coder", "reviewer"]
+            }
+          },
+          "priority_tier": {
+            "enum": ["anchor", "launch_target", "low_cost_challenger", "exploratory"]
+          },
+          "status": {
+            "enum": ["active", "watchlist", "deprecated", "blocked"]
+          },
+          "price_input_per_token": {
+            "type": "number",
+            "minimum": 0
+          },
+          "price_output_per_token": {
+            "type": "number",
+            "minimum": 0
+          },
+          "context_length": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "coding_rank_source": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "coding_index": {
+                "type": ["number", "null"]
+              },
+              "design_arena_code_rank": {
+                "type": ["integer", "null"],
+                "minimum": 1
+              },
+              "design_arena_code_elo": {
+                "type": ["integer", "null"]
+              }
+            }
+          },
+          "minimum_direct_evidence_target": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "minimum_eval_attempts_target": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

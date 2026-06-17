@@ -130,3 +130,71 @@ def test_register_promote_and_smoke_promotes_existing_version(monkeypatch) -> No
     )
     assert report["promotion"]["previous_alias_target"]["version"] == "4"
     assert "rollback_command" in report["promotion"]
+
+
+def test_register_promote_and_smoke_passes_benchmark_args_to_registration(monkeypatch) -> None:
+    client = Mock()
+    client.get_model_version_by_alias.side_effect = Exception("missing alias")
+    captured_args: list[SimpleNamespace] = []
+
+    def fake_register_model(args: SimpleNamespace) -> dict:
+        captured_args.append(args)
+        return {
+            "registered_model_name": promotion.MODEL_NAME,
+            "registered_model_version": "8",
+            "registered_model_uri": f"models:/{promotion.MODEL_NAME}/8",
+        }
+
+    monkeypatch.setattr(promotion, "MlflowClient", lambda: client)
+    monkeypatch.setattr(promotion, "register_model", fake_register_model)
+    monkeypatch.setattr(
+        promotion,
+        "_smoke_mlflow_model",
+        lambda _model_uri: [{"objective": "lowest_cost"}],
+    )
+
+    promotion.register_promote_and_smoke(
+        SimpleNamespace(
+            tracking_uri=None,
+            model_uri=None,
+            router_dataset="/tmp/router.csv",
+            holdout_dataset="/tmp/holdout.csv",
+            evaluation_objectives="all",
+            benchmark_version="v2",
+            primary_metric="technical_task_router.benchmark_score_v2",
+            benchmark_spec_id="technical_task_router.benchmark_score/v2",
+            in_pool_coverage_gate="fail",
+            min_in_pool_evidence_coverage=0.75,
+            min_group_in_pool_evidence_coverage=0.60,
+            launch_priority_models="configs/model_30_launch_priority_models.v1.json",
+            launch_priority_gate="warn",
+            experiment_name=None,
+            run_name="test",
+            k_neighbors=40,
+            training_manifest=None,
+            model_id_uint=30,
+            baseline_artifact_uri=None,
+            eth_rpc_url="https://rpc.example",
+            delta_verifier_address="0x" + "11" * 20,
+            model_registry_address="0x" + "22" * 20,
+            onchain_timeout_seconds=5.0,
+            alias="production",
+            no_promote=True,
+            production_smoke=False,
+            production_api_url="https://api.hokus.ai/api/v1/models/30/predict",
+            api_key=None,
+            production_timeout_seconds=30.0,
+        )
+    )
+
+    assert len(captured_args) == 1
+    assert captured_args[0].benchmark_version == "v2"
+    assert captured_args[0].primary_metric == "technical_task_router.benchmark_score_v2"
+    assert captured_args[0].benchmark_spec_id == "technical_task_router.benchmark_score/v2"
+    assert captured_args[0].in_pool_coverage_gate == "fail"
+    assert captured_args[0].min_in_pool_evidence_coverage == 0.75
+    assert captured_args[0].min_group_in_pool_evidence_coverage == 0.60
+    assert (
+        captured_args[0].launch_priority_models == "configs/model_30_launch_priority_models.v1.json"
+    )
+    assert captured_args[0].launch_priority_gate == "warn"

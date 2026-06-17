@@ -314,6 +314,12 @@
       "title": "Totalsamples",
       "type": "integer"
     },
+    "deadline": {
+      "description": "HOK-2170: unix timestamp past which the attester signature is no longer submittable (DeltaVerifier reverts SignatureExpired). Set to now + 5 days at attest-build time; bound into the EIP-712 digest.",
+      "minimum": 1,
+      "title": "Deadline",
+      "type": "integer"
+    },
     "evaluation": {
       "$ref": "#/$defs/MintRequestEvaluation"
     },
@@ -340,6 +346,7 @@
     "candidate_commitment",
     "attester_signatures",
     "totalSamples",
+    "deadline",
     "evaluation",
     "contributors"
   ],
