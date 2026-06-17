@@ -21,7 +21,9 @@ from src.events.schemas import MintRequest
 
 LOGGER = logging.getLogger(__name__)
 
-_AUTH_ACCEPTED_PATH = "/internal/data-submissions/accepted"
+# HOK-2256: the /api/v1 prefix is required — the deployed auth route is
+# /api/v1/internal/data-submissions/accepted (bare /internal/... 404s).
+_AUTH_ACCEPTED_PATH = "/api/v1/internal/data-submissions/accepted"
 _AUTH_LIFECYCLE_PATH = "/internal/data-submissions/lifecycle-update"
 _AUTH_REWARD_ENTITLEMENT_PATH = "/internal/reward-entitlements"
 # HOK-2243/2244: account -> verified-wallet resolver. user_id is a PATH param; the
