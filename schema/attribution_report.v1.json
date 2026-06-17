@@ -58,7 +58,6 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "wallet",
           "submission_ids",
           "rows_credited",
           "raw_score",
@@ -87,8 +86,24 @@
           "weight_bps": {
             "type": "integer",
             "minimum": 0
+          },
+          "account_id": {
+            "type": "string",
+            "minLength": 1
           }
-        }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "wallet"
+            ]
+          },
+          {
+            "required": [
+              "account_id"
+            ]
+          }
+        ]
       }
     },
     "weight_bps_total": {
