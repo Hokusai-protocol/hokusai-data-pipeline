@@ -47,6 +47,7 @@ class ProcessedSubmission:
     s3_key: str
     rows: list[dict[str, Any]]
     wallet: str | None
+    account_id: str | None
     reward_hold: bool
 
 
@@ -233,6 +234,20 @@ def resolve_wallet_for_record(
     return wallet.lower()
 
 
+def account_id_for_record(record: StoredContributionRecord) -> str | None:
+    """Return the contributing account (auth_context.user_id) for a submission, if present.
+
+    This is the account identity threaded into the training manifest so attribution can be
+    account-centric (HOK-2245): the wallet is resolved from the account at mint, but a
+    wallet-less contributor is still identified and creditable by account_id.
+    """
+    auth = record.metadata.get("auth") if isinstance(record.metadata, dict) else None
+    if not isinstance(auth, dict):
+        return None
+    user_id = auth.get("user_id")
+    return str(user_id) if user_id is not None else None
+
+
 def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -337,6 +352,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
                 s3_key=s3_key,
                 rows=valid_rows,
                 wallet=wallet,
+                account_id=account_id_for_record(record),
                 reward_hold=wallet is None and args.on_missing_wallet == "hold",
             )
         )
@@ -366,6 +382,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
                 {
                     "submission_id": submission.submission_id,
                     "wallet": submission.wallet,
+                    "account_id": submission.account_id,
                     "s3_key": submission.s3_key,
                     "row_start": row_start,
                     "row_end": row_count - 1 if submission.rows else row_start - 1,

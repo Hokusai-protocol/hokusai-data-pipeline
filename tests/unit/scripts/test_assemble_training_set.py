@@ -244,6 +244,21 @@ def test_manifest_block_contiguity(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert manifest["blocks"][1]["row_end"] == 2
 
 
+def test_manifest_block_carries_account_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    objects = {
+        _object_key("sub-a"): _record_payload("sub-a", [_valid_row("r-1")]),
+    }
+    wallets = {("user-1", "api-1", "svc-1"): "0x742d35cc6634c0532925a3b844bc9e7595f62341"}
+
+    _, output_dir, _ = _run_assemble(tmp_path, monkeypatch, objects=objects, wallets=wallets)
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+
+    # HOK-2245: the contributing account (auth_context.user_id) is threaded into the manifest
+    # alongside the wallet, so attribution can credit a contributor by account.
+    assert manifest["blocks"][0]["account_id"] == "user-1"
+    assert manifest["blocks"][0]["wallet"] == "0x742d35cc6634c0532925a3b844bc9e7595f62341"
+
+
 def test_dedup_keeps_lowest_s3_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     objects = {
         _object_key("aaa-sub"): _record_payload("dup", [_valid_row("r-1")]),
