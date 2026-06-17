@@ -1,0 +1,490 @@
+{
+  "schema_version": "model_30_launch_priority_models/v1",
+  "source": {
+    "name": "OpenRouter model API",
+    "url": "https://openrouter.ai/api/v1/models",
+    "snapshot_date": "2026-06-15",
+    "selection_method": "Seeded from current OpenRouter coding_index and design_arena codecategories metadata, then de-duplicated by launch-relevant provider families and cost tiers."
+  },
+  "generated_at": "2026-06-15T00:00:00Z",
+  "models": [
+    {
+      "model_id": "anthropic/claude-fable-5",
+      "aliases": ["claude-fable-5"],
+      "provider": "anthropic",
+      "family": "claude",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "anchor",
+      "status": "active",
+      "price_input_per_token": 0.00001,
+      "price_output_per_token": 0.00005,
+      "context_length": 1000000,
+      "coding_rank_source": {
+        "coding_index": 62.0,
+        "design_arena_code_rank": 1,
+        "design_arena_code_elo": 1352
+      },
+      "minimum_direct_evidence_target": 25,
+      "minimum_eval_attempts_target": 50,
+      "notes": "Frontier coding anchor."
+    },
+    {
+      "model_id": "openai/gpt-5.5",
+      "aliases": ["gpt-5.5"],
+      "provider": "openai",
+      "family": "gpt",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "anchor",
+      "status": "active",
+      "price_input_per_token": 0.000005,
+      "price_output_per_token": 0.00003,
+      "context_length": 1050000,
+      "coding_rank_source": {
+        "coding_index": 59.1,
+        "design_arena_code_rank": 14,
+        "design_arena_code_elo": 1298
+      },
+      "minimum_direct_evidence_target": 25,
+      "minimum_eval_attempts_target": 50
+    },
+    {
+      "model_id": "openai/gpt-5.4",
+      "aliases": ["gpt-5.4"],
+      "provider": "openai",
+      "family": "gpt",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "anchor",
+      "status": "active",
+      "price_input_per_token": 0.0000025,
+      "price_output_per_token": 0.000015,
+      "context_length": 1050000,
+      "coding_rank_source": {
+        "coding_index": 57.2,
+        "design_arena_code_rank": 26,
+        "design_arena_code_elo": 1267
+      },
+      "minimum_direct_evidence_target": 25,
+      "minimum_eval_attempts_target": 50
+    },
+    {
+      "model_id": "anthropic/claude-opus-4.8",
+      "aliases": ["claude-opus-4-8"],
+      "provider": "anthropic",
+      "family": "claude",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "anchor",
+      "status": "active",
+      "price_input_per_token": 0.000005,
+      "price_output_per_token": 0.000025,
+      "context_length": 1000000,
+      "coding_rank_source": {
+        "coding_index": 56.7,
+        "design_arena_code_rank": 21,
+        "design_arena_code_elo": 1281
+      },
+      "minimum_direct_evidence_target": 20,
+      "minimum_eval_attempts_target": 40
+    },
+    {
+      "model_id": "google/gemini-3.1-pro-preview",
+      "aliases": ["gemini-3.1-pro-preview"],
+      "provider": "google",
+      "family": "gemini",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "launch_target",
+      "status": "active",
+      "price_input_per_token": 0.000002,
+      "price_output_per_token": 0.000012,
+      "context_length": 1048576,
+      "coding_rank_source": {
+        "coding_index": 55.5,
+        "design_arena_code_rank": 18,
+        "design_arena_code_elo": 1293
+      },
+      "minimum_direct_evidence_target": 20,
+      "minimum_eval_attempts_target": 40
+    },
+    {
+      "model_id": "anthropic/claude-sonnet-4.6",
+      "aliases": ["claude-sonnet-4-6"],
+      "provider": "anthropic",
+      "family": "claude",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "anchor",
+      "status": "active",
+      "price_input_per_token": 0.000003,
+      "price_output_per_token": 0.000015,
+      "context_length": 1000000,
+      "coding_rank_source": {
+        "coding_index": 50.9,
+        "design_arena_code_rank": 6,
+        "design_arena_code_elo": 1327
+      },
+      "minimum_direct_evidence_target": 25,
+      "minimum_eval_attempts_target": 50
+    },
+    {
+      "model_id": "qwen/qwen3.7-max",
+      "aliases": ["qwen3.7-max", "qwen-3.7-max"],
+      "provider": "qwen",
+      "family": "qwen",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "low_cost_challenger",
+      "status": "active",
+      "price_input_per_token": 0.00000125,
+      "price_output_per_token": 0.00000375,
+      "context_length": 1000000,
+      "coding_rank_source": {
+        "coding_index": 50.1,
+        "design_arena_code_rank": 10,
+        "design_arena_code_elo": 1313
+      },
+      "minimum_direct_evidence_target": 30,
+      "minimum_eval_attempts_target": 60,
+      "notes": "Primary low-cost challenger for Claude/GPT coder routing."
+    },
+    {
+      "model_id": "deepseek/deepseek-v4-pro",
+      "aliases": ["deepseek-v4-pro"],
+      "provider": "deepseek",
+      "family": "deepseek",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "low_cost_challenger",
+      "status": "active",
+      "price_input_per_token": 0.000000435,
+      "price_output_per_token": 0.00000087,
+      "context_length": 1048576,
+      "coding_rank_source": {
+        "coding_index": 47.5,
+        "design_arena_code_rank": 15,
+        "design_arena_code_elo": 1297
+      },
+      "minimum_direct_evidence_target": 30,
+      "minimum_eval_attempts_target": 60
+    },
+    {
+      "model_id": "moonshotai/kimi-k2.7-code",
+      "aliases": ["kimi-k2.7-code", "kimi-k2-7-code"],
+      "provider": "moonshotai",
+      "family": "kimi",
+      "role_eligibility": ["coder", "reviewer"],
+      "priority_tier": "low_cost_challenger",
+      "status": "active",
+      "price_input_per_token": 0.00000075,
+      "price_output_per_token": 0.0000035,
+      "context_length": 262144,
+      "coding_rank_source": {
+        "coding_index": null,
+        "design_arena_code_rank": 9,
+        "design_arena_code_elo": 1316
+      },
+      "minimum_direct_evidence_target": 30,
+      "minimum_eval_attempts_target": 60,
+      "notes": "Coding-specific model; prioritize coder evidence."
+    },
+    {
+      "model_id": "moonshotai/kimi-k2.6",
+      "aliases": ["kimi-k2.6", "kimi-k2-6"],
+      "provider": "moonshotai",
+      "family": "kimi",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "launch_target",
+      "status": "active",
+      "price_input_per_token": 0.00000068,
+      "price_output_per_token": 0.00000341,
+      "context_length": 262144,
+      "coding_rank_source": {
+        "coding_index": 47.1,
+        "design_arena_code_rank": 5,
+        "design_arena_code_elo": 1331
+      },
+      "minimum_direct_evidence_target": 20,
+      "minimum_eval_attempts_target": 40
+    },
+    {
+      "model_id": "qwen/qwen3.7-plus",
+      "aliases": ["qwen3.7-plus", "qwen-3.7-plus"],
+      "provider": "qwen",
+      "family": "qwen",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "low_cost_challenger",
+      "status": "active",
+      "price_input_per_token": 0.00000032,
+      "price_output_per_token": 0.00000128,
+      "context_length": 1000000,
+      "coding_rank_source": {
+        "coding_index": 46.5,
+        "design_arena_code_rank": null,
+        "design_arena_code_elo": null
+      },
+      "minimum_direct_evidence_target": 30,
+      "minimum_eval_attempts_target": 60
+    },
+    {
+      "model_id": "kwaipilot/kat-coder-pro-v2",
+      "aliases": ["kat-coder-pro-v2"],
+      "provider": "kwaipilot",
+      "family": "kat-coder",
+      "role_eligibility": ["coder", "reviewer"],
+      "priority_tier": "exploratory",
+      "status": "watchlist",
+      "price_input_per_token": 0.0000003,
+      "price_output_per_token": 0.0000012,
+      "context_length": 256000,
+      "coding_rank_source": {
+        "coding_index": 45.6,
+        "design_arena_code_rank": null,
+        "design_arena_code_elo": null
+      },
+      "minimum_direct_evidence_target": 15,
+      "minimum_eval_attempts_target": 30
+    },
+    {
+      "model_id": "xiaomi/mimo-v2.5-pro",
+      "aliases": ["mimo-v2.5-pro", "mimo-v2-5-pro"],
+      "provider": "xiaomi",
+      "family": "mimo",
+      "role_eligibility": ["coder", "reviewer"],
+      "priority_tier": "exploratory",
+      "status": "watchlist",
+      "price_input_per_token": 0.000000435,
+      "price_output_per_token": 0.00000087,
+      "context_length": 1048576,
+      "coding_rank_source": {
+        "coding_index": 45.5,
+        "design_arena_code_rank": 8,
+        "design_arena_code_elo": 1321
+      },
+      "minimum_direct_evidence_target": 15,
+      "minimum_eval_attempts_target": 30
+    },
+    {
+      "model_id": "google/gemini-3.5-flash",
+      "aliases": ["gemini-3.5-flash"],
+      "provider": "google",
+      "family": "gemini",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "launch_target",
+      "status": "active",
+      "price_input_per_token": 0.0000015,
+      "price_output_per_token": 0.000009,
+      "context_length": 1048576,
+      "coding_rank_source": {
+        "coding_index": 45.0,
+        "design_arena_code_rank": 13,
+        "design_arena_code_elo": 1300
+      },
+      "minimum_direct_evidence_target": 20,
+      "minimum_eval_attempts_target": 40
+    },
+    {
+      "model_id": "z-ai/glm-5",
+      "aliases": ["glm-5"],
+      "provider": "z-ai",
+      "family": "glm",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "launch_target",
+      "status": "active",
+      "price_input_per_token": 0.0000006,
+      "price_output_per_token": 0.00000192,
+      "context_length": 202752,
+      "coding_rank_source": {
+        "coding_index": 44.2,
+        "design_arena_code_rank": 16,
+        "design_arena_code_elo": 1297
+      },
+      "minimum_direct_evidence_target": 20,
+      "minimum_eval_attempts_target": 40
+    },
+    {
+      "model_id": "minimax/minimax-m3",
+      "aliases": ["minimax-m3"],
+      "provider": "minimax",
+      "family": "minimax",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "launch_target",
+      "status": "active",
+      "price_input_per_token": 0.0000003,
+      "price_output_per_token": 0.0000012,
+      "context_length": 1048576,
+      "coding_rank_source": {
+        "coding_index": 43.4,
+        "design_arena_code_rank": 11,
+        "design_arena_code_elo": 1311
+      },
+      "minimum_direct_evidence_target": 20,
+      "minimum_eval_attempts_target": 40
+    },
+    {
+      "model_id": "z-ai/glm-5.1",
+      "aliases": ["glm-5.1", "glm-5-1"],
+      "provider": "z-ai",
+      "family": "glm",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "launch_target",
+      "status": "active",
+      "price_input_per_token": 0.00000098,
+      "price_output_per_token": 0.00000308,
+      "context_length": 202752,
+      "coding_rank_source": {
+        "coding_index": 43.4,
+        "design_arena_code_rank": 4,
+        "design_arena_code_elo": 1332
+      },
+      "minimum_direct_evidence_target": 20,
+      "minimum_eval_attempts_target": 40
+    },
+    {
+      "model_id": "qwen/qwen3.6-plus",
+      "aliases": ["qwen3.6-plus", "qwen-3.6-plus"],
+      "provider": "qwen",
+      "family": "qwen",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "low_cost_challenger",
+      "status": "active",
+      "price_input_per_token": 0.000000325,
+      "price_output_per_token": 0.00000195,
+      "context_length": 1000000,
+      "coding_rank_source": {
+        "coding_index": 42.9,
+        "design_arena_code_rank": 23,
+        "design_arena_code_elo": 1277
+      },
+      "minimum_direct_evidence_target": 30,
+      "minimum_eval_attempts_target": 60
+    },
+    {
+      "model_id": "xiaomi/mimo-v2.5",
+      "aliases": ["mimo-v2.5", "mimo-v2-5"],
+      "provider": "xiaomi",
+      "family": "mimo",
+      "role_eligibility": ["coder", "reviewer"],
+      "priority_tier": "exploratory",
+      "status": "watchlist",
+      "price_input_per_token": 0.00000014,
+      "price_output_per_token": 0.00000028,
+      "context_length": 1048576,
+      "coding_rank_source": {
+        "coding_index": 42.1,
+        "design_arena_code_rank": 12,
+        "design_arena_code_elo": 1305
+      },
+      "minimum_direct_evidence_target": 15,
+      "minimum_eval_attempts_target": 30
+    },
+    {
+      "model_id": "minimax/minimax-m2.7",
+      "aliases": ["minimax-m2.7", "minimax-m2-7"],
+      "provider": "minimax",
+      "family": "minimax",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "launch_target",
+      "status": "active",
+      "price_input_per_token": 0.00000025,
+      "price_output_per_token": 0.000001,
+      "context_length": 204800,
+      "coding_rank_source": {
+        "coding_index": 41.9,
+        "design_arena_code_rank": 20,
+        "design_arena_code_elo": 1283
+      },
+      "minimum_direct_evidence_target": 20,
+      "minimum_eval_attempts_target": 40
+    },
+    {
+      "model_id": "qwen/qwen3.5-397b-a17b",
+      "aliases": ["qwen3.5-397b-a17b", "qwen-3.5-397b-a17b"],
+      "provider": "qwen",
+      "family": "qwen",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "low_cost_challenger",
+      "status": "active",
+      "price_input_per_token": 0.00000039,
+      "price_output_per_token": 0.00000234,
+      "context_length": 262144,
+      "coding_rank_source": {
+        "coding_index": 41.3,
+        "design_arena_code_rank": 33,
+        "design_arena_code_elo": 1231
+      },
+      "minimum_direct_evidence_target": 30,
+      "minimum_eval_attempts_target": 60
+    },
+    {
+      "model_id": "x-ai/grok-4.3",
+      "aliases": ["grok-4.3", "grok-4-3"],
+      "provider": "x-ai",
+      "family": "grok",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "launch_target",
+      "status": "active",
+      "price_input_per_token": 0.00000125,
+      "price_output_per_token": 0.0000025,
+      "context_length": 1000000,
+      "coding_rank_source": {
+        "coding_index": 41.0,
+        "design_arena_code_rank": 29,
+        "design_arena_code_elo": 1251
+      },
+      "minimum_direct_evidence_target": 20,
+      "minimum_eval_attempts_target": 40
+    },
+    {
+      "model_id": "deepseek/deepseek-v4-flash",
+      "aliases": ["deepseek-v4-flash"],
+      "provider": "deepseek",
+      "family": "deepseek",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "low_cost_challenger",
+      "status": "active",
+      "price_input_per_token": 0.000000098,
+      "price_output_per_token": 0.000000196,
+      "context_length": 1048576,
+      "coding_rank_source": {
+        "coding_index": 38.7,
+        "design_arena_code_rank": 27,
+        "design_arena_code_elo": 1263
+      },
+      "minimum_direct_evidence_target": 30,
+      "minimum_eval_attempts_target": 60
+    },
+    {
+      "model_id": "deepseek/deepseek-v3.2",
+      "aliases": ["deepseek-v3.2", "deepseek-v3-2"],
+      "provider": "deepseek",
+      "family": "deepseek",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "low_cost_challenger",
+      "status": "active",
+      "price_input_per_token": 0.0000002288,
+      "price_output_per_token": 0.0000003432,
+      "context_length": 131072,
+      "coding_rank_source": {
+        "coding_index": 36.7,
+        "design_arena_code_rank": 45,
+        "design_arena_code_elo": 1217
+      },
+      "minimum_direct_evidence_target": 30,
+      "minimum_eval_attempts_target": 60
+    },
+    {
+      "model_id": "qwen/qwen3.6-35b-a3b",
+      "aliases": ["qwen3.6-35b-a3b", "qwen-3.6-35b-a3b"],
+      "provider": "qwen",
+      "family": "qwen",
+      "role_eligibility": ["coder", "reviewer"],
+      "priority_tier": "low_cost_challenger",
+      "status": "active",
+      "price_input_per_token": 0.00000015,
+      "price_output_per_token": 0.000001,
+      "context_length": 262144,
+      "coding_rank_source": {
+        "coding_index": 35.2,
+        "design_arena_code_rank": null,
+        "design_arena_code_elo": null
+      },
+      "minimum_direct_evidence_target": 30,
+      "minimum_eval_attempts_target": 60
+    }
+  ]
+}

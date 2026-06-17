@@ -13,7 +13,7 @@ import re
 import tempfile
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Protocol
@@ -63,6 +63,10 @@ if TYPE_CHECKING:
 DELTAONE_ACHIEVED_EVENT = "deltaone.achieved"
 DELTAONE_MINTED_EVENT = "deltaone.minted"
 _MLFLOW_TAG_VALUE_LIMIT = 5000
+# HOK-2170: attester-signature validity window. The deadline is set to now + this many
+# days at MintRequest assembly and bound into the EIP-712 digest the attester signs;
+# DeltaVerifier reverts SignatureExpired once block.timestamp passes it.
+MINT_SIGNATURE_DEADLINE_DAYS = 5
 
 # Tag keys used to resolve model_id_uint from MLflow run tags
 _MODEL_ID_UINT_TAG_KEYS = (
@@ -376,7 +380,7 @@ class DeltaOneMintOrchestrator:
             decision=decision,
             baseline_score=baseline_score if baseline_score is not None else 0.0,
             candidate_score=candidate_score if candidate_score is not None else 0.0,
-            metric_family="proportion",
+            metric_family=str(candidate_tags.get("hokusai.metric_family") or "proportion"),
             primary_metric_mlflow_name=mlflow_name,
             benchmark_spec_id=benchmark_spec_id,
             attribution_report=attribution_report,
@@ -1763,6 +1767,9 @@ def _build_mint_request(
         candidate_commitment=resolved_candidate_commitment,
         attester_signatures=resolved_attester_signatures,
         total_samples=total_samples,
+        deadline=int(
+            (datetime.now(timezone.utc) + timedelta(days=MINT_SIGNATURE_DEADLINE_DAYS)).timestamp()
+        ),
         evaluation=evaluation,
         contributors=contributor_models,
     )

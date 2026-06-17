@@ -19,6 +19,7 @@
     "candidate_commitment",
     "attester_signatures",
     "totalSamples",
+    "deadline",
     "evaluation",
     "contributors"
   ],
@@ -236,6 +237,10 @@
     "_retryCount": {
       "type": "integer",
       "minimum": 0
+    },
+    "deadline": {
+      "type": "integer",
+      "minimum": 1
     }
   }
 }

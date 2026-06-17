@@ -326,6 +326,17 @@ class MintRequest(BaseModel):
         ),
     )
 
+    deadline: int = Field(
+        ...,
+        alias="deadline",
+        ge=1,
+        description=(
+            "HOK-2170: unix timestamp past which the attester signature is no longer "
+            "submittable (DeltaVerifier reverts SignatureExpired). Set to now + 5 days "
+            "at attest-build time; bound into the EIP-712 digest."
+        ),
+    )
+
     # Evaluation payload
     evaluation: MintRequestEvaluation
 

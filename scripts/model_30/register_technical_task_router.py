@@ -32,11 +32,17 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts.model_30.assemble_training_set import load_json  # noqa: E402
 from scripts.model_30.evaluate_technical_task_router import (  # noqa: E402
+    DEFAULT_V2_PRIMARY_METRIC,
+    V2_BENCHMARK_SPEC_ID,
     evaluate_model,
     parse_objectives,
 )
 from src.eip712 import read_model_weight_head  # noqa: E402
 from src.evaluation.tags import (  # noqa: E402
+    BENCHMARK_SPEC_ID_TAG,
+    MLFLOW_NAME_TAG,
+    PRIMARY_METRIC_TAG,
+    SCORER_REF_TAG,
     WEIGHT_COMMITMENT_BASELINE_TAG,
     WEIGHT_COMMITMENT_CANDIDATE_TAG,
 )
@@ -57,7 +63,25 @@ MODEL_ID_COLUMNS = (
     "reviewer_model",
 )
 SELECTED_MODEL_ID_COLUMNS = ("planner_model", "coder_model", "reviewer_model")
+ROLE_MODEL_COLUMNS = {
+    "planner": ("planner_model", "available_planner_models"),
+    "coder": ("coder_model", "available_coder_models"),
+    "reviewer": ("reviewer_model", "available_reviewer_models"),
+}
+IN_POOL_GROUP_COLUMNS = ("task_type", "domain", "complexity")
 DEFAULT_BASELINE_ARTIFACT_URI = "models:/Technical Task Router@production"
+DEFAULT_LAUNCH_PRIORITY_MODELS_PATH = (
+    REPO_ROOT / "configs" / "model_30_launch_priority_models.v1.json"
+)
+DEFAULT_MIN_IN_POOL_EVIDENCE_COVERAGE = 0.70
+DEFAULT_MIN_GROUP_IN_POOL_EVIDENCE_COVERAGE = 0.50
+MODEL_30_V2_METRIC_FAMILY = "continuous"
+MODEL_30_V2_COMPONENT_METRICS = (
+    "technical_task_router.success_under_budget_v1",
+    "technical_task_router.cost_efficiency_v2",
+    "technical_task_router.sparse_cell_generalization_v2",
+    "technical_task_router.candidate_pool_robustness_v2",
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,14 +93,22 @@ class RouterDatasetSummary:
     row_count: int
     sha256: str
     selected_model_distribution: dict[str, dict[str, int]]
+    selected_model_distribution_by_group: dict[str, Any]
+    in_pool_evidence_coverage: dict[str, Any]
+    launch_priority_coverage: dict[str, Any] | None = None
 
     def to_mlflow_dict(self: RouterDatasetSummary) -> dict[str, Any]:
         """Return a JSON-serializable summary suitable for MLflow artifacts."""
-        return {
+        summary = {
             "row_count": self.row_count,
             "sha256": f"sha256:{self.sha256}",
             "selected_model_distribution": self.selected_model_distribution,
+            "selected_model_distribution_by_group": self.selected_model_distribution_by_group,
+            "in_pool_evidence_coverage": self.in_pool_evidence_coverage,
         }
+        if self.launch_priority_coverage is not None:
+            summary["launch_priority_coverage"] = self.launch_priority_coverage
+        return summary
 
 
 def _sample_features() -> pd.DataFrame:
@@ -163,7 +195,241 @@ def _validate_model_row(
     return invalid
 
 
-def validate_router_dataset_model_ids(dataset_path: Path) -> RouterDatasetSummary:
+def _empty_coverage_counts() -> dict[str, dict[str, int]]:
+    return {
+        role: {
+            "selected_rows": 0,
+            "in_pool_rows": 0,
+            "out_of_pool_rows": 0,
+        }
+        for role in ROLE_MODEL_COLUMNS
+    }
+
+
+def _coverage_fraction(in_pool_rows: int, selected_rows: int) -> float:
+    return in_pool_rows / selected_rows if selected_rows else 0.0
+
+
+def _coverage_counts_to_report(counts: dict[str, dict[str, int]]) -> dict[str, dict[str, Any]]:
+    return {
+        role: {
+            **role_counts,
+            "in_pool_fraction": _coverage_fraction(
+                role_counts["in_pool_rows"],
+                role_counts["selected_rows"],
+            ),
+        }
+        for role, role_counts in counts.items()
+    }
+
+
+def _group_value(row: dict[str, str], column: str) -> str:
+    value = str(row.get(column, "")).strip()
+    return value or "<missing>"
+
+
+def _build_in_pool_evidence_coverage(dataset_path: Path) -> dict[str, Any]:
+    """Summarize selected-label support that remains usable under available pools."""
+    overall_counts = _empty_coverage_counts()
+    excluded_labels = {role: Counter() for role in ROLE_MODEL_COLUMNS}
+    available_labels = {role: Counter() for role in ROLE_MODEL_COLUMNS}
+    group_counts: dict[str, dict[str, dict[str, dict[str, int]]]] = {
+        column: {} for column in IN_POOL_GROUP_COLUMNS
+    }
+
+    with dataset_path.open(newline="", encoding="utf-8") as dataset_file:
+        reader = csv.DictReader(dataset_file)
+        for row in reader:
+            for role, (selected_column, available_column) in ROLE_MODEL_COLUMNS.items():
+                selected_models = _parse_model_values(row.get(selected_column, ""))
+                available_models = set(_parse_model_values(row.get(available_column, "")))
+                available_labels[role].update(sorted(available_models))
+                if not selected_models:
+                    continue
+                selected_model = selected_models[0]
+                in_pool = selected_model in available_models
+                overall_counts[role]["selected_rows"] += 1
+                if in_pool:
+                    overall_counts[role]["in_pool_rows"] += 1
+                else:
+                    overall_counts[role]["out_of_pool_rows"] += 1
+                    excluded_labels[role][selected_model] += 1
+
+                for group_column in IN_POOL_GROUP_COLUMNS:
+                    group_key = _group_value(row, group_column)
+                    role_counts = group_counts[group_column].setdefault(
+                        group_key,
+                        _empty_coverage_counts(),
+                    )[role]
+                    role_counts["selected_rows"] += 1
+                    if in_pool:
+                        role_counts["in_pool_rows"] += 1
+                    else:
+                        role_counts["out_of_pool_rows"] += 1
+
+    return {
+        "overall": _coverage_counts_to_report(overall_counts),
+        "by_group": {
+            group_column: {
+                group_key: _coverage_counts_to_report(counts)
+                for group_key, counts in sorted(groups.items())
+            }
+            for group_column, groups in group_counts.items()
+        },
+        "excluded_selected_model_distribution": {
+            role: dict(sorted(counter.items())) for role, counter in excluded_labels.items()
+        },
+        "available_model_distribution": {
+            role: dict(sorted(counter.items())) for role, counter in available_labels.items()
+        },
+    }
+
+
+def _build_selected_model_distribution_by_group(dataset_path: Path) -> dict[str, Any]:
+    grouped: dict[str, dict[str, dict[str, Counter[str]]]] = {
+        column: {} for column in IN_POOL_GROUP_COLUMNS
+    }
+    with dataset_path.open(newline="", encoding="utf-8") as dataset_file:
+        reader = csv.DictReader(dataset_file)
+        for row in reader:
+            for group_column in IN_POOL_GROUP_COLUMNS:
+                group_key = _group_value(row, group_column)
+                role_distribution = grouped[group_column].setdefault(
+                    group_key,
+                    {column: Counter() for column in SELECTED_MODEL_ID_COLUMNS},
+                )
+                for selected_column in SELECTED_MODEL_ID_COLUMNS:
+                    selected_models = _parse_model_values(row.get(selected_column, ""))
+                    if selected_models:
+                        role_distribution[selected_column][selected_models[0]] += 1
+
+    return {
+        group_column: {
+            group_key: {
+                selected_column: dict(sorted(counter.items()))
+                for selected_column, counter in role_distribution.items()
+            }
+            for group_key, role_distribution in sorted(groups.items())
+        }
+        for group_column, groups in grouped.items()
+    }
+
+
+def _load_launch_priority_models(priority_path: Path | None) -> dict[str, Any] | None:
+    if priority_path is None:
+        return None
+    if not priority_path.exists():
+        raise FileNotFoundError(f"Launch priority model list not found: {priority_path}")
+    priority_set = load_json(priority_path)
+    if priority_set.get("schema_version") != "model_30_launch_priority_models/v1":
+        raise ValueError(
+            "Launch priority model list must use schema_version "
+            "model_30_launch_priority_models/v1"
+        )
+    if not isinstance(priority_set.get("models"), list) or not priority_set["models"]:
+        raise ValueError("Launch priority model list must contain at least one model")
+    return priority_set
+
+
+def _priority_model_aliases(model: dict[str, Any]) -> set[str]:
+    aliases = {str(model["model_id"])}
+    aliases.update(str(alias) for alias in model.get("aliases", []) if str(alias).strip())
+    return aliases
+
+
+def _sum_distribution_aliases(distribution: dict[str, int], aliases: set[str]) -> int:
+    return sum(distribution.get(alias, 0) for alias in aliases)
+
+
+def _build_launch_priority_coverage(
+    priority_set: dict[str, Any] | None,
+    *,
+    selected_distribution: dict[str, dict[str, int]],
+    in_pool_evidence_coverage: dict[str, Any],
+) -> dict[str, Any] | None:
+    if priority_set is None:
+        return None
+
+    available_distribution = in_pool_evidence_coverage.get("available_model_distribution", {})
+    priority_models: dict[str, Any] = {}
+    zero_direct_evidence: list[dict[str, Any]] = []
+    below_target: list[dict[str, Any]] = []
+
+    for model in priority_set["models"]:
+        model_id = str(model["model_id"])
+        aliases = _priority_model_aliases(model)
+        role_reports: dict[str, Any] = {}
+        for role in model["role_eligibility"]:
+            direct_rows = _sum_distribution_aliases(
+                selected_distribution.get(f"{role}_model", {}),
+                aliases,
+            )
+            available_rows = _sum_distribution_aliases(
+                available_distribution.get(role, {}),
+                aliases,
+            )
+            target = int(model.get("minimum_direct_evidence_target", 0))
+            gap = max(0, target - direct_rows)
+            role_report = {
+                "direct_evidence_rows": direct_rows,
+                "available_pool_rows": available_rows,
+                "minimum_direct_evidence_target": target,
+                "direct_evidence_gap": gap,
+                "zero_direct_evidence": direct_rows == 0,
+            }
+            role_reports[role] = role_report
+            if direct_rows == 0:
+                zero_direct_evidence.append(
+                    {
+                        "model_id": model_id,
+                        "role": role,
+                        "priority_tier": model["priority_tier"],
+                        "status": model["status"],
+                    }
+                )
+            if gap:
+                below_target.append(
+                    {
+                        "model_id": model_id,
+                        "role": role,
+                        "priority_tier": model["priority_tier"],
+                        "status": model["status"],
+                        "direct_evidence_rows": direct_rows,
+                        "minimum_direct_evidence_target": target,
+                        "direct_evidence_gap": gap,
+                    }
+                )
+
+        priority_models[model_id] = {
+            "provider": model["provider"],
+            "family": model["family"],
+            "aliases": sorted(aliases),
+            "priority_tier": model["priority_tier"],
+            "status": model["status"],
+            "role_eligibility": model["role_eligibility"],
+            "minimum_eval_attempts_target": model.get("minimum_eval_attempts_target"),
+            "roles": role_reports,
+        }
+
+    return {
+        "schema_version": priority_set["schema_version"],
+        "source": priority_set.get("source", {}),
+        "model_count": len(priority_set["models"]),
+        "priority_models": priority_models,
+        "gap_summary": {
+            "zero_direct_evidence_count": len(zero_direct_evidence),
+            "below_target_count": len(below_target),
+            "zero_direct_evidence": zero_direct_evidence,
+            "below_target": below_target,
+        },
+    }
+
+
+def validate_router_dataset_model_ids(
+    dataset_path: Path,
+    *,
+    launch_priority_models: dict[str, Any] | None = None,
+) -> RouterDatasetSummary:
     """Reject router datasets with synthetic or malformed model identifiers."""
     invalid: list[str] = []
     selected_distribution = {column: Counter() for column in SELECTED_MODEL_ID_COLUMNS}
@@ -188,14 +454,153 @@ def validate_router_dataset_model_ids(dataset_path: Path) -> RouterDatasetSummar
             f"{details}. Regenerate or clean the Wavemill export before registration."
         )
 
+    selected_model_distribution = {
+        column: dict(sorted(counter.items())) for column, counter in selected_distribution.items()
+    }
+    in_pool_evidence_coverage = _build_in_pool_evidence_coverage(dataset_path)
     return RouterDatasetSummary(
         row_count=row_count,
         sha256=_dataset_sha256(dataset_path),
-        selected_model_distribution={
-            column: dict(sorted(counter.items()))
-            for column, counter in selected_distribution.items()
-        },
+        selected_model_distribution=selected_model_distribution,
+        selected_model_distribution_by_group=_build_selected_model_distribution_by_group(
+            dataset_path
+        ),
+        in_pool_evidence_coverage=in_pool_evidence_coverage,
+        launch_priority_coverage=_build_launch_priority_coverage(
+            launch_priority_models,
+            selected_distribution=selected_model_distribution,
+            in_pool_evidence_coverage=in_pool_evidence_coverage,
+        ),
     )
+
+
+def _in_pool_coverage_gate_violations(
+    coverage: dict[str, Any],
+    *,
+    min_role_coverage: float,
+    min_group_coverage: float,
+) -> list[str]:
+    violations: list[str] = []
+    for role, role_report in coverage.get("overall", {}).items():
+        if (
+            role_report.get("selected_rows", 0)
+            and role_report["in_pool_fraction"] < min_role_coverage
+        ):
+            violations.append(
+                f"{role} overall in-pool coverage "
+                f"{role_report['in_pool_rows']}/{role_report['selected_rows']}="
+                f"{role_report['in_pool_fraction']:.3f} below {min_role_coverage:.3f}"
+            )
+
+    for group_column, group_reports in coverage.get("by_group", {}).items():
+        for group_value, roles in group_reports.items():
+            for role, role_report in roles.items():
+                if (
+                    role_report.get("selected_rows", 0)
+                    and role_report["in_pool_fraction"] < min_group_coverage
+                ):
+                    violations.append(
+                        f"{role} {group_column}={group_value!r} in-pool coverage "
+                        f"{role_report['in_pool_rows']}/{role_report['selected_rows']}="
+                        f"{role_report['in_pool_fraction']:.3f} below {min_group_coverage:.3f}"
+                    )
+    return violations
+
+
+def _enforce_in_pool_evidence_gate(
+    summary: RouterDatasetSummary,
+    *,
+    mode: str,
+    min_role_coverage: float,
+    min_group_coverage: float,
+) -> list[str]:
+    if mode == "off":
+        return []
+    violations = _in_pool_coverage_gate_violations(
+        summary.in_pool_evidence_coverage,
+        min_role_coverage=min_role_coverage,
+        min_group_coverage=min_group_coverage,
+    )
+    if not violations:
+        return []
+    message = "Router dataset in-pool evidence coverage gate violated: " + "; ".join(violations)
+    if mode == "fail":
+        raise ValueError(message)
+    logger.warning(message)
+    return violations
+
+
+def _launch_priority_gate_violations(
+    launch_priority_coverage: dict[str, Any] | None,
+) -> list[str]:
+    if not launch_priority_coverage:
+        return []
+    violations: list[str] = []
+    for gap in launch_priority_coverage.get("gap_summary", {}).get("below_target", []):
+        if gap.get("status") not in {"active", "watchlist"}:
+            continue
+        violations.append(
+            f"{gap['model_id']} role={gap['role']} direct evidence "
+            f"{gap['direct_evidence_rows']}/{gap['minimum_direct_evidence_target']} "
+            f"below target by {gap['direct_evidence_gap']} "
+            f"(tier={gap['priority_tier']})"
+        )
+    return violations
+
+
+def _enforce_launch_priority_gate(
+    summary: RouterDatasetSummary,
+    *,
+    mode: str,
+) -> list[str]:
+    if mode == "off":
+        return []
+    violations = _launch_priority_gate_violations(summary.launch_priority_coverage)
+    if not violations:
+        return []
+    message = "Router dataset launch-priority evidence gate violated: " + "; ".join(violations)
+    if mode == "fail":
+        raise ValueError(message)
+    logger.warning(message)
+    return violations
+
+
+def _resolve_coverage_threshold(
+    args: argparse.Namespace,
+    attr_name: str,
+    default: float,
+) -> float:
+    raw_value = getattr(args, attr_name, None)
+    if raw_value is None:
+        raw_value = default
+    value = float(raw_value)
+    if not 0 <= value <= 1:
+        raise ValueError(f"{attr_name} must be between 0 and 1, got {value}")
+    return value
+
+
+def _resolve_in_pool_coverage_gate_mode(args: argparse.Namespace) -> str:
+    mode = str(getattr(args, "in_pool_coverage_gate", "warn") or "warn")
+    if mode not in {"off", "warn", "fail"}:
+        raise ValueError(f"in_pool_coverage_gate must be off, warn, or fail, got {mode!r}")
+    return mode
+
+
+def _resolve_launch_priority_gate_mode(args: argparse.Namespace) -> str:
+    mode = str(getattr(args, "launch_priority_gate", "warn") or "warn")
+    if mode not in {"off", "warn", "fail"}:
+        raise ValueError(f"launch_priority_gate must be off, warn, or fail, got {mode!r}")
+    return mode
+
+
+def _resolve_launch_priority_models_path(args: argparse.Namespace) -> Path | None:
+    raw_value = getattr(args, "launch_priority_models", None)
+    if raw_value is None:
+        return DEFAULT_LAUNCH_PRIORITY_MODELS_PATH
+    normalized = str(raw_value).strip()
+    if not normalized:
+        return None
+    return Path(normalized).expanduser().resolve()
 
 
 def _registered_model_uri(model_name: str, version: str | None) -> str:
@@ -206,9 +611,25 @@ def _registered_model_uri(model_name: str, version: str | None) -> str:
 
 def _log_training_manifest(report_path: str) -> None:
     report = load_json(Path(report_path).expanduser().resolve())
-    mlflow.set_tag("training_dataset_hash", report["dataset_hash"])
-    mlflow.set_tag("training_manifest_digest", report["manifest_digest"])
-    mlflow.set_tag("training_as_of", report["as_of"])
+    dataset_hash = report.get("dataset_hash") or report.get("train_dataset_sha256")
+    if not dataset_hash:
+        raise KeyError("training manifest must include dataset_hash or train_dataset_sha256")
+    mlflow.set_tag("training_dataset_hash", dataset_hash)
+
+    manifest_digest = report.get("manifest_digest")
+    if manifest_digest:
+        mlflow.set_tag("training_manifest_digest", manifest_digest)
+
+    as_of = report.get("as_of")
+    if as_of:
+        mlflow.set_tag("training_as_of", as_of)
+
+    if holdout_hash := report.get("holdout_dataset_sha256"):
+        mlflow.set_tag("hokusai.model_30.holdout_dataset_hash", holdout_hash)
+    if quarantine_hash := report.get("quarantine_dataset_sha256"):
+        mlflow.set_tag("hokusai.model_30.quarantine_dataset_hash", quarantine_hash)
+    if input_hash := report.get("input_dataset_sha256"):
+        mlflow.set_tag("hokusai.model_30.input_dataset_hash", input_hash)
     mlflow.log_dict(report, "training_manifest_report.json")
 
 
@@ -315,7 +736,34 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
     dataset_path = Path(args.router_dataset).expanduser().resolve()
     if not dataset_path.exists():
         raise FileNotFoundError(f"Router dataset not found: {dataset_path}")
-    dataset_summary = validate_router_dataset_model_ids(dataset_path)
+    launch_priority_models_path = _resolve_launch_priority_models_path(args)
+    launch_priority_models = _load_launch_priority_models(launch_priority_models_path)
+    dataset_summary = validate_router_dataset_model_ids(
+        dataset_path,
+        launch_priority_models=launch_priority_models,
+    )
+    gate_mode = _resolve_in_pool_coverage_gate_mode(args)
+    launch_priority_gate_mode = _resolve_launch_priority_gate_mode(args)
+    min_role_coverage = _resolve_coverage_threshold(
+        args,
+        "min_in_pool_evidence_coverage",
+        DEFAULT_MIN_IN_POOL_EVIDENCE_COVERAGE,
+    )
+    min_group_coverage = _resolve_coverage_threshold(
+        args,
+        "min_group_in_pool_evidence_coverage",
+        DEFAULT_MIN_GROUP_IN_POOL_EVIDENCE_COVERAGE,
+    )
+    gate_violations = _enforce_in_pool_evidence_gate(
+        dataset_summary,
+        mode=gate_mode,
+        min_role_coverage=min_role_coverage,
+        min_group_coverage=min_group_coverage,
+    )
+    launch_priority_gate_violations = _enforce_launch_priority_gate(
+        dataset_summary,
+        mode=launch_priority_gate_mode,
+    )
     model_id_uint = _resolve_model_id_uint(args)
     rpc_url = _resolve_required_arg(args, "eth_rpc_url", "ETH_RPC_URL")
     delta_verifier_address = _resolve_required_arg(
@@ -359,6 +807,9 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
             model_id=MODEL_NAME,
             holdout_path=holdout_path,
             objectives=parse_objectives(getattr(args, "evaluation_objectives", "all")),
+            benchmark_spec_id=getattr(args, "benchmark_spec_id", None),
+            benchmark_version=getattr(args, "benchmark_version", "v2"),
+            primary_metric=getattr(args, "primary_metric", None),
         )
 
     with mlflow.start_run(run_name=args.run_name) as run:
@@ -370,44 +821,37 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
             "router_dataset_model_distribution",
             json.dumps(dataset_summary.selected_model_distribution, sort_keys=True),
         )
+        mlflow.log_param("in_pool_coverage_gate", gate_mode)
+        mlflow.log_param("min_in_pool_evidence_coverage", min_role_coverage)
+        mlflow.log_param("min_group_in_pool_evidence_coverage", min_group_coverage)
+        mlflow.log_param("launch_priority_gate", launch_priority_gate_mode)
+        mlflow.log_param(
+            "launch_priority_models",
+            str(launch_priority_models_path) if launch_priority_models_path else "",
+        )
         mlflow.log_param("k_neighbors", args.k_neighbors)
         mlflow.set_tag("hokusai.dataset.id", "wavemill-hokusai-router-dataset-v1")
         mlflow.set_tag("hokusai.dataset.hash", f"sha256:{dataset_summary.sha256}")
         mlflow.set_tag("hokusai.dataset.num_samples", str(dataset_summary.row_count))
         mlflow.set_tag("hokusai.dataset.source", "wavemill-router-export")
+        mlflow.set_tag(
+            "hokusai.model_30.in_pool_coverage_gate_violations",
+            json.dumps(gate_violations, sort_keys=True),
+        )
+        mlflow.set_tag(
+            "hokusai.model_30.launch_priority_gap_count",
+            str(len(launch_priority_gate_violations)),
+        )
+        mlflow.set_tag(
+            "hokusai.model_30.launch_priority_gate_violations",
+            json.dumps(launch_priority_gate_violations, sort_keys=True),
+        )
         mlflow.log_dict(dataset_summary.to_mlflow_dict(), "router_dataset_summary.json")
         training_manifest = getattr(args, "training_manifest", None)
         if training_manifest:
             _log_training_manifest(training_manifest)
         if evaluation_report is not None:
-            for metric_name, metric_value in evaluation_report["metrics"].items():
-                if metric_value is None:
-                    continue
-                mlflow.log_metric(metric_name, float(metric_value))
-            mlflow.set_tag(
-                "hokusai.model_30.holdout_hash",
-                evaluation_report["holdout_dataset_sha256"],
-            )
-            mlflow.set_tag(
-                "hokusai.model_30.holdout_rows",
-                str(evaluation_report["row_counts"]["evaluated_rows"]),
-            )
-            mlflow.set_tag(
-                "hokusai.model_30.quarantined_rows",
-                str(evaluation_report["row_counts"]["quarantined_rows"]),
-            )
-            mlflow.set_tag(
-                "hokusai.model_30.duration_positive_label_rows",
-                str(evaluation_report["duration_coverage"]["positive_label_rows"]),
-            )
-            mlflow.set_tag(
-                "hokusai.model_30.duration_positive_label_fraction",
-                str(evaluation_report["duration_coverage"]["positive_label_fraction"]),
-            )
-            mlflow.set_tag(
-                "hokusai.model_30.duration_mae_available",
-                str(evaluation_report["duration_coverage"]["duration_mae_available"]).lower(),
-            )
+            _log_evaluation_report_to_mlflow(evaluation_report, model_id_uint=model_id_uint)
             mlflow.log_dict(
                 {key: value for key, value in evaluation_report.items() if key != "benchmark_rows"},
                 "model_30_evaluation_report.json",
@@ -457,6 +901,85 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
+def _log_evaluation_report_to_mlflow(
+    evaluation_report: dict[str, Any],
+    *,
+    model_id_uint: int,
+) -> None:
+    """Log Model 30 evaluation metrics and reward metadata to the active MLflow run."""
+    for metric_name, metric_value in evaluation_report["metrics"].items():
+        if metric_value is None:
+            continue
+        mlflow.log_metric(metric_name, float(metric_value))
+    primary_metric = str(evaluation_report.get("primary_metric") or DEFAULT_V2_PRIMARY_METRIC)
+    benchmark_spec_id = str(evaluation_report.get("benchmark_spec_id") or V2_BENCHMARK_SPEC_ID)
+    benchmark_version = str(evaluation_report.get("benchmark_version") or "v2")
+    metric_family = MODEL_30_V2_METRIC_FAMILY if benchmark_version == "v2" else "proportion"
+    mlflow.set_tag(PRIMARY_METRIC_TAG, _metric_name_from_mlflow_key(primary_metric))
+    mlflow.set_tag(MLFLOW_NAME_TAG, primary_metric)
+    mlflow.set_tag(SCORER_REF_TAG, _metric_name_from_mlflow_key(primary_metric))
+    mlflow.set_tag(BENCHMARK_SPEC_ID_TAG, benchmark_spec_id)
+    mlflow.set_tag("hokusai.metric_family", metric_family)
+    mlflow.set_tag("hokusai.model_id_uint", str(model_id_uint))
+    mlflow.set_tag("hokusai.model_30.benchmark_version", benchmark_version)
+    mlflow.set_tag("hokusai.model_30.primary_metric", primary_metric)
+    mlflow.set_tag("hokusai.model_30.holdout_hash", evaluation_report["holdout_dataset_sha256"])
+    mlflow.set_tag(
+        "hokusai.model_30.holdout_rows",
+        str(evaluation_report["row_counts"]["evaluated_rows"]),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.benchmark_rows",
+        str(evaluation_report["row_counts"]["benchmark_rows"]),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.quarantined_rows",
+        str(evaluation_report["row_counts"]["quarantined_rows"]),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.duration_positive_label_rows",
+        str(evaluation_report["duration_coverage"]["positive_label_rows"]),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.duration_positive_label_fraction",
+        str(evaluation_report["duration_coverage"]["positive_label_fraction"]),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.duration_mae_available",
+        str(evaluation_report["duration_coverage"]["duration_mae_available"]).lower(),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.scenario_counts",
+        json.dumps(evaluation_report.get("scenario_counts", {}), sort_keys=True),
+    )
+    mlflow.set_tag(
+        "hokusai.model_30.support_coverage",
+        json.dumps(evaluation_report.get("support_coverage", {}), sort_keys=True),
+    )
+    component_summary = _component_metric_summary(evaluation_report["metrics"])
+    if component_summary:
+        mlflow.set_tag(
+            "hokusai.model_30.component_summary",
+            json.dumps(component_summary, sort_keys=True),
+        )
+
+
+def _component_metric_summary(metrics: dict[str, Any]) -> dict[str, float]:
+    return {
+        metric_name: float(metrics[metric_name])
+        for metric_name in MODEL_30_V2_COMPONENT_METRICS
+        if metrics.get(metric_name) is not None
+    }
+
+
+def _metric_name_from_mlflow_key(metric_key: str) -> str:
+    if metric_key == DEFAULT_V2_PRIMARY_METRIC:
+        return "technical_task_router.benchmark_score/v2"
+    if metric_key == "technical_task_router.benchmark_score_v1":
+        return "technical_task_router.benchmark_score/v1"
+    return metric_key
+
+
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -480,6 +1003,44 @@ def parse_args() -> argparse.Namespace:
         "--evaluation-objectives",
         default="all",
         help="Routing objectives to evaluate: all or comma-separated objective names.",
+    )
+    parser.add_argument("--benchmark-version", choices=("v1", "v2"), default="v2")
+    parser.add_argument("--primary-metric")
+    parser.add_argument("--benchmark-spec-id")
+    parser.add_argument(
+        "--in-pool-coverage-gate",
+        choices=("off", "warn", "fail"),
+        default="warn",
+        help=(
+            "How to enforce selected-model evidence coverage after applying each "
+            "role's available candidate pool."
+        ),
+    )
+    parser.add_argument(
+        "--min-in-pool-evidence-coverage",
+        type=float,
+        default=DEFAULT_MIN_IN_POOL_EVIDENCE_COVERAGE,
+        help="Minimum overall per-role selected-label coverage required by the gate.",
+    )
+    parser.add_argument(
+        "--min-group-in-pool-evidence-coverage",
+        type=float,
+        default=DEFAULT_MIN_GROUP_IN_POOL_EVIDENCE_COVERAGE,
+        help="Minimum per-role coverage required within task_type/domain/complexity groups.",
+    )
+    parser.add_argument(
+        "--launch-priority-models",
+        default=str(DEFAULT_LAUNCH_PRIORITY_MODELS_PATH),
+        help=(
+            "Versioned JSON list of launch-priority coding models. Pass an empty "
+            "string to skip launch-priority diagnostics."
+        ),
+    )
+    parser.add_argument(
+        "--launch-priority-gate",
+        choices=("off", "warn", "fail"),
+        default="warn",
+        help="How to enforce direct evidence targets for launch-priority models.",
     )
     parser.add_argument(
         "--smoke",

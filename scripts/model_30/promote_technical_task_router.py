@@ -101,6 +101,14 @@ def _register_or_resolve_model(
             router_dataset=args.router_dataset,
             holdout_dataset=args.holdout_dataset,
             evaluation_objectives=args.evaluation_objectives,
+            benchmark_version=args.benchmark_version,
+            primary_metric=args.primary_metric,
+            benchmark_spec_id=args.benchmark_spec_id,
+            in_pool_coverage_gate=args.in_pool_coverage_gate,
+            min_in_pool_evidence_coverage=args.min_in_pool_evidence_coverage,
+            min_group_in_pool_evidence_coverage=args.min_group_in_pool_evidence_coverage,
+            launch_priority_models=args.launch_priority_models,
+            launch_priority_gate=args.launch_priority_gate,
             tracking_uri=args.tracking_uri,
             experiment_name=args.experiment_name,
             run_name=args.run_name,
@@ -365,6 +373,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--router-dataset")
     parser.add_argument("--holdout-dataset")
     parser.add_argument("--evaluation-objectives", default="all")
+    parser.add_argument("--benchmark-version", choices=("v1", "v2"), default="v2")
+    parser.add_argument("--primary-metric")
+    parser.add_argument("--benchmark-spec-id")
+    parser.add_argument("--in-pool-coverage-gate", choices=("off", "warn", "fail"), default="warn")
+    parser.add_argument("--min-in-pool-evidence-coverage", type=float, default=0.70)
+    parser.add_argument("--min-group-in-pool-evidence-coverage", type=float, default=0.50)
+    parser.add_argument(
+        "--launch-priority-models",
+        default="configs/model_30_launch_priority_models.v1.json",
+    )
+    parser.add_argument("--launch-priority-gate", choices=("off", "warn", "fail"), default="warn")
     parser.add_argument("--model-uri", help="Existing registered model URI to promote.")
     parser.add_argument("--tracking-uri", default=os.getenv("MLFLOW_TRACKING_URI"))
     parser.add_argument("--experiment-name")

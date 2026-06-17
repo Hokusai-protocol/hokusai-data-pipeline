@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hokusai.ai/schemas/model_30_model_lineage.v1.json",
+  "title": "Model 30 Model Lineage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "evidence_weight_default", "mappings"],
+  "properties": {
+    "schema_version": {
+      "const": "model_30_model_lineage/v1"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "evidence_weight_default": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1
+    },
+    "mappings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "deprecated_model_id",
+          "successor_model_ids",
+          "evidence_weight",
+          "family",
+          "rationale"
+        ],
+        "properties": {
+          "deprecated_model_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "successor_model_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "evidence_weight": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          },
+          "family": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}

@@ -30,6 +30,11 @@ from pydantic import ValidationError
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from src.api.schemas.token_mint import TokenMintResult
+from src.eip712.mint_authorization import (
+    MintRequestSigningConfig,
+    build_typed_data,
+    compute_digest,
+)
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import (
     DeltaOneMintOrchestrator,
@@ -116,6 +121,7 @@ def _valid_mint_request(**overrides) -> MintRequest:
         "candidate_commitment": _CANDIDATE_COMMITMENT,
         "attester_signatures": [_ATTESTER_SIGNATURE],
         "total_samples": 1000,
+        "deadline": 4102444800,
         "evaluation": _valid_evaluation(sample_size_candidate=1000),
         "contributors": [_valid_contributor()],
     }
@@ -959,6 +965,14 @@ def _make_decision(accepted: bool = True, reason: str = "accepted") -> DeltaOneD
     )
 
 
+def _make_model30_v2_decision() -> DeltaOneDecision:
+    decision = _make_decision(accepted=True)
+    decision.metric_name = "technical_task_router.benchmark_score/v2"
+    decision.model_id = "Technical Task Router"
+    decision.dataset_hash = "sha256:" + "e" * 64
+    return decision
+
+
 class _FakeMlflowClient:
     def __init__(self, run_metrics=None, initial_tags=None) -> None:
         self._run_metrics = run_metrics or {}
@@ -1074,6 +1088,60 @@ class TestOrchestratorPublishesOnAcceptance:
         eval_data = data["evaluation"]
         assert 0 <= eval_data["baseline_score_bps"] <= 10000
         assert 0 <= eval_data["new_score_bps"] <= 10000
+
+    def test_model30_v2_published_message_uses_continuous_metric_and_typed_data(
+        self, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(
+            "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+            Mock(),
+        )
+        fake_client = fakeredis.FakeRedis(decode_responses=True)
+        publisher = MintRequestPublisher(redis_client=fake_client)
+        decision = _make_model30_v2_decision()
+        spec = _make_spec_with_contributors(
+            contributors=[{"wallet_address": _WALLET_A, "weight_bps": 10000}],
+            model_id="Technical Task Router",
+            model_id_uint="30",
+            spec_id="technical_task_router.benchmark_score/v2",
+            eval_spec={
+                "primary_metric": {
+                    "name": "technical_task_router.benchmark_score/v2",
+                    "mlflow_name": "technical_task_router.benchmark_score_v2",
+                    "direction": "higher_is_better",
+                },
+                "metric_family": "continuous",
+                "guardrails": [],
+            },
+        )
+        orch, _, _ = _make_orchestrator_with_publisher(
+            decision,
+            publisher=publisher,
+            run_metrics={"technical_task_router.benchmark_score_v2": 0.81},
+        )
+
+        outcome = orch.process_evaluation_with_spec("run-cand", "run-base", spec)
+
+        assert outcome.status == "success"
+        raw = fake_client.lindex(QUEUE_NAME, 0)
+        msg = MintRequest.model_validate_json(raw)
+        assert msg.benchmark_spec_id == "technical_task_router.benchmark_score/v2"
+        assert msg.evaluation.metric_name == "technical_task_router.benchmark_score/v2"
+        assert msg.evaluation.metric_family == "continuous"
+        assert msg.evaluation.baseline_score_bps == 8100
+        assert msg.evaluation.new_score_bps == 8100
+        typed_data = build_typed_data(
+            msg,
+            MintRequestSigningConfig(
+                chain_id=31337,
+                verifying_contract="0x" + "55" * 20,
+            ),
+        )
+        assert typed_data["message"]["payload"]["anchors"]["metricName"] == (
+            "technical_task_router.benchmark_score/v2"
+        )
+        assert typed_data["message"]["payload"]["anchors"]["metricFamily"] == "continuous"
+        assert len(compute_digest(typed_data)) == 32
 
     def test_no_publish_when_no_publisher_configured(self, monkeypatch) -> None:
         monkeypatch.setattr(

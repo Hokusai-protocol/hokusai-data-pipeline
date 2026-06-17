@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "technical_task_router_row/v2",
+  "title": "TechnicalTaskRouterRowV2",
+  "description": "A single benchmark observation row for the Model 30 technical task router composite reward benchmark. The row records the task descriptor, benchmark scenario, allowed model pool, selected workflow models, budget, observed outcome, and metadata needed to compute technical_task_router.benchmark_score/v2 deterministically.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "row_id",
+    "benchmark_spec_id",
+    "eval_id",
+    "model_id",
+    "scenario",
+    "candidate_pool_id",
+    "task_descriptor",
+    "allowed_models",
+    "selected_models",
+    "max_cost_usd",
+    "actual_cost_usd",
+    "completed_successfully",
+    "scorer_ref",
+    "observed_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "title": "Schema Version",
+      "description": "Version sentinel for this row schema. Must be exactly \"technical_task_router_row/v2\".",
+      "type": "string",
+      "const": "technical_task_router_row/v2"
+    },
+    "row_id": {
+      "title": "Row ID",
+      "description": "Unique identifier for this observation row.",
+      "type": "string",
+      "minLength": 1
+    },
+    "benchmark_spec_id": {
+      "title": "Benchmark Spec ID",
+      "description": "Canonical benchmark spec ID. For the v2 reward benchmark this must be \"technical_task_router.benchmark_score/v2\".",
+      "type": "string",
+      "const": "technical_task_router.benchmark_score/v2"
+    },
+    "eval_id": {
+      "title": "Eval ID",
+      "description": "Evaluation run identifier.",
+      "type": "string",
+      "minLength": 1
+    },
+    "model_id": {
+      "title": "Model ID",
+      "description": "Hokusai model identifier for the router being evaluated.",
+      "type": "string",
+      "minLength": 1
+    },
+    "scenario": {
+      "title": "Benchmark Scenario",
+      "description": "Scenario taxonomy used by the composite benchmark. Components are computed from these declared scenario slices.",
+      "type": "string",
+      "enum": [
+        "production_pool",
+        "challenger_present",
+        "dominant_model_removed",
+        "low_budget",
+        "sparse_cell"
+      ]
+    },
+    "candidate_pool_id": {
+      "title": "Candidate Pool ID",
+      "description": "Stable identifier for the candidate pool transformation used for this row, such as production-2026-06, qwen-challenger-2026-06, or no-gpt-5.4-2026-06.",
+      "type": "string",
+      "minLength": 1
+    },
+    "task_descriptor": {
+      "title": "Task Descriptor",
+      "description": "Structured task descriptor supplied to the router. Expected fields include task_type, domain, complexity, and normalized tags, but the contract keeps descriptor contents extensible.",
+      "type": "object"
+    },
+    "allowed_models": {
+      "title": "Allowed Models",
+      "description": "Model identifiers the workflow is allowed to select for this task and scenario.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "selected_models": {
+      "title": "Selected Models",
+      "description": "Model identifiers selected by the predicted workflow configuration.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "selected_strategy": {
+      "title": "Selected Strategy",
+      "description": "Optional role-aware strategy emitted by the router. Cross-repo conformance tests should prefer this over selected_models when role identity matters.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "planner_model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "coder_model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reviewer_model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "routing_objective": {
+          "type": "string",
+          "enum": [
+            "lowest_cost",
+            "fastest_completion",
+            "highest_reliability"
+          ]
+        }
+      }
+    },
+    "max_cost_usd": {
+      "title": "Max Cost USD",
+      "description": "Per-sample budget in USD. The value must be greater than zero.",
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "actual_cost_usd": {
+      "title": "Actual Cost USD",
+      "description": "Observed workflow cost in USD.",
+      "type": "number",
+      "minimum": 0
+    },
+    "estimated_cost_usd": {
+      "title": "Estimated Cost USD",
+      "description": "Router-estimated workflow cost in USD. Used by diagnostic cost error scorers and does not directly affect the v2 reward score.",
+      "type": "number",
+      "minimum": 0
+    },
+    "actual_time_seconds": {
+      "title": "Actual Time Seconds",
+      "description": "Observed workflow duration in seconds. Null means duration is unknown or unavailable.",
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "estimated_duration_seconds": {
+      "title": "Estimated Duration Seconds",
+      "description": "Router-estimated workflow duration in seconds. Null means the model has no positive duration evidence for the strategy.",
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "estimated_success_under_budget": {
+      "title": "Estimated Success Under Budget",
+      "description": "Router-estimated probability that the selected strategy will complete successfully within budget. Used by diagnostic reliability calibration scorers.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "completed_successfully": {
+      "title": "Completed Successfully",
+      "description": "Whether the workflow completed the task successfully.",
+      "type": "boolean"
+    },
+    "scorer_ref": {
+      "title": "Scorer Ref",
+      "description": "Primary scorer registry ref for this benchmark row.",
+      "type": "string",
+      "const": "technical_task_router.benchmark_score/v2"
+    },
+    "observed_at": {
+      "title": "Observed At",
+      "description": "ISO 8601 UTC timestamp when this row was observed or computed.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "metadata": {
+      "title": "Metadata",
+      "description": "Arbitrary additional metadata for extensibility. Does not affect v2 metric computation unless explicitly adopted by a future schema version.",
+      "type": "object"
+    },
+    "neighbor_provenance": {
+      "title": "Neighbor Provenance",
+      "description": "Optional per-neighbor training provenance for attribution-capable eval runs. Persisted as structured JSON in per-row artifacts.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "row_id",
+          "submission_id",
+          "wallet",
+          "training_row_index",
+          "distance",
+          "weight"
+        ],
+        "properties": {
+          "row_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "submission_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "wallet": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^0x[0-9a-f]{40}$"
+          },
+          "training_row_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "distance": {
+            "type": "number",
+            "minimum": 0
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  }
+}
