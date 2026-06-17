@@ -310,3 +310,108 @@ def test_attribute_splits_weight_within_row_and_merges_same_wallet_slots() -> No
     assert report["contributors"][0]["raw_score"] == 0.75
     assert report["contributors"][0]["submission_ids"] == ["sub-a", "sub-b"]
     assert report["contributors"][1]["raw_score"] == 0.25
+
+
+def test_attribute_account_centric_neighbors() -> None:
+    baseline = _frame(
+        [{"row_id": "a", "completed_successfully": False, "neighbor_provenance": "[]"}]
+    )
+    candidate = _frame(
+        [
+            {
+                "row_id": "a",
+                "completed_successfully": True,
+                "neighbor_provenance": _encoded(
+                    [
+                        {"account_id": "user-1", "submission_id": "sub-a", "weight": 3.0},
+                        {"account_id": "user-2", "submission_id": "sub-b", "weight": 1.0},
+                    ]
+                ),
+            }
+        ]
+    )
+
+    report = attribute(
+        baseline,
+        candidate,
+        model_id="30",
+        baseline_run_id="base",
+        candidate_run_id="cand",
+        created_at="2026-06-05T00:00:00Z",
+    )
+
+    contributors = report["contributors"]
+    assert [c["account_id"] for c in contributors] == ["user-1", "user-2"]
+    assert all("wallet" not in c for c in contributors)
+    assert [c["weight_bps"] for c in contributors] == [7500, 2500]
+    jsonschema.validate(instance=report, schema=_schema())
+
+
+def test_attribute_account_with_wallet_preserved() -> None:
+    baseline = _frame(
+        [{"row_id": "a", "completed_successfully": False, "neighbor_provenance": "[]"}]
+    )
+    candidate = _frame(
+        [
+            {
+                "row_id": "a",
+                "completed_successfully": True,
+                "neighbor_provenance": _encoded(
+                    [
+                        {
+                            "account_id": "user-1",
+                            "wallet": "0x" + "1" * 40,
+                            "submission_id": "sub-a",
+                            "weight": 1.0,
+                        }
+                    ]
+                ),
+            }
+        ]
+    )
+
+    report = attribute(
+        baseline,
+        candidate,
+        model_id="30",
+        baseline_run_id="base",
+        candidate_run_id="cand",
+        created_at="2026-06-05T00:00:00Z",
+    )
+
+    contributor = report["contributors"][0]
+    assert contributor["account_id"] == "user-1"
+    assert contributor["wallet"] == "0x" + "1" * 40
+    jsonschema.validate(instance=report, schema=_schema())
+
+
+def test_attribute_skips_neighbors_without_any_identity() -> None:
+    baseline = _frame(
+        [{"row_id": "a", "completed_successfully": False, "neighbor_provenance": "[]"}]
+    )
+    candidate = _frame(
+        [
+            {
+                "row_id": "a",
+                "completed_successfully": True,
+                "neighbor_provenance": _encoded(
+                    [
+                        {"account_id": "user-1", "submission_id": "sub-a", "weight": 1.0},
+                        {"submission_id": "sub-x", "weight": 1.0},  # neither account_id nor wallet
+                    ]
+                ),
+            }
+        ]
+    )
+
+    report = attribute(
+        baseline,
+        candidate,
+        model_id="30",
+        baseline_run_id="base",
+        candidate_run_id="cand",
+        created_at="2026-06-05T00:00:00Z",
+    )
+
+    assert [c["account_id"] for c in report["contributors"]] == ["user-1"]
+    assert report["contributors"][0]["weight_bps"] == 10000
