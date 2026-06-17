@@ -11,7 +11,7 @@ import pytest
 
 from src.api.schemas.contribution import LifecycleReasonCode, LifecycleUpdatePayload, RowCounts
 from src.api.schemas.token_mint import TokenMintResult
-from src.api.services.auth_service_notifier import AuthServiceNotifier
+from src.api.services.auth_service_notifier import AuthServiceNotifier, WalletResolution
 from src.api.services.contribution_service import StoredContributionRecord
 from src.events.schemas import MintRequest, MintRequestContributor, MintRequestEvaluation
 
@@ -350,23 +350,102 @@ def test_notify_reward_entitlement_includes_claimable_vesting(
     assert post_mock.call_args.kwargs["json"]["vesting"]["claimable_amount"] == "25"
 
 
-def test_resolve_wallet_returns_none_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
-    notifier = AuthServiceNotifier(
+def _notifier() -> AuthServiceNotifier:
+    return AuthServiceNotifier(
         auth_service_url="https://auth.service.local",
         internal_token="secret-token",
         dry_run=False,
     )
+
+
+def test_resolve_wallet_verified_200(monkeypatch: pytest.MonkeyPatch) -> None:
+    get_mock = Mock(
+        return_value=Mock(
+            status_code=200,
+            json=Mock(
+                return_value={
+                    "wallet_address": "0xABC",
+                    "verified_at": "2026-06-17T00:00:00Z",
+                    "has_verified_wallet": True,
+                }
+            ),
+        )
+    )
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.get", get_mock)
+
+    result = _notifier().resolve_wallet(user_id="11111111-1111-1111-1111-111111111111")
+
+    assert result == WalletResolution(
+        resolved=True, has_verified_wallet=True, wallet_address="0xABC"
+    )
+    # user_id is a PATH param under the required /api/v1 prefix
+    assert get_mock.call_args.args[0] == (
+        "https://auth.service.local/api/v1/internal/users/"
+        "11111111-1111-1111-1111-111111111111/wallet"
+    )
+    assert get_mock.call_args.kwargs["headers"]["Authorization"] == "Bearer secret-token"
+
+
+def test_resolve_wallet_unverified_200_routes_to_escrow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    get_mock = Mock(
+        return_value=Mock(
+            status_code=200,
+            json=Mock(
+                return_value={
+                    "wallet_address": None,
+                    "verified_at": None,
+                    "has_verified_wallet": False,
+                }
+            ),
+        )
+    )
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.get", get_mock)
+
+    result = _notifier().resolve_wallet(user_id="11111111-1111-1111-1111-111111111111")
+
+    # definitive "no verified wallet" -> escrow path (HOK-2246), not an error/drop
+    assert result.resolved is True
+    assert result.has_verified_wallet is False
+    assert result.wallet_address is None
+
+
+def test_resolve_wallet_unresolved_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
     get_mock = Mock(return_value=Mock(status_code=404, text="missing"))
     monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.get", get_mock)
 
-    wallet = notifier.resolve_wallet(
-        user_id="11111111-1111-1111-1111-111111111111",
-        api_key_id="22222222-2222-2222-2222-222222222222",
-        service_id="svc-1",
-    )
+    result = _notifier().resolve_wallet(user_id="11111111-1111-1111-1111-111111111111")
 
-    assert wallet is None
+    assert result == WalletResolution(
+        resolved=False, has_verified_wallet=False, wallet_address=None
+    )
     assert get_mock.call_count == 1
+
+
+def test_resolve_wallet_unresolved_on_403(monkeypatch: pytest.MonkeyPatch) -> None:
+    get_mock = Mock(return_value=Mock(status_code=403, text="forbidden"))
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.get", get_mock)
+
+    result = _notifier().resolve_wallet(user_id="11111111-1111-1111-1111-111111111111")
+
+    assert result.resolved is False
+    assert get_mock.call_count == 1
+
+
+def test_resolve_wallet_dry_run_skips_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    notifier = AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="secret-token",
+        dry_run=True,
+    )
+    get_mock = Mock()
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.get", get_mock)
+
+    result = notifier.resolve_wallet(user_id="11111111-1111-1111-1111-111111111111")
+
+    assert result.resolved is False
+    assert get_mock.call_count == 0
 
 
 @pytest.mark.parametrize(
