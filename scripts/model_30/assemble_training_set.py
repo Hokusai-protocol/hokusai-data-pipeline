@@ -28,7 +28,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.api.services.auth_service_notifier import AuthServiceNotifier  # noqa: E402
+from src.api.services.auth_service_notifier import (  # noqa: E402
+    AuthServiceNotifier,
+    WalletResolution,
+)
 from src.api.services.contribution_service import (  # noqa: E402
     S3ContributionStore,
     StoredContributionRecord,
@@ -201,7 +204,7 @@ def build_validator(schema_path: Path) -> jsonschema.protocols.Validator:
 def resolve_wallet_for_record(
     record: StoredContributionRecord,
     notifier: AuthServiceNotifier,
-    cache: dict[tuple[str | None, str | None, str | None], str | None],
+    cache: dict[tuple[str | None, str | None, str | None], WalletResolution],
     report: dict[str, Any],
 ) -> str | None:
     auth = record.metadata.get("auth") if isinstance(record.metadata, dict) else None
@@ -220,7 +223,7 @@ def resolve_wallet_for_record(
             service_id=key[2],
         )
         report["wallet_resolution"]["requests"] += 1
-    wallet = cache[key]
+    wallet = cache[key].wallet_address
     if wallet is None:
         report["wallet_resolution"]["unresolved"] += 1
         return None
@@ -291,7 +294,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
     deduped_records, duplicates = dedup_by_submission_id(filtered_records)
     report["duplicates_dropped"] = duplicates
 
-    wallet_cache: dict[tuple[str | None, str | None, str | None], str | None] = {}
+    wallet_cache: dict[tuple[str | None, str | None, str | None], WalletResolution] = {}
     processed_submissions: list[ProcessedSubmission] = []
 
     for s3_key, record in deduped_records:

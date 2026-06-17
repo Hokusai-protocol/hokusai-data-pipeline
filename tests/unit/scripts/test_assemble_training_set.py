@@ -11,6 +11,7 @@ import jsonschema
 import pytest
 
 from scripts.model_30 import assemble_training_set as assembler
+from src.api.services.auth_service_notifier import WalletResolution
 
 # MLflow auth in production uses shared env such as `MLFLOW_TRACKING_TOKEN`.
 
@@ -51,10 +52,15 @@ class FakeNotifier:
         user_id: str | None,
         api_key_id: str | None = None,
         service_id: str | None = None,
-    ) -> str | None:
+    ) -> WalletResolution:
         key = (user_id, api_key_id, service_id)
         self.calls.append(key)
-        return self.wallets.get(key)
+        wallet = self.wallets.get(key)
+        return WalletResolution(
+            resolved=wallet is not None,
+            has_verified_wallet=wallet is not None,
+            wallet_address=wallet,
+        )
 
 
 def _valid_row(row_id: str) -> dict[str, Any]:

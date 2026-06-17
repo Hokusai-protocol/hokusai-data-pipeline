@@ -6,7 +6,9 @@ import json
 import logging
 import os
 import time
+from dataclasses import dataclass
 from typing import Any, Literal
+from urllib.parse import quote
 from uuid import UUID
 
 import httpx
@@ -22,9 +24,28 @@ LOGGER = logging.getLogger(__name__)
 _AUTH_ACCEPTED_PATH = "/internal/data-submissions/accepted"
 _AUTH_LIFECYCLE_PATH = "/internal/data-submissions/lifecycle-update"
 _AUTH_REWARD_ENTITLEMENT_PATH = "/internal/reward-entitlements"
-_AUTH_WALLET_RESOLUTION_PATH = "/internal/auth-context/wallet"
+# HOK-2243/2244: account -> verified-wallet resolver. user_id is a PATH param; the
+# /api/v1 prefix is required (the bare /internal/... path 404s on the deployed service).
+_AUTH_WALLET_RESOLUTION_PATH = "/api/v1/internal/users/{user_id}/wallet"
 _SUBMISSION_SOURCE = "hokusai_data_pipeline"
 _ENDPOINT_TEMPLATE = "/api/v1/models/{model_id}/contributions"
+
+
+@dataclass(frozen=True)
+class WalletResolution:
+    """Outcome of an account -> payout-wallet lookup against auth-service (HOK-2243).
+
+    - ``resolved=False``: auth gave no definitive answer (missing user_id, dry-run,
+      auth/token error, unknown user, timeout). Callers must NOT treat this as
+      "no wallet" — the contributor's disposition is unknown.
+    - ``resolved=True, has_verified_wallet=False``: the definitive "this account has
+      no verified wallet yet" signal -> route the reward to escrow (HOK-2246), never drop.
+    - ``resolved=True, has_verified_wallet=True``: use ``wallet_address`` as the recipient.
+    """
+
+    resolved: bool
+    has_verified_wallet: bool
+    wallet_address: str | None
 
 
 class RewardEntitlementContributor(BaseModel):
@@ -436,64 +457,63 @@ class AuthServiceNotifier:
         self: AuthServiceNotifier,
         *,
         user_id: str | None,
-        api_key_id: str | None = None,
-        service_id: str | None = None,
-    ) -> str | None:
-        """Resolve a wallet address from the auth-service auth-context lookup."""
+        api_key_id: str | None = None,  # noqa: ARG002 - accepted for caller/cache compatibility
+        service_id: str | None = None,  # noqa: ARG002 - resolver is keyed by user_id only
+    ) -> WalletResolution:
+        """Resolve an account's verified payout wallet via auth-service (HOK-2243/2244).
+
+        Calls ``GET /api/v1/internal/users/{user_id}/wallet`` with the shared internal
+        bearer token. ``api_key_id``/``service_id`` are accepted for caller compatibility
+        but unused: the deployed resolver is keyed solely by ``user_id`` (auth handles the
+        api_key->user_id seam internally). See ``WalletResolution`` for how callers branch.
+        """
+        unresolved = WalletResolution(
+            resolved=False, has_verified_wallet=False, wallet_address=None
+        )
+        if not user_id:
+            return unresolved
         if self.dry_run:
             LOGGER.info(
                 json.dumps(
-                    {
-                        "event": "auth_wallet_resolution_dry_run",
-                        "user_id": user_id,
-                        "api_key_id": api_key_id,
-                        "service_id": service_id,
-                    },
+                    {"event": "auth_wallet_resolution_dry_run", "user_id": user_id},
                     default=str,
                     sort_keys=True,
                 )
             )
-            return None
-
-        params = {
-            key: value
-            for key, value in {
-                "user_id": user_id,
-                "api_key_id": api_key_id,
-                "service_id": service_id,
-            }.items()
-            if value
-        }
-        if not params:
-            return None
+            return unresolved
 
         headers = {"Authorization": f"Bearer {self.internal_token}"}
-        url = f"{self.auth_service_url}{self.wallet_resolution_path}"
+        path = self.wallet_resolution_path.format(user_id=quote(str(user_id), safe=""))
+        url = f"{self.auth_service_url}{path}"
         for attempt in range(1, self.retry_attempts + 1):
             if attempt > 1:
                 time.sleep(2 ** (attempt - 2))
             try:
-                response = httpx.get(url, params=params, headers=headers, timeout=self.timeout)
+                response = httpx.get(url, headers=headers, timeout=self.timeout)
             except httpx.HTTPError:
                 continue
             except Exception:  # noqa: BLE001
-                return None
+                return unresolved
 
             if response.status_code == 200:
                 try:
-                    wallet = response.json().get("wallet_address")
+                    body = response.json()
                 except Exception:  # noqa: BLE001
-                    return None
-                if not isinstance(wallet, str):
-                    return None
-                return wallet
+                    return unresolved
+                wallet = body.get("wallet_address")
+                if wallet is not None and not isinstance(wallet, str):
+                    return unresolved
+                return WalletResolution(
+                    resolved=True,
+                    has_verified_wallet=bool(body.get("has_verified_wallet")),
+                    wallet_address=wallet,
+                )
 
-            if response.status_code in {404, 422}:
-                return None
             if response.status_code >= 500:
                 continue
-            return None
-        return None
+            # 401/403 (auth/token), 404 (unknown user), 422 (bad id): no definitive answer.
+            return unresolved
+        return unresolved
 
     def _parse_uuid(
         self: AuthServiceNotifier,
