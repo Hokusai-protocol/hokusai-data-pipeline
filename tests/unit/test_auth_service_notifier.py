@@ -86,6 +86,10 @@ def test_notifier_posts_payload_on_success(monkeypatch: pytest.MonkeyPatch) -> N
     notifier.notify_accepted(record=_record(), auth=_auth(), storage_ref="s3://bucket/key")
 
     assert post_mock.call_count == 1
+    # HOK-2256: must hit the deployed /api/v1 route (bare /internal/... 404s).
+    assert post_mock.call_args.args[0] == (
+        "https://auth.service.local/api/v1/internal/data-submissions/accepted"
+    )
     call_kwargs = post_mock.call_args.kwargs
     assert call_kwargs["headers"]["Authorization"] == "Bearer secret-token"
     assert call_kwargs["headers"]["Idempotency-Key"] == "idem-123"
