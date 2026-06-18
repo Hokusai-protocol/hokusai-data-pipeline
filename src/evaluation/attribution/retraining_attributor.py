@@ -16,12 +16,23 @@ EvalFn: TypeAlias = Callable[[Any, int], float]
 
 @dataclass(frozen=True)
 class Cohort:
-    """Attribution cohort used as a unit of retraining."""
+    """Attribution cohort used as a unit of retraining.
+
+    A cohort is identified by ``account_id`` (the Hokusai account / user_id, preferred) and/or
+    ``wallet``. Account-centric cohorts may carry ``account_id`` with no wallet (resolved at
+    mint, HOK-2244/2245); legacy cohorts carry only ``wallet``.
+    """
 
     cohort_id: str
     wallet: str | None
     submission_ids: tuple[str, ...]
     row_count: int
+    account_id: str | None = None
+
+
+def _cohort_identity(cohort: Cohort) -> str | None:
+    """Return the cohort's contributor identity: account_id if present, else wallet."""
+    return cohort.account_id if cohort.account_id is not None else cohort.wallet
 
 
 @dataclass(frozen=True)
@@ -75,7 +86,13 @@ def attribute(
         budget=config.budget,
     )
     all_group_ids = frozenset(group.group_id for group in groups)
-    all_wallets = sorted({cohort.wallet for cohort in ordered_cohorts if cohort.wallet is not None})
+    all_identities = sorted(
+        {
+            identity
+            for cohort in ordered_cohorts
+            if (identity := _cohort_identity(cohort)) is not None
+        }
+    )
     group_plan = [
         {
             "group_id": group.group_id,
@@ -146,7 +163,7 @@ def attribute(
         cohorts=ordered_cohorts,
         groups=groups,
         group_values=active_values,
-        wallets=all_wallets,
+        identities=all_identities,
     )
 
     method_details: dict[str, Any] = {
@@ -235,7 +252,12 @@ class _SubsetEvaluator:
 def _normalize_cohorts(cohorts: Sequence[Cohort]) -> list[Cohort]:
     ordered = sorted(
         cohorts,
-        key=lambda cohort: (cohort.cohort_id, cohort.wallet or "", cohort.row_count),
+        key=lambda cohort: (
+            cohort.cohort_id,
+            cohort.account_id or "",
+            cohort.wallet or "",
+            cohort.row_count,
+        ),
     )
     normalized: list[Cohort] = []
     seen_ids: set[str] = set()
@@ -249,6 +271,7 @@ def _normalize_cohorts(cohorts: Sequence[Cohort]) -> list[Cohort]:
                 wallet=cohort.wallet,
                 submission_ids=tuple(sorted(dict.fromkeys(cohort.submission_ids))),
                 row_count=cohort.row_count,
+                account_id=cohort.account_id,
             )
         )
     return normalized
@@ -355,67 +378,111 @@ def _tmc_shapley(
     )
 
 
-def _build_contributors(
+def _aggregate_identity_totals(
     *,
     cohorts: Sequence[Cohort],
     groups: Sequence[_Group],
     group_values: dict[str, float],
-    wallets: Sequence[str],
-) -> tuple[list[dict[str, Any]], str | None]:
-    if not wallets:
-        return [], None
-
-    wallet_totals: dict[str, dict[str, Any]] = {
-        wallet: {
-            "wallet": wallet,
+    identities: Sequence[str],
+) -> dict[str, dict[str, Any]]:
+    """Aggregate identity fields, submission ids, row counts, and raw lift per identity."""
+    identity_totals: dict[str, dict[str, Any]] = {
+        identity: {
+            "account_id": None,
+            "wallet": None,
             "submission_ids": set(),
             "rows_credited": 0,
             "raw_score": 0.0,
         }
-        for wallet in wallets
+        for identity in identities
     }
     for cohort in cohorts:
-        if cohort.wallet is None:
+        identity = _cohort_identity(cohort)
+        if identity is None:
             continue
-        aggregate = wallet_totals[cohort.wallet]
+        aggregate = identity_totals[identity]
+        # Preserve whichever identity fields the cohort carried (account-centric or wallet-only).
+        if aggregate["account_id"] is None and cohort.account_id is not None:
+            aggregate["account_id"] = cohort.account_id
+        if aggregate["wallet"] is None and cohort.wallet is not None:
+            aggregate["wallet"] = cohort.wallet
         aggregate["submission_ids"].update(cohort.submission_ids)
         aggregate["rows_credited"] += cohort.row_count
     for group in groups:
         raw_value = group_values.get(group.group_id, 0.0)
         attributable_rows = sum(
-            cohort.row_count for cohort in group.cohorts if cohort.wallet is not None
+            cohort.row_count for cohort in group.cohorts if _cohort_identity(cohort) is not None
         )
         for cohort in group.cohorts:
-            if cohort.wallet is None:
+            identity = _cohort_identity(cohort)
+            if identity is None:
                 continue
             share = raw_value
             if len(group.cohorts) > 1 and attributable_rows > 0:
                 share = raw_value * (cohort.row_count / attributable_rows)
-            wallet_totals[cohort.wallet]["raw_score"] += share
+            identity_totals[identity]["raw_score"] += share
+    return identity_totals
 
-    clamped = {wallet: max(0.0, float(wallet_totals[wallet]["raw_score"])) for wallet in wallets}
+
+def _contributor_item(
+    *, totals: dict[str, Any], raw_score: float, weight_bps: int
+) -> dict[str, Any]:
+    """Build one contributor entry, emitting only the identity fields that were present."""
+    item: dict[str, Any] = {
+        "submission_ids": sorted(totals["submission_ids"]),
+        "rows_credited": int(totals["rows_credited"]),
+        "raw_score": round(raw_score, 12),
+        "weight_bps": int(weight_bps),
+    }
+    # Emit only the identity fields present (wallet-only output unchanged).
+    if totals["wallet"] is not None:
+        item["wallet"] = totals["wallet"]
+    if totals["account_id"] is not None:
+        item["account_id"] = totals["account_id"]
+    return item
+
+
+def _build_contributors(
+    *,
+    cohorts: Sequence[Cohort],
+    groups: Sequence[_Group],
+    group_values: dict[str, float],
+    identities: Sequence[str],
+) -> tuple[list[dict[str, Any]], str | None]:
+    if not identities:
+        return [], None
+
+    identity_totals = _aggregate_identity_totals(
+        cohorts=cohorts,
+        groups=groups,
+        group_values=group_values,
+        identities=identities,
+    )
+
+    clamped = {
+        identity: max(0.0, float(identity_totals[identity]["raw_score"])) for identity in identities
+    }
     fallback: str | None = None
     if all(math.isclose(value, 0.0, abs_tol=1e-12) for value in clamped.values()):
         fallback = "equal_weight"
-        if wallets:
-            clamped = {wallet: 1.0 for wallet in wallets}
+        clamped = {identity: 1.0 for identity in identities}
 
     weight_bps = (
         _largest_remainder_bps(clamped)
         if any(clamped.values())
-        else {wallet: 0 for wallet in wallets}
+        else {identity: 0 for identity in identities}
     )
     contributors = [
-        {
-            "wallet": wallet,
-            "submission_ids": sorted(wallet_totals[wallet]["submission_ids"]),
-            "rows_credited": int(wallet_totals[wallet]["rows_credited"]),
-            "raw_score": round(clamped[wallet], 12),
-            "weight_bps": int(weight_bps[wallet]),
-        }
-        for wallet in wallets
+        _contributor_item(
+            totals=identity_totals[identity],
+            raw_score=clamped[identity],
+            weight_bps=weight_bps[identity],
+        )
+        for identity in identities
     ]
-    contributors.sort(key=lambda item: (-item["weight_bps"], item["wallet"]))
+    contributors.sort(
+        key=lambda item: (-item["weight_bps"], item.get("account_id") or item.get("wallet") or "")
+    )
     return contributors, fallback
 
 
