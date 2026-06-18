@@ -97,7 +97,8 @@ def _record_payload(
         "body_hash": f"hash-{submission_id}",
         "rows": rows,
         "metadata": {
-            "auth": {
+            # Matches the production submission shape (contribution_service writes auth_context).
+            "auth_context": {
                 "user_id": user_id,
                 "api_key_id": api_key_id,
                 "service_id": service_id,
