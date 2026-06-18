@@ -19,6 +19,7 @@ from src.cli.attestation import AttestationState
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator
 from src.evaluation.tags import (
+    PER_ROW_ARTIFACT_URI_TAG,
     WEIGHT_COMMITMENT_BASELINE_TAG,
     WEIGHT_COMMITMENT_CANDIDATE_TAG,
 )
@@ -654,3 +655,77 @@ def test_post_attach_baseline_drift_blocks_publish(monkeypatch, caplog) -> None:
         for record in caplog.records
     )
     assert redis_client.llen(QUEUE_NAME) == 0
+
+
+def _per_row_orchestrator() -> DeltaOneMintOrchestrator:
+    return DeltaOneMintOrchestrator(
+        evaluator=Mock(),
+        mint_hook=Mock(),
+        mlflow_client=_FakeMlflowClient(
+            run_metrics={},
+            initial_tags={PER_ROW_ARTIFACT_URI_TAG: "runs:/run-baseline/attribution"},
+        ),
+        mint_request_publisher=MintRequestPublisher(
+            redis_client=fakeredis.FakeRedis(decode_responses=True)
+        ),
+        reward_entitlement_notifier=_FakeRewardNotifier(),
+    )
+
+
+def test_load_attribution_report_builds_from_per_row_when_no_report_tag(monkeypatch) -> None:
+    import pandas as pd
+
+    from src.evaluation import deltaone_mint_orchestrator as orch_mod
+
+    candidate_frame = pd.DataFrame(
+        [
+            {
+                "row_id": "r0",
+                "completed_successfully": True,
+                "neighbor_provenance": json.dumps(
+                    [{"training_row_index": 0, "weight": 1.0, "account_id": "user-a"}]
+                ),
+            }
+        ]
+    )
+    baseline_frame = pd.DataFrame(
+        [{"row_id": "r0", "completed_successfully": False, "neighbor_provenance": "[]"}]
+    )
+
+    def _fake_read(uri: str):
+        return candidate_frame if "candidate" in uri else baseline_frame
+
+    monkeypatch.setattr(orch_mod, "_read_per_row_artifact", _fake_read)
+
+    orchestrator = _per_row_orchestrator()
+    report = orchestrator._load_attribution_report(
+        {PER_ROW_ARTIFACT_URI_TAG: "runs:/run-candidate/attribution"},
+        "run-candidate",
+        baseline_run_id="run-baseline",
+        model_id="model-a",
+    )
+
+    assert report is not None
+    assert [c["account_id"] for c in report["contributors"]] == ["user-a"]
+    assert report["candidate_run_id"] == "run-candidate"
+    assert report["baseline_run_id"] == "run-baseline"
+
+
+def test_load_attribution_report_returns_none_without_per_row_tags(monkeypatch) -> None:
+    from src.evaluation import deltaone_mint_orchestrator as orch_mod
+
+    monkeypatch.setattr(
+        orch_mod,
+        "_read_per_row_artifact",
+        lambda _uri: pytest.fail("should not read when candidate has no per-row tag"),
+    )
+
+    orchestrator = _per_row_orchestrator()
+    report = orchestrator._load_attribution_report(
+        {},  # candidate run has neither a report tag nor a per-row tag
+        "run-candidate",
+        baseline_run_id="run-baseline",
+        model_id="model-a",
+    )
+
+    assert report is None
