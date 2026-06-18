@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import sys
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +35,7 @@ from scripts.model_30.assemble_training_set import load_json  # noqa: E402
 from scripts.model_30.evaluate_technical_task_router import (  # noqa: E402
     DEFAULT_V2_PRIMARY_METRIC,
     V2_BENCHMARK_SPEC_ID,
+    _NeighborResolver,
     evaluate_model,
     parse_objectives,
 )
@@ -41,6 +43,7 @@ from src.eip712 import read_model_weight_head  # noqa: E402
 from src.evaluation.tags import (  # noqa: E402
     BENCHMARK_SPEC_ID_TAG,
     MLFLOW_NAME_TAG,
+    PER_ROW_ARTIFACT_URI_TAG,
     PRIMARY_METRIC_TAG,
     SCORER_REF_TAG,
     WEIGHT_COMMITMENT_BASELINE_TAG,
@@ -802,6 +805,12 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
     holdout_dataset = getattr(args, "holdout_dataset", None)
     if holdout_dataset:
         holdout_path = Path(holdout_dataset).expanduser().resolve()
+        training_manifest = getattr(args, "training_manifest", None)
+        neighbor_resolver = (
+            _NeighborResolver.from_manifest(Path(training_manifest).expanduser().resolve())
+            if training_manifest
+            else None
+        )
         evaluation_report = evaluate_model(
             local_model,
             model_id=MODEL_NAME,
@@ -810,6 +819,7 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
             benchmark_spec_id=getattr(args, "benchmark_spec_id", None),
             benchmark_version=getattr(args, "benchmark_version", "v2"),
             primary_metric=getattr(args, "primary_metric", None),
+            neighbor_resolver=neighbor_resolver,
         )
 
     with mlflow.start_run(run_name=args.run_name) as run:
@@ -856,6 +866,7 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
                 {key: value for key, value in evaluation_report.items() if key != "benchmark_rows"},
                 "model_30_evaluation_report.json",
             )
+            _log_attribution_per_row(evaluation_report)
         # Do not log a strict signature: the public adapter sends nullable
         # optional columns, and the router normalizes them inside predict().
         model_info = mlflow.pyfunc.log_model(
@@ -899,6 +910,46 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
         }
 
     return result
+
+
+def _attribution_per_row_frame(evaluation_report: dict[str, Any]) -> pd.DataFrame:
+    """Project the per-row eval outcomes the DeltaOne attribution builder consumes.
+
+    Keeps only ``row_id`` / ``completed_successfully`` / ``neighbor_provenance`` (the
+    last JSON-encoded so parquet round-trips the nested identity payload). The mint
+    orchestrator pairs the candidate and baseline runs' frames to derive contributors
+    (HOK-2245); identity (account_id/wallet) is already attached per-neighbor when the
+    run was evaluated with a ``_NeighborResolver``.
+    """
+    rows = evaluation_report.get("benchmark_rows") or []
+    return pd.DataFrame(
+        [
+            {
+                "row_id": row["row_id"],
+                "completed_successfully": bool(row.get("completed_successfully")),
+                "neighbor_provenance": json.dumps(
+                    row.get("neighbor_provenance") or [],
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            }
+            for row in rows
+        ],
+        columns=["row_id", "completed_successfully", "neighbor_provenance"],
+    )
+
+
+def _log_attribution_per_row(evaluation_report: dict[str, Any]) -> None:
+    """Log the attribution per-row artifact and record its URI on the active run."""
+    frame = _attribution_per_row_frame(evaluation_report)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        artifact_path = Path(tmpdir) / "attribution_per_row.parquet"
+        frame.to_parquet(artifact_path, index=False)
+        mlflow.log_artifact(str(artifact_path), artifact_path="attribution")
+    mlflow.set_tag(
+        PER_ROW_ARTIFACT_URI_TAG,
+        mlflow.get_artifact_uri("attribution/attribution_per_row.parquet"),
+    )
 
 
 def _log_evaluation_report_to_mlflow(
