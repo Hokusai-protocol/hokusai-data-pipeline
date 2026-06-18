@@ -1555,8 +1555,14 @@ def _extract_contributors_from_spec(spec: dict[str, Any]) -> list[dict[str, Any]
 def _extract_contributors_from_tags(tags: dict[str, str]) -> list[dict[str, Any]]:
     """Extract contributor wallet+weight records from MLflow run tags.
 
-    Checks the 'hokusai.contributors' tag (JSON array) for wallet_address entries.
-    Returns an empty list if the tag is absent or malformed.
+    Secondary fallback to the attribution report: reads the 'hokusai.contributors' tag (a JSON
+    array of {wallet_address, weight_bps} entries). Returns an empty list if the tag is absent
+    or malformed.
+
+    The DSPy role->contributor_id inference attribution lives under a different tag
+    ('hokusai.contributors_by_role', HOK-2245); a JSON object here is legacy data from before
+    that split and cannot produce mint contributors (no wallets/weights), so it is ignored with
+    a warning rather than silently dropped.
     """
     raw_json = tags.get("hokusai.contributors")
     if not raw_json:
@@ -1565,6 +1571,13 @@ def _extract_contributors_from_tags(tags: dict[str, str]) -> list[dict[str, Any]
         raw = json.loads(raw_json)
     except (json.JSONDecodeError, ValueError):
         logger.warning("event=invalid_contributors_tag value=%r; skipping", raw_json[:200])
+        return []
+    if isinstance(raw, dict):
+        logger.warning(
+            "event=contributors_tag_role_map_ignored value=%r; this is the deprecated "
+            "role->id shape, not a mint-contributor array; use the attribution report",
+            raw_json[:200],
+        )
         return []
     if not isinstance(raw, list):
         return []

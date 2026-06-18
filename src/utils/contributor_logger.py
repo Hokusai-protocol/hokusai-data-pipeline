@@ -13,7 +13,11 @@ ROLE_TO_TAG_KEY = {
 }
 CONTRIBUTOR_ID_TAG_KEY = "contributor_id"
 CONTRIBUTOR_ROLES_TAG_KEY = "hokusai.contributor.roles"
-CONTRIBUTORS_JSON_TAG_KEY = "hokusai.contributors"
+# Role->contributor_id inference attribution. Distinct from the mint-contributor list tag
+# (``hokusai.contributors``, a JSON array of {wallet_address, weight_bps} consumed by the
+# DeltaOne mint orchestrator). These were previously the same key, so the orchestrator silently
+# dropped this role-map; they are now separated (HOK-2245).
+CONTRIBUTORS_JSON_TAG_KEY = "hokusai.contributors_by_role"
 
 
 def _normalize_role(role: str) -> str:
@@ -27,7 +31,7 @@ class ContributorAttribution:
     contributors_by_role: dict[str, str] = field(default_factory=dict)
 
     @property
-    def primary_contributor_id(self) -> str | None:
+    def primary_contributor_id(self: ContributorAttribution) -> str | None:
         """Return a deterministic primary contributor ID."""
         for preferred_role in ("prompt_author", "training_data_uploader", "human_labeler"):
             contributor_id = self.contributors_by_role.get(preferred_role)
@@ -39,7 +43,7 @@ class ContributorAttribution:
             return self.contributors_by_role[first_role]
         return None
 
-    def to_mlflow_tags(self) -> dict[str, str]:
+    def to_mlflow_tags(self: ContributorAttribution) -> dict[str, str]:
         """Convert attribution payload to MLflow tag keys."""
         tags: dict[str, str] = {}
 
@@ -58,7 +62,7 @@ class ContributorAttribution:
 
         return tags
 
-    def to_metadata(self) -> dict[str, Any]:
+    def to_metadata(self: ContributorAttribution) -> dict[str, Any]:
         """Convert attribution payload to execution result metadata."""
         return {
             "primary_contributor_id": self.primary_contributor_id,

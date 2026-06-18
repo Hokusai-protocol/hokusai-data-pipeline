@@ -1,5 +1,6 @@
 """Unit tests for contributor attribution utilities."""
 
+import json
 from uuid import uuid4
 
 import pytest
@@ -34,6 +35,14 @@ def test_build_contributor_attribution_from_explicit_inputs() -> None:
     assert tags["hokusai.contributor.prompt_author_id"] == "author-1"
     assert tags["hokusai.contributor.training_data_uploader_id"] == "uploader-1"
     assert tags["hokusai.contributor.human_labeler_id"] == "labeler-1"
+    # The role->id map is published under its own tag, never under the mint-contributor
+    # array tag `hokusai.contributors` (HOK-2245 collision fix).
+    assert "hokusai.contributors" not in tags
+    assert json.loads(tags["hokusai.contributors_by_role"]) == {
+        "prompt_author": "author-1",
+        "training_data_uploader": "uploader-1",
+        "human_labeler": "labeler-1",
+    }
 
 
 def test_build_contributor_attribution_merges_from_inputs() -> None:
