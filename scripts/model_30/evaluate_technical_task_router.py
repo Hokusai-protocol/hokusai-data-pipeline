@@ -122,6 +122,7 @@ class _NeighborBlock:
     row_end: int
     submission_id: str
     wallet: str | None
+    account_id: str | None
 
 
 class _NeighborResolver:
@@ -143,6 +144,9 @@ class _NeighborResolver:
                 row_end=int(block["row_end"]),
                 submission_id=str(block["submission_id"]),
                 wallet=str(block["wallet"]) if block.get("wallet") is not None else None,
+                account_id=str(block["account_id"])
+                if block.get("account_id") is not None
+                else None,
             )
             for block in manifest.get("blocks", [])
         ]
@@ -162,6 +166,7 @@ class _NeighborResolver:
             "row_id": f"{block.submission_id}:{row_offset}",
             "submission_id": block.submission_id,
             "wallet": block.wallet,
+            "account_id": block.account_id,
         }
 
 
