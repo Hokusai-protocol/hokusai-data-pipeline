@@ -140,30 +140,52 @@ def _load_manifest(path: Path) -> dict[str, Any]:
     return dict(manifest)
 
 
+def _block_identity(block: dict[str, Any]) -> tuple[str | None, str | None, str | None]:
+    """Return (identity, account_id, wallet) for a manifest block.
+
+    Identity is the account_id (preferred) or the wallet; account-centric manifests may carry
+    account_id with no wallet (resolved at mint, HOK-2244/2245). Blocks with neither are not
+    attributable.
+    """
+    account_id = block.get("account_id")
+    account_id = str(account_id) if account_id is not None else None
+    wallet = block.get("wallet")
+    wallet = str(wallet) if wallet is not None else None
+    identity = account_id if account_id is not None else wallet
+    return identity, account_id, wallet
+
+
 def _build_cohorts(manifest: dict[str, Any]) -> list[Cohort]:
     grouped: dict[str, dict[str, Any]] = {}
     for block in manifest.get("blocks", []):
-        wallet = block.get("wallet")
-        if wallet is None:
+        identity, account_id, wallet = _block_identity(block)
+        if identity is None:
             continue
         bucket = grouped.setdefault(
-            str(wallet),
+            identity,
             {
+                "account_id": account_id,
+                "wallet": wallet,
                 "submission_ids": set(),
                 "row_count": 0,
             },
         )
+        if bucket["account_id"] is None and account_id is not None:
+            bucket["account_id"] = account_id
+        if bucket["wallet"] is None and wallet is not None:
+            bucket["wallet"] = wallet
         bucket["submission_ids"].add(str(block["submission_id"]))
         bucket["row_count"] += int(block["row_count"])
 
     return [
         Cohort(
-            cohort_id=wallet,
-            wallet=wallet,
+            cohort_id=identity,
+            wallet=bucket["wallet"],
             submission_ids=tuple(sorted(bucket["submission_ids"])),
             row_count=int(bucket["row_count"]),
+            account_id=bucket["account_id"],
         )
-        for wallet, bucket in sorted(grouped.items())
+        for identity, bucket in sorted(grouped.items())
     ]
 
 
@@ -209,7 +231,7 @@ class _Model30SubsetTrainer:
         self._k_neighbors = k_neighbors
         self._real_training = real_training
         self._tempdirs: list[tempfile.TemporaryDirectory[str]] = []
-        self._wallet_by_row = _wallet_by_row_index(blocks=blocks, row_count=len(dataset_rows))
+        self._identity_by_row = _identity_by_row_index(blocks=blocks, row_count=len(dataset_rows))
         self.total_rows_evaluated = int(pd.read_csv(holdout_path).shape[0])
 
     def __enter__(self: _Model30SubsetTrainer) -> _Model30SubsetTrainer:
@@ -238,7 +260,7 @@ class _Model30SubsetTrainer:
         filtered_rows = [
             row
             for index, row in enumerate(self._dataset_rows)
-            if self._wallet_by_row[index] is None or self._wallet_by_row[index] in included_ids
+            if self._identity_by_row[index] is None or self._identity_by_row[index] in included_ids
         ]
         tempdir = tempfile.TemporaryDirectory(prefix="attribute-retraining-")
         self._tempdirs.append(tempdir)
@@ -272,8 +294,8 @@ class _Model30SubsetTrainer:
         return float(report["metrics"][PRIMARY_METRIC])
 
 
-def _wallet_by_row_index(*, blocks: list[dict[str, Any]], row_count: int) -> list[str | None]:
-    wallets: list[str | None] = [None] * row_count
+def _identity_by_row_index(*, blocks: list[dict[str, Any]], row_count: int) -> list[str | None]:
+    identities: list[str | None] = [None] * row_count
     for block in blocks:
         start = int(block["row_start"])
         end = int(block["row_end"])
@@ -281,10 +303,10 @@ def _wallet_by_row_index(*, blocks: list[dict[str, Any]], row_count: int) -> lis
             raise SystemExit(
                 f"manifest block row range [{start}, {end}] is outside dataset (rows={row_count})",
             )
-        wallet = block.get("wallet")
+        identity, _account_id, _wallet = _block_identity(block)
         for index in range(start, end + 1):
-            wallets[index] = None if wallet is None else str(wallet)
-    return wallets
+            identities[index] = identity
+    return identities
 
 
 if __name__ == "__main__":
