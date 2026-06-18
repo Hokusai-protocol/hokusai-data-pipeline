@@ -607,6 +607,12 @@ class TestExtractContributorsFromTags:
     def test_malformed_json_returns_empty(self) -> None:
         assert _extract_contributors_from_tags({"hokusai.contributors": "not-json{{"}) == []
 
+    def test_legacy_role_map_object_is_ignored(self) -> None:
+        # Deprecated DSPy role->id shape (now under hokusai.contributors_by_role); the mint
+        # reader must not treat it as a contributor array.
+        tags = {"hokusai.contributors": json.dumps({"prompt_author": "user-123"})}
+        assert _extract_contributors_from_tags(tags) == []
+
     def test_preserves_submission_metadata(self) -> None:
         tags = {
             "hokusai.contributors": json.dumps(
