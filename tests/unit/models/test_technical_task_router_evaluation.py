@@ -289,6 +289,7 @@ def test_build_benchmark_rows_resolves_neighbor_provenance(tmp_path: Path) -> No
                 "blocks": [
                     {
                         "submission_id": "sub-a",
+                        "account_id": "user-a",
                         "wallet": "0x" + "1" * 40,
                         "s3_key": "s3://bucket/a",
                         "row_start": 0,
@@ -329,8 +330,10 @@ def test_build_benchmark_rows_resolves_neighbor_provenance(tmp_path: Path) -> No
     provenance = rows[0]["neighbor_provenance"]
     assert provenance[0]["row_id"] == "sub-a:0"
     assert provenance[0]["submission_id"] == "sub-a"
+    assert provenance[0]["account_id"] == "user-a"
     assert provenance[0]["wallet"] == "0x" + "1" * 40
     assert provenance[1]["row_id"] == "sub-b:0"
+    assert provenance[1]["account_id"] is None  # block has no account_id
 
 
 def test_evaluate_model_v2_default_emits_scenarios_and_component_metrics(
