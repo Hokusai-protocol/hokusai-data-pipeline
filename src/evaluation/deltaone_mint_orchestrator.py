@@ -47,6 +47,7 @@ from src.evaluation.tags import (
     ACTUAL_COST_TAG,
     ATTRIBUTION_REPORT_ARTIFACT_URI_TAG,
     EVAL_SPEC_ID_TAG,
+    PER_ROW_ARTIFACT_URI_TAG,
     PROJECTED_COST_TAG,
     WEIGHT_COMMITMENT_BASELINE_TAG,
     WEIGHT_COMMITMENT_CANDIDATE_TAG,
@@ -368,7 +369,12 @@ class DeltaOneMintOrchestrator:
             model_id=decision.model_id,
         )
 
-        attribution_report = self._load_attribution_report(candidate_tags, decision.run_id)
+        attribution_report = self._load_attribution_report(
+            candidate_tags,
+            decision.run_id,
+            baseline_run_id=decision.baseline_run_id,
+            model_id=decision.model_id,
+        )
         contributors = self._resolve_contributors(
             candidate_tags=candidate_tags,
             candidate_run_id=decision.run_id,
@@ -534,7 +540,12 @@ class DeltaOneMintOrchestrator:
             model_id=decision.model_id,
         )
 
-        attribution_report = self._load_attribution_report(candidate_tags, decision.run_id)
+        attribution_report = self._load_attribution_report(
+            candidate_tags,
+            decision.run_id,
+            baseline_run_id=decision.baseline_run_id,
+            model_id=decision.model_id,
+        )
         contributors = self._resolve_contributors(
             candidate_tags=candidate_tags,
             candidate_run_id=decision.run_id,
@@ -566,16 +577,86 @@ class DeltaOneMintOrchestrator:
         self: DeltaOneMintOrchestrator,
         candidate_tags: dict[str, str],
         run_id: str,
+        *,
+        baseline_run_id: str | None = None,
+        model_id: str | None = None,
     ) -> dict[str, Any] | None:
         try:
-            return self._attribution_report_loader(candidate_tags)
+            report = self._attribution_report_loader(candidate_tags)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "event=attribution_report_load_failed run_id=%s error=%s",
                 run_id,
                 exc,
             )
+            report = None
+        if report is not None:
+            return report
+        # Fallback (HOK-2245): no pre-built report tag, so assemble the report in-process
+        # from the candidate and baseline per-row artifacts. The orchestrator is the only
+        # stage that holds both run ids, so it is where the account-centric report is built.
+        if not baseline_run_id:
             return None
+        try:
+            return self._build_attribution_report_from_per_row(
+                candidate_tags=candidate_tags,
+                candidate_run_id=run_id,
+                baseline_run_id=baseline_run_id,
+                model_id=model_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "event=attribution_report_build_failed run_id=%s baseline_run_id=%s error=%s",
+                run_id,
+                baseline_run_id,
+                exc,
+            )
+            return None
+
+    def _build_attribution_report_from_per_row(
+        self: DeltaOneMintOrchestrator,
+        *,
+        candidate_tags: dict[str, str],
+        candidate_run_id: str,
+        baseline_run_id: str,
+        model_id: str | None,
+    ) -> dict[str, Any] | None:
+        """Assemble an attribution report from paired candidate/baseline per-row artifacts."""
+        candidate_uri = candidate_tags.get(PER_ROW_ARTIFACT_URI_TAG)
+        if not candidate_uri:
+            return None
+        baseline_run = self._client.get_run(baseline_run_id)
+        baseline_tags = getattr(getattr(baseline_run, "data", None), "tags", None) or {}
+        baseline_uri = baseline_tags.get(PER_ROW_ARTIFACT_URI_TAG)
+        if not baseline_uri:
+            logger.warning(
+                "event=attribution_per_row_missing run_id=%s baseline_run_id=%s",
+                candidate_run_id,
+                baseline_run_id,
+            )
+            return None
+        candidate_per_row = _read_per_row_artifact(candidate_uri)
+        baseline_per_row = _read_per_row_artifact(baseline_uri)
+        if candidate_per_row is None or baseline_per_row is None:
+            return None
+        from src.evaluation.attribution.neighbor_provenance import attribute  # noqa: PLC0415
+
+        report = attribute(
+            baseline_per_row,
+            candidate_per_row,
+            model_id=str(model_id or ""),
+            baseline_run_id=baseline_run_id,
+            candidate_run_id=candidate_run_id,
+            created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        )
+        logger.info(
+            "event=attribution_report_built_from_per_row run_id=%s baseline_run_id=%s "
+            "contributors=%d",
+            candidate_run_id,
+            baseline_run_id,
+            len(report.get("contributors", [])),
+        )
+        return report
 
     def _resolve_contributors(
         self: DeltaOneMintOrchestrator,
@@ -1488,6 +1569,26 @@ def _extract_contributors_from_tags(tags: dict[str, str]) -> list[dict[str, Any]
     if not isinstance(raw, list):
         return []
     return _normalize_contributor_list(raw)
+
+
+def _read_per_row_artifact(uri: str) -> Any | None:
+    """Download and read a per-row eval parquet artifact into a DataFrame."""
+    try:
+        import mlflow  # noqa: PLC0415
+        import pandas as pd  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_path = mlflow.artifacts.download_artifacts(
+                artifact_uri=uri,
+                dst_path=tmpdir,
+            )
+            artifact_path = Path(local_path)
+            if artifact_path.is_dir():
+                artifact_path = artifact_path / "attribution_per_row.parquet"
+            return pd.read_parquet(artifact_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("event=per_row_artifact_load_failed uri=%s error=%s", uri, exc)
+        return None
 
 
 def _load_attribution_report_from_artifact(uri: str) -> dict[str, Any] | None:
