@@ -18,6 +18,7 @@ from src.api.schemas.token_mint import TokenMintResult
 from src.cli.attestation import AttestationState
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator
+from src.evaluation.event_payload import EventPayloadError
 from src.evaluation.tags import (
     PER_ROW_ARTIFACT_URI_TAG,
     WEIGHT_COMMITMENT_BASELINE_TAG,
@@ -655,6 +656,46 @@ def test_post_attach_baseline_drift_blocks_publish(monkeypatch, caplog) -> None:
         for record in caplog.records
     )
     assert redis_client.llen(QUEUE_NAME) == 0
+
+
+def test_autosign_disabled_by_default(monkeypatch) -> None:
+    from src.evaluation.deltaone_mint_orchestrator import _autosign_attestation_signatures
+
+    monkeypatch.delenv("MINT_ATTESTER_AUTOSIGN", raising=False)
+    assert _autosign_attestation_signatures(b"\x11" * 32, run_id="run-candidate") is None
+
+
+def test_autosign_env_custody_signs_and_recovers(monkeypatch) -> None:
+    from eth_keys import keys
+
+    from src.api.services.signer_custody import address_for_private_key
+    from src.evaluation.deltaone_mint_orchestrator import _autosign_attestation_signatures
+
+    private_key = "0x" + "cd" * 32
+    digest = b"\x22" * 32
+    monkeypatch.setenv("MINT_ATTESTER_AUTOSIGN", "true")
+    monkeypatch.setenv("SIGNER_CUSTODY_MODE", "env")
+    monkeypatch.setenv("MINT_ATTESTER_PRIVATE_KEY", private_key)
+
+    signatures = _autosign_attestation_signatures(digest, run_id="run-candidate")
+
+    assert signatures is not None and len(signatures) == 1
+    raw = bytes.fromhex(signatures[0].removeprefix("0x"))
+    recovered = keys.Signature(
+        vrs=(raw[64] - 27, int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:64], "big"))
+    ).recover_public_key_from_msg_hash(digest)
+    assert "0x" + recovered.to_canonical_address().hex() == address_for_private_key(private_key)
+
+
+def test_autosign_env_custody_requires_private_key(monkeypatch) -> None:
+    from src.evaluation.deltaone_mint_orchestrator import _autosign_attestation_signatures
+
+    monkeypatch.setenv("MINT_ATTESTER_AUTOSIGN", "true")
+    monkeypatch.setenv("SIGNER_CUSTODY_MODE", "env")
+    monkeypatch.delenv("MINT_ATTESTER_PRIVATE_KEY", raising=False)
+
+    with pytest.raises(EventPayloadError, match="MINT_ATTESTER_PRIVATE_KEY"):
+        _autosign_attestation_signatures(b"\x33" * 32, run_id="run-candidate")
 
 
 def _per_row_orchestrator() -> DeltaOneMintOrchestrator:
