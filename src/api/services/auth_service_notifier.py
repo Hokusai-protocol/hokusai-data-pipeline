@@ -60,6 +60,10 @@ class RewardEntitlementContributor(BaseModel):
     submission_id: str | None = Field(default=None, alias="submissionId")
     contribution_batch_id: str | None = Field(default=None, alias="contributionBatchId")
     contributor_id: str | None = Field(default=None, alias="contributorId")
+    # "wallet" (direct payout to wallet_address) or "escrow" (wallet_address is the
+    # PendingClaimsEscrow; contributor_id is the account whose tranche to release on wallet
+    # verification, HOK-2244/2246/2270). Explicit so auth never has to match the escrow address.
+    recipient_kind: str = Field(default="wallet", alias="recipientKind")
 
 
 class RewardEntitlementPayload(BaseModel):
@@ -136,8 +140,16 @@ class AuthServiceNotifier:
         mint_request: MintRequest,
         status: Literal["pending", "claimable"],
         mint_result: TokenMintResult | None = None,
+        recipient_kinds: dict[str, str] | None = None,
     ) -> tuple[bool, str | None]:
-        """Post a reward entitlement event to auth-service."""
+        """Post a reward entitlement event to auth-service.
+
+        ``recipient_kinds`` maps a contributor ``wallet_address`` to its recipient kind
+        ("wallet" or "escrow"), threaded from the orchestrator's mint-time routing decision
+        (HOK-2270). Absent/unknown wallets default to "wallet", so auth never has to match the
+        escrow address itself.
+        """
+        kinds = recipient_kinds or {}
         vesting_payload = mint_result.vesting_payload() if mint_result is not None else None
         payload = RewardEntitlementPayload(
             status=status,
@@ -155,6 +167,7 @@ class AuthServiceNotifier:
                     submission_id=contributor.submission_id,
                     contribution_batch_id=contributor.contribution_batch_id,
                     contributor_id=contributor.contributor_id,
+                    recipient_kind=kinds.get(contributor.wallet_address, "wallet"),
                 )
                 for contributor in mint_request.contributors
             ],
