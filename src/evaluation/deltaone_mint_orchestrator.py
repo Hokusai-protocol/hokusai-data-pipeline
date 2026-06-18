@@ -1061,6 +1061,12 @@ class DeltaOneMintOrchestrator:
             failure_event = None
             failure_detail = None
         if failure_event is not None:
+            autosigned = _autosign_attestation_signatures(
+                compute_digest(typed_data),
+                run_id=decision.run_id,
+            )
+            if autosigned is not None:
+                return _verify_attestation_state(typed_data, signatures=autosigned)
             if _attester_signature_required():
                 logger.error("event=%s run_id=%s", failure_event, decision.run_id)
                 raise _mint_request_signing_error(
@@ -1994,6 +2000,67 @@ def _load_mint_authorization_config() -> MintRequestSigningConfig:
 
 def _attester_signature_required() -> bool:
     return (os.getenv("MINT_REQUIRE_ATTESTER_SIGNATURE") or "").strip().lower() != "false"
+
+
+def _autosign_enabled() -> bool:
+    return (os.getenv("MINT_ATTESTER_AUTOSIGN") or "").strip().lower() == "true"
+
+
+def _autosign_attestation_signatures(
+    digest: bytes,
+    *,
+    run_id: str,
+) -> list[str] | None:
+    """Auto-sign the publish-time digest with the configured custody backend.
+
+    Returns ``None`` when autosign is disabled (the default), so the manual ``attest attach``
+    ceremony remains the path unless ``MINT_ATTESTER_AUTOSIGN=true`` is set explicitly. The
+    produced signature is still verified against the on-chain attester registry by the caller;
+    env custody (a local key) is rejected in staging/production by the signer custody layer, so
+    autosign is for testnet/canary.
+    """
+    if not _autosign_enabled():
+        return None
+    from src.api.services.signer_custody import (  # noqa: PLC0415
+        KMSSignerConfig,
+        SignerCustodyMode,
+        address_for_private_key,
+        resolve_custody_mode,
+        sign_attestation_digest,
+    )
+
+    mode = resolve_custody_mode()
+    if mode is SignerCustodyMode.ENV:
+        private_key = (os.getenv("MINT_ATTESTER_PRIVATE_KEY") or "").strip()
+        if not private_key:
+            raise _mint_request_signing_error(
+                "MINT_ATTESTER_AUTOSIGN=true with env custody requires MINT_ATTESTER_PRIVATE_KEY"
+            )
+        signature = sign_attestation_digest(digest, mode=mode, private_key=private_key)
+        signer = address_for_private_key(private_key)
+    else:
+        key_id = (os.getenv("MINT_ATTESTER_KMS_KEY_ID") or "").strip()
+        region = (os.getenv("MINT_ATTESTER_KMS_REGION") or os.getenv("AWS_REGION") or "").strip()
+        if not key_id or not region:
+            raise _mint_request_signing_error(
+                "MINT_ATTESTER_AUTOSIGN=true with kms custody requires "
+                "MINT_ATTESTER_KMS_KEY_ID and a region"
+            )
+        expected_address = (os.getenv("MINT_ATTESTER_ADDRESS") or "").strip() or None
+        signature = sign_attestation_digest(
+            digest,
+            mode=mode,
+            kms_config=KMSSignerConfig(key_id=key_id, region=region),
+            expected_address=expected_address,
+        )
+        signer = expected_address or "kms"
+    logger.info(
+        "event=mint_authorization_autosigned run_id=%s mode=%s signer=%s",
+        run_id,
+        mode.value,
+        signer,
+    )
+    return [signature]
 
 
 def _mint_request_signing_error(message: str) -> EventPayloadError:
