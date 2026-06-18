@@ -15,9 +15,11 @@ import pytest
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from src.api.schemas.token_mint import TokenMintResult
+from src.api.services.auth_service_notifier import WalletResolution
 from src.cli.attestation import AttestationState
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator
+from src.evaluation.event_payload import EventPayloadError
 from src.evaluation.tags import (
     PER_ROW_ARTIFACT_URI_TAG,
     WEIGHT_COMMITMENT_BASELINE_TAG,
@@ -729,3 +731,101 @@ def test_load_attribution_report_returns_none_without_per_row_tags(monkeypatch) 
     )
 
     assert report is None
+
+
+class _FakeWalletResolver:
+    """Auth notifier stub exposing resolve_wallet keyed by user_id (HOK-2244)."""
+
+    def __init__(self, verified_wallets: dict[str, str]) -> None:
+        self._verified = verified_wallets
+
+    def resolve_wallet(self, *, user_id, api_key_id=None, service_id=None) -> WalletResolution:
+        wallet = self._verified.get(user_id)
+        if wallet:
+            return WalletResolution(resolved=True, has_verified_wallet=True, wallet_address=wallet)
+        return WalletResolution(resolved=True, has_verified_wallet=False, wallet_address=None)
+
+
+def _resolver_orchestrator(verified_wallets: dict[str, str]) -> DeltaOneMintOrchestrator:
+    return DeltaOneMintOrchestrator(
+        evaluator=Mock(),
+        mint_hook=Mock(),
+        mlflow_client=_FakeMlflowClient(run_metrics={}),
+        mint_request_publisher=MintRequestPublisher(
+            redis_client=fakeredis.FakeRedis(decode_responses=True)
+        ),
+        reward_entitlement_notifier=_FakeWalletResolver(verified_wallets),
+    )
+
+
+def test_resolve_contributor_wallets_mixed_wallet_and_escrow(monkeypatch) -> None:
+    escrow = "0x" + "ee" * 20
+    monkeypatch.setenv("PENDING_CLAIMS_ESCROW_ADDRESS", escrow)
+    orchestrator = _resolver_orchestrator({"user-a": "0x" + "aa" * 20})
+
+    resolved = orchestrator._resolve_contributor_wallets(
+        [
+            {"account_id": "user-a", "weight_bps": 6000, "submission_id": "s1"},
+            {"account_id": "user-b", "weight_bps": 4000},  # no verified wallet -> escrow
+        ],
+        run_id="run-x",
+    )
+
+    by_id = {c["contributor_id"]: c for c in resolved}
+    assert by_id["user-a"]["wallet_address"] == "0x" + "aa" * 20
+    assert by_id["user-a"]["submission_id"] == "s1"
+    assert by_id["user-b"]["wallet_address"] == escrow  # routed to escrow, not dropped
+    assert len(resolved) == 2
+    assert all("account_id" not in c for c in resolved)  # mapped to contributor_id
+
+
+def test_resolve_contributor_wallets_keeps_legacy_wallet() -> None:
+    orchestrator = _resolver_orchestrator({})  # resolver would say "unverified"
+    legacy = [{"wallet_address": "0x" + "bb" * 20, "weight_bps": 10000}]
+
+    # A contributor that already carries a wallet (lineage report/spec/tag) is untouched.
+    assert orchestrator._resolve_contributor_wallets(legacy, run_id="run-x") == legacy
+
+
+def test_resolve_contributor_wallets_requires_identity() -> None:
+    orchestrator = _resolver_orchestrator({})
+    with pytest.raises(EventPayloadError, match="neither wallet_address nor account_id"):
+        orchestrator._resolve_contributor_wallets([{"weight_bps": 10000}], run_id="run-x")
+
+
+def test_resolve_contributor_wallets_escrow_unset_raises_not_drops(monkeypatch) -> None:
+    monkeypatch.delenv("PENDING_CLAIMS_ESCROW_ADDRESS", raising=False)
+    orchestrator = _resolver_orchestrator({})  # user-b has no verified wallet
+    with pytest.raises(EventPayloadError, match="PENDING_CLAIMS_ESCROW_ADDRESS"):
+        orchestrator._resolve_contributor_wallets(
+            [{"account_id": "user-b", "weight_bps": 10000}], run_id="run-x"
+        )
+
+
+def test_resolve_contributors_account_centric_report_end_to_end(monkeypatch) -> None:
+    # Acceptance: account-centric attribution report -> resolved contributor set with mixed
+    # verified-wallet and no-wallet (escrow) accounts; none dropped.
+    escrow = "0x" + "ee" * 20
+    monkeypatch.setenv("PENDING_CLAIMS_ESCROW_ADDRESS", escrow)
+    orchestrator = _resolver_orchestrator({"user-a": "0x" + "aa" * 20})
+    report = {
+        "schema_version": "attribution_report/v1",
+        "candidate_run_id": "run-x",
+        "contributors": [
+            {"account_id": "user-a", "raw_score": 0.6, "submission_ids": ["s1"]},
+            {"account_id": "user-b", "raw_score": 0.4, "submission_ids": []},
+        ],
+    }
+
+    resolved = orchestrator._resolve_contributors(
+        candidate_tags={},
+        candidate_run_id="run-x",
+        spec=None,
+        attribution_report=report,
+    )
+
+    by_id = {c["contributor_id"]: c for c in resolved}
+    assert by_id["user-a"]["wallet_address"] == "0x" + "aa" * 20
+    assert by_id["user-b"]["wallet_address"] == escrow
+    assert sum(c["weight_bps"] for c in resolved) == 10000
+    assert len(resolved) == 2

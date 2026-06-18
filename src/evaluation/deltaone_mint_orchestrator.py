@@ -666,6 +666,22 @@ class DeltaOneMintOrchestrator:
         spec: dict[str, Any] | None,
         attribution_report: dict[str, Any] | None,
     ) -> list[dict[str, Any]]:
+        base = self._collect_base_contributors(
+            candidate_tags=candidate_tags,
+            candidate_run_id=candidate_run_id,
+            spec=spec,
+            attribution_report=attribution_report,
+        )
+        return self._resolve_contributor_wallets(base, run_id=candidate_run_id)
+
+    def _collect_base_contributors(
+        self: DeltaOneMintOrchestrator,
+        *,
+        candidate_tags: dict[str, str],
+        candidate_run_id: str,
+        spec: dict[str, Any] | None,
+        attribution_report: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
         if attribution_report is not None:
             try:
                 return _extract_contributors_from_attribution_report(
@@ -685,6 +701,72 @@ class DeltaOneMintOrchestrator:
                 return contributors
 
         return _extract_contributors_from_tags(candidate_tags)
+
+    def _resolve_contributor_wallets(
+        self: DeltaOneMintOrchestrator,
+        contributors: list[dict[str, Any]],
+        *,
+        run_id: str,
+    ) -> list[dict[str, Any]]:
+        """Resolve each contributor's payout recipient at mint (HOK-2244).
+
+        Contributors that already carry a ``wallet_address`` (legacy lineage reports, specs,
+        run tags) are kept as-is. Account-centric contributors (``account_id``, no wallet) are
+        resolved via the auth internal resolver: a verified wallet becomes the recipient;
+        otherwise the contributor is routed to the pending-claims escrow (HOK-2246), never
+        silently dropped. The account id is preserved as ``contributor_id`` so the escrow
+        releaser can pay the account once it verifies a wallet.
+        """
+        resolved: list[dict[str, Any]] = []
+        escrow_accounts: list[str] = []
+        for contributor in contributors:
+            if contributor.get("wallet_address"):
+                resolved.append(contributor)
+                continue
+            account_id = contributor.get("account_id")
+            if not account_id:
+                raise EventPayloadError(
+                    "contributors",
+                    f"contributor for run {run_id} has neither wallet_address nor account_id",
+                )
+            resolution = self._resolve_account_wallet(str(account_id))
+            if (
+                resolution is not None
+                and resolution.has_verified_wallet
+                and resolution.wallet_address
+            ):
+                resolved.append(
+                    _contributor_with_recipient(
+                        contributor, wallet_address=resolution.wallet_address, account_id=account_id
+                    )
+                )
+            else:
+                resolved.append(
+                    _contributor_with_recipient(
+                        contributor,
+                        wallet_address=_required_escrow_address(),
+                        account_id=account_id,
+                    )
+                )
+                escrow_accounts.append(str(account_id))
+        if escrow_accounts:
+            logger.info(
+                "event=contributors_routed_to_escrow run_id=%s count=%d accounts=%s",
+                run_id,
+                len(escrow_accounts),
+                ",".join(escrow_accounts),
+            )
+        return resolved
+
+    def _resolve_account_wallet(self: DeltaOneMintOrchestrator, account_id: str) -> Any | None:
+        resolver = getattr(self._reward_entitlement_notifier, "resolve_wallet", None)
+        if resolver is None:
+            return None
+        try:
+            return resolver(user_id=account_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("event=wallet_resolution_failed account_id=%s error=%s", account_id, exc)
+            return None
 
     def _execute_mint(
         self: DeltaOneMintOrchestrator,
@@ -1650,15 +1732,48 @@ def _extract_contributors_from_attribution_report(
     derived = derive_contributor_set(report, candidate_run_id=candidate_run_id)
     contributors: list[dict[str, Any]] = []
     for entry in derived:
-        normalized = {
-            "wallet_address": entry["wallet"],
-            "weight_bps": entry["weight_bps"],
-        }
+        normalized: dict[str, Any] = {"weight_bps": entry["weight_bps"]}
+        # Account-centric reports may carry account_id with no wallet (resolved at mint,
+        # HOK-2244); legacy reports carry only wallet. Preserve whichever is present.
+        if entry.get("wallet") is not None:
+            normalized["wallet_address"] = entry["wallet"]
+        if entry.get("account_id") is not None:
+            normalized["account_id"] = entry["account_id"]
         submission_ids = entry.get("submission_ids") or []
         if submission_ids:
             normalized["submission_id"] = submission_ids[0]
         contributors.append(normalized)
     return contributors
+
+
+_ESCROW_ADDRESS_RE = re.compile(r"^0x[0-9a-f]{40}$")
+
+
+def _required_escrow_address() -> str:
+    """Return the configured pending-claims escrow address, or fail (never drop a contributor)."""
+    raw = (os.getenv("PENDING_CLAIMS_ESCROW_ADDRESS") or "").strip().lower()
+    if not raw:
+        raise EventPayloadError(
+            "contributors",
+            "contributor has no verified wallet and PENDING_CLAIMS_ESCROW_ADDRESS is not set; "
+            "cannot route to escrow (HOK-2246) and refusing to drop the contributor",
+        )
+    if not _ESCROW_ADDRESS_RE.match(raw):
+        raise EventPayloadError(
+            "contributors",
+            f"PENDING_CLAIMS_ESCROW_ADDRESS must be a 0x-prefixed 40-hex address, got {raw!r}",
+        )
+    return raw
+
+
+def _contributor_with_recipient(
+    contributor: dict[str, Any], *, wallet_address: str, account_id: Any
+) -> dict[str, Any]:
+    """Return a contributor with the resolved payout wallet and account_id as contributor_id."""
+    resolved = {key: value for key, value in contributor.items() if key != "account_id"}
+    resolved["wallet_address"] = wallet_address
+    resolved.setdefault("contributor_id", str(account_id))
+    return resolved
 
 
 def _normalize_contributor_list(raw: list[Any]) -> list[dict[str, Any]]:

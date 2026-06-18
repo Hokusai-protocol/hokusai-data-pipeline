@@ -208,7 +208,7 @@ def resolve_wallet_for_record(
     cache: dict[tuple[str | None, str | None, str | None], WalletResolution],
     report: dict[str, Any],
 ) -> str | None:
-    auth = record.metadata.get("auth") if isinstance(record.metadata, dict) else None
+    auth = record.metadata.get("auth_context") if isinstance(record.metadata, dict) else None
     if not isinstance(auth, dict):
         report["wallet_resolution"]["unresolved"] += 1
         return None
@@ -241,7 +241,7 @@ def account_id_for_record(record: StoredContributionRecord) -> str | None:
     account-centric (HOK-2245): the wallet is resolved from the account at mint, but a
     wallet-less contributor is still identified and creditable by account_id.
     """
-    auth = record.metadata.get("auth") if isinstance(record.metadata, dict) else None
+    auth = record.metadata.get("auth_context") if isinstance(record.metadata, dict) else None
     if not isinstance(auth, dict):
         return None
     user_id = auth.get("user_id")
