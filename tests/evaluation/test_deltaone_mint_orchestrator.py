@@ -40,7 +40,7 @@ class _FakeRewardNotifier:
         self.fail_statuses = fail_statuses or set()
 
     def notify_reward_entitlement(
-        self, *, mint_request, status, mint_result=None, recipient_kinds=None
+        self, *, mint_request, status, mint_result=None, recipient_kinds=None, reward_tokens=None
     ):
         self.calls.append(
             {"mint_request": mint_request, "status": status, "mint_result": mint_result}
@@ -823,16 +823,23 @@ def test_resolve_contributor_wallets_mixed_wallet_and_escrow(monkeypatch) -> Non
     assert all("account_id" not in c for c in resolved)  # mapped to contributor_id
 
 
-def test_notify_reward_entitlement_threads_recipient_kinds(monkeypatch) -> None:
-    # HOK-2270: the orchestrator threads the mint-time routing into the auth notification so
-    # auth receives an explicit recipient_kind per wallet (never matches the escrow address).
+def test_notify_reward_entitlement_threads_kinds_and_tokens(monkeypatch) -> None:
+    # HOK-2270: the orchestrator threads recipient_kind + reward_tokens into the notifier so
+    # auth ingests account-centric rows with an explicit escrow flag (no address matching).
     captured: dict[str, object] = {}
 
     class _CapturingNotifier:
         def notify_reward_entitlement(
-            self, *, mint_request, status, mint_result=None, recipient_kinds=None
+            self,
+            *,
+            mint_request,
+            status,
+            mint_result=None,
+            recipient_kinds=None,
+            reward_tokens=None,
         ):
             captured["recipient_kinds"] = recipient_kinds
+            captured["reward_tokens"] = reward_tokens
             return True, None
 
     orchestrator = _resolver_orchestrator({})
@@ -846,9 +853,11 @@ def test_notify_reward_entitlement_threads_recipient_kinds(monkeypatch) -> None:
             {"wallet_address": "0x" + "aa" * 20, "recipient_kind": "wallet"},
             {"wallet_address": escrow, "recipient_kind": "escrow"},
         ],
+        reward_tokens=1000.0,
     )
 
     assert captured["recipient_kinds"] == {"0x" + "aa" * 20: "wallet", escrow: "escrow"}
+    assert captured["reward_tokens"] == 1000.0
 
 
 def test_resolve_contributor_wallets_keeps_legacy_wallet() -> None:

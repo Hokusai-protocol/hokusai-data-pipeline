@@ -889,6 +889,7 @@ class DeltaOneMintOrchestrator:
             mint_request=mint_request,
             status="pending",
             contributors=event_context.contributors if event_context else None,
+            reward_tokens=reward_result.reward_tokens,
         )
         self._advance_canonical_score(decision)
         canonical_score_advanced = True
@@ -905,6 +906,7 @@ class DeltaOneMintOrchestrator:
                 status="claimable",
                 mint_result=mint_result,
                 contributors=event_context.contributors if event_context else None,
+                reward_tokens=reward_result.reward_tokens,
             )
 
         dispatch_deltaone_webhook_event(
@@ -1182,12 +1184,13 @@ class DeltaOneMintOrchestrator:
         status: str,
         mint_result: TokenMintResult | None = None,
         contributors: list[dict[str, Any]] | None = None,
+        reward_tokens: float | None = None,
     ) -> None:
         notifier = self._reward_entitlement_notifier
         if notifier is None:
             return
-        # Thread the mint-time recipient routing (HOK-2270) so auth gets an explicit
-        # recipient_kind per wallet and never has to match the escrow address itself.
+        # Thread the mint-time recipient routing (HOK-2270) so auth records each tranche with an
+        # explicit recipient_kind ("wallet"|"escrow") and never has to match the escrow address.
         recipient_kinds = {
             contributor["wallet_address"]: contributor.get("recipient_kind", "wallet")
             for contributor in (contributors or [])
@@ -1198,6 +1201,7 @@ class DeltaOneMintOrchestrator:
             status=status,
             mint_result=mint_result,
             recipient_kinds=recipient_kinds or None,
+            reward_tokens=reward_tokens,
         )
         if not delivered:
             logger.warning(

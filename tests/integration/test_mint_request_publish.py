@@ -52,7 +52,7 @@ class _FakeRewardNotifier:
         self.fail_statuses = fail_statuses or set()
 
     def notify_reward_entitlement(
-        self, *, mint_request, status, mint_result=None, recipient_kinds=None
+        self, *, mint_request, status, mint_result=None, recipient_kinds=None, reward_tokens=None
     ):
         self.calls.append(
             {"mint_request": mint_request, "status": status, "mint_result": mint_result}
