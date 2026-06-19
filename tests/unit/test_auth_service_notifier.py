@@ -213,6 +213,42 @@ def test_notify_lifecycle_update_returns_true_on_success(
     assert delivered is True
     assert error is None
     assert post_mock.call_args.kwargs["headers"]["Idempotency-Key"] == "batch-123:processed:v1"
+    # HOK-2256: the lifecycle callback lands on auth's canonical processing endpoint with the
+    # remapped ProcessedDataSubmissionUpdateRequest body (camelCase, external submission id).
+    assert post_mock.call_args.args[0].endswith("/api/v1/internal/data-submissions/processed")
+    body = post_mock.call_args.kwargs["json"]
+    assert body == {
+        "submissionId": "batch-123",
+        "status": "processed",
+        "acceptedRowCount": 2,
+        "rejectedRowCount": 1,
+        "datasetVersion": "dataset-v1",
+        "trainingRunId": "train-123",
+        "expectedRewardAt": "2026-06-05T12:00:00+00:00",
+        "metadata": {"evaluation_run_id": "eval-123"},
+    }
+
+
+def test_build_processed_body_includes_reason_code_only_for_rejections() -> None:
+    rejected = LifecycleUpdatePayload(
+        submission_id="batch-9",
+        status="rejected",
+        row_counts=RowCounts(accepted=0, rejected=4, total=4),
+        evaluation_run_id=None,
+        reason_code=LifecycleReasonCode.SCHEMA_VALIDATION_FAILED,
+    )
+
+    body = AuthServiceNotifier._build_processed_body(rejected)
+
+    # Optional Nones are omitted (never clobber stored ledger fields), and the rejection
+    # reason rides along in metadata since auth's /processed has no first-class reason field.
+    assert body == {
+        "submissionId": "batch-9",
+        "status": "rejected",
+        "acceptedRowCount": 0,
+        "rejectedRowCount": 4,
+        "metadata": {"reason_code": "SCHEMA_VALIDATION_FAILED"},
+    }
 
 
 def test_notify_lifecycle_update_returns_false_on_retryable_failure(
