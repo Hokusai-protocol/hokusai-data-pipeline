@@ -7,6 +7,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Literal
 from urllib.parse import quote
 from uuid import UUID
@@ -26,6 +27,8 @@ LOGGER = logging.getLogger(__name__)
 _AUTH_ACCEPTED_PATH = "/api/v1/internal/data-submissions/accepted"
 _AUTH_LIFECYCLE_PATH = "/internal/data-submissions/lifecycle-update"
 _AUTH_REWARD_ENTITLEMENT_PATH = "/internal/reward-entitlements"
+# Canonical account-centric reward ingest (HOK-2270): one idempotent row per contributor.
+_AUTH_REWARD_INGEST_PATH = "/api/v1/internal/rewards/ingest"
 # HOK-2243/2244: account -> verified-wallet resolver. user_id is a PATH param; the
 # /api/v1 prefix is required (the bare /internal/... path 404s on the deployed service).
 _AUTH_WALLET_RESOLUTION_PATH = "/api/v1/internal/users/{user_id}/wallet"
@@ -80,6 +83,28 @@ class RewardEntitlementPayload(BaseModel):
     vesting: dict[str, Any] | None = None
 
 
+class RewardIngestRow(BaseModel):
+    """One account-centric reward row for auth's POST /internal/rewards/ingest (HOK-2270).
+
+    Mirrors auth's RewardIngestRequest: snake_case fields, ``reward_metadata`` serialized as
+    ``metadata``. ``recipient_kind`` ("wallet" | "escrow") is the explicit routing flag so auth
+    records escrow tranches as pending without matching the escrow address.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    reward_id: str
+    submission_id: str
+    user_id: str
+    model_id: str | None = None
+    token_symbol: str | None = None
+    token_address: str | None = None
+    amount: Decimal
+    status: Literal["pending", "claimable"]
+    recipient_kind: str = "wallet"
+    reward_metadata: dict[str, Any] | None = Field(default=None, serialization_alias="metadata")
+
+
 class AuthServiceNotifier:
     """Small sync client for accepted-submission ledger events."""
 
@@ -107,6 +132,13 @@ class AuthServiceNotifier:
                 _AUTH_REWARD_ENTITLEMENT_PATH,
             ).strip()
             or _AUTH_REWARD_ENTITLEMENT_PATH
+        )
+        self.reward_ingest_path = (
+            os.getenv(
+                "HOKUSAI_AUTH_REWARD_INGEST_PATH",
+                _AUTH_REWARD_INGEST_PATH,
+            ).strip()
+            or _AUTH_REWARD_INGEST_PATH
         )
         self.wallet_resolution_path = (
             os.getenv(
@@ -136,39 +168,38 @@ class AuthServiceNotifier:
         mint_request: MintRequest,
         status: Literal["pending", "claimable"],
         mint_result: TokenMintResult | None = None,
+        recipient_kinds: dict[str, str] | None = None,
+        reward_tokens: float | None = None,
     ) -> tuple[bool, str | None]:
-        """Post a reward entitlement event to auth-service."""
-        vesting_payload = mint_result.vesting_payload() if mint_result is not None else None
-        payload = RewardEntitlementPayload(
+        """Ingest one account-centric reward row per contributor into auth (HOK-2270).
+
+        Posts to ``/api/v1/internal/rewards/ingest`` (the canonical account-centric, idempotent
+        seam) -- one ``RewardIngestRow`` per contributor keyed by ``user_id`` (the account /
+        ``contributor_id``). ``recipient_kinds`` maps ``wallet_address`` -> "wallet"|"escrow"
+        (the mint-time routing flag, default "wallet"); ``reward_tokens`` is the total minted,
+        split per contributor by ``weight_bps`` for the row ``amount``.
+
+        Contributors without an account (``contributor_id``) or ``submission_id`` are skipped
+        with a warning -- the account-centric seam needs both -- rather than failing the batch.
+        Returns (all_delivered, first_error); a 409 is treated as an idempotent success.
+        """
+        kinds = recipient_kinds or {}
+        rows = self._build_reward_ingest_rows(
+            mint_request=mint_request,
             status=status,
-            model_id=mint_request.model_id,
-            model_id_uint=mint_request.model_id_uint,
-            eval_id=mint_request.eval_id,
-            mint_request_id=mint_request.message_id,
-            mint_timestamp=mint_request.timestamp,
-            attestation_hash=mint_request.attestation_hash,
-            mint_idempotency_key=mint_request.idempotency_key,
-            contributors=[
-                RewardEntitlementContributor(
-                    wallet_address=contributor.wallet_address,
-                    weight_bps=contributor.weight_bps,
-                    submission_id=contributor.submission_id,
-                    contribution_batch_id=contributor.contribution_batch_id,
-                    contributor_id=contributor.contributor_id,
-                )
-                for contributor in mint_request.contributors
-            ],
-            vesting=vesting_payload,
+            kinds=kinds,
+            reward_tokens=reward_tokens,
+            mint_result=mint_result,
         )
 
         if self.dry_run:
             LOGGER.info(
                 json.dumps(
                     {
-                        "event": "auth_reward_entitlement_dry_run",
+                        "event": "auth_reward_ingest_dry_run",
                         "mint_idempotency_key": mint_request.idempotency_key,
                         "status": status,
-                        "payload": payload.model_dump(mode="json", by_alias=True),
+                        "rows": [row.model_dump(mode="json", by_alias=True) for row in rows],
                     },
                     default=str,
                     sort_keys=True,
@@ -176,31 +207,105 @@ class AuthServiceNotifier:
             )
             return True, None
 
+        all_delivered = True
+        first_error: str | None = None
+        for row in rows:
+            delivered, error = self._post_reward_ingest(row=row, status=status)
+            if not delivered:
+                all_delivered = False
+                first_error = first_error or error
+        return all_delivered, first_error
+
+    def _build_reward_ingest_rows(
+        self: AuthServiceNotifier,
+        *,
+        mint_request: MintRequest,
+        status: Literal["pending", "claimable"],
+        kinds: dict[str, str],
+        reward_tokens: float | None,
+        mint_result: TokenMintResult | None = None,
+    ) -> list[RewardIngestRow]:
+        total = Decimal(str(reward_tokens)) if reward_tokens is not None else None
+        vesting = mint_result.vesting_payload() if mint_result is not None else None
+        rows: list[RewardIngestRow] = []
+        for contributor in mint_request.contributors:
+            user_id = contributor.contributor_id
+            submission_id = contributor.submission_id
+            if not user_id or not submission_id:
+                LOGGER.warning(
+                    json.dumps(
+                        {
+                            "event": "auth_reward_ingest_skipped_missing_identity",
+                            "mint_idempotency_key": mint_request.idempotency_key,
+                            "wallet_address": contributor.wallet_address,
+                            "has_user_id": bool(user_id),
+                            "has_submission_id": bool(submission_id),
+                        },
+                        default=str,
+                        sort_keys=True,
+                    )
+                )
+                continue
+            recipient_kind = kinds.get(contributor.wallet_address, "wallet")
+            amount = (total * contributor.weight_bps / 10000) if total is not None else Decimal(0)
+            reward_metadata: dict[str, Any] = {
+                "recipient_kind": recipient_kind,
+                "payout_address": contributor.wallet_address,
+                "weight_bps": contributor.weight_bps,
+                "model_id_uint": mint_request.model_id_uint,
+                "eval_id": mint_request.eval_id,
+                "mint_request_id": mint_request.message_id,
+                "attestation_hash": mint_request.attestation_hash,
+                "mint_idempotency_key": mint_request.idempotency_key,
+            }
+            if recipient_kind == "escrow":
+                # For escrow tranches the on-chain recipient IS the escrow; record it so the
+                # releaser (HOK-2271) can release this account's tranche on wallet verification.
+                reward_metadata["escrow_address"] = contributor.wallet_address
+            if vesting is not None:
+                reward_metadata["vesting"] = vesting
+            rows.append(
+                RewardIngestRow(
+                    reward_id=f"{mint_request.idempotency_key}:{user_id}",
+                    submission_id=str(submission_id),
+                    user_id=str(user_id),
+                    model_id=mint_request.model_id,
+                    amount=amount,
+                    status=status,
+                    recipient_kind=recipient_kind,
+                    reward_metadata=reward_metadata,
+                )
+            )
+        return rows
+
+    def _post_reward_ingest(
+        self: AuthServiceNotifier,
+        *,
+        row: RewardIngestRow,
+        status: str,
+    ) -> tuple[bool, str | None]:
+        """POST a single reward ingest row with retries; 409 == idempotent success."""
         headers = {
             "Authorization": f"Bearer {self.internal_token}",
             "Content-Type": "application/json",
-            "Idempotency-Key": (f"{mint_request.idempotency_key}:reward_entitlement:{status}"),
+            "Idempotency-Key": row.reward_id,
         }
-        url = f"{self.auth_service_url}{self.reward_entitlement_path}"
+        url = f"{self.auth_service_url}{self.reward_ingest_path}"
+        body = row.model_dump(mode="json", by_alias=True)
         error_message: str | None = None
 
         for attempt in range(1, self.retry_attempts + 1):
             if attempt > 1:
                 time.sleep(2 ** (attempt - 2))
             try:
-                response = httpx.post(
-                    url,
-                    json=payload.model_dump(mode="json", by_alias=True),
-                    headers=headers,
-                    timeout=self.timeout,
-                )
+                response = httpx.post(url, json=body, headers=headers, timeout=self.timeout)
             except httpx.HTTPError as exc:
                 error_message = str(exc)
                 LOGGER.warning(
                     json.dumps(
                         {
-                            "event": "auth_reward_entitlement_request_error",
-                            "mint_idempotency_key": mint_request.idempotency_key,
+                            "event": "auth_reward_ingest_request_error",
+                            "reward_id": row.reward_id,
                             "status": status,
                             "attempt": attempt,
                             "max_attempts": self.retry_attempts,
@@ -216,8 +321,8 @@ class AuthServiceNotifier:
                 LOGGER.warning(
                     json.dumps(
                         {
-                            "event": "auth_reward_entitlement_unexpected_error",
-                            "mint_idempotency_key": mint_request.idempotency_key,
+                            "event": "auth_reward_ingest_unexpected_error",
+                            "reward_id": row.reward_id,
                             "status": status,
                             "attempt": attempt,
                             "error": error_message,
@@ -232,8 +337,8 @@ class AuthServiceNotifier:
                 LOGGER.info(
                     json.dumps(
                         {
-                            "event": "auth_reward_entitlement_succeeded",
-                            "mint_idempotency_key": mint_request.idempotency_key,
+                            "event": "auth_reward_ingest_succeeded",
+                            "reward_id": row.reward_id,
                             "status": status,
                             "status_code": response.status_code,
                         },
@@ -248,8 +353,8 @@ class AuthServiceNotifier:
                 LOGGER.warning(
                     json.dumps(
                         {
-                            "event": "auth_reward_entitlement_conflict",
-                            "mint_idempotency_key": mint_request.idempotency_key,
+                            "event": "auth_reward_ingest_conflict",
+                            "reward_id": row.reward_id,
                             "status": status,
                             "status_code": response.status_code,
                             "response_body": response.text[:500],
@@ -264,8 +369,8 @@ class AuthServiceNotifier:
                 LOGGER.warning(
                     json.dumps(
                         {
-                            "event": "auth_reward_entitlement_retryable_response",
-                            "mint_idempotency_key": mint_request.idempotency_key,
+                            "event": "auth_reward_ingest_retryable_response",
+                            "reward_id": row.reward_id,
                             "status": status,
                             "attempt": attempt,
                             "max_attempts": self.retry_attempts,
@@ -281,8 +386,8 @@ class AuthServiceNotifier:
             LOGGER.warning(
                 json.dumps(
                     {
-                        "event": "auth_reward_entitlement_failed",
-                        "mint_idempotency_key": mint_request.idempotency_key,
+                        "event": "auth_reward_ingest_failed",
+                        "reward_id": row.reward_id,
                         "status": status,
                         "status_code": response.status_code,
                         "response_body": response.text[:500],
@@ -296,8 +401,8 @@ class AuthServiceNotifier:
         LOGGER.warning(
             json.dumps(
                 {
-                    "event": "auth_reward_entitlement_retry_exhausted",
-                    "mint_idempotency_key": mint_request.idempotency_key,
+                    "event": "auth_reward_ingest_retry_exhausted",
+                    "reward_id": row.reward_id,
                     "status": status,
                     "attempts": self.retry_attempts,
                     "error": error_message,

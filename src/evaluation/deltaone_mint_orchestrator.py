@@ -737,7 +737,10 @@ class DeltaOneMintOrchestrator:
             ):
                 resolved.append(
                     _contributor_with_recipient(
-                        contributor, wallet_address=resolution.wallet_address, account_id=account_id
+                        contributor,
+                        wallet_address=resolution.wallet_address,
+                        account_id=account_id,
+                        recipient_kind="wallet",
                     )
                 )
             else:
@@ -746,6 +749,7 @@ class DeltaOneMintOrchestrator:
                         contributor,
                         wallet_address=_required_escrow_address(),
                         account_id=account_id,
+                        recipient_kind="escrow",
                     )
                 )
                 escrow_accounts.append(str(account_id))
@@ -884,6 +888,8 @@ class DeltaOneMintOrchestrator:
         self._notify_reward_entitlement(
             mint_request=mint_request,
             status="pending",
+            contributors=event_context.contributors if event_context else None,
+            reward_tokens=reward_result.reward_tokens,
         )
         self._advance_canonical_score(decision)
         canonical_score_advanced = True
@@ -899,6 +905,8 @@ class DeltaOneMintOrchestrator:
                 mint_request=mint_request,
                 status="claimable",
                 mint_result=mint_result,
+                contributors=event_context.contributors if event_context else None,
+                reward_tokens=reward_result.reward_tokens,
             )
 
         dispatch_deltaone_webhook_event(
@@ -1175,14 +1183,25 @@ class DeltaOneMintOrchestrator:
         mint_request: MintRequest,
         status: str,
         mint_result: TokenMintResult | None = None,
+        contributors: list[dict[str, Any]] | None = None,
+        reward_tokens: float | None = None,
     ) -> None:
         notifier = self._reward_entitlement_notifier
         if notifier is None:
             return
+        # Thread the mint-time recipient routing (HOK-2270) so auth records each tranche with an
+        # explicit recipient_kind ("wallet"|"escrow") and never has to match the escrow address.
+        recipient_kinds = {
+            contributor["wallet_address"]: contributor.get("recipient_kind", "wallet")
+            for contributor in (contributors or [])
+            if contributor.get("wallet_address")
+        }
         delivered, error = notifier.notify_reward_entitlement(
             mint_request=mint_request,
             status=status,
             mint_result=mint_result,
+            recipient_kinds=recipient_kinds or None,
+            reward_tokens=reward_tokens,
         )
         if not delivered:
             logger.warning(
@@ -1773,11 +1792,16 @@ def _required_escrow_address() -> str:
 
 
 def _contributor_with_recipient(
-    contributor: dict[str, Any], *, wallet_address: str, account_id: Any
+    contributor: dict[str, Any],
+    *,
+    wallet_address: str,
+    account_id: Any,
+    recipient_kind: str,
 ) -> dict[str, Any]:
-    """Return a contributor with the resolved payout wallet and account_id as contributor_id."""
+    """Return a contributor with resolved wallet, account_id as contributor_id, recipient_kind."""
     resolved = {key: value for key, value in contributor.items() if key != "account_id"}
     resolved["wallet_address"] = wallet_address
+    resolved["recipient_kind"] = recipient_kind
     resolved.setdefault("contributor_id", str(account_id))
     return resolved
 
