@@ -11,6 +11,7 @@ from src.eip712.onchain_head import (
     BaselineUnavailableError,
     _build_current_model_head_calldata,
     read_current_model_head,
+    read_model_token_address,
     read_model_weight_head,
 )
 
@@ -67,6 +68,35 @@ def test_read_current_model_head_rejects_zero_response(
             contract_address="0xcccccccccccccccccccccccccccccccccccccccc",
             model_id_uint="123",
         )
+
+
+def test_read_model_token_address_returns_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    token = "70" * 20
+    word = "0x" + "00" * 12 + token  # address right-aligned in the 32-byte word
+    monkeypatch.setattr(
+        requests,
+        "post",
+        Mock(return_value=_response({"jsonrpc": "2.0", "id": 1, "result": word})),
+    )
+
+    resolved = read_model_token_address(
+        _RPC_URL, model_registry_address=_MODEL_REGISTRY, model_id_uint=30
+    )
+
+    assert resolved == "0x" + token
+
+
+def test_read_model_token_address_returns_none_for_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        requests,
+        "post",
+        Mock(return_value=_response({"jsonrpc": "2.0", "id": 1, "result": "0x" + "00" * 32})),
+    )
+
+    assert (
+        read_model_token_address(_RPC_URL, model_registry_address=_MODEL_REGISTRY, model_id_uint=30)
+        is None
+    )
 
 
 def test_read_model_weight_head_prefers_nonzero_head(monkeypatch: pytest.MonkeyPatch) -> None:
