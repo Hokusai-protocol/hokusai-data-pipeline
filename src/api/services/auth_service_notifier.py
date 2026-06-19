@@ -25,7 +25,11 @@ LOGGER = logging.getLogger(__name__)
 # HOK-2256: the /api/v1 prefix is required — the deployed auth route is
 # /api/v1/internal/data-submissions/accepted (bare /internal/... 404s).
 _AUTH_ACCEPTED_PATH = "/api/v1/internal/data-submissions/accepted"
-_AUTH_LIFECYCLE_PATH = "/internal/data-submissions/lifecycle-update"
+# HOK-2256: the lifecycle callback lands on auth's canonical processing endpoint
+# (POST /api/v1/internal/data-submissions/processed). There is no separate
+# /lifecycle-update route on the deployed service; the lifecycle payload is remapped
+# to ProcessedDataSubmissionUpdateRequest in ``_build_processed_body``.
+_AUTH_LIFECYCLE_PATH = "/api/v1/internal/data-submissions/processed"
 _AUTH_REWARD_ENTITLEMENT_PATH = "/internal/reward-entitlements"
 # Canonical account-centric reward ingest (HOK-2270): one idempotent row per contributor.
 _AUTH_REWARD_INGEST_PATH = "/api/v1/internal/rewards/ingest"
@@ -701,18 +705,54 @@ class AuthServiceNotifier:
         }
         return mapping.get(normalized, LifecycleReasonCode.PROCESSING_ERROR)
 
+    @staticmethod
+    def _build_processed_body(payload: LifecycleUpdatePayload) -> dict[str, Any]:
+        """Remap a lifecycle payload to auth's ProcessedDataSubmissionUpdateRequest (HOK-2256).
+
+        Auth's processing endpoint uses camelCase aliases, forbids extra fields, and treats every
+        present key as a field-to-write (``model_fields_set``). So we OMIT None-valued optionals
+        rather than clobber stored ledger fields with null. ``submissionId`` carries the pipeline
+        external submission id (auth joins on ``external_submission_id``); ``status`` values line
+        up 1:1 with auth's ``SubmissionStatus``. ``evaluation_run_id`` (always) and, for
+        rejected/excluded outcomes, the ``reason_code`` ride along in ``metadata`` since auth has
+        no first-class field for either.
+        """
+        body: dict[str, Any] = {
+            "submissionId": payload.submission_id,
+            "status": payload.status,
+        }
+        if payload.row_counts is not None:
+            body["acceptedRowCount"] = payload.row_counts.accepted
+            body["rejectedRowCount"] = payload.row_counts.rejected
+        if payload.dataset_version is not None:
+            body["datasetVersion"] = payload.dataset_version
+        if payload.training_run_id is not None:
+            body["trainingRunId"] = payload.training_run_id
+        if payload.estimated_reward_at is not None:
+            body["expectedRewardAt"] = payload.estimated_reward_at.isoformat()
+
+        metadata: dict[str, Any] = {}
+        if payload.evaluation_run_id is not None:
+            metadata["evaluation_run_id"] = payload.evaluation_run_id
+        if payload.status in {"rejected", "excluded"} and payload.reason_code is not None:
+            metadata["reason_code"] = payload.reason_code.value
+        if metadata:
+            body["metadata"] = metadata
+        return body
+
     def notify_lifecycle_update(
         self: AuthServiceNotifier,
         payload: LifecycleUpdatePayload,
     ) -> tuple[bool, str | None]:
         """Post a contribution lifecycle update to auth-service."""
+        body = self._build_processed_body(payload)
         if self.dry_run:
             LOGGER.info(
                 json.dumps(
                     {
                         "event": "auth_lifecycle_notification_dry_run",
                         "submission_id": payload.submission_id,
-                        "payload": payload.model_dump(mode="json"),
+                        "payload": body,
                     },
                     default=str,
                     sort_keys=True,
@@ -736,7 +776,7 @@ class AuthServiceNotifier:
             try:
                 response = httpx.post(
                     url,
-                    json=payload.model_dump(mode="json"),
+                    json=body,
                     headers=headers,
                     timeout=self.timeout,
                 )
