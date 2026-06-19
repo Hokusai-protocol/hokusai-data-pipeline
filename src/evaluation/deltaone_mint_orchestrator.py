@@ -885,11 +885,15 @@ class DeltaOneMintOrchestrator:
             attestation_hash=attestation_hash,
             idempotency_key=idempotency_key,
         )
+        reward_token_address = _resolve_reward_token_address(
+            event_context.model_id_uint if event_context else None
+        )
         self._notify_reward_entitlement(
             mint_request=mint_request,
             status="pending",
             contributors=event_context.contributors if event_context else None,
             reward_tokens=reward_result.reward_tokens,
+            token_address=reward_token_address,
         )
         self._advance_canonical_score(decision)
         canonical_score_advanced = True
@@ -907,6 +911,7 @@ class DeltaOneMintOrchestrator:
                 mint_result=mint_result,
                 contributors=event_context.contributors if event_context else None,
                 reward_tokens=reward_result.reward_tokens,
+                token_address=reward_token_address,
             )
 
         dispatch_deltaone_webhook_event(
@@ -1185,6 +1190,7 @@ class DeltaOneMintOrchestrator:
         mint_result: TokenMintResult | None = None,
         contributors: list[dict[str, Any]] | None = None,
         reward_tokens: float | None = None,
+        token_address: str | None = None,
     ) -> None:
         notifier = self._reward_entitlement_notifier
         if notifier is None:
@@ -1202,6 +1208,7 @@ class DeltaOneMintOrchestrator:
             mint_result=mint_result,
             recipient_kinds=recipient_kinds or None,
             reward_tokens=reward_tokens,
+            token_address=token_address,
         )
         if not delivered:
             logger.warning(
@@ -1789,6 +1796,35 @@ def _required_escrow_address() -> str:
             f"PENDING_CLAIMS_ESCROW_ADDRESS must be a 0x-prefixed 40-hex address, got {raw!r}",
         )
     return raw
+
+
+def _resolve_reward_token_address(model_id_uint: Any) -> str | None:
+    """Best-effort: the per-model HokusaiToken address from the on-chain ModelRegistry.
+
+    Stamped onto the reward ingest so the escrow release (HOK-2271) knows which token to move.
+    Non-fatal: returns None when unconfigured or on read failure (auth can fall back to
+    resolving the token from model_id).
+    """
+    rpc_url = (os.getenv("ETH_RPC_URL") or "").strip()
+    registry = (os.getenv("MODEL_REGISTRY_ADDRESS") or "").strip()
+    if not rpc_url or not registry or model_id_uint is None:
+        return None
+    try:
+        from src.eip712.onchain_head import read_model_token_address  # noqa: PLC0415
+
+        return read_model_token_address(
+            rpc_url,
+            model_registry_address=registry,
+            model_id_uint=int(model_id_uint),
+            timeout=5.0,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "event=reward_token_address_resolve_failed model_id_uint=%s error=%s",
+            model_id_uint,
+            exc,
+        )
+        return None
 
 
 def _contributor_with_recipient(

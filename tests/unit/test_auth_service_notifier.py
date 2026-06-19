@@ -270,6 +270,7 @@ def test_notify_reward_entitlement_ingests_one_row_per_contributor(
         status="pending",
         recipient_kinds={"0x6c3e007f281f6948b37c511a11e43c8026d2f069": "escrow"},
         reward_tokens=1000.0,
+        token_address="0x" + "70" * 20,
     )
 
     assert delivered is True
@@ -284,6 +285,7 @@ def test_notify_reward_entitlement_ingests_one_row_per_contributor(
     assert body0["user_id"] == "44444444-4444-4444-4444-444444444441"
     assert body0["status"] == "pending"
     assert body0["recipient_kind"] == "wallet"
+    assert body0["token_address"] == "0x" + "70" * 20  # per-model HokusaiToken (HOK-2271)
     assert body0["amount"] == "700.0"  # 1000 * 7000/10000
     assert first.kwargs["headers"]["Idempotency-Key"] == body0["reward_id"]
     # The escrow-routed contributor carries the explicit escrow flag + reference.

@@ -40,7 +40,14 @@ class _FakeRewardNotifier:
         self.fail_statuses = fail_statuses or set()
 
     def notify_reward_entitlement(
-        self, *, mint_request, status, mint_result=None, recipient_kinds=None, reward_tokens=None
+        self,
+        *,
+        mint_request,
+        status,
+        mint_result=None,
+        recipient_kinds=None,
+        reward_tokens=None,
+        token_address=None,
     ):
         self.calls.append(
             {"mint_request": mint_request, "status": status, "mint_result": mint_result}
@@ -837,9 +844,11 @@ def test_notify_reward_entitlement_threads_kinds_and_tokens(monkeypatch) -> None
             mint_result=None,
             recipient_kinds=None,
             reward_tokens=None,
+            token_address=None,
         ):
             captured["recipient_kinds"] = recipient_kinds
             captured["reward_tokens"] = reward_tokens
+            captured["token_address"] = token_address
             return True, None
 
     orchestrator = _resolver_orchestrator({})
@@ -854,10 +863,12 @@ def test_notify_reward_entitlement_threads_kinds_and_tokens(monkeypatch) -> None
             {"wallet_address": escrow, "recipient_kind": "escrow"},
         ],
         reward_tokens=1000.0,
+        token_address="0x" + "70" * 20,
     )
 
     assert captured["recipient_kinds"] == {"0x" + "aa" * 20: "wallet", escrow: "escrow"}
     assert captured["reward_tokens"] == 1000.0
+    assert captured["token_address"] == "0x" + "70" * 20
 
 
 def test_resolve_contributor_wallets_keeps_legacy_wallet() -> None:

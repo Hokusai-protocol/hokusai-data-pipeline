@@ -170,6 +170,7 @@ class AuthServiceNotifier:
         mint_result: TokenMintResult | None = None,
         recipient_kinds: dict[str, str] | None = None,
         reward_tokens: float | None = None,
+        token_address: str | None = None,
     ) -> tuple[bool, str | None]:
         """Ingest one account-centric reward row per contributor into auth (HOK-2270).
 
@@ -190,6 +191,7 @@ class AuthServiceNotifier:
             kinds=kinds,
             reward_tokens=reward_tokens,
             mint_result=mint_result,
+            token_address=token_address,
         )
 
         if self.dry_run:
@@ -224,6 +226,7 @@ class AuthServiceNotifier:
         kinds: dict[str, str],
         reward_tokens: float | None,
         mint_result: TokenMintResult | None = None,
+        token_address: str | None = None,
     ) -> list[RewardIngestRow]:
         total = Decimal(str(reward_tokens)) if reward_tokens is not None else None
         vesting = mint_result.vesting_payload() if mint_result is not None else None
@@ -270,6 +273,7 @@ class AuthServiceNotifier:
                     submission_id=str(submission_id),
                     user_id=str(user_id),
                     model_id=mint_request.model_id,
+                    token_address=token_address,
                     amount=amount,
                     status=status,
                     recipient_kind=recipient_kind,
