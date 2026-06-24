@@ -418,6 +418,56 @@ def test_build_benchmark_rows_resolves_neighbor_provenance(tmp_path: Path) -> No
     assert provenance[1]["account_id"] is None  # block has no account_id
 
 
+def test_build_benchmark_rows_skips_unmanifested_base_neighbors(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "model_30_training_manifest/v1",
+                "as_of": "2026-06-24T00:00:00Z",
+                "dataset_hash": "sha256:" + "a" * 64,
+                "manifest_digest": "sha256:" + "b" * 64,
+                "row_count": 2,
+                "model_id": "30",
+                "blocks": [
+                    {
+                        "submission_id": "sub-contribution",
+                        "account_id": "user-a",
+                        "wallet": "0x" + "1" * 40,
+                        "s3_key": "s3://bucket/a",
+                        "row_start": 1,
+                        "row_end": 1,
+                        "row_count": 1,
+                        "reward_hold": False,
+                    }
+                ],
+                "quarantine_count": 0,
+                "duplicates_dropped": [],
+                "wallet_policy": "hold",
+            }
+        ),
+        encoding="utf-8",
+    )
+    resolver = _NeighborResolver.from_manifest(manifest_path)
+
+    rows = _build_benchmark_rows(
+        FixedRouterModel(model_id="gpt-5.4"),
+        rows=[_valid_row("success")],
+        model_id="candidate",
+        benchmark_spec_id="spec-1",
+        eval_id="eval-1",
+        objectives=["highest_reliability"],
+        benchmark_version="v1",
+        neighbor_resolver=resolver,
+    )
+
+    provenance = rows[0]["neighbor_provenance"]
+    assert len(provenance) == 1
+    assert provenance[0]["training_row_index"] == 1
+    assert provenance[0]["row_id"] == "sub-contribution:0"
+    assert provenance[0]["account_id"] == "user-a"
+
+
 def test_evaluate_model_v2_default_emits_scenarios_and_component_metrics(
     tmp_path: Path,
 ) -> None:
