@@ -322,6 +322,10 @@ class ContributionService:
                 raise ContributionConflictError(submission_id=submission_id)
             response = ContributionAcceptedResponse.model_validate(existing.response_payload)
             response = response.model_copy(update={"idempotent_replay": True})
+            self._notify_auth_accepted(
+                record=existing,
+                auth=self._auth_context_for_notification(record=existing, fallback_auth=auth),
+            )
             return ContributionAcceptance(response=response, status_code=200)
 
         response = ContributionAcceptedResponse(
@@ -364,18 +368,7 @@ class ContributionService:
                 "Failed to persist contribution lifecycle state during acceptance",
                 extra={"submission_id": submission_id, "model_id": model_id},
             )
-        if self._notifier is not None:
-            try:
-                self._notifier.notify_accepted(
-                    record=record,
-                    auth=auth,
-                    storage_ref=self._storage_ref_for_record(record),
-                )
-            except Exception:  # noqa: BLE001
-                logger.exception(
-                    "Failed to notify auth service for accepted contribution",
-                    extra={"submission_id": submission_id, "model_id": model_id},
-                )
+        self._notify_auth_accepted(record=record, auth=auth)
         return ContributionAcceptance(response=response, status_code=201)
 
     def create_lifecycle_record(
@@ -796,3 +789,34 @@ class ContributionService:
             key = self.store._key_for(record.model_id, record.submission_id)
             return f"s3://{self.store.bucket}/{key}"
         return None
+
+    def _notify_auth_accepted(
+        self: ContributionService,
+        *,
+        record: StoredContributionRecord,
+        auth: dict[str, Any],
+    ) -> None:
+        if self._notifier is None:
+            return
+        try:
+            self._notifier.notify_accepted(
+                record=record,
+                auth=auth,
+                storage_ref=self._storage_ref_for_record(record),
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Failed to notify auth service for accepted contribution",
+                extra={"submission_id": record.submission_id, "model_id": record.model_id},
+            )
+
+    @staticmethod
+    def _auth_context_for_notification(
+        *,
+        record: StoredContributionRecord,
+        fallback_auth: dict[str, Any],
+    ) -> dict[str, Any]:
+        auth_context = record.metadata.get("auth_context")
+        if isinstance(auth_context, dict) and auth_context:
+            return auth_context
+        return fallback_auth
