@@ -141,6 +141,7 @@ jobs:
       ECS_SECURITY_GROUP: sg-0864e6f6aee2a5cf4
       LOG_GROUP: /ecs/hokusai-api-development
       HOKUSAI_CONTRIBUTIONS_BUCKET: ${{ vars.HOKUSAI_CONTRIBUTIONS_BUCKET }}
+      CONTRIBUTION_AUTH_CALLBACK_ENABLED: "true"
 
     steps:
     - name: Checkout code
@@ -167,12 +168,15 @@ jobs:
         # and register a new revision. The migration one-shot runs against
         # this revision; we don't update the API service to it here.
         TASK_DEF=$(aws ecs describe-task-definition --task-definition "$API_TASK_FAMILY" --query 'taskDefinition')
-        NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$IMAGE" --arg HOKUSAI_CONTRIBUTIONS_BUCKET "$HOKUSAI_CONTRIBUTIONS_BUCKET" '
+        NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$IMAGE" --arg HOKUSAI_CONTRIBUTIONS_BUCKET "$HOKUSAI_CONTRIBUTIONS_BUCKET" --arg CONTRIBUTION_AUTH_CALLBACK_ENABLED "$CONTRIBUTION_AUTH_CALLBACK_ENABLED" '
           .containerDefinitions[0].image = $IMAGE |
           .containerDefinitions[0].environment =
             ((.containerDefinitions[0].environment // [])
-              | map(select(.name != "HOKUSAI_CONTRIBUTIONS_BUCKET"))
-              + [{name: "HOKUSAI_CONTRIBUTIONS_BUCKET", value: $HOKUSAI_CONTRIBUTIONS_BUCKET}]) |
+              | map(select(.name != "HOKUSAI_CONTRIBUTIONS_BUCKET" and .name != "CONTRIBUTION_AUTH_CALLBACK_ENABLED"))
+              + [
+                {name: "HOKUSAI_CONTRIBUTIONS_BUCKET", value: $HOKUSAI_CONTRIBUTIONS_BUCKET},
+                {name: "CONTRIBUTION_AUTH_CALLBACK_ENABLED", value: $CONTRIBUTION_AUTH_CALLBACK_ENABLED}
+              ]) |
           del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
         ')
         echo "$NEW_TASK_DEF" > /tmp/migrate-task-def.json
@@ -233,6 +237,7 @@ jobs:
 
     env:
       HOKUSAI_CONTRIBUTIONS_BUCKET: ${{ vars.HOKUSAI_CONTRIBUTIONS_BUCKET }}
+      CONTRIBUTION_AUTH_CALLBACK_ENABLED: "true"
     
     steps:
     - name: Checkout code
@@ -281,12 +286,15 @@ jobs:
         if aws ecs describe-task-definition --task-definition hokusai-api-development >/dev/null 2>&1; then
           echo "✅ Updating existing API task definition..."
           TASK_DEF=$(aws ecs describe-task-definition --task-definition hokusai-api-development --query 'taskDefinition')
-          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$ECR_REGISTRY/hokusai-api:$IMAGE_TAG" --arg HOKUSAI_CONTRIBUTIONS_BUCKET "$HOKUSAI_CONTRIBUTIONS_BUCKET" '
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$ECR_REGISTRY/hokusai-api:$IMAGE_TAG" --arg HOKUSAI_CONTRIBUTIONS_BUCKET "$HOKUSAI_CONTRIBUTIONS_BUCKET" --arg CONTRIBUTION_AUTH_CALLBACK_ENABLED "$CONTRIBUTION_AUTH_CALLBACK_ENABLED" '
             .containerDefinitions[0].image = $IMAGE |
             .containerDefinitions[0].environment =
               ((.containerDefinitions[0].environment // [])
-                | map(select(.name != "HOKUSAI_CONTRIBUTIONS_BUCKET"))
-                + [{name: "HOKUSAI_CONTRIBUTIONS_BUCKET", value: $HOKUSAI_CONTRIBUTIONS_BUCKET}]) |
+                | map(select(.name != "HOKUSAI_CONTRIBUTIONS_BUCKET" and .name != "CONTRIBUTION_AUTH_CALLBACK_ENABLED"))
+                + [
+                  {name: "HOKUSAI_CONTRIBUTIONS_BUCKET", value: $HOKUSAI_CONTRIBUTIONS_BUCKET},
+                  {name: "CONTRIBUTION_AUTH_CALLBACK_ENABLED", value: $CONTRIBUTION_AUTH_CALLBACK_ENABLED}
+                ]) |
             del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
           ')
           echo "$NEW_TASK_DEF" > /tmp/api-task-def.json

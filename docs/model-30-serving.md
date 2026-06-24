@@ -26,11 +26,13 @@ Response fields include `accepted`, `modelId`, `submissionId`, `jobId`, `jobIds`
 
 Persistence is S3-backed and controlled by `HOKUSAI_CONTRIBUTIONS_BUCKET`, optional `HOKUSAI_CONTRIBUTIONS_PREFIX`, and `CONTRIBUTIONS_MAX_BODY_BYTES`.
 
+Accepted submissions are also posted to auth's data-submission ledger when `CONTRIBUTION_AUTH_CALLBACK_ENABLED=true` and `HOKUSAI_AUTH_INTERNAL_TOKEN` is present. If the flag is missing or false, the API still persists the contribution to S3 but logs `auth_submission_notification_dry_run` instead of creating an auth ledger row.
+
 ## Deploy Contract
 
 `hokusai-infrastructure` provisions the contributions bucket and includes `HOKUSAI_CONTRIBUTIONS_BUCKET` in the Terraform-rendered API task definition. That task definition is only a fallback template: the live ECS API revision is registered by [`deploy.yml`](../.github/workflows/deploy.yml), and the ECS service ignores Terraform `task_definition` drift.
 
-The deploy workflow must therefore inject `HOKUSAI_CONTRIBUTIONS_BUCKET` every time it registers a new API-family revision. If that CI variable is omitted, the next API image deploy can drop the env var from the running task definition and `POST /api/v1/models/{model_id}/contributions` will fail with the missing-persistence `503` path.
+The deploy workflow must therefore inject `HOKUSAI_CONTRIBUTIONS_BUCKET` and `CONTRIBUTION_AUTH_CALLBACK_ENABLED` every time it registers a new API-family revision. If the bucket CI variable is omitted, the next API image deploy can drop the env var from the running task definition and `POST /api/v1/models/{model_id}/contributions` will fail with the missing-persistence `503` path. If the callback flag is omitted or false, submissions are accepted but the auth dashboard ledger remains empty.
 
 ## Public Contract
 
