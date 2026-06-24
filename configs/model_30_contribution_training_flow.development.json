@@ -17,6 +17,7 @@
   "allow_promotion": false,
   "allow_reward_publish": false,
   "model_30": {
+    "base_router_dataset": ".wavemill/evals/hokusai-router-dataset.cross-repo.repaired-canonical-train.csv",
     "k_neighbors": 40,
     "router_dataset_filename": "dataset.csv",
     "evaluation_objectives": "all"

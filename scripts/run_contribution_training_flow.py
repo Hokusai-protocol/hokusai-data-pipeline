@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import subprocess
 import sys
@@ -24,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.model_30.assemble_training_set import canonical_manifest_bytes  # noqa: E402
 from scripts.model_30.contribution_row_normalization import (  # noqa: E402
     contribution_row_to_router_csv_row,
     router_fieldnames,
@@ -96,6 +98,105 @@ def _stage_dir(config: WorkflowConfig, stage: str) -> Path:
     return config.output_dir / stage
 
 
+def _router_dataset_path(config: WorkflowConfig) -> Path:
+    return _stage_dir(config, "assembled") / str(
+        config.model_config.get("router_dataset_filename") or "dataset.csv"
+    )
+
+
+def _contribution_router_dataset_path(config: WorkflowConfig) -> Path:
+    return _stage_dir(config, "assembled") / str(
+        config.model_config.get("contribution_router_dataset_filename")
+        or "contribution_dataset.csv"
+    )
+
+
+def _base_router_dataset_path(config: WorkflowConfig) -> Path | None:
+    configured = config.model_config.get("base_router_dataset") or config.raw.get(
+        "base_router_dataset"
+    )
+    if not configured:
+        return None
+    return Path(str(configured)).expanduser().resolve()
+
+
+def _training_manifest_path(config: WorkflowConfig) -> Path:
+    if _base_router_dataset_path(config) is None:
+        return _stage_dir(config, "assembled") / "manifest.json"
+    return _stage_dir(config, "assembled") / str(
+        config.model_config.get("training_manifest_filename") or "training_manifest.json"
+    )
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
+
+
+def merge_router_csvs(base_csv: Path, contribution_csv: Path, output_csv: Path) -> dict[str, Any]:
+    """Write a deterministic base-plus-contributions router CSV."""
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = router_fieldnames()
+    base_rows = 0
+    contribution_rows = 0
+    with output_csv.open("w", newline="", encoding="utf-8") as target:
+        writer = csv.DictWriter(target, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for source_path, counter_name in (
+            (base_csv, "base_rows"),
+            (contribution_csv, "contribution_rows"),
+        ):
+            with source_path.open(newline="", encoding="utf-8") as source:
+                for row in csv.DictReader(source):
+                    writer.writerow(row)
+                    if counter_name == "base_rows":
+                        base_rows += 1
+                    else:
+                        contribution_rows += 1
+    return {
+        "base_path": str(base_csv),
+        "contribution_path": str(contribution_csv),
+        "output_path": str(output_csv),
+        "base_rows": base_rows,
+        "contribution_rows": contribution_rows,
+        "rows_written": base_rows + contribution_rows,
+        "dataset_hash": _file_sha256(output_csv),
+    }
+
+
+def write_offset_training_manifest(
+    source_manifest_path: Path,
+    output_manifest_path: Path,
+    *,
+    base_row_count: int,
+    dataset_hash: str,
+    row_count: int,
+) -> dict[str, Any]:
+    """Shift contribution row ranges after prepending a base training set."""
+    manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+    shifted_blocks = []
+    for block in manifest["blocks"]:
+        shifted = dict(block)
+        shifted["row_start"] = int(block["row_start"]) + base_row_count
+        shifted["row_end"] = int(block["row_end"]) + base_row_count
+        shifted_blocks.append(shifted)
+    manifest["blocks"] = shifted_blocks
+    manifest["dataset_hash"] = dataset_hash
+    manifest["row_count"] = row_count
+    manifest["manifest_digest"] = ""
+    manifest["manifest_digest"] = (
+        f"sha256:{hashlib.sha256(canonical_manifest_bytes(manifest)).hexdigest()}"
+    )
+    output_manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
 def run_assemble(config: WorkflowConfig) -> dict[str, Any]:
     from scripts.model_30 import assemble_training_set
 
@@ -117,18 +218,32 @@ def run_assemble(config: WorkflowConfig) -> dict[str, Any]:
 
 def run_prepare(config: WorkflowConfig) -> dict[str, Any]:
     dataset_jsonl = _stage_dir(config, "assembled") / "dataset.jsonl"
-    dataset_csv = _stage_dir(config, "assembled") / str(
-        config.model_config.get("router_dataset_filename") or "dataset.csv"
+    base_dataset = _base_router_dataset_path(config)
+    if base_dataset is None:
+        return convert_jsonl_to_router_csv(dataset_jsonl, _router_dataset_path(config))
+
+    contribution_csv = _contribution_router_dataset_path(config)
+    contribution_report = convert_jsonl_to_router_csv(dataset_jsonl, contribution_csv)
+    merge_report = merge_router_csvs(base_dataset, contribution_csv, _router_dataset_path(config))
+    training_manifest = write_offset_training_manifest(
+        _stage_dir(config, "assembled") / "manifest.json",
+        _training_manifest_path(config),
+        base_row_count=int(merge_report["base_rows"]),
+        dataset_hash=str(merge_report["dataset_hash"]),
+        row_count=int(merge_report["rows_written"]),
     )
-    return convert_jsonl_to_router_csv(dataset_jsonl, dataset_csv)
+    return {
+        "contribution_conversion": contribution_report,
+        "merge": merge_report,
+        "training_manifest_path": str(_training_manifest_path(config)),
+        "training_manifest_digest": training_manifest["manifest_digest"],
+    }
 
 
 def run_train(config: WorkflowConfig) -> dict[str, Any]:
     from scripts.model_30.register_technical_task_router import register_model
 
-    dataset_csv = _stage_dir(config, "assembled") / str(
-        config.model_config.get("router_dataset_filename") or "dataset.csv"
-    )
+    dataset_csv = _router_dataset_path(config)
     args = SimpleNamespace(
         router_dataset=str(dataset_csv),
         tracking_uri=config.raw.get("mlflow_tracking_uri"),
@@ -155,7 +270,7 @@ def run_train(config: WorkflowConfig) -> dict[str, Any]:
         ),
         launch_priority_gate=str(config.raw.get("launch_priority_gate") or "warn"),
         smoke=False,
-        training_manifest=str(_stage_dir(config, "assembled") / "manifest.json"),
+        training_manifest=str(_training_manifest_path(config)),
         model_id_uint=int(config.raw.get("model_id_uint") or 30),
         baseline_artifact_uri=config.raw.get("baseline_model_uri"),
         eth_rpc_url=config.raw.get("eth_rpc_url"),
@@ -172,7 +287,7 @@ def _script_command(script: str, args: list[str]) -> list[str]:
 
 def planned_commands(config: WorkflowConfig) -> dict[str, list[str]]:
     dataset_jsonl = _stage_dir(config, "assembled") / "dataset.jsonl"
-    manifest = _stage_dir(config, "assembled") / "manifest.json"
+    manifest = _training_manifest_path(config)
     evaluation_report = _stage_dir(config, "evaluation") / "comparison_report.json"
     attribution_report = _stage_dir(config, "attribution") / "attribution_report.json"
     candidate_uri = "<candidate-model-uri-from-train-stage>"

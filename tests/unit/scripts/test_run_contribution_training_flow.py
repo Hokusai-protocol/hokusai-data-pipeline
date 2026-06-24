@@ -134,6 +134,103 @@ def test_prepare_converts_jsonl_to_csv(tmp_path: Path) -> None:
     assert rows[0]["reviewer_model"] == "gpt-5.4"
 
 
+def test_prepare_merges_base_dataset_and_offsets_training_manifest(tmp_path: Path) -> None:
+    config_path = _config(tmp_path / "workflow.json", tmp_path)
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    base_dataset = tmp_path / "base.csv"
+    raw["model_30"]["base_router_dataset"] = str(base_dataset)
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+    config = flow.load_config(config_path)
+
+    fieldnames = flow.router_fieldnames()
+    with base_dataset.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerow(
+            {
+                "task_id_hash": "base-1",
+                "task_description": "Base row",
+                "planner_model": "gpt-5.4",
+                "coder_model": "gpt-5.4",
+                "reviewer_model": "gpt-5.4",
+                "actual_cost_usd": "1.0",
+                "completed_successfully": "true",
+            }
+        )
+        writer.writerow(
+            {
+                "task_id_hash": "base-2",
+                "task_description": "Base row two",
+                "planner_model": "gpt-5.4",
+                "coder_model": "gpt-5.4",
+                "reviewer_model": "gpt-5.4",
+                "actual_cost_usd": "2.0",
+                "completed_successfully": "false",
+            }
+        )
+
+    assembled = tmp_path / "out" / "assembled"
+    assembled.mkdir(parents=True)
+    (assembled / "dataset.jsonl").write_text(
+        json.dumps(
+            {
+                "row_id": "row-1",
+                "eval_id": "eval-1",
+                "task_descriptor": {"task_type": "feature"},
+                "allowed_models": ["gpt-5.4"],
+                "selected_models": ["gpt-5.4"],
+                "max_cost_usd": 1.0,
+                "actual_cost_usd": 0.5,
+                "completed_successfully": True,
+                "observed_at": "2026-06-01T00:00:00Z",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (assembled / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "model_30_training_manifest/v1",
+                "as_of": "2026-06-24T00:00:00Z",
+                "dataset_hash": "sha256:" + "0" * 64,
+                "manifest_digest": "sha256:" + "1" * 64,
+                "row_count": 1,
+                "model_id": "30",
+                "blocks": [
+                    {
+                        "submission_id": "submission-1",
+                        "wallet": None,
+                        "account_id": "user-1",
+                        "s3_key": "contributions/model_id=30/submission-1.json",
+                        "row_start": 0,
+                        "row_end": 0,
+                        "row_count": 1,
+                        "reward_hold": True,
+                    }
+                ],
+                "quarantine_count": 0,
+                "duplicates_dropped": [],
+                "wallet_policy": "hold",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    report = flow.run_prepare(config)
+
+    assert report["merge"]["base_rows"] == 2
+    assert report["merge"]["contribution_rows"] == 1
+    with (assembled / "dataset.csv").open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [row["task_id_hash"] for row in rows] == ["base-1", "base-2", "row-1"]
+    training_manifest = json.loads((assembled / "training_manifest.json").read_text())
+    assert training_manifest["row_count"] == 3
+    assert training_manifest["dataset_hash"] == report["merge"]["dataset_hash"]
+    assert training_manifest["blocks"][0]["row_start"] == 2
+    assert training_manifest["blocks"][0]["row_end"] == 2
+
+
 def test_plan_stage_writes_manifest_without_executing(tmp_path: Path) -> None:
     config = flow.load_config(_config(tmp_path / "workflow.json", tmp_path))
 
