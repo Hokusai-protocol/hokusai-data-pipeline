@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import subprocess
 import sys
@@ -24,16 +25,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.model_30.assemble_training_set import canonical_manifest_bytes  # noqa: E402
+from scripts.model_30.contribution_row_normalization import (  # noqa: E402
+    contribution_row_to_router_csv_row,
+    router_fieldnames,
+)
+
 STAGES = ("plan", "assemble", "prepare", "train", "evaluate", "attribute", "promote", "all")
 RUN_MANIFEST = "run_manifest.json"
-
-
-def router_fieldnames() -> list[str]:
-    from scripts.model_30.collect_wavemill_router_corpus import FIELDNAMES
-
-    if "task_description" in FIELDNAMES:
-        return list(FIELDNAMES)
-    return [*FIELDNAMES, "task_description"]
 
 
 @dataclass(frozen=True)
@@ -73,109 +72,6 @@ def load_config(path: Path) -> WorkflowConfig:
     return WorkflowConfig(raw=raw, path=path.expanduser().resolve())
 
 
-def _json_list(values: Any) -> str:
-    if isinstance(values, str):
-        values = [values]
-    if not isinstance(values, list):
-        values = []
-    return json.dumps([str(value) for value in values if str(value)], separators=(",", ":"))
-
-
-def _descriptor(row: dict[str, Any]) -> dict[str, Any]:
-    descriptor = row.get("task_descriptor")
-    return descriptor if isinstance(descriptor, dict) else {}
-
-
-def _descriptor_text(descriptor: dict[str, Any], row: dict[str, Any]) -> str:
-    for key in ("description", "task_description", "title", "prompt"):
-        value = descriptor.get(key) or row.get(key)
-        if value:
-            return str(value)
-    return json.dumps(descriptor, sort_keys=True, separators=(",", ":"))
-
-
-def _selected_by_role(selected_models: list[str]) -> tuple[str, str, str]:
-    if not selected_models:
-        return "", "", ""
-    if len(selected_models) == 1:
-        return selected_models[0], selected_models[0], selected_models[0]
-    if len(selected_models) == 2:
-        return selected_models[0], selected_models[1], selected_models[1]
-    return selected_models[0], selected_models[1], selected_models[2]
-
-
-def _optional_number(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value)
-
-
-def contribution_row_to_router_csv_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Convert an assembled Model 30 contribution row into router-training CSV shape."""
-    descriptor = _descriptor(row)
-    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-    allowed_models = [str(value) for value in row.get("allowed_models", []) if str(value)]
-    selected_models = [str(value) for value in row.get("selected_models", []) if str(value)]
-    planner_model, coder_model, reviewer_model = _selected_by_role(selected_models)
-    expected_success = row.get("estimated_success_under_budget")
-    if expected_success is None:
-        expected_success = 1.0 if row.get("completed_successfully") is True else 0.0
-    max_cost = row.get("max_cost_usd")
-    actual_cost = row.get("actual_cost_usd")
-    under_budget = (
-        isinstance(max_cost, (int, float))
-        and isinstance(actual_cost, (int, float))
-        and actual_cost <= max_cost
-    )
-    completed = row.get("completed_successfully") is True
-    score = 1.0 if completed and under_budget else 0.0
-
-    converted = {field: "" for field in router_fieldnames()}
-    converted.update(
-        {
-            "schema_version": "wavemill-hokusai-router-dataset-v1",
-            "run_id_hash": str(row.get("eval_id", "")),
-            "task_id_hash": str(row.get("row_id", "")),
-            "timestamp": str(row.get("observed_at", "")),
-            "task_type": str(descriptor.get("task_type") or metadata.get("task_type") or "unknown"),
-            "language": str(descriptor.get("language") or metadata.get("language") or "unknown"),
-            "domain": str(descriptor.get("domain") or metadata.get("domain") or "backend"),
-            "complexity": str(
-                descriptor.get("complexity")
-                or descriptor.get("estimated_complexity")
-                or metadata.get("complexity")
-                or ""
-            ),
-            "repo_size_bucket": str(
-                descriptor.get("repo_size_bucket") or metadata.get("repo_size_bucket") or "medium"
-            ),
-            "description_length_bucket": "medium",
-            "requires_tests": str(
-                descriptor.get("requires_tests") or metadata.get("requires_tests") or False
-            ).lower(),
-            "risk_level": str(descriptor.get("risk_level") or metadata.get("risk_level") or "low"),
-            "max_cost_usd": _optional_number(max_cost),
-            "available_planner_models": _json_list(allowed_models),
-            "available_coder_models": _json_list(allowed_models),
-            "available_reviewer_models": _json_list(allowed_models),
-            "planner_model": planner_model,
-            "coder_model": coder_model,
-            "reviewer_model": reviewer_model,
-            "route_source": "contribution",
-            "expected_success_probability": _optional_number(expected_success),
-            "expected_cost_usd": _optional_number(row.get("estimated_cost_usd") or actual_cost),
-            "confidence": _optional_number(expected_success),
-            "completed_successfully": str(completed).lower(),
-            "score": str(score),
-            "under_budget": str(under_budget).lower(),
-            "actual_cost_usd": _optional_number(actual_cost),
-            "actual_time_seconds": _optional_number(row.get("actual_time_seconds")),
-        }
-    )
-    converted["task_description"] = _descriptor_text(descriptor, row)
-    return converted
-
-
 def convert_jsonl_to_router_csv(jsonl_path: Path, csv_path: Path) -> dict[str, Any]:
     """Convert assembler output JSONL into the CSV consumed by Model 30 trainer."""
     csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -202,6 +98,105 @@ def _stage_dir(config: WorkflowConfig, stage: str) -> Path:
     return config.output_dir / stage
 
 
+def _router_dataset_path(config: WorkflowConfig) -> Path:
+    return _stage_dir(config, "assembled") / str(
+        config.model_config.get("router_dataset_filename") or "dataset.csv"
+    )
+
+
+def _contribution_router_dataset_path(config: WorkflowConfig) -> Path:
+    return _stage_dir(config, "assembled") / str(
+        config.model_config.get("contribution_router_dataset_filename")
+        or "contribution_dataset.csv"
+    )
+
+
+def _base_router_dataset_path(config: WorkflowConfig) -> Path | None:
+    configured = config.model_config.get("base_router_dataset") or config.raw.get(
+        "base_router_dataset"
+    )
+    if not configured:
+        return None
+    return Path(str(configured)).expanduser().resolve()
+
+
+def _training_manifest_path(config: WorkflowConfig) -> Path:
+    if _base_router_dataset_path(config) is None:
+        return _stage_dir(config, "assembled") / "manifest.json"
+    return _stage_dir(config, "assembled") / str(
+        config.model_config.get("training_manifest_filename") or "training_manifest.json"
+    )
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
+
+
+def merge_router_csvs(base_csv: Path, contribution_csv: Path, output_csv: Path) -> dict[str, Any]:
+    """Write a deterministic base-plus-contributions router CSV."""
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = router_fieldnames()
+    base_rows = 0
+    contribution_rows = 0
+    with output_csv.open("w", newline="", encoding="utf-8") as target:
+        writer = csv.DictWriter(target, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for source_path, counter_name in (
+            (base_csv, "base_rows"),
+            (contribution_csv, "contribution_rows"),
+        ):
+            with source_path.open(newline="", encoding="utf-8") as source:
+                for row in csv.DictReader(source):
+                    writer.writerow(row)
+                    if counter_name == "base_rows":
+                        base_rows += 1
+                    else:
+                        contribution_rows += 1
+    return {
+        "base_path": str(base_csv),
+        "contribution_path": str(contribution_csv),
+        "output_path": str(output_csv),
+        "base_rows": base_rows,
+        "contribution_rows": contribution_rows,
+        "rows_written": base_rows + contribution_rows,
+        "dataset_hash": _file_sha256(output_csv),
+    }
+
+
+def write_offset_training_manifest(
+    source_manifest_path: Path,
+    output_manifest_path: Path,
+    *,
+    base_row_count: int,
+    dataset_hash: str,
+    row_count: int,
+) -> dict[str, Any]:
+    """Shift contribution row ranges after prepending a base training set."""
+    manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+    shifted_blocks = []
+    for block in manifest["blocks"]:
+        shifted = dict(block)
+        shifted["row_start"] = int(block["row_start"]) + base_row_count
+        shifted["row_end"] = int(block["row_end"]) + base_row_count
+        shifted_blocks.append(shifted)
+    manifest["blocks"] = shifted_blocks
+    manifest["dataset_hash"] = dataset_hash
+    manifest["row_count"] = row_count
+    manifest["manifest_digest"] = ""
+    manifest["manifest_digest"] = (
+        f"sha256:{hashlib.sha256(canonical_manifest_bytes(manifest)).hexdigest()}"
+    )
+    output_manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
 def run_assemble(config: WorkflowConfig) -> dict[str, Any]:
     from scripts.model_30 import assemble_training_set
 
@@ -216,24 +211,39 @@ def run_assemble(config: WorkflowConfig) -> dict[str, Any]:
         mlflow_run_id=None,
         mlflow_tracking_uri=config.raw.get("mlflow_tracking_uri"),
         row_schema=str(REPO_ROOT / "schema" / "technical_task_router_row.v1.json"),
+        row_format=str(config.raw.get("row_format") or "auto"),
     )
     return assemble_training_set.assemble(args)
 
 
 def run_prepare(config: WorkflowConfig) -> dict[str, Any]:
     dataset_jsonl = _stage_dir(config, "assembled") / "dataset.jsonl"
-    dataset_csv = _stage_dir(config, "assembled") / str(
-        config.model_config.get("router_dataset_filename") or "dataset.csv"
+    base_dataset = _base_router_dataset_path(config)
+    if base_dataset is None:
+        return convert_jsonl_to_router_csv(dataset_jsonl, _router_dataset_path(config))
+
+    contribution_csv = _contribution_router_dataset_path(config)
+    contribution_report = convert_jsonl_to_router_csv(dataset_jsonl, contribution_csv)
+    merge_report = merge_router_csvs(base_dataset, contribution_csv, _router_dataset_path(config))
+    training_manifest = write_offset_training_manifest(
+        _stage_dir(config, "assembled") / "manifest.json",
+        _training_manifest_path(config),
+        base_row_count=int(merge_report["base_rows"]),
+        dataset_hash=str(merge_report["dataset_hash"]),
+        row_count=int(merge_report["rows_written"]),
     )
-    return convert_jsonl_to_router_csv(dataset_jsonl, dataset_csv)
+    return {
+        "contribution_conversion": contribution_report,
+        "merge": merge_report,
+        "training_manifest_path": str(_training_manifest_path(config)),
+        "training_manifest_digest": training_manifest["manifest_digest"],
+    }
 
 
 def run_train(config: WorkflowConfig) -> dict[str, Any]:
     from scripts.model_30.register_technical_task_router import register_model
 
-    dataset_csv = _stage_dir(config, "assembled") / str(
-        config.model_config.get("router_dataset_filename") or "dataset.csv"
-    )
+    dataset_csv = _router_dataset_path(config)
     args = SimpleNamespace(
         router_dataset=str(dataset_csv),
         tracking_uri=config.raw.get("mlflow_tracking_uri"),
@@ -260,7 +270,7 @@ def run_train(config: WorkflowConfig) -> dict[str, Any]:
         ),
         launch_priority_gate=str(config.raw.get("launch_priority_gate") or "warn"),
         smoke=False,
-        training_manifest=str(_stage_dir(config, "assembled") / "report.json"),
+        training_manifest=str(_training_manifest_path(config)),
         model_id_uint=int(config.raw.get("model_id_uint") or 30),
         baseline_artifact_uri=config.raw.get("baseline_model_uri"),
         eth_rpc_url=config.raw.get("eth_rpc_url"),
@@ -277,7 +287,7 @@ def _script_command(script: str, args: list[str]) -> list[str]:
 
 def planned_commands(config: WorkflowConfig) -> dict[str, list[str]]:
     dataset_jsonl = _stage_dir(config, "assembled") / "dataset.jsonl"
-    manifest = _stage_dir(config, "assembled") / "report.json"
+    manifest = _training_manifest_path(config)
     evaluation_report = _stage_dir(config, "evaluation") / "comparison_report.json"
     attribution_report = _stage_dir(config, "attribution") / "attribution_report.json"
     candidate_uri = "<candidate-model-uri-from-train-stage>"

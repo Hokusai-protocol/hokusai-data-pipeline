@@ -169,6 +169,12 @@ class _NeighborResolver:
             "account_id": block.account_id,
         }
 
+    def resolve_optional(self: _NeighborResolver, training_row_index: int) -> dict[str, Any] | None:
+        try:
+            return self.resolve(training_row_index)
+        except ValueError:
+            return None
+
 
 def load_holdout_rows(path: Path) -> HoldoutRows:
     """Load and validate a Wavemill router CSV holdout for benchmark evaluation."""
@@ -408,15 +414,21 @@ def _build_benchmark_rows(
                     benchmark_row["per_row_metrics"] = _per_row_v2_metrics(benchmark_row)
                 neighbor_provenance = prediction.get("neighbor_provenance")
                 if neighbor_resolver is not None and isinstance(neighbor_provenance, list):
-                    benchmark_row["neighbor_provenance"] = [
-                        {
-                            **neighbor_resolver.resolve(int(neighbor["training_row_index"])),
-                            "training_row_index": int(neighbor["training_row_index"]),
-                            "distance": float(neighbor["distance"]),
-                            "weight": float(neighbor["weight"]),
-                        }
-                        for neighbor in neighbor_provenance
-                    ]
+                    resolved_provenance = []
+                    for neighbor in neighbor_provenance:
+                        training_row_index = int(neighbor["training_row_index"])
+                        resolved = neighbor_resolver.resolve_optional(training_row_index)
+                        if resolved is None:
+                            continue
+                        resolved_provenance.append(
+                            {
+                                **resolved,
+                                "training_row_index": training_row_index,
+                                "distance": float(neighbor["distance"]),
+                                "weight": float(neighbor["weight"]),
+                            }
+                        )
+                    benchmark_row["neighbor_provenance"] = resolved_provenance
                 benchmark_rows.append(benchmark_row)
     return benchmark_rows
 
@@ -918,7 +930,7 @@ def main() -> None:
             benchmark_spec_id=args.benchmark_spec_id,
             benchmark_version=args.benchmark_version,
             primary_metric=args.primary_metric,
-            neighbor_resolver=neighbor_resolver,
+            neighbor_resolver=None,
         )
         baseline_report["model_uri"] = args.baseline_model_uri
         candidate_report = evaluate_model(

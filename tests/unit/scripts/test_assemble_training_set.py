@@ -122,6 +122,7 @@ def _run_assemble(
     wallets: dict[tuple[str | None, str | None, str | None], str | None] | None = None,
     on_missing_wallet: str = "quarantine",
     mlflow_run_id: str | None = None,
+    row_format: str = "benchmark",
 ) -> tuple[dict[str, Any], Path, FakeNotifier]:
     serialized = {
         key: value if isinstance(value, str) else json.dumps(value, sort_keys=True)
@@ -146,6 +147,7 @@ def _run_assemble(
         mlflow_run_id=mlflow_run_id,
         mlflow_tracking_uri=None,
         row_schema=str(Path("schema/technical_task_router_row.v1.json").resolve()),
+        row_format=row_format,
     )
     report = assembler.assemble(args)
     return report, tmp_path, fake_notifier
@@ -180,6 +182,48 @@ def test_deterministic_hash_same_inputs(tmp_path: Path, monkeypatch: pytest.Monk
 
     assert report_one["dataset_hash"] == report_two["dataset_hash"]
     assert (out_one / "dataset.jsonl").read_bytes() == (out_two / "dataset.jsonl").read_bytes()
+
+
+def test_auto_row_format_accepts_compact_wavemill_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    objects = {
+        _object_key("compact"): _record_payload(
+            "compact",
+            [
+                {
+                    "task_id": "redacted-task",
+                    "harness": "wavemill",
+                    "actual_cost_usd": 1.25,
+                    "success_under_budget": True,
+                    "wall_clock_seconds": 123.4,
+                    "inputs": {
+                        "planner_model": "gpt-5.5",
+                        "coder_model": "gpt-5.4",
+                        "reviewer_model": "claude-sonnet-4-6",
+                        "rubric_mean_score": 0.91,
+                    },
+                }
+            ],
+        )
+    }
+    wallets = {("user-1", "api-1", "svc-1"): "0x742d35cc6634c0532925a3b844bc9e7595f62341"}
+
+    report, out_dir, _ = _run_assemble(
+        tmp_path,
+        monkeypatch,
+        objects=objects,
+        wallets=wallets,
+        row_format="auto",
+    )
+
+    rows = _read_jsonl(out_dir / "dataset.jsonl")
+    assert report["row_count"] == 1
+    assert report["quarantine_count"] == 0
+    assert rows[0]["planner_model"] == "gpt-5.5"
+    assert rows[0]["coder_model"] == "gpt-5.4"
+    assert rows[0]["reviewer_model"] == "claude-sonnet-4-6"
+    assert rows[0]["score"] == "0.91"
 
 
 def test_listing_order_does_not_affect_hash(

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import csv
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import pytest
 
+import scripts.model_30.evaluate_technical_task_router as evaluator_module
 from scripts.model_30.evaluate_technical_task_router import (
     _build_benchmark_rows,
     _NeighborResolver,
@@ -18,6 +20,8 @@ from scripts.model_30.evaluate_technical_task_router import (
     load_holdout_rows,
     parse_objectives,
 )
+
+# Remote MLflow auth is supplied by the SDK environment via MLFLOW_TRACKING_TOKEN.
 
 
 class FixedRouterModel:
@@ -209,6 +213,84 @@ def test_compare_models_reports_primary_delta(tmp_path: Path) -> None:
     ] == pytest.approx(-0.24)
 
 
+def test_cli_comparison_applies_training_manifest_to_candidate_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    holdout_path = tmp_path / "holdout.csv"
+    manifest_path = tmp_path / "manifest.json"
+    report_path = tmp_path / "report.json"
+    _write_holdout(holdout_path, [_valid_row("success")])
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "model_30_training_manifest/v1",
+                "as_of": "2026-06-24T00:00:00Z",
+                "dataset_hash": "sha256:" + "1" * 64,
+                "manifest_digest": "sha256:" + "2" * 64,
+                "row_count": 1,
+                "model_id": "30",
+                "blocks": [
+                    {
+                        "submission_id": "sub-1",
+                        "wallet": None,
+                        "account_id": "account-1",
+                        "s3_key": "key",
+                        "row_start": 0,
+                        "row_end": 0,
+                        "row_count": 1,
+                        "reward_hold": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    resolver_calls: list[tuple[str, bool]] = []
+
+    monkeypatch.setattr(
+        evaluator_module.mlflow.pyfunc,
+        "load_model",
+        lambda uri: uri,
+    )
+
+    def fake_evaluate_model(model: str, **kwargs: Any) -> dict[str, Any]:
+        resolver_calls.append((model, kwargs["neighbor_resolver"] is not None))
+        return {
+            "model_id": kwargs["model_id"],
+            "metrics": {"technical_task_router.benchmark_score_v2": 1.0},
+            "primary_metric": "technical_task_router.benchmark_score_v2",
+            "row_counts": {"evaluated_rows": 1, "quarantined_rows": 0},
+            "holdout_dataset_sha256": "sha256:" + "3" * 64,
+        }
+
+    monkeypatch.setattr(evaluator_module, "evaluate_model", fake_evaluate_model)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evaluate_technical_task_router.py",
+            "--holdout-dataset",
+            str(holdout_path),
+            "--baseline-model-uri",
+            "baseline",
+            "--candidate-model-uri",
+            "candidate",
+            "--training-manifest",
+            str(manifest_path),
+            "--output-report",
+            str(report_path),
+        ],
+    )
+
+    evaluator_module.main()
+    capsys.readouterr()
+
+    assert resolver_calls == [("baseline", False), ("candidate", True)]
+    assert report_path.exists()
+
+
 class NullDurationRouterModel(FixedRouterModel):
     def predict(self, frame: pd.DataFrame) -> pd.DataFrame:
         row = super().predict(frame).iloc[0].to_dict()
@@ -334,6 +416,56 @@ def test_build_benchmark_rows_resolves_neighbor_provenance(tmp_path: Path) -> No
     assert provenance[0]["wallet"] == "0x" + "1" * 40
     assert provenance[1]["row_id"] == "sub-b:0"
     assert provenance[1]["account_id"] is None  # block has no account_id
+
+
+def test_build_benchmark_rows_skips_unmanifested_base_neighbors(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "model_30_training_manifest/v1",
+                "as_of": "2026-06-24T00:00:00Z",
+                "dataset_hash": "sha256:" + "a" * 64,
+                "manifest_digest": "sha256:" + "b" * 64,
+                "row_count": 2,
+                "model_id": "30",
+                "blocks": [
+                    {
+                        "submission_id": "sub-contribution",
+                        "account_id": "user-a",
+                        "wallet": "0x" + "1" * 40,
+                        "s3_key": "s3://bucket/a",
+                        "row_start": 1,
+                        "row_end": 1,
+                        "row_count": 1,
+                        "reward_hold": False,
+                    }
+                ],
+                "quarantine_count": 0,
+                "duplicates_dropped": [],
+                "wallet_policy": "hold",
+            }
+        ),
+        encoding="utf-8",
+    )
+    resolver = _NeighborResolver.from_manifest(manifest_path)
+
+    rows = _build_benchmark_rows(
+        FixedRouterModel(model_id="gpt-5.4"),
+        rows=[_valid_row("success")],
+        model_id="candidate",
+        benchmark_spec_id="spec-1",
+        eval_id="eval-1",
+        objectives=["highest_reliability"],
+        benchmark_version="v1",
+        neighbor_resolver=resolver,
+    )
+
+    provenance = rows[0]["neighbor_provenance"]
+    assert len(provenance) == 1
+    assert provenance[0]["training_row_index"] == 1
+    assert provenance[0]["row_id"] == "sub-contribution:0"
+    assert provenance[0]["account_id"] == "user-a"
 
 
 def test_evaluate_model_v2_default_emits_scenarios_and_component_metrics(
