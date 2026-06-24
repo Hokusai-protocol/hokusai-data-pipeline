@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import csv
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import pytest
 
+import scripts.model_30.evaluate_technical_task_router as evaluator_module
 from scripts.model_30.evaluate_technical_task_router import (
     _build_benchmark_rows,
     _NeighborResolver,
@@ -18,6 +20,8 @@ from scripts.model_30.evaluate_technical_task_router import (
     load_holdout_rows,
     parse_objectives,
 )
+
+# Remote MLflow auth is supplied by the SDK environment via MLFLOW_TRACKING_TOKEN.
 
 
 class FixedRouterModel:
@@ -207,6 +211,84 @@ def test_compare_models_reports_primary_delta(tmp_path: Path) -> None:
     assert comparison["deltas"][
         "technical_task_router.reliability_brier_score_v1"
     ] == pytest.approx(-0.24)
+
+
+def test_cli_comparison_applies_training_manifest_to_candidate_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    holdout_path = tmp_path / "holdout.csv"
+    manifest_path = tmp_path / "manifest.json"
+    report_path = tmp_path / "report.json"
+    _write_holdout(holdout_path, [_valid_row("success")])
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "model_30_training_manifest/v1",
+                "as_of": "2026-06-24T00:00:00Z",
+                "dataset_hash": "sha256:" + "1" * 64,
+                "manifest_digest": "sha256:" + "2" * 64,
+                "row_count": 1,
+                "model_id": "30",
+                "blocks": [
+                    {
+                        "submission_id": "sub-1",
+                        "wallet": None,
+                        "account_id": "account-1",
+                        "s3_key": "key",
+                        "row_start": 0,
+                        "row_end": 0,
+                        "row_count": 1,
+                        "reward_hold": True,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    resolver_calls: list[tuple[str, bool]] = []
+
+    monkeypatch.setattr(
+        evaluator_module.mlflow.pyfunc,
+        "load_model",
+        lambda uri: uri,
+    )
+
+    def fake_evaluate_model(model: str, **kwargs: Any) -> dict[str, Any]:
+        resolver_calls.append((model, kwargs["neighbor_resolver"] is not None))
+        return {
+            "model_id": kwargs["model_id"],
+            "metrics": {"technical_task_router.benchmark_score_v2": 1.0},
+            "primary_metric": "technical_task_router.benchmark_score_v2",
+            "row_counts": {"evaluated_rows": 1, "quarantined_rows": 0},
+            "holdout_dataset_sha256": "sha256:" + "3" * 64,
+        }
+
+    monkeypatch.setattr(evaluator_module, "evaluate_model", fake_evaluate_model)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evaluate_technical_task_router.py",
+            "--holdout-dataset",
+            str(holdout_path),
+            "--baseline-model-uri",
+            "baseline",
+            "--candidate-model-uri",
+            "candidate",
+            "--training-manifest",
+            str(manifest_path),
+            "--output-report",
+            str(report_path),
+        ],
+    )
+
+    evaluator_module.main()
+    capsys.readouterr()
+
+    assert resolver_calls == [("baseline", False), ("candidate", True)]
+    assert report_path.exists()
 
 
 class NullDurationRouterModel(FixedRouterModel):

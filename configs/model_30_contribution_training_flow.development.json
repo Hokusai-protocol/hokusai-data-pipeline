@@ -6,6 +6,7 @@
   "s3_bucket": "hokusai-contributions-development",
   "s3_prefix": "",
   "on_missing_wallet": "hold",
+  "row_format": "auto",
   "mlflow_tracking_uri": null,
   "mlflow_experiment_name": "technical-task-router-contribution-training",
   "baseline_model_uri": "models:/Technical Task Router@production",

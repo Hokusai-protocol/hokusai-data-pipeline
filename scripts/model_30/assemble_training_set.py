@@ -28,6 +28,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.model_30.contribution_row_normalization import (  # noqa: E402
+    compact_wavemill_row_to_router_csv_row,
+    is_compact_wavemill_row,
+)
 from src.api.services.auth_service_notifier import (  # noqa: E402
     AuthServiceNotifier,
     WalletResolution,
@@ -77,6 +81,30 @@ def validate_row(row: dict[str, Any], validator: jsonschema.protocols.Validator)
     error = errors[0]
     path = ".".join(str(part) for part in error.absolute_path) or "<root>"
     return f"{path}: {error.message}"
+
+
+def normalize_row_for_format(
+    row: dict[str, Any],
+    *,
+    row_format: str,
+    validator: jsonschema.protocols.Validator,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Validate or normalize a submitted row for the selected training dataset format."""
+    if row_format in {"auto", "router"} and is_compact_wavemill_row(row):
+        try:
+            return compact_wavemill_row_to_router_csv_row(row), None
+        except ValueError as exc:
+            return None, str(exc)
+
+    reason = validate_row(row, validator)
+    if reason is None:
+        return row, None
+    if row_format == "auto" and is_compact_wavemill_row(row):
+        try:
+            return compact_wavemill_row_to_router_csv_row(row), None
+        except ValueError as exc:
+            return None, str(exc)
+    return None, reason
 
 
 def is_valid_wallet(value: str | None) -> bool:
@@ -263,6 +291,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
         "as_of": args.as_of,
         "model_id": args.model_id,
         "wallet_policy": args.on_missing_wallet,
+        "row_format": getattr(args, "row_format", "benchmark"),
         "listed_keys": 0,
         "read_records": 0,
         "filtered_after_as_of": 0,
@@ -316,9 +345,13 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
         valid_rows: list[dict[str, Any]] = []
         invalid_row_count = 0
         for row_index, row in enumerate(record.rows):
-            reason = validate_row(row, validator)
+            normalized_row, reason = normalize_row_for_format(
+                row,
+                row_format=getattr(args, "row_format", "benchmark"),
+                validator=validator,
+            )
             if reason is None:
-                valid_rows.append(row)
+                valid_rows.append(normalized_row or row)
                 continue
             invalid_row_count += 1
             quarantines.append(
@@ -458,6 +491,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--row-schema",
         default=str(REPO_ROOT / "schema" / "technical_task_router_row.v1.json"),
+    )
+    parser.add_argument(
+        "--row-format",
+        choices=("benchmark", "router", "auto"),
+        default="benchmark",
+        help=(
+            "Submitted row contract to assemble. auto accepts benchmark rows and "
+            "compact Wavemill rows, normalizing compact rows to router-training shape."
+        ),
     )
     return parser.parse_args(argv)
 

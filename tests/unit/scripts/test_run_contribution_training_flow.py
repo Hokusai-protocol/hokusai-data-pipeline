@@ -71,6 +71,38 @@ def test_convert_contribution_row_to_router_csv_shape() -> None:
     assert converted["score"] == "1.0"
 
 
+def test_convert_compact_wavemill_row_to_router_csv_shape() -> None:
+    converted = flow.contribution_row_to_router_csv_row(
+        {
+            "task_id": "redacted-201c916a0488b3cb",
+            "harness": "wavemill",
+            "actual_cost_usd": 13.1073375,
+            "success_under_budget": True,
+            "wall_clock_seconds": 2114.466,
+            "inputs": {
+                "schema_version": "1.2",
+                "planner_model": "gpt-5.5",
+                "coder_model": "gpt-5.4",
+                "reviewer_model": "claude-sonnet-4-6",
+                "intervention_count": 0,
+                "rubric_mean_score": 0.97,
+                "rubric_version": "1.0",
+                "determinative_boundary": "no_interventions",
+            },
+        }
+    )
+
+    assert converted["task_id_hash"] == "redacted-201c916a0488b3cb"
+    assert converted["planner_model"] == "gpt-5.5"
+    assert converted["coder_model"] == "gpt-5.4"
+    assert converted["reviewer_model"] == "claude-sonnet-4-6"
+    assert converted["available_coder_models"] == '["gpt-5.5","gpt-5.4","claude-sonnet-4-6"]'
+    assert converted["completed_successfully"] == "true"
+    assert converted["under_budget"] == "true"
+    assert converted["score"] == "0.97"
+    assert converted["actual_time_seconds"] == "2114.466"
+
+
 def test_prepare_converts_jsonl_to_csv(tmp_path: Path) -> None:
     jsonl_path = tmp_path / "dataset.jsonl"
     csv_path = tmp_path / "dataset.csv"
@@ -111,3 +143,4 @@ def test_plan_stage_writes_manifest_without_executing(tmp_path: Path) -> None:
     assert manifest["stage"] == "plan"
     assert manifest["promotion_enabled"] is False
     assert "evaluate" in manifest["planned_commands"]
+    assert "assembled/manifest.json" in " ".join(manifest["planned_commands"]["evaluate"])

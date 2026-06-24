@@ -24,16 +24,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.model_30.contribution_row_normalization import (  # noqa: E402
+    contribution_row_to_router_csv_row,
+    router_fieldnames,
+)
+
 STAGES = ("plan", "assemble", "prepare", "train", "evaluate", "attribute", "promote", "all")
 RUN_MANIFEST = "run_manifest.json"
-
-
-def router_fieldnames() -> list[str]:
-    from scripts.model_30.collect_wavemill_router_corpus import FIELDNAMES
-
-    if "task_description" in FIELDNAMES:
-        return list(FIELDNAMES)
-    return [*FIELDNAMES, "task_description"]
 
 
 @dataclass(frozen=True)
@@ -71,109 +68,6 @@ def load_config(path: Path) -> WorkflowConfig:
     if model_id != "30":
         raise ValueError(f"Unsupported contribution training model_id: {model_id}")
     return WorkflowConfig(raw=raw, path=path.expanduser().resolve())
-
-
-def _json_list(values: Any) -> str:
-    if isinstance(values, str):
-        values = [values]
-    if not isinstance(values, list):
-        values = []
-    return json.dumps([str(value) for value in values if str(value)], separators=(",", ":"))
-
-
-def _descriptor(row: dict[str, Any]) -> dict[str, Any]:
-    descriptor = row.get("task_descriptor")
-    return descriptor if isinstance(descriptor, dict) else {}
-
-
-def _descriptor_text(descriptor: dict[str, Any], row: dict[str, Any]) -> str:
-    for key in ("description", "task_description", "title", "prompt"):
-        value = descriptor.get(key) or row.get(key)
-        if value:
-            return str(value)
-    return json.dumps(descriptor, sort_keys=True, separators=(",", ":"))
-
-
-def _selected_by_role(selected_models: list[str]) -> tuple[str, str, str]:
-    if not selected_models:
-        return "", "", ""
-    if len(selected_models) == 1:
-        return selected_models[0], selected_models[0], selected_models[0]
-    if len(selected_models) == 2:
-        return selected_models[0], selected_models[1], selected_models[1]
-    return selected_models[0], selected_models[1], selected_models[2]
-
-
-def _optional_number(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value)
-
-
-def contribution_row_to_router_csv_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Convert an assembled Model 30 contribution row into router-training CSV shape."""
-    descriptor = _descriptor(row)
-    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-    allowed_models = [str(value) for value in row.get("allowed_models", []) if str(value)]
-    selected_models = [str(value) for value in row.get("selected_models", []) if str(value)]
-    planner_model, coder_model, reviewer_model = _selected_by_role(selected_models)
-    expected_success = row.get("estimated_success_under_budget")
-    if expected_success is None:
-        expected_success = 1.0 if row.get("completed_successfully") is True else 0.0
-    max_cost = row.get("max_cost_usd")
-    actual_cost = row.get("actual_cost_usd")
-    under_budget = (
-        isinstance(max_cost, (int, float))
-        and isinstance(actual_cost, (int, float))
-        and actual_cost <= max_cost
-    )
-    completed = row.get("completed_successfully") is True
-    score = 1.0 if completed and under_budget else 0.0
-
-    converted = {field: "" for field in router_fieldnames()}
-    converted.update(
-        {
-            "schema_version": "wavemill-hokusai-router-dataset-v1",
-            "run_id_hash": str(row.get("eval_id", "")),
-            "task_id_hash": str(row.get("row_id", "")),
-            "timestamp": str(row.get("observed_at", "")),
-            "task_type": str(descriptor.get("task_type") or metadata.get("task_type") or "unknown"),
-            "language": str(descriptor.get("language") or metadata.get("language") or "unknown"),
-            "domain": str(descriptor.get("domain") or metadata.get("domain") or "backend"),
-            "complexity": str(
-                descriptor.get("complexity")
-                or descriptor.get("estimated_complexity")
-                or metadata.get("complexity")
-                or ""
-            ),
-            "repo_size_bucket": str(
-                descriptor.get("repo_size_bucket") or metadata.get("repo_size_bucket") or "medium"
-            ),
-            "description_length_bucket": "medium",
-            "requires_tests": str(
-                descriptor.get("requires_tests") or metadata.get("requires_tests") or False
-            ).lower(),
-            "risk_level": str(descriptor.get("risk_level") or metadata.get("risk_level") or "low"),
-            "max_cost_usd": _optional_number(max_cost),
-            "available_planner_models": _json_list(allowed_models),
-            "available_coder_models": _json_list(allowed_models),
-            "available_reviewer_models": _json_list(allowed_models),
-            "planner_model": planner_model,
-            "coder_model": coder_model,
-            "reviewer_model": reviewer_model,
-            "route_source": "contribution",
-            "expected_success_probability": _optional_number(expected_success),
-            "expected_cost_usd": _optional_number(row.get("estimated_cost_usd") or actual_cost),
-            "confidence": _optional_number(expected_success),
-            "completed_successfully": str(completed).lower(),
-            "score": str(score),
-            "under_budget": str(under_budget).lower(),
-            "actual_cost_usd": _optional_number(actual_cost),
-            "actual_time_seconds": _optional_number(row.get("actual_time_seconds")),
-        }
-    )
-    converted["task_description"] = _descriptor_text(descriptor, row)
-    return converted
 
 
 def convert_jsonl_to_router_csv(jsonl_path: Path, csv_path: Path) -> dict[str, Any]:
@@ -216,6 +110,7 @@ def run_assemble(config: WorkflowConfig) -> dict[str, Any]:
         mlflow_run_id=None,
         mlflow_tracking_uri=config.raw.get("mlflow_tracking_uri"),
         row_schema=str(REPO_ROOT / "schema" / "technical_task_router_row.v1.json"),
+        row_format=str(config.raw.get("row_format") or "auto"),
     )
     return assemble_training_set.assemble(args)
 
@@ -260,7 +155,7 @@ def run_train(config: WorkflowConfig) -> dict[str, Any]:
         ),
         launch_priority_gate=str(config.raw.get("launch_priority_gate") or "warn"),
         smoke=False,
-        training_manifest=str(_stage_dir(config, "assembled") / "report.json"),
+        training_manifest=str(_stage_dir(config, "assembled") / "manifest.json"),
         model_id_uint=int(config.raw.get("model_id_uint") or 30),
         baseline_artifact_uri=config.raw.get("baseline_model_uri"),
         eth_rpc_url=config.raw.get("eth_rpc_url"),
@@ -277,7 +172,7 @@ def _script_command(script: str, args: list[str]) -> list[str]:
 
 def planned_commands(config: WorkflowConfig) -> dict[str, list[str]]:
     dataset_jsonl = _stage_dir(config, "assembled") / "dataset.jsonl"
-    manifest = _stage_dir(config, "assembled") / "report.json"
+    manifest = _stage_dir(config, "assembled") / "manifest.json"
     evaluation_report = _stage_dir(config, "evaluation") / "comparison_report.json"
     attribution_report = _stage_dir(config, "attribution") / "attribution_report.json"
     candidate_uri = "<candidate-model-uri-from-train-stage>"

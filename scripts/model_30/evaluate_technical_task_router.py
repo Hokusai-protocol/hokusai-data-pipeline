@@ -918,7 +918,7 @@ def main() -> None:
             benchmark_spec_id=args.benchmark_spec_id,
             benchmark_version=args.benchmark_version,
             primary_metric=args.primary_metric,
-            neighbor_resolver=neighbor_resolver,
+            neighbor_resolver=None,
         )
         baseline_report["model_uri"] = args.baseline_model_uri
         candidate_report = evaluate_model(
