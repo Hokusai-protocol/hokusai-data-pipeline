@@ -117,7 +117,8 @@ var/
 wheels/
 *.egg-info/
 .installed.cfg
-*.egg outputs/
+*.egg
+outputs/
 
 # Terraform
 **/.terraform/

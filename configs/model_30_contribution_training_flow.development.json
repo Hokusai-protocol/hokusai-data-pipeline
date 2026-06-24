@@ -1,0 +1,23 @@
+{
+  "model_id": "30",
+  "run_name": "model-30-contribution-e2e",
+  "as_of": "2026-06-24T00:00:00Z",
+  "output_dir": "outputs/model_30/contribution_training",
+  "s3_bucket": "hokusai-contributions-development",
+  "s3_prefix": "",
+  "on_missing_wallet": "hold",
+  "mlflow_tracking_uri": null,
+  "mlflow_experiment_name": "technical-task-router-contribution-training",
+  "baseline_model_uri": "models:/Technical Task Router@production",
+  "holdout_dataset": "data/model_30/holdout.csv",
+  "benchmark_version": "v2",
+  "primary_metric": "technical_task_router.benchmark_score_v2",
+  "minimum_improvement": 0.0,
+  "allow_promotion": false,
+  "allow_reward_publish": false,
+  "model_30": {
+    "k_neighbors": 40,
+    "router_dataset_filename": "dataset.csv",
+    "evaluation_objectives": "all"
+  }
+}
