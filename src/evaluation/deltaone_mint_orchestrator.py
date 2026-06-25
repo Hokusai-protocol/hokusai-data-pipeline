@@ -63,6 +63,7 @@ if TYPE_CHECKING:
 
 DELTAONE_ACHIEVED_EVENT = "deltaone.achieved"
 DELTAONE_MINTED_EVENT = "deltaone.minted"
+DELTAONE_REWARD_INGEST_FAILED_EVENT = "deltaone.reward_ingest_failed"
 _MLFLOW_TAG_VALUE_LIMIT = 5000
 # HOK-2170: attester-signature validity window. The deadline is set to now + this many
 # days at MintRequest assembly and bound into the EIP-712 digest the attester signs;
@@ -829,6 +830,8 @@ class DeltaOneMintOrchestrator:
             acceptance_event=acceptance_event,
             event_context=event_context,
         )
+        if _auth_reward_recording_required(self._reward_entitlement_notifier):
+            _validate_auth_recordable_contributors(mint_request)
         idempotency_key = acceptance_event.idempotency_key
         ceiling_block = self._check_cost_ceiling(
             decision=decision,
@@ -1211,7 +1214,7 @@ class DeltaOneMintOrchestrator:
             token_address=token_address,
         )
         if not delivered:
-            logger.warning(
+            logger.error(
                 (
                     "event=reward_entitlement_notification_failed "
                     "idempotency_key=%s status=%s error=%s"
@@ -1220,6 +1223,30 @@ class DeltaOneMintOrchestrator:
                 status,
                 error,
             )
+            dispatch_deltaone_webhook_event(
+                event_type=DELTAONE_REWARD_INGEST_FAILED_EVENT,
+                payload={
+                    "idempotency_key": mint_request.idempotency_key,
+                    "status": status,
+                    "error": error or "unknown reward entitlement notification failure",
+                    "contributors": [
+                        {
+                            "contributor_id": contributor.contributor_id,
+                            "submission_id": contributor.submission_id,
+                            "wallet_address": contributor.wallet_address,
+                        }
+                        for contributor in mint_request.contributors
+                    ],
+                },
+            )
+            if _auth_reward_recording_required(notifier):
+                raise EventPayloadError(
+                    "reward_entitlement",
+                    (
+                        "auth reward ingest failed after mint publication; "
+                        f"status={status} error={error}"
+                    ),
+                )
 
     def _create_signed_attestation(
         self: DeltaOneMintOrchestrator,
@@ -2068,6 +2095,58 @@ def _build_mint_request(
         evaluation=evaluation,
         contributors=contributor_models,
     )
+
+
+def _auth_reward_recording_required(notifier: Any | None) -> bool:
+    """Return whether mint publication must be recordable in auth's reward ledger."""
+    raw = os.getenv("MINT_REQUIRE_AUTH_REWARD_RECORDING")
+    if raw is not None:
+        return raw.strip().lower() == "true"
+    if notifier is None or bool(getattr(notifier, "dry_run", False)):
+        return False
+    return os.getenv("CONTRIBUTION_AUTH_CALLBACK_ENABLED", "false").strip().lower() == "true"
+
+
+def _validate_auth_recordable_contributors(mint_request: MintRequest) -> None:
+    """Fail before publish when contributors cannot be keyed into auth reward ingest."""
+    invalid: list[dict[str, str | None]] = []
+    for contributor in mint_request.contributors:
+        contributor_id = contributor.contributor_id
+        submission_id = contributor.submission_id
+        if not submission_id or not contributor_id or not _looks_like_account_id(contributor_id):
+            invalid.append(
+                {
+                    "wallet_address": contributor.wallet_address,
+                    "submission_id": submission_id,
+                    "contributor_id": contributor_id,
+                }
+            )
+    if not invalid:
+        return
+
+    logger.error(
+        "event=mint_contributors_unresolvable idempotency_key=%s count=%d details=%s",
+        mint_request.idempotency_key,
+        len(invalid),
+        invalid,
+    )
+    raise EventPayloadError(
+        "contributors",
+        (
+            "MintRequest contains contributors that cannot be recorded by auth reward ingest: "
+            f"{invalid}"
+        ),
+    )
+
+
+def _looks_like_account_id(value: str | None) -> bool:
+    if not value:
+        return False
+    try:
+        uuid.UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return True
 
 
 def _coerce_optional_nonnegative_sample_size(value: Any) -> int | None:

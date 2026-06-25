@@ -138,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.publish:
         _assert_publish_safe(args, baseline_commitment, candidate_commitment)
+        if _auth_reward_recording_required():
+            _assert_auth_recordable_contributors(mint_request)
         MintRequestPublisher().publish(mint_request)
 
     sys.stdout.write(f"wrote attribution_report={attribution_path}\n")
@@ -328,6 +330,45 @@ def _assert_publish_safe(
         raise SystemExit(
             "publishing requires --candidate-commitment or --allow-synthetic-commitments"
         )
+
+
+def _auth_reward_recording_required() -> bool:
+    raw = os.getenv("MINT_REQUIRE_AUTH_REWARD_RECORDING")
+    if raw is not None:
+        return raw.strip().lower() == "true"
+    return os.getenv("CONTRIBUTION_AUTH_CALLBACK_ENABLED", "false").strip().lower() == "true"
+
+
+def _assert_auth_recordable_contributors(mint_request: MintRequest) -> None:
+    invalid: list[dict[str, str | None]] = []
+    for contributor in mint_request.contributors:
+        if (
+            not contributor.submission_id
+            or not contributor.contributor_id
+            or not _looks_like_account_id(contributor.contributor_id)
+        ):
+            invalid.append(
+                {
+                    "wallet_address": contributor.wallet_address,
+                    "submission_id": contributor.submission_id,
+                    "contributor_id": contributor.contributor_id,
+                }
+            )
+    if invalid:
+        raise SystemExit(
+            "synthetic MintRequest contains contributors that cannot be recorded by "
+            f"auth reward ingest: {invalid}"
+        )
+
+
+def _looks_like_account_id(value: str | None) -> bool:
+    if not value:
+        return False
+    try:
+        uuid.UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return True
 
 
 def _resolve_commitments(args: argparse.Namespace) -> tuple[str, str]:

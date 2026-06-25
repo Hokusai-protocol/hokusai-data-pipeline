@@ -30,6 +30,16 @@ from src.events.publishers.mint_request_publisher import QUEUE_NAME, MintRequest
 _CONTRIBUTORS_TAG = json.dumps(
     [{"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 10000}]
 )
+_AUTH_RECORDABLE_CONTRIBUTORS_TAG = json.dumps(
+    [
+        {
+            "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+            "weight_bps": 10000,
+            "submissionId": "batch-123",
+            "contributorId": "36121dbd-a9e0-4c8f-ba4d-57708814b6f8",
+        }
+    ]
+)
 _BASELINE_COMMITMENT = "0x" + "12" * 32
 _CANDIDATE_COMMITMENT = "0x" + "34" * 32
 
@@ -105,6 +115,12 @@ def _default_tags() -> dict[str, str]:
         WEIGHT_COMMITMENT_BASELINE_TAG: _BASELINE_COMMITMENT,
         WEIGHT_COMMITMENT_CANDIDATE_TAG: _CANDIDATE_COMMITMENT,
     }
+
+
+def _auth_recordable_tags() -> dict[str, str]:
+    tags = _default_tags()
+    tags["hokusai.contributors"] = _AUTH_RECORDABLE_CONTRIBUTORS_TAG
+    return tags
 
 
 def test_acceptance_publish_success_advances_canonical_score(monkeypatch) -> None:
@@ -494,6 +510,96 @@ def test_reward_entitlement_failure_does_not_block_publish(monkeypatch) -> None:
     assert outcome.status == "success"
     assert redis_client.llen(QUEUE_NAME) == 1
     assert client.tags["hokusai.canonical_score"] == "0.92"
+
+
+def test_auth_reward_recording_rejects_unrecordable_contributors_before_publish(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("MINT_REQUIRE_AUTH_REWARD_RECORDING", "true")
+    decision = _accepted_decision()
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+    mint_hook = Mock()
+    mint_hook.mint.return_value = TokenMintResult(
+        status="success",
+        audit_ref="audit-1",
+        timestamp=datetime.now(timezone.utc),
+    )
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
+    dispatch_mock = Mock(return_value=[])
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        dispatch_mock,
+    )
+
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=_FakeRewardNotifier(),
+    )
+
+    with pytest.raises(EventPayloadError, match="cannot be recorded by auth reward ingest"):
+        orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert redis_client.llen(QUEUE_NAME) == 0
+    assert "hokusai.canonical_score" not in client.tags
+
+
+def test_strict_reward_entitlement_failure_dispatches_reconciliation_event(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("MINT_REQUIRE_AUTH_REWARD_RECORDING", "true")
+    decision = _accepted_decision()
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+    mint_hook = Mock()
+    mint_hook.mint.return_value = TokenMintResult(
+        status="success",
+        audit_ref="audit-1",
+        timestamp=datetime.now(timezone.utc),
+    )
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(
+        run_metrics={"accuracy": 0.92},
+        initial_tags=_auth_recordable_tags(),
+    )
+    dispatch_mock = Mock(return_value=[])
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        dispatch_mock,
+    )
+    notifier = _FakeRewardNotifier(fail_statuses={"pending"})
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=notifier,
+    )
+
+    with pytest.raises(EventPayloadError, match="auth reward ingest failed"):
+        orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert redis_client.llen(QUEUE_NAME) == 1
+    assert "hokusai.canonical_score" not in client.tags
+    failure_call = next(
+        call
+        for call in dispatch_mock.call_args_list
+        if call.kwargs["event_type"] == "deltaone.reward_ingest_failed"
+    )
+    assert failure_call.kwargs["payload"]["status"] == "pending"
+    assert failure_call.kwargs["payload"]["contributors"] == [
+        {
+            "contributor_id": "36121dbd-a9e0-4c8f-ba4d-57708814b6f8",
+            "submission_id": "batch-123",
+            "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+        }
+    ]
 
 
 def test_claimable_reward_entitlement_sent_when_vesting_present(monkeypatch) -> None:
