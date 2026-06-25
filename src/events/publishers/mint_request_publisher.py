@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 QUEUE_NAME = "hokusai:mint_requests"
 
 
+class MintRequestPublishGuardError(RuntimeError):
+    """Raised when mint-request publication would violate reward rail guardrails."""
+
+
 class MintRequestPublisher:
     """Publishes validated MintRequest messages to the hokusai:mint_requests Redis queue.
 
@@ -73,6 +77,7 @@ class MintRequestPublisher:
         Redis errors propagate to the caller — a failed publish must prevent
         canonical baseline advancement (HOK-1276 recovery contract).
         """
+        _assert_submitter_is_not_attester()
         payload = message.model_dump_json(by_alias=True)
         try:
             self._client.lpush(QUEUE_NAME, payload)
@@ -102,3 +107,42 @@ class MintRequestPublisher:
             self._client.close()
         except Exception as exc:  # noqa: BLE001
             logger.debug("event=mint_request_publisher_close_error error=%s", exc)
+
+
+def _assert_submitter_is_not_attester() -> None:
+    """Fail closed when the backend submitter is also registered as an attester.
+
+    The submitter signs/submits transactions from backend custody. Attester signatures are a
+    separate human approval path. If the same address can satisfy both, the publish path can bypass
+    that separation of duties, so refuse to enqueue reward requests.
+    """
+    submitter = (os.getenv("MINT_SUBMITTER_ADDRESS") or "").strip()
+    if not submitter:
+        return
+
+    rpc_url = (os.getenv("ETH_RPC_URL") or "").strip()
+    verifying_contract = (os.getenv("MINT_VERIFYING_CONTRACT") or "").strip()
+    if not rpc_url or not verifying_contract:
+        raise MintRequestPublishGuardError(
+            "MINT_SUBMITTER_ADDRESS is configured, but ETH_RPC_URL and "
+            "MINT_VERIFYING_CONTRACT are required to verify submitter/attester separation"
+        )
+
+    from src.eip712.onchain_head import read_is_attester  # noqa: PLC0415
+
+    try:
+        is_attester = read_is_attester(
+            rpc_url,
+            contract_address=verifying_contract,
+            address=submitter,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise MintRequestPublishGuardError(
+            "failed to verify submitter/attester separation before publishing MintRequest"
+        ) from exc
+
+    if is_attester:
+        raise MintRequestPublishGuardError(
+            "refusing to publish MintRequest: configured backend submitter "
+            f"{submitter} is registered as an attester"
+        )

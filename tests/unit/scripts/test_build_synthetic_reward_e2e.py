@@ -9,6 +9,8 @@ from scripts.model_30 import build_synthetic_reward_e2e as synthetic
 from src.events.schemas import MintRequest
 
 ESCROW = "0x9999999999999999999999999999999999999999"
+TEST_WALLET_A = "0x2222222222222222222222222222222222222222"
+TEST_WALLET_B = "0x3333333333333333333333333333333333333333"
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> Path:
@@ -122,6 +124,66 @@ def test_main_writes_schema_valid_attribution_and_mint_request(
     assert request.evaluation.new_score_bps > request.evaluation.baseline_score_bps
     assert request.contributors[0].wallet_address == ESCROW
     assert request.contributors[0].contributor_id == "acct-a"
+
+
+def test_extra_test_wallets_reserve_bps_from_contributor_allocation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(synthetic.ALLOW_ENV, "true")
+    manifest = _write_json(tmp_path / "manifest.json", _manifest())
+    comparison = _write_json(tmp_path / "comparison.json", _comparison())
+    output_dir = tmp_path / "out"
+
+    synthetic.main(
+        [
+            "--manifest",
+            str(manifest),
+            "--comparison-report",
+            str(comparison),
+            "--baseline-run-id",
+            "run-base",
+            "--candidate-run-id",
+            "run-cand",
+            "--output-dir",
+            str(output_dir),
+            "--environment",
+            "development",
+            "--escrow-wallet",
+            ESCROW,
+            "--extra-test-wallet",
+            f"{TEST_WALLET_A}:100",
+            "--extra-test-wallet",
+            f"{TEST_WALLET_B}:100",
+            "--allow-synthetic-commitments",
+        ]
+    )
+
+    report = json.loads((output_dir / "synthetic_attribution_report.json").read_text())
+    assert report["method_details"]["extra_test_wallets"] == [
+        {
+            "wallet_address": TEST_WALLET_A,
+            "weight_bps": 100,
+            "contributor_id": "synthetic-test-wallet-1",
+        },
+        {
+            "wallet_address": TEST_WALLET_B,
+            "weight_bps": 100,
+            "contributor_id": "synthetic-test-wallet-2",
+        },
+    ]
+
+    request = MintRequest.model_validate_json(
+        (output_dir / "synthetic_mint_request.json").read_text()
+    )
+    contributors = {item.contributor_id: item for item in request.contributors}
+    assert sum(item.weight_bps for item in request.contributors) == 10000
+    assert contributors["acct-a"].weight_bps == 6534
+    assert contributors["acct-b"].weight_bps == 3266
+    assert contributors["synthetic-test-wallet-1"].wallet_address == TEST_WALLET_A
+    assert contributors["synthetic-test-wallet-1"].weight_bps == 100
+    assert contributors["synthetic-test-wallet-2"].wallet_address == TEST_WALLET_B
+    assert contributors["synthetic-test-wallet-2"].weight_bps == 100
 
 
 def test_requires_explicit_synthetic_guard(tmp_path: Path) -> None:

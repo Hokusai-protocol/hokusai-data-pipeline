@@ -2202,15 +2202,13 @@ def _autosign_attestation_signatures(
     """Auto-sign the publish-time digest with the configured custody backend.
 
     Returns ``None`` when autosign is disabled (the default), so the manual ``attest attach``
-    ceremony remains the path unless ``MINT_ATTESTER_AUTOSIGN=true`` is set explicitly. The
-    produced signature is still verified against the on-chain attester registry by the caller;
-    env custody (a local key) is rejected in staging/production by the signer custody layer, so
-    autosign is for testnet/canary.
+    ceremony remains the path unless ``MINT_ATTESTER_AUTOSIGN=true`` is set explicitly. Autosign is
+    restricted to local/test env-key fixtures; deployed KMS custody is intentionally forbidden so
+    the backend transaction submitter cannot also satisfy the human attester ceremony.
     """
     if not _autosign_enabled():
         return None
     from src.api.services.signer_custody import (  # noqa: PLC0415
-        KMSSignerConfig,
         SignerCustodyMode,
         address_for_private_key,
         resolve_custody_mode,
@@ -2218,6 +2216,17 @@ def _autosign_attestation_signatures(
     )
 
     mode = resolve_custody_mode()
+    environment = (os.getenv("ENVIRONMENT") or "development").strip().lower()
+    if environment not in {"local", "test"}:
+        raise _mint_request_signing_error(
+            "MINT_ATTESTER_AUTOSIGN is only allowed in local/test environments; "
+            "use the Ledger-backed attest build/attach flow"
+        )
+    if mode is SignerCustodyMode.KMS:
+        raise _mint_request_signing_error(
+            "MINT_ATTESTER_AUTOSIGN cannot use KMS custody; attester signatures must be "
+            "created by the human Ledger-backed attester"
+        )
     if mode is SignerCustodyMode.ENV:
         private_key = (os.getenv("MINT_ATTESTER_PRIVATE_KEY") or "").strip()
         if not private_key:
@@ -2226,22 +2235,6 @@ def _autosign_attestation_signatures(
             )
         signature = sign_attestation_digest(digest, mode=mode, private_key=private_key)
         signer = address_for_private_key(private_key)
-    else:
-        key_id = (os.getenv("MINT_ATTESTER_KMS_KEY_ID") or "").strip()
-        region = (os.getenv("MINT_ATTESTER_KMS_REGION") or os.getenv("AWS_REGION") or "").strip()
-        if not key_id or not region:
-            raise _mint_request_signing_error(
-                "MINT_ATTESTER_AUTOSIGN=true with kms custody requires "
-                "MINT_ATTESTER_KMS_KEY_ID and a region"
-            )
-        expected_address = (os.getenv("MINT_ATTESTER_ADDRESS") or "").strip() or None
-        signature = sign_attestation_digest(
-            digest,
-            mode=mode,
-            kms_config=KMSSignerConfig(key_id=key_id, region=region),
-            expected_address=expected_address,
-        )
-        signer = expected_address or "kms"
     logger.info(
         "event=mint_authorization_autosigned run_id=%s mode=%s signer=%s",
         run_id,

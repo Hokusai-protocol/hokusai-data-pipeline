@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -31,6 +32,7 @@ PRODUCTION_ENVIRONMENTS = {"prod", "production", "mainnet"}
 SYNTHETIC_BASELINE_COMMITMENT = "0x" + ("11" * 32)
 SYNTHETIC_CANDIDATE_COMMITMENT = "0x" + ("22" * 32)
 DEFAULT_SYNTHETIC_DELTA = 0.001
+_ETH_ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -51,6 +53,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--synthetic-delta", type=float, default=DEFAULT_SYNTHETIC_DELTA)
     parser.add_argument("--wallet")
     parser.add_argument("--escrow-wallet", default=os.getenv("PENDING_CLAIMS_ESCROW_ADDRESS"))
+    parser.add_argument(
+        "--extra-test-wallet",
+        action="append",
+        default=[],
+        metavar="WALLET:BPS",
+        help=(
+            "Reserve reward basis points for an extra synthetic test wallet. "
+            "May be passed more than once. Example: --extra-test-wallet 0xabc...:100"
+        ),
+    )
     parser.add_argument("--baseline-commitment")
     parser.add_argument("--candidate-commitment")
     parser.add_argument("--allow-synthetic-commitments", action="store_true")
@@ -77,6 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     manifest = _load_json(manifest_path)
     comparison_report = _load_json(comparison_path)
     source_attribution = _load_json(source_attribution_path) if source_attribution_path else {}
+    extra_test_wallets = _parse_extra_test_wallets(args.extra_test_wallet)
     attribution_report = build_synthetic_attribution_report(
         manifest=manifest,
         comparison_report=comparison_report,
@@ -91,6 +104,7 @@ def main(argv: list[str] | None = None) -> int:
             "comparison_report": str(comparison_path),
             "source_attribution": str(source_attribution_path) if source_attribution_path else None,
         },
+        extra_test_wallets=extra_test_wallets,
     )
     _validate_attribution_report(attribution_report, Path(args.schema).expanduser().resolve())
 
@@ -105,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
         metric_family=args.metric_family,
         wallet_override=args.wallet,
         escrow_wallet=args.escrow_wallet,
+        extra_test_wallets=extra_test_wallets,
         baseline_commitment=baseline_commitment,
         candidate_commitment=candidate_commitment,
     )
@@ -143,6 +158,7 @@ def build_synthetic_attribution_report(
     synthetic_delta: float,
     created_at: str,
     source_paths: dict[str, str | None],
+    extra_test_wallets: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Create a nonzero synthetic attribution report from manifest contributor blocks."""
     contributors = _contributors_from_manifest(manifest)
@@ -157,9 +173,10 @@ def build_synthetic_attribution_report(
         )
 
     rows_improved = sum(int(item["rows_credited"]) for item in contributors)
-    source_delta = float(comparison_report.get("primary_delta", 0.0) or 0.0)
+    comparison = _comparison_section(comparison_report)
+    source_delta = float(comparison.get("primary_delta", 0.0) or 0.0)
     primary_metric = str(
-        comparison_report.get("primary_metric")
+        comparison.get("primary_metric")
         or source_attribution.get("method_details", {}).get("primary_metric")
         or "technical_task_router.benchmark_score_v2"
     )
@@ -203,6 +220,7 @@ def build_synthetic_attribution_report(
             "dataset_hash": manifest.get("dataset_hash"),
             "manifest_digest": manifest.get("manifest_digest"),
             "source_paths": source_paths,
+            "extra_test_wallets": extra_test_wallets or [],
             "reason": "synthetic_reward_token_pipeline_test_only",
         },
     }
@@ -219,6 +237,7 @@ def build_synthetic_mint_request(
     metric_family: str,
     wallet_override: str | None,
     escrow_wallet: str | None,
+    extra_test_wallets: list[dict[str, Any]],
     baseline_commitment: str,
     candidate_commitment: str,
 ) -> MintRequest:
@@ -234,6 +253,7 @@ def build_synthetic_mint_request(
         attribution_report["contributors"],
         wallet_override=wallet_override,
         escrow_wallet=escrow_wallet,
+        extra_test_wallets=extra_test_wallets,
     )
     timestamp = _utc_now_iso()
     attestation_hash = _sha256_hex(
@@ -330,6 +350,35 @@ def _load_json(path: Path | None) -> dict[str, Any]:
     return payload
 
 
+def _parse_extra_test_wallets(raw_values: list[str]) -> list[dict[str, Any]]:
+    """Parse WALLET:BPS CLI values into deterministic test-recipient records."""
+    parsed: list[dict[str, Any]] = []
+    for index, raw_value in enumerate(raw_values, start=1):
+        wallet, separator, bps_raw = raw_value.partition(":")
+        if not separator:
+            raise SystemExit(f"invalid --extra-test-wallet {raw_value!r}; expected WALLET:BPS")
+        wallet = wallet.strip().lower()
+        if not _ETH_ADDRESS_RE.match(wallet):
+            raise SystemExit(f"invalid --extra-test-wallet address: {wallet!r}")
+        try:
+            weight_bps = int(bps_raw)
+        except ValueError as exc:
+            raise SystemExit(f"invalid --extra-test-wallet bps for {wallet}: {bps_raw!r}") from exc
+        if weight_bps <= 0:
+            raise SystemExit("--extra-test-wallet bps must be positive")
+        parsed.append(
+            {
+                "wallet_address": wallet,
+                "weight_bps": weight_bps,
+                "contributor_id": f"synthetic-test-wallet-{index}",
+            }
+        )
+    total = sum(item["weight_bps"] for item in parsed)
+    if total >= 10000:
+        raise SystemExit("extra test wallets must reserve less than 10000 bps")
+    return parsed
+
+
 def _validate_attribution_report(report: dict[str, Any], schema_path: Path) -> None:
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     jsonschema.validate(instance=report, schema=schema)
@@ -397,17 +446,27 @@ def _total_rows_evaluated(
 ) -> int:
     if source_attribution.get("total_rows_evaluated") is not None:
         return int(source_attribution["total_rows_evaluated"])
+    candidate = comparison_report.get("candidate")
+    if isinstance(candidate, dict):
+        row_counts = candidate.get("row_counts")
+        if isinstance(row_counts, dict) and row_counts.get("evaluated_rows") is not None:
+            return max(1, int(row_counts["evaluated_rows"]))
     if comparison_report.get("benchmark_rows") is not None:
         return max(1, int(comparison_report["benchmark_rows"]))
     return 1
 
 
 def _metric_value(report: dict[str, Any], key: str, metric: str) -> float:
-    metrics = report.get(key)
+    metrics = _comparison_section(report).get(key)
     if not isinstance(metrics, dict):
         return 0.0
     value = metrics.get(metric)
     return float(value) if value is not None else 0.0
+
+
+def _comparison_section(report: dict[str, Any]) -> dict[str, Any]:
+    comparison = report.get("comparison")
+    return comparison if isinstance(comparison, dict) else report
 
 
 def _improving_bps_pair(baseline_score: float, candidate_score: float) -> tuple[int, int]:
@@ -429,8 +488,17 @@ def _mint_contributors(
     *,
     wallet_override: str | None,
     escrow_wallet: str | None,
+    extra_test_wallets: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     contributors: list[dict[str, Any]] = []
+    extra_weight_bps = sum(int(item["weight_bps"]) for item in extra_test_wallets)
+    remaining_weight_bps = 10000 - extra_weight_bps
+    if remaining_weight_bps <= 0:
+        raise SystemExit("extra test wallets leave no reward allocation for contributors")
+    base_weights = _scale_base_contributor_weights(
+        attribution_contributors,
+        total_bps=remaining_weight_bps,
+    )
     for item in attribution_contributors:
         account_id = item.get("account_id")
         wallet = (wallet_override or item.get("wallet") or escrow_wallet or "").lower()
@@ -441,7 +509,7 @@ def _mint_contributors(
             )
         contributor: dict[str, Any] = {
             "wallet_address": wallet,
-            "weight_bps": int(item["weight_bps"]),
+            "weight_bps": base_weights[_contributor_key(item)],
         }
         submission_ids = item.get("submission_ids") or []
         if submission_ids:
@@ -449,7 +517,37 @@ def _mint_contributors(
         if account_id:
             contributor["contributorId"] = str(account_id)
         contributors.append(contributor)
+    for item in extra_test_wallets:
+        contributors.append(
+            {
+                "wallet_address": item["wallet_address"],
+                "weight_bps": int(item["weight_bps"]),
+                "contributorId": item["contributor_id"],
+            }
+        )
     return contributors
+
+
+def _scale_base_contributor_weights(
+    contributors: list[dict[str, Any]],
+    *,
+    total_bps: int,
+) -> dict[str, int]:
+    raw_weights = {_contributor_key(item): float(item["weight_bps"]) for item in contributors}
+    scaled = _largest_remainder_bps(raw_weights)
+    if total_bps == 10000:
+        return scaled
+    exact = {key: scaled[key] * total_bps / 10000.0 for key in sorted(scaled)}
+    floors = {key: int(value) for key, value in exact.items()}
+    remaining = total_bps - sum(floors.values())
+    remainders = sorted(exact, key=lambda key: (-(exact[key] - floors[key]), key))
+    for key in remainders[:remaining]:
+        floors[key] += 1
+    return floors
+
+
+def _contributor_key(item: dict[str, Any]) -> str:
+    return str(item.get("account_id") or item.get("wallet") or item.get("submission_ids"))
 
 
 def _dataset_hash_for_mint(manifest: dict[str, Any]) -> str:

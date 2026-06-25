@@ -683,6 +683,7 @@ def test_autosign_env_custody_signs_and_recovers(monkeypatch) -> None:
 
     private_key = "0x" + "cd" * 32
     digest = b"\x22" * 32
+    monkeypatch.setenv("ENVIRONMENT", "local")
     monkeypatch.setenv("MINT_ATTESTER_AUTOSIGN", "true")
     monkeypatch.setenv("SIGNER_CUSTODY_MODE", "env")
     monkeypatch.setenv("MINT_ATTESTER_PRIVATE_KEY", private_key)
@@ -700,12 +701,36 @@ def test_autosign_env_custody_signs_and_recovers(monkeypatch) -> None:
 def test_autosign_env_custody_requires_private_key(monkeypatch) -> None:
     from src.evaluation.deltaone_mint_orchestrator import _autosign_attestation_signatures
 
+    monkeypatch.setenv("ENVIRONMENT", "local")
     monkeypatch.setenv("MINT_ATTESTER_AUTOSIGN", "true")
     monkeypatch.setenv("SIGNER_CUSTODY_MODE", "env")
     monkeypatch.delenv("MINT_ATTESTER_PRIVATE_KEY", raising=False)
 
     with pytest.raises(EventPayloadError, match="MINT_ATTESTER_PRIVATE_KEY"):
         _autosign_attestation_signatures(b"\x33" * 32, run_id="run-candidate")
+
+
+def test_autosign_rejected_outside_local_test(monkeypatch) -> None:
+    from src.evaluation.deltaone_mint_orchestrator import _autosign_attestation_signatures
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("MINT_ATTESTER_AUTOSIGN", "true")
+    monkeypatch.setenv("SIGNER_CUSTODY_MODE", "env")
+    monkeypatch.setenv("MINT_ATTESTER_PRIVATE_KEY", "0x" + "cd" * 32)
+
+    with pytest.raises(EventPayloadError, match="only allowed in local/test"):
+        _autosign_attestation_signatures(b"\x44" * 32, run_id="run-candidate")
+
+
+def test_autosign_kms_custody_rejected(monkeypatch) -> None:
+    from src.evaluation.deltaone_mint_orchestrator import _autosign_attestation_signatures
+
+    monkeypatch.setenv("ENVIRONMENT", "local")
+    monkeypatch.setenv("MINT_ATTESTER_AUTOSIGN", "true")
+    monkeypatch.setenv("SIGNER_CUSTODY_MODE", "kms")
+
+    with pytest.raises(EventPayloadError, match="cannot use KMS custody"):
+        _autosign_attestation_signatures(b"\x55" * 32, run_id="run-candidate")
 
 
 def _per_row_orchestrator() -> DeltaOneMintOrchestrator:
