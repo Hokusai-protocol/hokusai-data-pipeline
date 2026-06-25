@@ -163,19 +163,25 @@ jobs:
 
         ECR_REGISTRY=$(aws ecr describe-repositories --repository-names $ECR_REPOSITORY_API --query 'repositories[0].repositoryUri' --output text | cut -d'/' -f1)
         IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY_API:${{ github.sha }}"
+        ETH_RPC_URL=$(aws ssm get-parameter --name /hokusai/development/contracts/rpc_endpoint --with-decryption --query 'Parameter.Value' --output text)
+        MINT_VERIFYING_CONTRACT=$(aws ssm get-parameter --name /hokusai/development/contracts/delta_verifier_address --with-decryption --query 'Parameter.Value' --output text)
+        MINT_SUBMITTER_ADDRESS=$(aws ssm get-parameter --name /hokusai/development/ethereum/sepolia/submitter_address --with-decryption --query 'Parameter.Value' --output text)
 
         # Take the live API task definition, swap the image to the new one,
         # and register a new revision. The migration one-shot runs against
         # this revision; we don't update the API service to it here.
         TASK_DEF=$(aws ecs describe-task-definition --task-definition "$API_TASK_FAMILY" --query 'taskDefinition')
-        NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$IMAGE" --arg HOKUSAI_CONTRIBUTIONS_BUCKET "$HOKUSAI_CONTRIBUTIONS_BUCKET" --arg CONTRIBUTION_AUTH_CALLBACK_ENABLED "$CONTRIBUTION_AUTH_CALLBACK_ENABLED" '
+        NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$IMAGE" --arg HOKUSAI_CONTRIBUTIONS_BUCKET "$HOKUSAI_CONTRIBUTIONS_BUCKET" --arg CONTRIBUTION_AUTH_CALLBACK_ENABLED "$CONTRIBUTION_AUTH_CALLBACK_ENABLED" --arg ETH_RPC_URL "$ETH_RPC_URL" --arg MINT_VERIFYING_CONTRACT "$MINT_VERIFYING_CONTRACT" --arg MINT_SUBMITTER_ADDRESS "$MINT_SUBMITTER_ADDRESS" '
           .containerDefinitions[0].image = $IMAGE |
           .containerDefinitions[0].environment =
             ((.containerDefinitions[0].environment // [])
-              | map(select(.name != "HOKUSAI_CONTRIBUTIONS_BUCKET" and .name != "CONTRIBUTION_AUTH_CALLBACK_ENABLED"))
+              | map(select(.name != "HOKUSAI_CONTRIBUTIONS_BUCKET" and .name != "CONTRIBUTION_AUTH_CALLBACK_ENABLED" and .name != "ETH_RPC_URL" and .name != "MINT_VERIFYING_CONTRACT" and .name != "MINT_SUBMITTER_ADDRESS"))
               + [
                 {name: "HOKUSAI_CONTRIBUTIONS_BUCKET", value: $HOKUSAI_CONTRIBUTIONS_BUCKET},
-                {name: "CONTRIBUTION_AUTH_CALLBACK_ENABLED", value: $CONTRIBUTION_AUTH_CALLBACK_ENABLED}
+                {name: "CONTRIBUTION_AUTH_CALLBACK_ENABLED", value: $CONTRIBUTION_AUTH_CALLBACK_ENABLED},
+                {name: "ETH_RPC_URL", value: $ETH_RPC_URL},
+                {name: "MINT_VERIFYING_CONTRACT", value: $MINT_VERIFYING_CONTRACT},
+                {name: "MINT_SUBMITTER_ADDRESS", value: $MINT_SUBMITTER_ADDRESS}
               ]) |
           del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
         ')
@@ -285,15 +291,21 @@ jobs:
         # First check if task definition exists
         if aws ecs describe-task-definition --task-definition hokusai-api-development >/dev/null 2>&1; then
           echo "✅ Updating existing API task definition..."
+          ETH_RPC_URL=$(aws ssm get-parameter --name /hokusai/development/contracts/rpc_endpoint --with-decryption --query 'Parameter.Value' --output text)
+          MINT_VERIFYING_CONTRACT=$(aws ssm get-parameter --name /hokusai/development/contracts/delta_verifier_address --with-decryption --query 'Parameter.Value' --output text)
+          MINT_SUBMITTER_ADDRESS=$(aws ssm get-parameter --name /hokusai/development/ethereum/sepolia/submitter_address --with-decryption --query 'Parameter.Value' --output text)
           TASK_DEF=$(aws ecs describe-task-definition --task-definition hokusai-api-development --query 'taskDefinition')
-          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$ECR_REGISTRY/hokusai-api:$IMAGE_TAG" --arg HOKUSAI_CONTRIBUTIONS_BUCKET "$HOKUSAI_CONTRIBUTIONS_BUCKET" --arg CONTRIBUTION_AUTH_CALLBACK_ENABLED "$CONTRIBUTION_AUTH_CALLBACK_ENABLED" '
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg IMAGE "$ECR_REGISTRY/hokusai-api:$IMAGE_TAG" --arg HOKUSAI_CONTRIBUTIONS_BUCKET "$HOKUSAI_CONTRIBUTIONS_BUCKET" --arg CONTRIBUTION_AUTH_CALLBACK_ENABLED "$CONTRIBUTION_AUTH_CALLBACK_ENABLED" --arg ETH_RPC_URL "$ETH_RPC_URL" --arg MINT_VERIFYING_CONTRACT "$MINT_VERIFYING_CONTRACT" --arg MINT_SUBMITTER_ADDRESS "$MINT_SUBMITTER_ADDRESS" '
             .containerDefinitions[0].image = $IMAGE |
             .containerDefinitions[0].environment =
               ((.containerDefinitions[0].environment // [])
-                | map(select(.name != "HOKUSAI_CONTRIBUTIONS_BUCKET" and .name != "CONTRIBUTION_AUTH_CALLBACK_ENABLED"))
+                | map(select(.name != "HOKUSAI_CONTRIBUTIONS_BUCKET" and .name != "CONTRIBUTION_AUTH_CALLBACK_ENABLED" and .name != "ETH_RPC_URL" and .name != "MINT_VERIFYING_CONTRACT" and .name != "MINT_SUBMITTER_ADDRESS"))
                 + [
                   {name: "HOKUSAI_CONTRIBUTIONS_BUCKET", value: $HOKUSAI_CONTRIBUTIONS_BUCKET},
-                  {name: "CONTRIBUTION_AUTH_CALLBACK_ENABLED", value: $CONTRIBUTION_AUTH_CALLBACK_ENABLED}
+                  {name: "CONTRIBUTION_AUTH_CALLBACK_ENABLED", value: $CONTRIBUTION_AUTH_CALLBACK_ENABLED},
+                  {name: "ETH_RPC_URL", value: $ETH_RPC_URL},
+                  {name: "MINT_VERIFYING_CONTRACT", value: $MINT_VERIFYING_CONTRACT},
+                  {name: "MINT_SUBMITTER_ADDRESS", value: $MINT_SUBMITTER_ADDRESS}
                 ]) |
             del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)
           ')

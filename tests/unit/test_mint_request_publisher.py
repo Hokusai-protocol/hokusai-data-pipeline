@@ -55,7 +55,11 @@ from src.evaluation.tags import (
     WEIGHT_COMMITMENT_BASELINE_TAG,
     WEIGHT_COMMITMENT_CANDIDATE_TAG,
 )
-from src.events.publishers.mint_request_publisher import QUEUE_NAME, MintRequestPublisher
+from src.events.publishers.mint_request_publisher import (
+    QUEUE_NAME,
+    MintRequestPublisher,
+    MintRequestPublishGuardError,
+)
 from src.events.schemas import (
     MintRequest,
     MintRequestContributor,
@@ -509,6 +513,45 @@ class TestMintRequestPublisher:
         parsed = json.loads(raw)
         assert "payload" not in parsed
         assert parsed["message_type"] == "mint_request"
+
+    def test_publish_blocks_submitter_registered_as_attester(self, monkeypatch) -> None:
+        pub, client = self._make_publisher()
+        monkeypatch.setenv("MINT_SUBMITTER_ADDRESS", "0x1111111111111111111111111111111111111111")
+        monkeypatch.setenv("ETH_RPC_URL", "https://rpc.example")
+        monkeypatch.setenv("MINT_VERIFYING_CONTRACT", "0x2222222222222222222222222222222222222222")
+        monkeypatch.setattr(
+            "src.eip712.onchain_head.read_is_attester",
+            lambda *_args, **_kwargs: True,
+        )
+
+        with pytest.raises(MintRequestPublishGuardError, match="registered as an attester"):
+            pub.publish(_valid_mint_request())
+
+        assert client.llen(QUEUE_NAME) == 0
+
+    def test_publish_allows_submitter_not_registered_as_attester(self, monkeypatch) -> None:
+        pub, client = self._make_publisher()
+        monkeypatch.setenv("MINT_SUBMITTER_ADDRESS", "0x1111111111111111111111111111111111111111")
+        monkeypatch.setenv("ETH_RPC_URL", "https://rpc.example")
+        monkeypatch.setenv("MINT_VERIFYING_CONTRACT", "0x2222222222222222222222222222222222222222")
+        monkeypatch.setattr(
+            "src.eip712.onchain_head.read_is_attester",
+            lambda *_args, **_kwargs: False,
+        )
+
+        pub.publish(_valid_mint_request())
+
+        assert client.llen(QUEUE_NAME) == 1
+
+    def test_publish_with_submitter_fails_closed_without_chain_config(self, monkeypatch) -> None:
+        pub, client = self._make_publisher()
+        monkeypatch.setenv("MINT_SUBMITTER_ADDRESS", "0x1111111111111111111111111111111111111111")
+        monkeypatch.delenv("ETH_RPC_URL", raising=False)
+
+        with pytest.raises(MintRequestPublishGuardError, match="required to verify"):
+            pub.publish(_valid_mint_request())
+
+        assert client.llen(QUEUE_NAME) == 0
 
 
 # ---------------------------------------------------------------------------
