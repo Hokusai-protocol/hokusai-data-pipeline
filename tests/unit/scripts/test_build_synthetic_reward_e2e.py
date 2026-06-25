@@ -261,3 +261,37 @@ def test_publish_requires_real_commitments(
                 "--publish",
             ]
         )
+
+
+def test_publish_with_auth_reward_recording_rejects_placeholder_contributors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(synthetic.ALLOW_ENV, "true")
+    monkeypatch.setenv("MINT_REQUIRE_AUTH_REWARD_RECORDING", "true")
+    monkeypatch.setattr(synthetic.MintRequestPublisher, "publish", lambda *_args: None)
+
+    with pytest.raises(SystemExit, match="cannot be recorded by auth reward ingest"):
+        synthetic.main(
+            [
+                "--manifest",
+                str(_write_json(tmp_path / "manifest.json", _manifest())),
+                "--comparison-report",
+                str(_write_json(tmp_path / "comparison.json", _comparison())),
+                "--baseline-run-id",
+                "run-base",
+                "--candidate-run-id",
+                "run-cand",
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--environment",
+                "development",
+                "--escrow-wallet",
+                ESCROW,
+                "--baseline-commitment",
+                "0x" + "44" * 32,
+                "--candidate-commitment",
+                "0x" + "55" * 32,
+                "--publish",
+            ]
+        )
