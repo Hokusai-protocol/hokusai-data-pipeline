@@ -27,7 +27,15 @@ from src.evaluation.attribution.retraining_attributor import (  # noqa: E402
     attribute,
 )
 
-PRIMARY_METRIC = "technical_task_router.benchmark_score_v1"
+# Default attribution objective mirrors the evaluate script's DEFAULT_*_PRIMARY_METRIC
+# mlflow keys. Model 30 reward attribution keys off the v2 composite by default; v1 is
+# retained only as a selectable diagnostic for rollback (HOK-2217).
+DEFAULT_V1_PRIMARY_METRIC = "technical_task_router.benchmark_score_v1"
+DEFAULT_V2_PRIMARY_METRIC = "technical_task_router.benchmark_score_v2"
+
+
+def _default_primary_metric(benchmark_version: str) -> str:
+    return DEFAULT_V2_PRIMARY_METRIC if benchmark_version == "v2" else DEFAULT_V1_PRIMARY_METRIC
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,6 +45,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--holdout", required=True)
     parser.add_argument("--model-id", default="30")
+    parser.add_argument("--benchmark-version", choices=("v1", "v2"), default="v2")
+    parser.add_argument(
+        "--primary-metric",
+        default=None,
+        help=(
+            "MLflow metric key to attribute on. Defaults to the v2 composite "
+            "(technical_task_router.benchmark_score_v2) for --benchmark-version v2."
+        ),
+    )
     parser.add_argument("--baseline-run-id", required=True)
     parser.add_argument("--candidate-run-id", required=True)
     parser.add_argument("--output", required=True)
@@ -68,6 +85,9 @@ def main() -> None:
     dataset_path = Path(args.dataset).expanduser().resolve()
     holdout_path = Path(args.holdout).expanduser().resolve()
 
+    benchmark_version = args.benchmark_version
+    primary_metric = args.primary_metric or _default_primary_metric(benchmark_version)
+
     manifest = _load_manifest(manifest_path)
     cohorts = _build_cohorts(manifest)
     if not cohorts:
@@ -96,6 +116,8 @@ def main() -> None:
         model_id=args.model_id,
         k_neighbors=args.k_neighbors,
         real_training=args.real_training,
+        benchmark_version=benchmark_version,
+        primary_metric=primary_metric,
     ) as trainer:
         try:
             report = attribute(
@@ -224,12 +246,16 @@ class _Model30SubsetTrainer:
         model_id: str,
         k_neighbors: int,
         real_training: bool,
+        benchmark_version: str = "v2",
+        primary_metric: str = DEFAULT_V2_PRIMARY_METRIC,
     ) -> None:
         self._dataset_rows = dataset_rows
         self._holdout_path = holdout_path
         self._model_id = model_id
         self._k_neighbors = k_neighbors
         self._real_training = real_training
+        self._benchmark_version = benchmark_version
+        self._primary_metric = primary_metric
         self._tempdirs: list[tempfile.TemporaryDirectory[str]] = []
         self._identity_by_row = _identity_by_row_index(blocks=blocks, row_count=len(dataset_rows))
         self.total_rows_evaluated = int(pd.read_csv(holdout_path).shape[0])
@@ -289,9 +315,10 @@ class _Model30SubsetTrainer:
             model_id=self._model_id,
             holdout_path=self._holdout_path,
             objectives=parse_objectives("all"),
+            benchmark_version=self._benchmark_version,
             eval_id=f"attribute-retraining-{self._model_id}",
         )
-        return float(report["metrics"][PRIMARY_METRIC])
+        return float(report["metrics"][self._primary_metric])
 
 
 def _identity_by_row_index(*, blocks: list[dict[str, Any]], row_count: int) -> list[str | None]:

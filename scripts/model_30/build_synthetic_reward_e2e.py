@@ -29,6 +29,19 @@ from src.events.schemas import MintRequest  # noqa: E402
 
 ALLOW_ENV = "ALLOW_SYNTHETIC_REWARD_E2E"
 PRODUCTION_ENVIRONMENTS = {"prod", "production", "mainnet"}
+# Canonical Model 30 v2 reward identifiers. Kept in sync with register_technical_task_router.py
+# (V2_BENCHMARK_SPEC_ID / MODEL_30_V2_METRIC_FAMILY) so the synthetic DeltaOne dry-run MintRequest
+# is conformant with the production v2 attestation/typed-data shape.
+V2_BENCHMARK_SPEC_ID = "technical_task_router.benchmark_score/v2"
+MODEL_30_V2_METRIC_FAMILY = "continuous"
+DEFAULT_V2_PRIMARY_METRIC_KEY = "technical_task_router.benchmark_score_v2"
+# MLflow metric key -> canonical Hokusai metric name (slash form). The MintRequest must advertise
+# the canonical name that the on-chain DeltaVerifier typed data signs, not the underscored
+# MLflow key used inside comparison reports.
+_CANONICAL_METRIC_NAMES = {
+    "technical_task_router.benchmark_score_v2": "technical_task_router.benchmark_score/v2",
+    "technical_task_router.benchmark_score_v1": "technical_task_router.benchmark_score/v1",
+}
 SYNTHETIC_BASELINE_COMMITMENT = "0x" + ("11" * 32)
 SYNTHETIC_CANDIDATE_COMMITMENT = "0x" + ("22" * 32)
 DEFAULT_SYNTHETIC_DELTA = 0.001
@@ -48,8 +61,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--baseline-run-id")
     parser.add_argument("--candidate-run-id")
     parser.add_argument("--eval-id")
-    parser.add_argument("--benchmark-spec-id", default="technical_task_router_spec.v2")
-    parser.add_argument("--metric-family", default="proportion")
+    parser.add_argument("--benchmark-spec-id", default=V2_BENCHMARK_SPEC_ID)
+    parser.add_argument("--metric-family", default=MODEL_30_V2_METRIC_FAMILY)
     parser.add_argument("--synthetic-delta", type=float, default=DEFAULT_SYNTHETIC_DELTA)
     parser.add_argument("--wallet")
     parser.add_argument("--escrow-wallet", default=os.getenv("PENDING_CLAIMS_ESCROW_ADDRESS"))
@@ -180,7 +193,7 @@ def build_synthetic_attribution_report(
     primary_metric = str(
         comparison.get("primary_metric")
         or source_attribution.get("method_details", {}).get("primary_metric")
-        or "technical_task_router.benchmark_score_v2"
+        or DEFAULT_V2_PRIMARY_METRIC_KEY
     )
     weight_bps = _largest_remainder_bps(
         {item["identity"]: float(item["rows_credited"]) for item in contributors}
@@ -244,7 +257,10 @@ def build_synthetic_mint_request(
     candidate_commitment: str,
 ) -> MintRequest:
     """Create a validated MintRequest from the synthetic attribution report."""
+    # The comparison report keys metrics by the underscored MLflow key; the MintRequest must
+    # advertise the canonical slash-form metric name signed by the on-chain DeltaVerifier.
     primary_metric = str(attribution_report["method_details"]["source_primary_metric"])
+    canonical_metric_name = _canonical_metric_name(primary_metric)
     baseline_score = _metric_value(comparison_report, "baseline_metrics", primary_metric)
     candidate_score = max(
         baseline_score + float(attribution_report["method_details"]["synthetic_delta"]),
@@ -285,7 +301,7 @@ def build_synthetic_mint_request(
         totalSamples=sample_size,
         deadline=int((datetime.now(UTC) + timedelta(days=5)).timestamp()),
         evaluation={
-            "metric_name": primary_metric,
+            "metric_name": canonical_metric_name,
             "metric_family": metric_family,
             "baseline_score_bps": baseline_bps,
             "new_score_bps": candidate_bps,
@@ -495,6 +511,11 @@ def _total_rows_evaluated(
     if comparison_report.get("benchmark_rows") is not None:
         return max(1, int(comparison_report["benchmark_rows"]))
     return 1
+
+
+def _canonical_metric_name(metric_key: str) -> str:
+    """Map an MLflow metric key to its canonical Hokusai metric name (slash form)."""
+    return _CANONICAL_METRIC_NAMES.get(metric_key, metric_key)
 
 
 def _metric_value(report: dict[str, Any], key: str, metric: str) -> float:

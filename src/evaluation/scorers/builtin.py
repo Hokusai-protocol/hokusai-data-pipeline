@@ -284,7 +284,7 @@ def _task_router_success_under_budget(rows: list[dict]) -> float:
 
 
 def _task_router_benchmark_score(rows: list[dict]) -> float:
-    """Primary benchmark score: SuccessfulRunsWithinBudget / TotalRuns."""
+    """Legacy v1 benchmark score (guardrail alias): SuccessfulRunsWithinBudget / TotalRuns."""
     return _task_router_success_under_budget(rows)
 
 
@@ -561,9 +561,11 @@ _TASK_ROUTER_SCORERS = [
         "technical_task_router.benchmark_score/v1",
         _task_router_benchmark_score,
         (
-            "Primary technical task router benchmark score. Computes "
-            "SuccessfulRunsWithinBudget / TotalRuns, where successful runs must select only "
-            "allowed models, stay within max_cost_usd, and complete successfully."
+            "Legacy v1 technical task router benchmark score, retained as a "
+            "guardrail/diagnostic alias of success-under-budget (the v2 composite is the "
+            "primary reward metric). Computes SuccessfulRunsWithinBudget / TotalRuns, where "
+            "successful runs must select only allowed models, stay within max_cost_usd, and "
+            "complete successfully."
         ),
         Aggregation.PASS_RATE,
         MetricFamily.OUTCOME,
