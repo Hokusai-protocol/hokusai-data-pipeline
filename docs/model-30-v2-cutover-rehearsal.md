@@ -56,11 +56,25 @@ scripts/model_30/run_v2_cutover_rehearsal.sh --rejected
 | `--accepted` | `accepted/synthetic_mint_request.json` | Builds the synthetic MintRequest and **asserts** `benchmark_spec_id` / `metric_name` = `technical_task_router.benchmark_score/v2` and `metric_family = continuous`. Not published. |
 | `--rejected` | `compare_v2_reject.json` | Scores the baseline against itself → `primary_delta = 0` → DeltaOne declines, no mint. |
 
-## Manual follow-ups (not automated)
+## Activate the v2 BenchmarkSpec (HOK-2217 acceptance criterion 1)
 
-- **Activate the v2 BenchmarkSpec** for model 30 (`is_active=True`) via `BenchmarkSpecService`
-  so `get_active_spec_for_model(30)` returns `technical_task_router.benchmark_score/v2`
-  (HOK-2217 acceptance criterion 1). Specs are immutable — create a new active version.
+Make `technical_task_router.benchmark_score/v2` the single active spec for model 30 so
+`get_active_spec_for_model(30)` returns it. The `--baseline` phase previews this plan as a
+dry-run when `DATABASE_URL` is set; applying it is a deliberate, separate governance write:
+
+```bash
+export DATABASE_URL=<benchmark spec DB>
+# Preview the plan (dry-run, changes nothing):
+scripts/model_30/activate_v2_benchmark_spec.py --model-id 30
+# Apply it (sets v2 active, deactivates other active specs for the model):
+scripts/model_30/activate_v2_benchmark_spec.py --model-id 30 --apply
+```
+
+Benchmark specs are immutable; this only flips the `is_active` flag. It does **not** create
+specs — register the v2 spec first if none exists.
+
+## Manual follow-ups
+
 - The **rejected leg** here demonstrates the gate via a zero delta. To exercise a
   *guardrail* rejection (candidate improves v2 but regresses the v1 success-under-budget
   guardrail), feed a candidate that does so and confirm promotion is blocked.

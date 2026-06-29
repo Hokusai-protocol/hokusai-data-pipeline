@@ -193,8 +193,18 @@ with mlflow.start_run(run_name="model-30-v2-baseline-publish-${ENVIRONMENT}"):
 PY
     ok "MLflow baseline-publish run recorded"
   fi
-  warn "Reminder: activate the v2 BenchmarkSpec for model 30 (is_active=True) via BenchmarkSpecService"
-  warn "so get_active_spec_for_model(30) returns benchmark_score/v2 (HOK-2217 acceptance criterion 1)."
+  # Show the v2 BenchmarkSpec activation plan (HOK-2217 acceptance criterion 1) as a
+  # dry-run. Activation is a governance DB write, so it stays a deliberate separate
+  # command — this never applies it.
+  if [ -n "${DATABASE_URL:-}" ]; then
+    log "Previewing v2 benchmark spec activation (dry-run)"
+    python3 "${REPO_ROOT}/scripts/model_30/activate_v2_benchmark_spec.py" \
+      --model-id "$MODEL_ID_UINT" || warn "activation preview skipped (spec absent or DB unreachable)"
+    warn "To apply, run: scripts/model_30/activate_v2_benchmark_spec.py --model-id $MODEL_ID_UINT --apply"
+  else
+    warn "Set DATABASE_URL to preview v2 BenchmarkSpec activation, then apply with:"
+    warn "  scripts/model_30/activate_v2_benchmark_spec.py --model-id $MODEL_ID_UINT --apply"
+  fi
 }
 
 # --------------------------------------------------------------------------- #
