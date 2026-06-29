@@ -124,6 +124,11 @@ def test_main_writes_schema_valid_attribution_and_mint_request(
     assert request.evaluation.new_score_bps > request.evaluation.baseline_score_bps
     assert request.contributors[0].wallet_address == ESCROW
     assert request.contributors[0].contributor_id == "acct-a"
+    # v2 conformance: the dry-run MintRequest must advertise the canonical composite metric
+    # name and the continuous family signed by the on-chain DeltaVerifier (HOK-2216/2217).
+    assert request.evaluation.metric_name == "technical_task_router.benchmark_score/v2"
+    assert request.evaluation.metric_family == "continuous"
+    assert request.benchmark_spec_id == "technical_task_router.benchmark_score/v2"
 
 
 def test_extra_test_wallets_reserve_bps_from_contributor_allocation(

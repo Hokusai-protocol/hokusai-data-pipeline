@@ -1,4 +1,4 @@
-# Technical Task Router Benchmark (v1)
+# Technical Task Router Benchmark (v2 canonical)
 
 ## Objective and Scope
 
@@ -6,11 +6,56 @@ This document defines the Hokusai benchmark contract for evaluating a technical 
 router. Each sample contains a structured task descriptor, the models the router may use,
 the workflow models it selected, and the per-sample budget and observed outcome.
 
-The benchmark score is:
+> **Canonical metric (Model 30):** `technical_task_router.benchmark_score/v2` — a bounded
+> composite — is the promotion and reward-gating metric. The v1
+> `technical_task_router.success_under_budget/v1` score is retained only as a logged
+> guardrail/diagnostic and is the first component of the composite. The v1 sections below
+> describe the legacy row schema and diagnostics that remain in use as guardrails. See
+> [v2 Composite Reward Benchmark](#v2-composite-reward-benchmark-canonical) and
+> [Operator Rollback Notes](#operator-rollback-notes).
+
+The legacy v1 benchmark score is:
 
 ```text
 SuccessfulRunsWithinBudget / TotalRuns
 ```
+
+## v2 Composite Reward Benchmark (canonical)
+
+The canonical Model 30 reward metric is `technical_task_router.benchmark_score/v2`
+(MLflow key `technical_task_router.benchmark_score_v2`), a bounded `[0, 1]` composite:
+
+```text
+benchmark_score/v2 = clamp(
+    0.70 * success_under_budget
+  + 0.15 * cost_efficiency
+  + 0.10 * sparse_cell_generalization
+  + 0.05 * candidate_pool_robustness,
+  0.0, 1.0)
+```
+
+| Component | Scorer ref | Computation |
+|---|---|---|
+| Success under budget | `technical_task_router.success_under_budget/v1` | Feasible and completed rows / total rows (also the v1 guardrail). |
+| Cost efficiency | `technical_task_router.cost_efficiency/v2` | Mean `1 - clamp(actual_cost_usd / max_cost_usd, 0, 1)` over successful rows. |
+| Sparse-cell generalization | `technical_task_router.sparse_cell_generalization/v2` | Success-under-budget rate over the `sparse_cell` scenario slice. |
+| Candidate-pool robustness | `technical_task_router.candidate_pool_robustness/v2` | Success-under-budget rate over `challenger_present`, `dominant_model_removed`, and `low_budget` slices. |
+
+The component weights, bounds, and required scenario slices are frozen in
+`src/evaluation/scorers/builtin.py`. The canonical spec is
+[`schema/examples/technical_task_router_spec.v2.json`](../schema/examples/technical_task_router_spec.v2.json)
+(`primary_metric.name = technical_task_router.benchmark_score/v2`,
+`metric_family = "continuous"`) and the canonical row schema is
+[`schema/technical_task_router_row.v2.json`](../schema/technical_task_router_row.v2.json)
+(`scorer_ref` and `benchmark_spec_id` const `technical_task_router.benchmark_score/v2`).
+
+Because the scenario slices are required, the v2 score raises if a benchmark run is missing
+`sparse_cell` or candidate-pool scenario rows. The evaluate/register/promote scripts default
+to `--benchmark-version v2`; registration tags `hokusai.primary_metric`,
+`hokusai.metric_family=continuous`, and `hokusai.benchmark_spec_id`, which the DeltaOne
+evaluator and MintRequest builder consume metric-agnostically. The on-chain DeltaVerifier
+signs the canonical metric name `technical_task_router.benchmark_score/v2` and
+`metric_family=continuous`.
 
 ## Row Schema
 
@@ -106,35 +151,43 @@ On the June 4, 2026 regenerated cleaned holdout, `positive_label_rows = 0` and
 `positive_label_fraction = 0.0`, so the baseline report records
 `technical_task_router.duration_mae_seconds_v1 = null` rather than a fake zero.
 
-`technical_task_router.success_under_budget/v1` remains the promotion and reward-gating metric.
-The additional metrics are diagnostics for strategy routing, cost/speed estimates, reliability
+`technical_task_router.benchmark_score/v2` is the promotion and reward-gating metric.
+`technical_task_router.success_under_budget/v1` is retained as a logged guardrail/diagnostic
+(and as the highest-weighted component of the v2 composite), not as the primary metric. The
+additional v1 metrics are diagnostics for strategy routing, cost/speed estimates, reliability
 calibration, and API constraint compliance. They can fail a promotion as guardrails, but they do
-not replace the primary benchmark score.
+not drive canonical score advancement.
 
-## EvalSpec Example
+## EvalSpec Example (v2 canonical)
 
 ```json
 {
   "primary_metric": {
-    "name": "technical_task_router.benchmark_score/v1",
-    "scorer_ref": "technical_task_router.benchmark_score/v1",
+    "name": "technical_task_router.benchmark_score/v2",
+    "scorer_ref": "technical_task_router.benchmark_score/v2",
     "direction": "higher_is_better",
-    "unit": "proportion",
+    "unit": "bounded_score",
     "threshold": 0.8
   },
   "secondary_metrics": [
     {
-      "name": "technical_task_router.feasibility/v1",
-      "scorer_ref": "technical_task_router.feasibility/v1",
+      "name": "technical_task_router.success_under_budget/v1",
+      "scorer_ref": "technical_task_router.success_under_budget/v1",
       "direction": "higher_is_better",
       "unit": "proportion"
     }
   ],
   "guardrails": [],
   "unit_of_analysis": "technical_task",
-  "metric_family": "proportion"
+  "metric_family": "continuous"
 }
 ```
+
+The full canonical spec, including every component and guardrail metric, lives in
+[`schema/examples/technical_task_router_spec.v2.json`](../schema/examples/technical_task_router_spec.v2.json).
+The legacy v1 spec
+([`schema/examples/technical_task_router_spec.v1.json`](../schema/examples/technical_task_router_spec.v1.json))
+is retained for the v1 diagnostic path only.
 
 The API-level `task_type` value is optional and informational:
 
@@ -163,3 +216,35 @@ Per-row artifacts store that field as deterministic JSON so
 `eval_results/per_row.parquet` files and emit a shared
 `schema/attribution_report.v1.json` report. Basis-point normalization uses the
 Hamilton largest-remainder method with wallet ascending as the tie-break.
+
+Retraining-based attribution (`scripts/model_30/attribute_retraining.py`) measures each
+cohort's marginal lift on the canonical v2 composite by default
+(`--benchmark-version v2`, `--primary-metric technical_task_router.benchmark_score_v2`), so
+reward apportionment is consistent with the v2 reward-gating metric.
+
+## Operator Rollback Notes
+
+The v2 cutover keeps every v1 scorer registered and logged, so falling back to v1
+diagnostics does not require new code — only flag overrides on the Model 30 scripts. The
+on-chain `DeltaVerifier` is metric-agnostic (it signs whatever metric name/family the
+MintRequest carries), so no contract change is involved either direction.
+
+To temporarily evaluate, attribute, or register against the v1 success-under-budget metric:
+
+- **Evaluate / compare:** run `scripts/model_30/evaluate_technical_task_router.py`
+  with `--benchmark-version v1`. `primary_metric`/`primary_delta` then track
+  `technical_task_router.benchmark_score_v1`; the v2 composite is omitted from the report.
+- **Retraining attribution:** run `scripts/model_30/attribute_retraining.py`
+  with `--benchmark-version v1` (or `--primary-metric technical_task_router.benchmark_score_v1`).
+- **Registration / promotion:** run `register_technical_task_router.py` /
+  `promote_technical_task_router.py` with `--benchmark-version v1`. Registration then tags
+  `hokusai.primary_metric=technical_task_router.benchmark_score/v1`,
+  `hokusai.metric_family=proportion`, and `hokusai.benchmark_spec_id=technical-task-router-baseline-v1`.
+- **DeltaOne / MintRequest:** no override needed — the DeltaOne evaluator and mint
+  orchestrator read the registered `hokusai.primary_metric` / `hokusai.metric_family` tags,
+  so registering under v1 propagates the v1 metric name and `proportion` family through
+  attestation and the MintRequest automatically. The synthetic dry-run builder accepts
+  `--metric-family proportion` and an explicit v1 `--benchmark-spec-id` for parity.
+
+Rolling back is a per-run choice; the default for all Model 30 scripts remains v2. Returning
+to v2 requires no cleanup beyond dropping the `--benchmark-version v1` overrides.
