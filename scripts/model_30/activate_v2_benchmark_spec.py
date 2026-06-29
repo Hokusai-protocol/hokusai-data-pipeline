@@ -25,6 +25,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from sqlalchemy.exc import SQLAlchemyError  # noqa: E402
+
 from src.api.services.governance.benchmark_specs import BenchmarkSpecService  # noqa: E402
 
 DEFAULT_MODEL_ID = os.getenv("MODEL_30_MODEL_ID", "30")
@@ -72,6 +74,18 @@ def apply_activation(service: BenchmarkSpecService, plan: ActivationPlan) -> Non
         service.update_spec_fields(spec["spec_id"], {"is_active": True})
 
 
+def _db_error_hint(exc: SQLAlchemyError, database_url: str) -> str:
+    detail = str(getattr(exc, "orig", exc)).strip().splitlines()[0]
+    host = database_url.rsplit("@", 1)[-1] if "@" in database_url else database_url
+    return (
+        f"benchmark spec DB query failed against {host}: {detail}\n"
+        "Check that DATABASE_URL points at the migrated API/governance database (not the "
+        "MLflow tracking DB), and that migrations have been applied there: run "
+        "scripts/run_migrations.sh (alembic upgrade head) — migration 008 creates the "
+        "benchmark_specs table."
+    )
+
+
 def _describe(spec: dict[str, Any]) -> str:
     return (
         f"{spec.get('spec_id')} (metric={spec.get('metric_name')}, "
@@ -106,7 +120,10 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     service = BenchmarkSpecService(database_url=args.database_url)
-    plan = plan_activation(service, model_id=args.model_id, metric_name=args.metric_name)
+    try:
+        plan = plan_activation(service, model_id=args.model_id, metric_name=args.metric_name)
+    except SQLAlchemyError as exc:
+        raise SystemExit(_db_error_hint(exc, args.database_url)) from exc
 
     if plan.target is None:
         raise SystemExit(
@@ -128,8 +145,11 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write("\ndry-run: re-run with --apply to write these changes.\n")
         return 0
 
-    apply_activation(service, plan)
-    active = service.get_active_spec_for_model(args.model_id)
+    try:
+        apply_activation(service, plan)
+        active = service.get_active_spec_for_model(args.model_id)
+    except SQLAlchemyError as exc:
+        raise SystemExit(_db_error_hint(exc, args.database_url)) from exc
     if not active or active.get("spec_id") != plan.target["spec_id"]:
         raise SystemExit(
             "activation applied but active spec verification failed; "
