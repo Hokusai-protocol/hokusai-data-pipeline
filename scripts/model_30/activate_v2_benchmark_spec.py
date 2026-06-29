@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Activate the Model 30 v2 composite benchmark spec (HOK-2217).
 
 Makes ``technical_task_router.benchmark_score/v2`` the single active benchmark spec for
