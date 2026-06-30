@@ -11,12 +11,14 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --no-cache-dir \
     mlflow==3.9.0 \
     psycopg2-binary \
+    httpx \
     boto3 \
     awscli \
     prometheus-client
 
-# Copy entrypoint script
+# Copy entrypoint script and MLflow admin gateway
 COPY scripts/mlflow-entrypoint.sh /app/mlflow-entrypoint.sh
+COPY hokusai_mlflow_admin_gateway.py /app/hokusai_mlflow_admin_gateway.py
 RUN chmod +x /app/mlflow-entrypoint.sh
 
 # Expose MLFlow port
