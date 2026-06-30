@@ -15,8 +15,9 @@ RUN pip install --no-cache-dir \
     awscli \
     prometheus-client
 
-# Copy entrypoint script
+# Copy entrypoint script and MLflow admin gateway
 COPY scripts/mlflow-entrypoint.sh /app/mlflow-entrypoint.sh
+COPY hokusai_mlflow_admin_gateway.py /app/hokusai_mlflow_admin_gateway.py
 RUN chmod +x /app/mlflow-entrypoint.sh
 
 # Expose MLFlow port

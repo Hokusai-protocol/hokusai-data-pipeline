@@ -94,6 +94,7 @@ services:
       MLFLOW_CA_BUNDLE_PATH: /certs/ca.crt
       MLFLOW_SERVER_CERT_PATH: /certs/server.crt
       MLFLOW_SERVER_KEY_PATH: /certs/server.key
+      MLFLOW_ADMIN_AUTH_ENABLED: "false"
       BACKEND_STORE_URI: postgresql://postgres:password@postgres:5432/mlflow_db
       DEFAULT_ARTIFACT_ROOT: file:///mlflow/artifacts
     depends_on:
@@ -108,7 +109,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "curl --fail --silent --show-error --cacert /certs/ca.crt --cert /certs/client.crt --key /certs/client.key 'https://localhost:5000/api/2.0/mlflow/registered-models/search?max_results=1' >/dev/null",
+          "curl --fail --silent --show-error --cacert /certs/ca.crt --cert /certs/client.crt --key /certs/client.key 'https://localhost:5000/mlflow/health' >/dev/null",
         ]
       interval: 10s
       timeout: 5s
