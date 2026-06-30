@@ -67,13 +67,16 @@ class TestScopeAuthorization:
         return request
 
     @pytest.mark.asyncio
-    async def test_read_operation_with_read_only_scope(self, middleware, mock_request_read):
-        """Test that read operations work with read-only scope."""
-        # Mock auth service response with read-only scope
+    async def test_registry_read_operation_with_admin_email_succeeds(
+        self, middleware, mock_request_read, monkeypatch
+    ):
+        """Test that registry read operations work for configured admin email."""
+        monkeypatch.setenv("REGISTRY_ADMIN_USER_EMAILS", "admin@example.com")
         with patch.object(middleware, "validate_with_auth_service") as mock_validate:
             mock_validate.return_value = ValidationResult(
                 is_valid=True,
                 user_id="user123",
+                email="admin@example.com",
                 key_id="key123",
                 service_id="platform",
                 scopes=["model:read", "mlflow:read"],
@@ -90,6 +93,31 @@ class TestScopeAuthorization:
             assert mock_request_read.state.scopes == ["model:read", "mlflow:read"]
 
     @pytest.mark.asyncio
+    async def test_registry_read_operation_without_admin_returns_403(
+        self, middleware, mock_request_read, monkeypatch
+    ):
+        """Test that even registry read operations require admin authorization."""
+        monkeypatch.setenv("REGISTRY_ADMIN_USER_EMAILS", "admin@example.com")
+        with patch.object(middleware, "validate_with_auth_service") as mock_validate:
+            mock_validate.return_value = ValidationResult(
+                is_valid=True,
+                user_id="user123",
+                email="user@example.com",
+                key_id="key123",
+                service_id="platform",
+                scopes=["model:read", "mlflow:read"],
+                rate_limit_per_hour=1000,
+            )
+
+            async def mock_call_next(request):
+                return Response(content="Should not reach here", status_code=200)
+
+            response = await middleware.dispatch(mock_request_read, mock_call_next)
+
+            assert response.status_code == 403
+            assert "admin access required" in response.body.decode().lower()
+
+    @pytest.mark.asyncio
     async def test_write_operation_with_read_only_scope_returns_403(
         self, middleware, mock_request_write
     ):
@@ -99,6 +127,7 @@ class TestScopeAuthorization:
             mock_validate.return_value = ValidationResult(
                 is_valid=True,
                 user_id="user123",
+                email="user@example.com",
                 key_id="key123",
                 service_id="platform",
                 scopes=["model:read", "mlflow:read"],  # No write scope
@@ -113,22 +142,20 @@ class TestScopeAuthorization:
 
             # This test will initially FAIL because the middleware doesn't check scopes yet
             assert response.status_code == 403
-            assert "insufficient permissions" in response.body.decode().lower()
-            assert (
-                "model:write" in response.body.decode() or "mlflow:write" in response.body.decode()
-            )
+            assert "admin access required" in response.body.decode().lower()
 
     @pytest.mark.asyncio
-    async def test_write_operation_with_write_scope_succeeds(self, middleware, mock_request_write):
-        """Test that write operations succeed with write scope."""
-        # Mock auth service response with write scope
+    async def test_registry_write_operation_with_admin_scope_succeeds(
+        self, middleware, mock_request_write
+    ):
+        """Test that registry write operations succeed with admin scope."""
         with patch.object(middleware, "validate_with_auth_service") as mock_validate:
             mock_validate.return_value = ValidationResult(
                 is_valid=True,
                 user_id="user123",
                 key_id="key123",
                 service_id="platform",
-                scopes=["model:read", "model:write", "mlflow:access"],
+                scopes=["model:read", "model:write", "mlflow:admin"],
                 rate_limit_per_hour=1000,
             )
 
@@ -150,6 +177,7 @@ class TestScopeAuthorization:
             mock_validate.return_value = ValidationResult(
                 is_valid=True,
                 user_id="user123",
+                email="user@example.com",
                 key_id="key123",
                 service_id="platform",
                 scopes=["model:read"],  # No write scope
@@ -166,8 +194,7 @@ class TestScopeAuthorization:
             assert response.status_code == 403
             error_body = response.body.decode()
             assert (
-                "insufficient permissions" in error_body.lower()
-                or "forbidden" in error_body.lower()
+                "admin access required" in error_body.lower() or "forbidden" in error_body.lower()
             )
 
     @pytest.mark.asyncio
@@ -178,6 +205,7 @@ class TestScopeAuthorization:
             mock_validate.return_value = ValidationResult(
                 is_valid=True,
                 user_id="user123",
+                email="user@example.com",
                 key_id="key123",
                 service_id="platform",
                 scopes=[],  # Empty scopes
@@ -201,6 +229,7 @@ class TestScopeAuthorization:
             mock_validate.return_value = ValidationResult(
                 is_valid=True,
                 user_id="user123",
+                email="user@example.com",
                 key_id="key123",
                 service_id="platform",
                 scopes=None,  # Null scopes
@@ -262,17 +291,17 @@ class TestScopeAuthorization:
     def test_check_scope_for_write_operation(self, middleware):
         """Test scope checking logic for write operations."""
         # Test with write scopes - should pass
-        assert middleware.check_scope_for_write_operation(["model:write"]) == True
-        assert middleware.check_scope_for_write_operation(["mlflow:write"]) == True
-        assert middleware.check_scope_for_write_operation(["model:read", "model:write"]) == True
-        assert middleware.check_scope_for_write_operation(["mlflow:access", "model:write"]) == True
+        assert middleware.check_scope_for_write_operation(["model:write"])
+        assert middleware.check_scope_for_write_operation(["mlflow:write"])
+        assert middleware.check_scope_for_write_operation(["model:read", "model:write"])
+        assert middleware.check_scope_for_write_operation(["mlflow:access", "model:write"])
 
         # Test without write scopes - should fail
-        assert middleware.check_scope_for_write_operation(["model:read"]) == False
-        assert middleware.check_scope_for_write_operation(["mlflow:read"]) == False
-        assert middleware.check_scope_for_write_operation([]) == False
-        assert middleware.check_scope_for_write_operation(None) == False
+        assert not middleware.check_scope_for_write_operation(["model:read"])
+        assert not middleware.check_scope_for_write_operation(["mlflow:read"])
+        assert not middleware.check_scope_for_write_operation([])
+        assert not middleware.check_scope_for_write_operation(None)
 
         # Test with admin scope - should pass
-        assert middleware.check_scope_for_write_operation(["admin"]) == True
-        assert middleware.check_scope_for_write_operation(["mlflow:admin"]) == True
+        assert middleware.check_scope_for_write_operation(["admin"])
+        assert middleware.check_scope_for_write_operation(["mlflow:admin"])
