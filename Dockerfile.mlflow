@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --no-cache-dir \
     mlflow==3.9.0 \
     psycopg2-binary \
+    httpx \
     boto3 \
     awscli \
     prometheus-client
