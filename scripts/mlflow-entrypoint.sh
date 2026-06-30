@@ -7,6 +7,8 @@ ENVIRONMENT=${ENVIRONMENT:-development}
 MLFLOW_MTLS_ENABLED=${MLFLOW_MTLS_ENABLED:-false}
 echo "Environment: $ENVIRONMENT"
 echo "mTLS: $MLFLOW_MTLS_ENABLED"
+MLFLOW_ALLOWED_HOSTS=${MLFLOW_ALLOWED_HOSTS:-"registry.hokus.ai,mlflow.hokusai-development.local,mlflow.hokusai-production.local,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000,mlflow,mlflow:5000"}
+echo "Allowed hosts: $MLFLOW_ALLOWED_HOSTS"
 
 # Configure mTLS when explicitly enabled. Historically this branched on
 # ENVIRONMENT=staging/production, which forced dev to lie about its environment
@@ -79,7 +81,7 @@ if [ -n "$UVICORN_SSL_OPTS" ]; then
     exec mlflow server \
         --host 0.0.0.0 \
         --port 5000 \
-        --allowed-hosts "*" \
+        --allowed-hosts "$MLFLOW_ALLOWED_HOSTS" \
         --static-prefix /mlflow \
         --backend-store-uri "${BACKEND_STORE_URI}" \
         --default-artifact-root "${DEFAULT_ARTIFACT_ROOT}" \
@@ -89,7 +91,7 @@ else
     exec mlflow server \
         --host 0.0.0.0 \
         --port 5000 \
-        --allowed-hosts "*" \
+        --allowed-hosts "$MLFLOW_ALLOWED_HOSTS" \
         --static-prefix /mlflow \
         --backend-store-uri "${BACKEND_STORE_URI}" \
         --default-artifact-root "${DEFAULT_ARTIFACT_ROOT}" \

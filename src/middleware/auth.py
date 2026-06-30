@@ -43,9 +43,12 @@ class ValidationResult:
 
     is_valid: bool
     user_id: Optional[str] = None
+    email: Optional[str] = None
     key_id: Optional[str] = None
     service_id: Optional[str] = None
     scopes: Optional[list[str]] = None
+    roles: Optional[list[str]] = None
+    is_admin: bool = False
     rate_limit_per_hour: Optional[int] = None
     error: Optional[str] = None
     has_sufficient_balance: bool = True
@@ -56,6 +59,14 @@ class ValidationResult:
     # NOT 401 (which implies the caller's credentials are bad). None for a
     # genuine invalid-credential rejection.
     error_type: Optional[str] = None
+
+
+def _normalize_email(email: str) -> str:
+    return email.strip().strip("\"'").lower()
+
+
+def _split_env_list(value: str) -> list[str]:
+    return [item.strip().strip("\"'") for item in value.split(",") if item.strip()]
 
 
 def get_api_key_from_request(request: Request) -> Optional[str]:
@@ -265,12 +276,16 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                         return ValidationResult(
                             is_valid=False, error="Authentication service error"
                         )
+                    user_data = data.get("user") if isinstance(data.get("user"), dict) else {}
                     return ValidationResult(
                         is_valid=True,
-                        user_id=data.get("user_id"),
+                        user_id=data.get("user_id") or user_data.get("id"),
+                        email=data.get("email") or user_data.get("email"),
                         key_id=data.get("key_id"),
                         service_id=data.get("service_id"),
                         scopes=data.get("scopes", []),
+                        roles=data.get("roles") or user_data.get("roles") or [],
+                        is_admin=bool(data.get("is_admin") or user_data.get("is_admin")),
                         rate_limit_per_hour=data.get("rate_limit_per_hour", 1000),
                         has_sufficient_balance=data.get("has_sufficient_balance", True),
                         balance=data.get("balance", 0.0),
@@ -429,6 +444,77 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
         return False
 
+    def _is_mlflow_registry_request(self, request: Request) -> bool:  # noqa: ANN101
+        """Return True for any request that reaches the MLflow registry proxy."""
+        path = request.url.path.lower()
+        registry_prefixes = (
+            "/mlflow",
+            "/api/mlflow",
+            "/api/2.0/mlflow",
+            "/api/2.0/preview/mlflow",
+            "/api/2.0/mlflow-artifacts",
+            "/ajax-api/2.0/mlflow",
+            "/ajax-api/2.0/mlflow-artifacts",
+        )
+        return path.startswith(registry_prefixes)
+
+    def _configured_registry_admin_emails(self) -> list[str]:  # noqa: ANN101
+        """Return admin emails configured for registry access.
+
+        Mirrors the site admin pattern: prefer registry-specific config, then
+        reuse the blog admin allow-list, then the historical single admin email.
+        """
+        configured = (
+            os.getenv("REGISTRY_ADMIN_USER_EMAILS")
+            or os.getenv("REGISTRY_ADMIN_USER_EMAIL")
+            or os.getenv("ADMIN_BLOG_USER_EMAILS")
+            or os.getenv("ADMIN_BLOG_USER_EMAIL")
+            or "me@timogilvie.com"
+        )
+        emails = [_normalize_email(email) for email in _split_env_list(configured)]
+        return emails or ["me@timogilvie.com"]
+
+    def _configured_registry_admin_scopes(self) -> set[str]:  # noqa: ANN101
+        configured = os.getenv(
+            "REGISTRY_ADMIN_SCOPES",
+            "admin,mlflow:admin,registry:admin,model-registry:admin",
+        )
+        return set(_split_env_list(configured))
+
+    def _is_registry_admin(self, validation_result: ValidationResult) -> bool:  # noqa: ANN101
+        """Return True when the validated principal can administer the registry."""
+        if validation_result.is_admin:
+            return True
+
+        email = _normalize_email(validation_result.email or "")
+        if email and email in self._configured_registry_admin_emails():
+            return True
+
+        admin_scopes = self._configured_registry_admin_scopes()
+        scopes = set(validation_result.scopes or [])
+        roles = set(validation_result.roles or [])
+        return bool((scopes | roles) & admin_scopes)
+
+    def _registry_admin_denied_response(
+        self,  # noqa: ANN101
+        validation_result: ValidationResult,
+        request: Request,
+    ) -> JSONResponse:
+        logger.warning(
+            "Registry admin access denied: "
+            f"user_id={validation_result.user_id}, "
+            f"key_id={validation_result.key_id}, "
+            f"path={request.url.path}, method={request.method}, "
+            f"scopes={validation_result.scopes}, roles={validation_result.roles}"
+        )
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail": "Admin access required for the model registry",
+                "error": "REGISTRY_ADMIN_REQUIRED",
+            },
+        )
+
     def _is_contribution_ingestion_request(self, request: Request) -> bool:  # noqa: ANN101
         """Return True for POST /api/v1/models/{model_id}/contributions requests.
 
@@ -559,9 +645,12 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                     cache_data = {
                         "is_valid": validation_result.is_valid,
                         "user_id": validation_result.user_id,
+                        "email": validation_result.email,
                         "key_id": validation_result.key_id,
                         "service_id": validation_result.service_id,
                         "scopes": validation_result.scopes,
+                        "roles": validation_result.roles,
+                        "is_admin": validation_result.is_admin,
                         "rate_limit_per_hour": validation_result.rate_limit_per_hour,
                         "has_sufficient_balance": validation_result.has_sufficient_balance,
                         "balance": validation_result.balance,
@@ -599,12 +688,16 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                 status_code=401, content={"detail": validation_result.error or "Invalid API key"}
             )
 
-        # Check balance
-        if not validation_result.has_sufficient_balance:
+        is_registry_request = self._is_mlflow_registry_request(request)
+        if is_registry_request and not self._is_registry_admin(validation_result):
+            return self._registry_admin_denied_response(validation_result, request)
+
+        # Check balance. Registry administration is not a billable inference path.
+        if not is_registry_request and not validation_result.has_sufficient_balance:
             return JSONResponse(status_code=402, content={"detail": "Insufficient balance"})
 
         # Check authorization for write operations
-        if self.is_mlflow_write_operation(request):
+        if not is_registry_request and self.is_mlflow_write_operation(request):
             if not self.check_scope_for_write_operation(validation_result.scopes):
                 logger.warning(
                     f"Authorization denied: user_id={validation_result.user_id}, "
@@ -635,9 +728,12 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
         # Set request state for downstream use
         request.state.user_id = validation_result.user_id
+        request.state.user_email = validation_result.email
         request.state.api_key_id = validation_result.key_id
         request.state.service_id = validation_result.service_id
         request.state.scopes = validation_result.scopes
+        request.state.roles = validation_result.roles
+        request.state.is_admin = validation_result.is_admin
         request.state.rate_limit_per_hour = validation_result.rate_limit_per_hour
 
         # Contribution ingestion is free — skip debit and forward directly to handler.
@@ -653,7 +749,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Debit usage before the model handler runs so 402 can be returned to the client.
-        if validation_result.key_id:
+        if validation_result.key_id and not is_registry_request:
             model_id = self._extract_model_id(request.url.path)
             try:
                 debit_outcome = await self._debit_usage(

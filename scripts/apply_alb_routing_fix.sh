@@ -106,7 +106,7 @@ test_endpoint() {
 # Test the routing
 echo
 test_endpoint "/api/mlflow/api/2.0/mlflow/experiments/search" "401" "MLflow proxy (should require auth)"
-test_endpoint "/mlflow" "200" "Direct MLflow access"
+test_endpoint "/mlflow" "401" "Direct MLflow access (should require auth)"
 test_endpoint "/api/health/mlflow" "404" "Health endpoint (not implemented yet)"
 test_endpoint "/api/v1/models" "401" "Regular API endpoint"
 

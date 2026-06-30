@@ -177,7 +177,7 @@ async def mlflow_proxy(request: Request, path: str) -> Response:
     """Proxy all requests to MLflow server.
 
     This endpoint forwards all requests under /mlflow/* or /api/mlflow/* to the MLflow
-    tracking server, stripping authentication headers and handling responses appropriately.
+    tracking server while preserving authentication headers and handling responses appropriately.
     """
     # Log all incoming requests for debugging
     if ENABLE_DEBUG_LOGGING:
