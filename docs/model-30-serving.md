@@ -34,6 +34,8 @@ Accepted submissions are also posted to auth's data-submission ledger when `CONT
 
 The deploy workflow must therefore inject `HOKUSAI_CONTRIBUTIONS_BUCKET` and `CONTRIBUTION_AUTH_CALLBACK_ENABLED` every time it registers a new API-family revision. If the bucket CI variable is omitted, the next API image deploy can drop the env var from the running task definition and `POST /api/v1/models/{model_id}/contributions` will fail with the missing-persistence `503` path. If the callback flag is omitted or false, submissions are accepted but the auth dashboard ledger remains empty.
 
+Model 30 serving also needs a recoverable platform API key for API-to-MLflow registry access. The locked-down MLflow gateway requires admin MLflow/registry authorization for non-health registry paths, so the API task definition must receive `MLFLOW_TRACKING_TOKEN` from an ECS secret. Set the deploy workflow variable `MLFLOW_TRACKING_TOKEN_SECRET_ARN` to the Secrets Manager secret ARN or SSM SecureString parameter name that contains that token. The workflow fails fast if this variable is missing, and injects the secret into every registered API-family task revision.
+
 ## Public Contract
 
 Accepted `inputs` groups:
