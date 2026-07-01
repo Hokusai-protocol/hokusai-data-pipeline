@@ -76,7 +76,7 @@ class MLflowAdminAuthMiddleware:
             os.getenv("HOKUSAI_AUTH_SERVICE_URL") or "https://auth.hokus.ai"
         ).rstrip("/")
         self.timeout = float(os.getenv("HOKUSAI_AUTH_SERVICE_TIMEOUT", "5.0"))
-        self.service_id = os.getenv("HOKUSAI_AUTH_SERVICE_ID", "hokusai-data-pipeline")
+        self.service_id = os.getenv("HOKUSAI_AUTH_SERVICE_ID", "platform")
         self.health_paths = set(
             _split_env_list(os.getenv("MLFLOW_ADMIN_AUTH_HEALTH_PATHS", "/health,/mlflow/health"))
         )

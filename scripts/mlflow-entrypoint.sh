@@ -7,7 +7,10 @@ ENVIRONMENT=${ENVIRONMENT:-development}
 MLFLOW_MTLS_ENABLED=${MLFLOW_MTLS_ENABLED:-false}
 echo "Environment: $ENVIRONMENT"
 echo "mTLS: $MLFLOW_MTLS_ENABLED"
-MLFLOW_ALLOWED_HOSTS=${MLFLOW_ALLOWED_HOSTS:-"registry.hokus.ai,mlflow.hokusai-development.local,mlflow.hokusai-production.local,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000,mlflow,mlflow:5000"}
+# MLflow 3.x matches the Host header including port, and the ALB forwards the
+# internal target host as "<host>:5000" (and the public host as "<host>:443").
+# Include the port-qualified variants or MLflow rejects them as DNS rebinding.
+MLFLOW_ALLOWED_HOSTS=${MLFLOW_ALLOWED_HOSTS:-"registry.hokus.ai,registry.hokus.ai:443,mlflow.hokusai-development.local,mlflow.hokusai-development.local:5000,mlflow.hokusai-production.local,mlflow.hokusai-production.local:5000,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000,mlflow,mlflow:5000"}
 echo "Allowed hosts: $MLFLOW_ALLOWED_HOSTS"
 
 # Configure mTLS when explicitly enabled. Historically this branched on
