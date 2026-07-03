@@ -33,6 +33,7 @@ _AUTH_LIFECYCLE_PATH = "/api/v1/internal/data-submissions/processed"
 _AUTH_REWARD_ENTITLEMENT_PATH = "/internal/reward-entitlements"
 # Canonical account-centric reward ingest (HOK-2270): one idempotent row per contributor.
 _AUTH_REWARD_INGEST_PATH = "/api/v1/internal/rewards/ingest"
+_AUTH_DIRECT_MINT_SETTLEMENT_PATH = "/api/v1/internal/rewards/settlements/direct-mint"
 # HOK-2243/2244: account -> verified-wallet resolver. user_id is a PATH param; the
 # /api/v1 prefix is required (the bare /internal/... path 404s on the deployed service).
 _AUTH_WALLET_RESOLUTION_PATH = "/api/v1/internal/users/{user_id}/wallet"
@@ -109,6 +110,102 @@ class RewardIngestRow(BaseModel):
     reward_metadata: dict[str, Any] | None = Field(default=None, serialization_alias="metadata")
 
 
+class DirectMintSettlementPayload(BaseModel):
+    """Auth-service direct-mint settlement callback payload."""
+
+    model_config = ConfigDict(populate_by_name=True, protected_namespaces=())
+
+    reward_id: str
+    submission_id: str
+    user_id: str
+    model_id: str | None = None
+    token_symbol: str
+    token_address: str
+    amount: Decimal
+    recipient_address: str
+    claim_tx_hash: str
+    claim_reference: str | None = None
+    claimed_at: str | None = None
+    immediate_amount: Decimal | None = None
+    vested_amount: Decimal | None = None
+    vesting_schedule: dict[str, Any] | None = None
+    deployment: dict[str, Any] | None = None
+    reward_metadata: dict[str, Any] | None = Field(default=None, serialization_alias="metadata")
+
+
+def _metadata_string(metadata: dict[str, Any] | None, key: str) -> str | None:
+    if not isinstance(metadata, dict):
+        return None
+    value = metadata.get(key)
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _split_vesting_amounts(
+    *,
+    amount: Decimal,
+    total_reward: Decimal,
+    mint_result: TokenMintResult,
+) -> tuple[Decimal | None, Decimal | None]:
+    vesting = mint_result.vesting_payload() or {}
+    liquid_total = vesting.get("liquid_amount")
+    vested_total = vesting.get("vested_amount")
+    if liquid_total is None and vested_total is None:
+        return None, None
+
+    immediate = (
+        Decimal(str(liquid_total)) * amount / total_reward
+        if liquid_total is not None and total_reward != 0
+        else None
+    )
+    vested = (
+        Decimal(str(vested_total)) * amount / total_reward
+        if vested_total is not None and total_reward != 0
+        else None
+    )
+    return immediate, vested
+
+
+def _build_vesting_schedule(
+    *,
+    contributor_address: str,
+    token_address: str,
+    total_vested_amount: Decimal | None,
+    mint_result: TokenMintResult,
+) -> dict[str, Any] | None:
+    vesting = mint_result.vesting_payload()
+    if not vesting or total_vested_amount is None:
+        return None
+    schedule_id = vesting.get("schedule_id")
+    vault_address = vesting.get("vault_address")
+    if not schedule_id or not vault_address:
+        return None
+
+    schedule: dict[str, Any] = {
+        "schedule_id": str(schedule_id),
+        "vault_address": str(vault_address),
+        "token_address": str(vesting.get("token_address") or token_address),
+        "beneficiary_address": str(
+            vesting.get("beneficiary_address")
+            or mint_result.recipient_address
+            or contributor_address
+        ),
+        "total_amount": total_vested_amount,
+        "claimed_amount": vesting.get("claimed_amount") or "0",
+    }
+    optional_fields = (
+        "claimable_amount",
+        "start_at",
+        "end_at",
+        "duration_seconds",
+        "cliff_seconds",
+    )
+    for field_name in optional_fields:
+        value = vesting.get(field_name)
+        if value is not None:
+            schedule[field_name] = value
+    return schedule
+
+
 class AuthServiceNotifier:
     """Small sync client for accepted-submission ledger events."""
 
@@ -143,6 +240,13 @@ class AuthServiceNotifier:
                 _AUTH_REWARD_INGEST_PATH,
             ).strip()
             or _AUTH_REWARD_INGEST_PATH
+        )
+        self.direct_mint_settlement_path = (
+            os.getenv(
+                "HOKUSAI_AUTH_DIRECT_MINT_SETTLEMENT_PATH",
+                _AUTH_DIRECT_MINT_SETTLEMENT_PATH,
+            ).strip()
+            or _AUTH_DIRECT_MINT_SETTLEMENT_PATH
         )
         self.wallet_resolution_path = (
             os.getenv(
@@ -222,6 +326,55 @@ class AuthServiceNotifier:
                 first_error = first_error or error
         return all_delivered, first_error
 
+    def notify_direct_mint_settlement(
+        self: AuthServiceNotifier,
+        *,
+        mint_request: MintRequest,
+        mint_result: TokenMintResult,
+        reward_tokens: float,
+        token_address: str | None = None,
+        token_symbol: str | None = None,
+        deployment: dict[str, Any] | None = None,
+        recipient_kinds: dict[str, str] | None = None,
+    ) -> tuple[bool, str | None]:
+        """Record successful direct wallet mints in auth as claimed rewards.
+
+        This callback is receipt-driven: callers must provide a successful mint result with a
+        transaction hash plus token address/symbol. Rows routed to escrow are skipped because this
+        endpoint describes direct-to-user-wallet settlement only.
+        """
+        rows = self._build_direct_mint_settlement_rows(
+            mint_request=mint_request,
+            mint_result=mint_result,
+            reward_tokens=reward_tokens,
+            token_address=token_address,
+            token_symbol=token_symbol,
+            deployment=deployment,
+            recipient_kinds=recipient_kinds or {},
+        )
+        if self.dry_run:
+            LOGGER.info(
+                json.dumps(
+                    {
+                        "event": "auth_direct_mint_settlement_dry_run",
+                        "mint_idempotency_key": mint_request.idempotency_key,
+                        "rows": [row.model_dump(mode="json", by_alias=True) for row in rows],
+                    },
+                    default=str,
+                    sort_keys=True,
+                )
+            )
+            return True, None
+
+        all_delivered = True
+        first_error: str | None = None
+        for row in rows:
+            delivered, error = self._post_direct_mint_settlement(row=row)
+            if not delivered:
+                all_delivered = False
+                first_error = first_error or error
+        return all_delivered, first_error
+
     def _build_reward_ingest_rows(
         self: AuthServiceNotifier,
         *,
@@ -265,6 +418,8 @@ class AuthServiceNotifier:
                 "attestation_hash": mint_request.attestation_hash,
                 "mint_idempotency_key": mint_request.idempotency_key,
             }
+            if status == "pending" and recipient_kind == "wallet":
+                reward_metadata["settlement_status"] = "mint_pending"
             if recipient_kind == "escrow":
                 # For escrow tranches the on-chain recipient IS the escrow; record it so the
                 # releaser (HOK-2271) can release this account's tranche on wallet verification.
@@ -419,6 +574,198 @@ class AuthServiceNotifier:
                 sort_keys=True,
             )
         )
+        return False, error_message
+
+    def _build_direct_mint_settlement_rows(
+        self: AuthServiceNotifier,
+        *,
+        mint_request: MintRequest,
+        mint_result: TokenMintResult,
+        reward_tokens: float,
+        token_address: str | None,
+        token_symbol: str | None,
+        deployment: dict[str, Any] | None,
+        recipient_kinds: dict[str, str],
+    ) -> list[DirectMintSettlementPayload]:
+        if mint_result.status != "success":
+            raise ValueError("direct mint settlement requires a successful mint result")
+        tx_hash = (mint_result.tx_hash or "").strip()
+        if not tx_hash:
+            raise ValueError("direct mint settlement requires tx_hash from the mint receipt")
+        resolved_token_address = (
+            token_address or mint_result.token_address or ""
+        ).strip() or _metadata_string(mint_result.deployment, "token_address")
+        if not resolved_token_address:
+            raise ValueError("direct mint settlement requires token_address")
+        resolved_token_symbol = (token_symbol or mint_result.token_symbol or "").strip()
+        if not resolved_token_symbol:
+            raise ValueError("direct mint settlement requires token_symbol")
+
+        total = Decimal(str(reward_tokens))
+        rows: list[DirectMintSettlementPayload] = []
+        for contributor in mint_request.contributors:
+            if recipient_kinds.get(contributor.wallet_address, "wallet") != "wallet":
+                continue
+            user_id = contributor.contributor_id
+            submission_id = contributor.submission_id
+            if not user_id or not submission_id:
+                LOGGER.warning(
+                    json.dumps(
+                        {
+                            "event": "auth_direct_mint_settlement_skipped_missing_identity",
+                            "mint_idempotency_key": mint_request.idempotency_key,
+                            "wallet_address": contributor.wallet_address,
+                            "has_user_id": bool(user_id),
+                            "has_submission_id": bool(submission_id),
+                        },
+                        default=str,
+                        sort_keys=True,
+                    )
+                )
+                continue
+
+            amount = total * contributor.weight_bps / 10000
+            immediate_amount, vested_amount = _split_vesting_amounts(
+                amount=amount,
+                total_reward=total,
+                mint_result=mint_result,
+            )
+            rows.append(
+                DirectMintSettlementPayload(
+                    reward_id=f"{mint_request.idempotency_key}:{user_id}",
+                    submission_id=str(submission_id),
+                    user_id=str(user_id),
+                    model_id=mint_request.model_id,
+                    token_symbol=resolved_token_symbol,
+                    token_address=resolved_token_address,
+                    amount=amount,
+                    recipient_address=mint_result.recipient_address or contributor.wallet_address,
+                    claim_tx_hash=tx_hash,
+                    claim_reference=f"{tx_hash}:{mint_request.idempotency_key}:{user_id}",
+                    claimed_at=(
+                        mint_result.claimed_at.isoformat()
+                        if mint_result.claimed_at is not None
+                        else mint_result.timestamp.isoformat()
+                    ),
+                    immediate_amount=immediate_amount,
+                    vested_amount=vested_amount,
+                    vesting_schedule=_build_vesting_schedule(
+                        contributor_address=contributor.wallet_address,
+                        token_address=resolved_token_address,
+                        total_vested_amount=vested_amount,
+                        mint_result=mint_result,
+                    ),
+                    deployment=deployment or mint_result.deployment,
+                    reward_metadata={
+                        "source": "pipeline_direct_mint_settlement",
+                        "mint_request_id": mint_request.message_id,
+                        "mint_idempotency_key": mint_request.idempotency_key,
+                        "external_submission_id": str(submission_id),
+                        "model_id_uint": mint_request.model_id_uint,
+                        "eval_id": mint_request.eval_id,
+                        "attestation_hash": mint_request.attestation_hash,
+                        "recipient_wallet": contributor.wallet_address,
+                        "weight_bps": contributor.weight_bps,
+                    },
+                )
+            )
+        return rows
+
+    def _post_direct_mint_settlement(
+        self: AuthServiceNotifier,
+        *,
+        row: DirectMintSettlementPayload,
+    ) -> tuple[bool, str | None]:
+        headers = {
+            "Authorization": f"Bearer {self.internal_token}",
+            "Content-Type": "application/json",
+            "Idempotency-Key": row.reward_id,
+        }
+        url = f"{self.auth_service_url}{self.direct_mint_settlement_path}"
+        body = row.model_dump(mode="json", by_alias=True, exclude_none=True)
+        error_message: str | None = None
+
+        for attempt in range(1, self.retry_attempts + 1):
+            if attempt > 1:
+                time.sleep(2 ** (attempt - 2))
+            try:
+                response = httpx.post(url, json=body, headers=headers, timeout=self.timeout)
+            except httpx.HTTPError as exc:
+                error_message = str(exc)
+                LOGGER.warning(
+                    json.dumps(
+                        {
+                            "event": "auth_direct_mint_settlement_request_error",
+                            "reward_id": row.reward_id,
+                            "attempt": attempt,
+                            "max_attempts": self.retry_attempts,
+                            "error": error_message,
+                        },
+                        default=str,
+                        sort_keys=True,
+                    )
+                )
+                continue
+
+            if response.status_code in {200, 201}:
+                LOGGER.info(
+                    json.dumps(
+                        {
+                            "event": "auth_direct_mint_settlement_succeeded",
+                            "reward_id": row.reward_id,
+                            "status_code": response.status_code,
+                        },
+                        default=str,
+                        sort_keys=True,
+                    )
+                )
+                return True, None
+
+            error_message = f"{response.status_code}: {response.text[:500]}"
+            if response.status_code == 409:
+                LOGGER.warning(
+                    json.dumps(
+                        {
+                            "event": "auth_direct_mint_settlement_conflict",
+                            "reward_id": row.reward_id,
+                            "response_body": response.text[:500],
+                        },
+                        default=str,
+                        sort_keys=True,
+                    )
+                )
+                return True, None
+            if response.status_code >= 500:
+                LOGGER.warning(
+                    json.dumps(
+                        {
+                            "event": "auth_direct_mint_settlement_retryable_response",
+                            "reward_id": row.reward_id,
+                            "attempt": attempt,
+                            "max_attempts": self.retry_attempts,
+                            "status_code": response.status_code,
+                            "response_body": response.text[:500],
+                        },
+                        default=str,
+                        sort_keys=True,
+                    )
+                )
+                continue
+
+            LOGGER.warning(
+                json.dumps(
+                    {
+                        "event": "auth_direct_mint_settlement_failed",
+                        "reward_id": row.reward_id,
+                        "status_code": response.status_code,
+                        "response_body": response.text[:500],
+                    },
+                    default=str,
+                    sort_keys=True,
+                )
+            )
+            return False, error_message
+
         return False, error_message
 
     def notify_accepted(
