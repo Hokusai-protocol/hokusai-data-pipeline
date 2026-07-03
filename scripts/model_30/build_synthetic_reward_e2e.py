@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import sys
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -73,8 +74,33 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="WALLET:BPS",
         help=(
             "Reserve reward basis points for an extra synthetic test wallet. "
-            "May be passed more than once. Example: --extra-test-wallet 0xabc...:100"
+            "May be passed more than once. For auth-settled UI tests, use "
+            "WALLET:BPS:USER_ID:SUBMISSION_ID. Example: --extra-test-wallet 0xabc...:100"
         ),
+    )
+    parser.add_argument(
+        "--settlement-reward-tokens",
+        help=(
+            "Optional total reward amount to include in a generated direct-mint settlement "
+            "backfill command template."
+        ),
+    )
+    parser.add_argument("--settlement-token-symbol", default="HROUT")
+    parser.add_argument("--settlement-token-address")
+    parser.add_argument(
+        "--settlement-receipt-file",
+        help=(
+            "Receipt JSON path for the generated settlement command. Defaults to "
+            "<output-dir>/sepolia_tx_receipt.json."
+        ),
+    )
+    parser.add_argument(
+        "--settlement-deployment-file",
+        help="Optional deployment-address JSON path for the generated settlement command.",
+    )
+    parser.add_argument(
+        "--auth-service-url",
+        default=os.getenv("HOKUSAI_AUTH_SERVICE_URL", "https://auth.hokus.ai"),
     )
     parser.add_argument("--baseline-commitment")
     parser.add_argument("--candidate-commitment")
@@ -148,6 +174,27 @@ def main(argv: list[str] | None = None) -> int:
         mint_request.model_dump_json(by_alias=True, indent=2) + "\n",
         encoding="utf-8",
     )
+    settlement_template_path: Path | None = None
+    if args.settlement_reward_tokens:
+        if not args.settlement_token_address:
+            raise SystemExit(
+                "--settlement-token-address is required when --settlement-reward-tokens is set"
+            )
+        settlement_template_path = output_dir / "settlement_backfill_command.sh"
+        _write_settlement_backfill_template(
+            path=settlement_template_path,
+            mint_request_path=mint_request_path,
+            receipt_path=Path(args.settlement_receipt_file).expanduser()
+            if args.settlement_receipt_file
+            else output_dir / "sepolia_tx_receipt.json",
+            reward_tokens=args.settlement_reward_tokens,
+            token_symbol=args.settlement_token_symbol,
+            token_address=args.settlement_token_address,
+            deployment_path=Path(args.settlement_deployment_file).expanduser()
+            if args.settlement_deployment_file
+            else None,
+            auth_service_url=args.auth_service_url,
+        )
 
     if args.publish:
         _assert_publish_safe(args, baseline_commitment, candidate_commitment)
@@ -157,6 +204,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sys.stdout.write(f"wrote attribution_report={attribution_path}\n")
     sys.stdout.write(f"wrote mint_request={mint_request_path}\n")
+    if settlement_template_path is not None:
+        sys.stdout.write(f"wrote settlement_backfill_template={settlement_template_path}\n")
     if args.publish:
         sys.stdout.write("published synthetic MintRequest to hokusai:mint_requests\n")
     return 0
@@ -408,12 +457,16 @@ def _load_json(path: Path | None) -> dict[str, Any]:
 
 
 def _parse_extra_test_wallets(raw_values: list[str]) -> list[dict[str, Any]]:
-    """Parse WALLET:BPS CLI values into deterministic test-recipient records."""
+    """Parse extra-wallet CLI values into deterministic test-recipient records."""
     parsed: list[dict[str, Any]] = []
     for index, raw_value in enumerate(raw_values, start=1):
-        wallet, separator, bps_raw = raw_value.partition(":")
-        if not separator:
-            raise SystemExit(f"invalid --extra-test-wallet {raw_value!r}; expected WALLET:BPS")
+        parts = [part.strip() for part in raw_value.split(":")]
+        if len(parts) not in {2, 4}:
+            raise SystemExit(
+                f"invalid --extra-test-wallet {raw_value!r}; expected WALLET:BPS or "
+                "WALLET:BPS:USER_ID:SUBMISSION_ID"
+            )
+        wallet, bps_raw = parts[0], parts[1]
         wallet = wallet.strip().lower()
         if not _ETH_ADDRESS_RE.match(wallet):
             raise SystemExit(f"invalid --extra-test-wallet address: {wallet!r}")
@@ -427,7 +480,8 @@ def _parse_extra_test_wallets(raw_values: list[str]) -> list[dict[str, Any]]:
             {
                 "wallet_address": wallet,
                 "weight_bps": weight_bps,
-                "contributor_id": f"synthetic-test-wallet-{index}",
+                "contributor_id": parts[2] if len(parts) == 4 else f"synthetic-test-wallet-{index}",
+                "submission_id": parts[3] if len(parts) == 4 else None,
             }
         )
     total = sum(item["weight_bps"] for item in parsed)
@@ -580,13 +634,14 @@ def _mint_contributors(
             contributor["contributorId"] = str(account_id)
         contributors.append(contributor)
     for item in extra_test_wallets:
-        contributors.append(
-            {
-                "wallet_address": item["wallet_address"],
-                "weight_bps": int(item["weight_bps"]),
-                "contributorId": item["contributor_id"],
-            }
-        )
+        contributor = {
+            "wallet_address": item["wallet_address"],
+            "weight_bps": int(item["weight_bps"]),
+            "contributorId": item["contributor_id"],
+        }
+        if item.get("submission_id"):
+            contributor["submissionId"] = item["submission_id"]
+        contributors.append(contributor)
     return contributors
 
 
@@ -632,6 +687,48 @@ def _sha256_text(value: str) -> str:
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _write_settlement_backfill_template(
+    *,
+    path: Path,
+    mint_request_path: Path,
+    receipt_path: Path,
+    reward_tokens: str,
+    token_symbol: str,
+    token_address: str,
+    deployment_path: Path | None,
+    auth_service_url: str,
+) -> None:
+    """Write the post-mint auth settlement command for the generated MintRequest."""
+    command = [
+        "python",
+        "scripts/backfill_direct_mint_settlements.py",
+        "--mint-request",
+        str(mint_request_path),
+        "--receipt",
+        str(receipt_path),
+        "--reward-tokens",
+        reward_tokens,
+        "--token-symbol",
+        token_symbol,
+        "--token-address",
+        token_address,
+        "--auth-service-url",
+        auth_service_url,
+        "--execute",
+    ]
+    if deployment_path is not None:
+        command.extend(["--deployment", str(deployment_path)])
+    path.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n\n"
+        "# Save the Sepolia transaction receipt JSON at the --receipt path before running.\n"
+        + " ".join(shlex.quote(part) for part in command)
+        + "\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
 
 
 if __name__ == "__main__":
