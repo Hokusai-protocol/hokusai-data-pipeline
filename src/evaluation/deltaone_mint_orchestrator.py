@@ -240,6 +240,21 @@ class RewardEntitlementNotifierProtocol(Protocol):
         mint_request: MintRequest,
         status: str,
         mint_result: TokenMintResult | None = None,
+        recipient_kinds: dict[str, str] | None = None,
+        reward_tokens: float | None = None,
+        token_address: str | None = None,
+    ) -> tuple[bool, str | None]: ...
+
+    def notify_direct_mint_settlement(
+        self: RewardEntitlementNotifierProtocol,
+        *,
+        mint_request: MintRequest,
+        mint_result: TokenMintResult,
+        reward_tokens: float,
+        token_address: str | None = None,
+        token_symbol: str | None = None,
+        deployment: dict[str, Any] | None = None,
+        recipient_kinds: dict[str, str] | None = None,
     ) -> tuple[bool, str | None]: ...
 
 
@@ -907,6 +922,13 @@ class DeltaOneMintOrchestrator:
             attestation_payload=attestation_payload,
             acceptance_event=acceptance_event,
         )
+        self._notify_direct_mint_settlement(
+            mint_request=mint_request,
+            mint_result=mint_result,
+            contributors=event_context.contributors if event_context else None,
+            reward_tokens=reward_result.reward_tokens,
+            token_address=reward_token_address,
+        )
         if mint_result.vesting_payload() is not None:
             self._notify_reward_entitlement(
                 mint_request=mint_request,
@@ -1246,6 +1268,65 @@ class DeltaOneMintOrchestrator:
                         "auth reward ingest failed after mint publication; "
                         f"status={status} error={error}"
                     ),
+                )
+
+    def _notify_direct_mint_settlement(
+        self: DeltaOneMintOrchestrator,
+        *,
+        mint_request: MintRequest,
+        mint_result: TokenMintResult,
+        contributors: list[dict[str, Any]] | None = None,
+        reward_tokens: float | None = None,
+        token_address: str | None = None,
+    ) -> None:
+        notifier = self._reward_entitlement_notifier
+        if notifier is None or reward_tokens is None:
+            return
+        settlement = getattr(notifier, "notify_direct_mint_settlement", None)
+        if settlement is None:
+            return
+        if mint_result.status != "success" or not mint_result.tx_hash:
+            logger.info(
+                "event=direct_mint_settlement_skipped idempotency_key=%s status=%s has_tx_hash=%s",
+                mint_request.idempotency_key,
+                mint_result.status,
+                bool(mint_result.tx_hash),
+            )
+            return
+
+        recipient_kinds = {
+            contributor["wallet_address"]: contributor.get("recipient_kind", "wallet")
+            for contributor in (contributors or [])
+            if contributor.get("wallet_address")
+        }
+        try:
+            delivered, error = settlement(
+                mint_request=mint_request,
+                mint_result=mint_result,
+                reward_tokens=reward_tokens,
+                token_address=token_address,
+                token_symbol=_resolve_reward_token_symbol(mint_request.model_id),
+                deployment=_mint_deployment_metadata(),
+                recipient_kinds=recipient_kinds or None,
+            )
+        except ValueError as exc:
+            logger.warning(
+                "event=direct_mint_settlement_invalid idempotency_key=%s error=%s",
+                mint_request.idempotency_key,
+                exc,
+            )
+            return
+
+        if not delivered:
+            logger.error(
+                "event=direct_mint_settlement_failed idempotency_key=%s error=%s",
+                mint_request.idempotency_key,
+                error,
+            )
+            if _auth_reward_recording_required(notifier):
+                raise EventPayloadError(
+                    "direct_mint_settlement",
+                    f"auth direct mint settlement failed: {error}",
                 )
 
     def _create_signed_attestation(
@@ -1852,6 +1933,34 @@ def _resolve_reward_token_address(model_id_uint: Any) -> str | None:
             exc,
         )
         return None
+
+
+def _resolve_reward_token_symbol(model_id: Any) -> str | None:
+    """Return the mint-time reward token symbol without consulting mutable registry state."""
+    env_symbol = (os.getenv("REWARD_TOKEN_SYMBOL") or os.getenv("TOKEN_SYMBOL") or "").strip()
+    if env_symbol:
+        return env_symbol
+    if str(model_id) == "30":
+        return "HROUT"
+    return None
+
+
+def _mint_deployment_metadata() -> dict[str, Any]:
+    """Capture deployment addresses that were active for this mint attempt."""
+    keys = {
+        "network": "CHAIN_NETWORK",
+        "chain_id": "CHAIN_ID",
+        "delta_verifier": "MINT_VERIFYING_CONTRACT",
+        "model_registry": "MODEL_REGISTRY_ADDRESS",
+        "pending_claims_escrow": "PENDING_CLAIMS_ESCROW_ADDRESS",
+        "mint_submitter": "MINT_SUBMITTER_ADDRESS",
+    }
+    metadata: dict[str, Any] = {}
+    for output_key, env_key in keys.items():
+        value = (os.getenv(env_key) or "").strip()
+        if value:
+            metadata[output_key] = value
+    return metadata
 
 
 def _contributor_with_recipient(

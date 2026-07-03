@@ -442,6 +442,112 @@ def test_notify_reward_entitlement_includes_claimable_vesting(
     assert post_mock.call_args.kwargs["json"]["metadata"]["vesting"]["claimable_amount"] == "25"
 
 
+def test_notify_reward_entitlement_marks_pending_wallet_as_mint_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="secret-token",
+        dry_run=False,
+    )
+    post_mock = Mock(return_value=Mock(status_code=201, text=""))
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.post", post_mock)
+
+    delivered, error = notifier.notify_reward_entitlement(
+        mint_request=_mint_request(),
+        status="pending",
+        reward_tokens=1000.0,
+    )
+
+    assert delivered is True
+    assert error is None
+    assert post_mock.call_args_list[0].kwargs["json"]["metadata"]["settlement_status"] == (
+        "mint_pending"
+    )
+
+
+def test_notify_direct_mint_settlement_posts_claimed_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="secret-token",
+        dry_run=False,
+    )
+    post_mock = Mock(return_value=Mock(status_code=200, text=""))
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.post", post_mock)
+    mint_request = _mint_request()
+
+    delivered, error = notifier.notify_direct_mint_settlement(
+        mint_request=mint_request,
+        mint_result=TokenMintResult.model_validate(
+            {
+                "status": "success",
+                "audit_ref": "audit-1",
+                "timestamp": datetime(2026, 7, 3, tzinfo=timezone.utc),
+                "tx_hash": "0x" + "9" * 64,
+                "token_address": "0x" + "70" * 20,
+                "token_symbol": "HROUT",
+                "vesting": {
+                    "liquid_amount": "49000",
+                    "vested_amount": "196000",
+                    "vault_address": "0x" + "80" * 20,
+                    "schedule_id": "7",
+                    "token_address": "0x" + "70" * 20,
+                },
+            }
+        ),
+        reward_tokens=245000,
+        token_symbol="HROUT",
+        deployment={"delta_verifier": "0x" + "11" * 20},
+    )
+
+    assert delivered is True
+    assert error is None
+    assert post_mock.call_count == 2
+    first = post_mock.call_args_list[0]
+    assert first.args[0] == (
+        "https://auth.service.local/api/v1/internal/rewards/settlements/direct-mint"
+    )
+    body = first.kwargs["json"]
+    assert body["reward_id"] == (
+        f"{mint_request.idempotency_key}:44444444-4444-4444-4444-444444444441"
+    )
+    assert body["submission_id"] == "33333333-3333-3333-3333-333333333331"
+    assert body["user_id"] == "44444444-4444-4444-4444-444444444441"
+    assert body["token_symbol"] == "HROUT"
+    assert body["claim_tx_hash"] == "0x" + "9" * 64
+    assert body["amount"] == "171500"
+    assert body["immediate_amount"] == "34300"
+    assert body["vested_amount"] == "137200"
+    assert body["vesting_schedule"]["schedule_id"] == "7"
+    assert body["vesting_schedule"]["total_amount"] == "137200"
+    assert body["deployment"]["delta_verifier"] == "0x" + "11" * 20
+
+
+def test_notify_direct_mint_settlement_requires_receipt_hash() -> None:
+    notifier = AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="secret-token",
+        dry_run=True,
+    )
+
+    with pytest.raises(ValueError, match="tx_hash"):
+        notifier.notify_direct_mint_settlement(
+            mint_request=_mint_request(),
+            mint_result=TokenMintResult.model_validate(
+                {
+                    "status": "success",
+                    "audit_ref": "audit-1",
+                    "timestamp": datetime.now(timezone.utc),
+                    "token_address": "0x" + "70" * 20,
+                    "token_symbol": "HROUT",
+                }
+            ),
+            reward_tokens=1000,
+        )
+
+
 def _notifier() -> AuthServiceNotifier:
     return AuthServiceNotifier(
         auth_service_url="https://auth.service.local",
