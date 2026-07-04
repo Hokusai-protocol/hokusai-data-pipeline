@@ -104,6 +104,27 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--baseline-commitment")
     parser.add_argument("--candidate-commitment")
+    parser.add_argument(
+        "--deadline",
+        type=int,
+        help="Unix timestamp deadline bound into the EIP-712 MintRequest payload.",
+    )
+    parser.add_argument(
+        "--attester-signature",
+        action="append",
+        default=[],
+        help="0x-prefixed ECDSA attester signature. May be passed more than once.",
+    )
+    parser.add_argument(
+        "--mint-chain-id",
+        default=os.getenv("MINT_CHAIN_ID") or os.getenv("CHAIN_ID"),
+        help="Chain id for optional typed-data output, for example 11155111.",
+    )
+    parser.add_argument(
+        "--mint-verifying-contract",
+        default=os.getenv("MINT_VERIFYING_CONTRACT") or os.getenv("DELTA_VERIFIER_ADDRESS"),
+        help="DeltaVerifier address for optional typed-data output.",
+    )
     parser.add_argument("--allow-synthetic-commitments", action="store_true")
     parser.add_argument("--publish", action="store_true")
     parser.add_argument(
@@ -161,6 +182,8 @@ def main(argv: list[str] | None = None) -> int:
         extra_test_wallets=extra_test_wallets,
         baseline_commitment=baseline_commitment,
         candidate_commitment=candidate_commitment,
+        deadline=args.deadline,
+        attester_signatures=args.attester_signature,
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -174,6 +197,14 @@ def main(argv: list[str] | None = None) -> int:
         mint_request.model_dump_json(by_alias=True, indent=2) + "\n",
         encoding="utf-8",
     )
+    typed_data_path = output_dir / "synthetic_mint_typed_data.json"
+    if args.mint_chain_id and args.mint_verifying_contract:
+        _write_typed_data(
+            path=typed_data_path,
+            mint_request=mint_request,
+            chain_id=int(args.mint_chain_id),
+            verifying_contract=args.mint_verifying_contract,
+        )
     settlement_template_path: Path | None = None
     if args.settlement_reward_tokens:
         if not args.settlement_token_address:
@@ -204,6 +235,8 @@ def main(argv: list[str] | None = None) -> int:
 
     sys.stdout.write(f"wrote attribution_report={attribution_path}\n")
     sys.stdout.write(f"wrote mint_request={mint_request_path}\n")
+    if typed_data_path.exists():
+        sys.stdout.write(f"wrote typed_data={typed_data_path}\n")
     if settlement_template_path is not None:
         sys.stdout.write(f"wrote settlement_backfill_template={settlement_template_path}\n")
     if args.publish:
@@ -304,6 +337,8 @@ def build_synthetic_mint_request(
     extra_test_wallets: list[dict[str, Any]],
     baseline_commitment: str,
     candidate_commitment: str,
+    deadline: int | None = None,
+    attester_signatures: list[str] | None = None,
 ) -> MintRequest:
     """Create a validated MintRequest from the synthetic attribution report."""
     # The comparison report keys metrics by the underscored MLflow key; the MintRequest must
@@ -346,9 +381,9 @@ def build_synthetic_mint_request(
         idempotency_key=idempotency_key,
         baseline_commitment=baseline_commitment,
         candidate_commitment=candidate_commitment,
-        attester_signatures=[],
+        attester_signatures=attester_signatures or [],
         totalSamples=sample_size,
-        deadline=int((datetime.now(UTC) + timedelta(days=5)).timestamp()),
+        deadline=deadline or int((datetime.now(UTC) + timedelta(days=5)).timestamp()),
         evaluation={
             "metric_name": canonical_metric_name,
             "metric_family": metric_family,
@@ -729,6 +764,29 @@ def _write_settlement_backfill_template(
         encoding="utf-8",
     )
     path.chmod(0o755)
+
+
+def _write_typed_data(
+    *,
+    path: Path,
+    mint_request: MintRequest,
+    chain_id: int,
+    verifying_contract: str,
+) -> None:
+    """Write the exact EIP-712 typed data that attesters must sign."""
+    from src.eip712.mint_authorization import (  # noqa: PLC0415
+        MintRequestSigningConfig,
+        build_typed_data,
+    )
+
+    typed_data = build_typed_data(
+        mint_request,
+        MintRequestSigningConfig(
+            chain_id=chain_id,
+            verifying_contract=verifying_contract,
+        ),
+    )
+    path.write_text(json.dumps(typed_data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -382,3 +382,51 @@ def test_settlement_template_is_written(
     assert "sepolia_tx_receipt.json" in template
     assert "--reward-tokens 245000" in template
     assert "--token-symbol HROUT" in template
+
+
+def test_attester_signature_deadline_and_typed_data_are_written(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(synthetic.ALLOW_ENV, "true")
+    output_dir = tmp_path / "out"
+    signature = "0x" + "1" * 130
+
+    synthetic.main(
+        [
+            "--manifest",
+            str(_write_json(tmp_path / "manifest.json", _manifest())),
+            "--comparison-report",
+            str(_write_json(tmp_path / "comparison.json", _comparison())),
+            "--baseline-run-id",
+            "run-base",
+            "--candidate-run-id",
+            "run-cand",
+            "--output-dir",
+            str(output_dir),
+            "--environment",
+            "development",
+            "--escrow-wallet",
+            ESCROW,
+            "--deadline",
+            "4102444800",
+            "--attester-signature",
+            signature,
+            "--mint-chain-id",
+            "11155111",
+            "--mint-verifying-contract",
+            "0x" + "8" * 40,
+            "--allow-synthetic-commitments",
+        ]
+    )
+
+    request = MintRequest.model_validate_json(
+        (output_dir / "synthetic_mint_request.json").read_text()
+    )
+    assert request.deadline == 4102444800
+    assert request.attester_signatures == [signature.lower()]
+
+    typed_data = json.loads((output_dir / "synthetic_mint_typed_data.json").read_text())
+    assert typed_data["domain"]["chainId"] == 11155111
+    assert typed_data["domain"]["verifyingContract"] == "0x" + "8" * 40
+    assert typed_data["message"]["payload"]["deadline"] == 4102444800
