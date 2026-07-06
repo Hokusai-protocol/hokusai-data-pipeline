@@ -96,6 +96,14 @@ def validate_no_ambiguous_pending_wallet_rows(rows_payload: Any) -> None:
         )
 
 
+def recipient_kinds_from_mint_request(mint_request: MintRequest) -> dict[str, str]:
+    """Return mint-time routing by on-chain recipient address from a signed MintRequest."""
+    return {
+        contributor.wallet_address: contributor.recipient_kind
+        for contributor in mint_request.contributors
+    }
+
+
 def build_mint_result_from_receipt(
     receipt: dict[str, Any],
     *,
@@ -114,6 +122,8 @@ def build_mint_result_from_receipt(
         or _string(receipt.get("tokenAddress"))
         or _string(vesting.get("token_address"))
         or _string(vesting.get("tokenAddress"))
+        or _string((deployment or {}).get("token_address"))
+        or _string((deployment or {}).get("tokenAddress"))
     )
     if not resolved_token_address:
         raise ValueError("token address missing from receipt; pass --token-address")
@@ -172,6 +182,7 @@ def main() -> int:
         token_address=mint_result.token_address,
         token_symbol=args.token_symbol,
         deployment=deployment,
+        recipient_kinds=recipient_kinds_from_mint_request(mint_request),
     )
     if not delivered:
         LOGGER.error("direct mint settlement backfill failed: %s", error)

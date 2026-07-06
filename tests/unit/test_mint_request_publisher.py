@@ -196,12 +196,37 @@ class TestMintRequestContributor:
             submission_id="sub-1",
             contribution_batch_id="batch-1",
             contributor_id="contrib-1",
+            recipient_kind="escrow",
         )
         assert contributor.submission_id == "sub-1"
+        assert contributor.recipient_kind == "escrow"
         dumped = contributor.model_dump(mode="json", by_alias=True)
         assert dumped["submissionId"] == "sub-1"
         assert dumped["contributionBatchId"] == "batch-1"
         assert dumped["contributorId"] == "contrib-1"
+        assert dumped["recipientKind"] == "escrow"
+
+    def test_recipient_kind_defaults_to_wallet_and_accepts_alias(self) -> None:
+        default_contributor = MintRequestContributor(
+            wallet_address="0x742d35cc6634c0532925a3b844bc9e7595f62341",
+            weight_bps=5000,
+        )
+        escrow_contributor = MintRequestContributor(
+            wallet_address="0x6c3e007f281f6948b37c511a11e43c8026d2f069",
+            weight_bps=5000,
+            recipientKind="escrow",
+        )
+
+        assert default_contributor.recipient_kind == "wallet"
+        assert escrow_contributor.recipient_kind == "escrow"
+
+    def test_invalid_recipient_kind_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            MintRequestContributor(
+                wallet_address="0x742d35cc6634c0532925a3b844bc9e7595f62341",
+                weight_bps=5000,
+                recipient_kind="pending",
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -620,19 +645,23 @@ class TestExtractContributorsFromSpec:
                     "submissionId": "sub-1",
                     "contributionBatchId": "batch-1",
                     "contributorId": "contrib-1",
+                    "recipientKind": "wallet",
                 },
                 {
                     "wallet_address": _WALLET_B,
                     "weight_bps": 3000,
                     "submission_id": "sub-2",
+                    "recipient_kind": "escrow",
                 },
             ]
         }
         result = _extract_contributors_from_spec(spec)
         assert result[0]["submission_id"] == "sub-2"
+        assert result[0]["recipient_kind"] == "escrow"
         assert result[1]["submission_id"] == "sub-1"
         assert result[1]["contribution_batch_id"] == "batch-1"
         assert result[1]["contributor_id"] == "contrib-1"
+        assert result[1]["recipient_kind"] == "wallet"
 
 
 class TestExtractContributorsFromTags:
@@ -660,12 +689,18 @@ class TestExtractContributorsFromTags:
         tags = {
             "hokusai.contributors": json.dumps(
                 [
-                    {"wallet_address": _WALLET_B, "weight_bps": 4000, "submissionId": "sub-2"},
+                    {
+                        "wallet_address": _WALLET_B,
+                        "weight_bps": 4000,
+                        "submissionId": "sub-2",
+                        "recipientKind": "escrow",
+                    },
                     {
                         "wallet_address": _WALLET_A,
                         "weight_bps": 6000,
                         "submission_id": "sub-1",
                         "contribution_batch_id": "batch-1",
+                        "recipient_kind": "wallet",
                     },
                 ]
             )
@@ -674,7 +709,9 @@ class TestExtractContributorsFromTags:
         by_wallet = {item["wallet_address"]: item for item in result}
         assert by_wallet[_WALLET_A]["submission_id"] == "sub-1"
         assert by_wallet[_WALLET_A]["contribution_batch_id"] == "batch-1"
+        assert by_wallet[_WALLET_A]["recipient_kind"] == "wallet"
         assert by_wallet[_WALLET_B]["submission_id"] == "sub-2"
+        assert by_wallet[_WALLET_B]["recipient_kind"] == "escrow"
 
 
 class TestNormalizeWeightsTo10000:
@@ -1436,6 +1473,7 @@ class TestOrchestratorPublishesOnAcceptance:
                 "submissionId": "sub-b",
                 "contributionBatchId": None,
                 "contributorId": None,
+                "recipientKind": "wallet",
             },
             {
                 "wallet_address": _WALLET_A,
@@ -1443,6 +1481,7 @@ class TestOrchestratorPublishesOnAcceptance:
                 "submissionId": "sub-a",
                 "contributionBatchId": None,
                 "contributorId": None,
+                "recipientKind": "wallet",
             },
         ]
 
@@ -1481,6 +1520,7 @@ class TestOrchestratorPublishesOnAcceptance:
                 "submissionId": None,
                 "contributionBatchId": None,
                 "contributorId": None,
+                "recipientKind": "wallet",
             }
         ]
 
@@ -1520,6 +1560,7 @@ class TestOrchestratorPublishesOnAcceptance:
                 "submissionId": "sub-a",
                 "contributionBatchId": None,
                 "contributorId": None,
+                "recipientKind": "wallet",
             }
         ]
 

@@ -124,6 +124,7 @@ def test_main_writes_schema_valid_attribution_and_mint_request(
     assert request.evaluation.new_score_bps > request.evaluation.baseline_score_bps
     assert request.contributors[0].wallet_address == ESCROW
     assert request.contributors[0].contributor_id == "acct-a"
+    assert request.contributors[0].recipient_kind == "escrow"
     # v2 conformance: the dry-run MintRequest must advertise the canonical composite metric
     # name and the continuous family signed by the on-chain DeltaVerifier (HOK-2216/2217).
     assert request.evaluation.metric_name == "technical_task_router.benchmark_score/v2"
@@ -186,11 +187,15 @@ def test_extra_test_wallets_reserve_bps_from_contributor_allocation(
     contributors = {item.contributor_id: item for item in request.contributors}
     assert sum(item.weight_bps for item in request.contributors) == 10000
     assert contributors["acct-a"].weight_bps == 6534
+    assert contributors["acct-a"].recipient_kind == "escrow"
     assert contributors["acct-b"].weight_bps == 3266
+    assert contributors["acct-b"].recipient_kind == "wallet"
     assert contributors["synthetic-test-wallet-1"].wallet_address == TEST_WALLET_A
     assert contributors["synthetic-test-wallet-1"].weight_bps == 100
+    assert contributors["synthetic-test-wallet-1"].recipient_kind == "wallet"
     assert contributors["synthetic-test-wallet-2"].wallet_address == TEST_WALLET_B
     assert contributors["synthetic-test-wallet-2"].weight_bps == 100
+    assert contributors["synthetic-test-wallet-2"].recipient_kind == "wallet"
 
 
 def test_requires_explicit_synthetic_guard(tmp_path: Path) -> None:

@@ -54,6 +54,16 @@
           ],
           "default": null,
           "title": "Contributorid"
+        },
+        "recipientKind": {
+          "default": "wallet",
+          "description": "Mint-time reward routing decision for this contributor",
+          "enum": [
+            "wallet",
+            "escrow"
+          ],
+          "title": "Recipientkind",
+          "type": "string"
         }
       },
       "required": [

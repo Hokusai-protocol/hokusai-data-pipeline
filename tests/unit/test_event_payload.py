@@ -288,15 +288,19 @@ class TestDeltaOneAcceptanceEvent:
                     wallet_address="0x6c3e007f281f6948b37c511a11e43c8026d2f069",
                     weight_bps=4000,
                     submission_id="sub-2",
+                    recipient_kind="escrow",
                 ),
             ]
         )
 
         assert len(event.contributors) == 2
         assert event.contributors[0].submission_id == "sub-1"
+        assert event.contributors[1].recipient_kind == "escrow"
         dumped = event.model_dump(mode="json", by_alias=True)
         assert dumped["contributors"][0]["submissionId"] == "sub-1"
         assert dumped["contributors"][0]["contributionBatchId"] == "batch-1"
+        assert dumped["contributors"][0]["recipientKind"] == "wallet"
+        assert dumped["contributors"][1]["recipientKind"] == "escrow"
 
     def test_legacy_event_without_contributors_remains_valid(self) -> None:
         event = _valid_event()
