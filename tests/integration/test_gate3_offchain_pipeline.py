@@ -113,6 +113,7 @@ class TestHappyPath:
         payload = queued[0].model_dump(by_alias=True)
         schema_validators["mint_request"].validate(payload)
         schema_validators["mint_request_consumer"].validate(payload)
+        assert {item["recipientKind"] for item in payload["contributors"]} == {"wallet"}
         assert queued[0].idempotency_key == make_idempotency_key(
             int(spec["model_id_uint"]), queued[0].attestation_hash
         )
