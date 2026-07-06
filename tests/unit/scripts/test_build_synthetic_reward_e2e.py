@@ -124,6 +124,7 @@ def test_main_writes_schema_valid_attribution_and_mint_request(
     assert request.evaluation.new_score_bps > request.evaluation.baseline_score_bps
     assert request.contributors[0].wallet_address == ESCROW
     assert request.contributors[0].contributor_id == "acct-a"
+    assert request.contributors[0].recipient_kind == "escrow"
     # v2 conformance: the dry-run MintRequest must advertise the canonical composite metric
     # name and the continuous family signed by the on-chain DeltaVerifier (HOK-2216/2217).
     assert request.evaluation.metric_name == "technical_task_router.benchmark_score/v2"
@@ -170,11 +171,13 @@ def test_extra_test_wallets_reserve_bps_from_contributor_allocation(
             "wallet_address": TEST_WALLET_A,
             "weight_bps": 100,
             "contributor_id": "synthetic-test-wallet-1",
+            "submission_id": None,
         },
         {
             "wallet_address": TEST_WALLET_B,
             "weight_bps": 100,
             "contributor_id": "synthetic-test-wallet-2",
+            "submission_id": None,
         },
     ]
 
@@ -184,11 +187,15 @@ def test_extra_test_wallets_reserve_bps_from_contributor_allocation(
     contributors = {item.contributor_id: item for item in request.contributors}
     assert sum(item.weight_bps for item in request.contributors) == 10000
     assert contributors["acct-a"].weight_bps == 6534
+    assert contributors["acct-a"].recipient_kind == "escrow"
     assert contributors["acct-b"].weight_bps == 3266
+    assert contributors["acct-b"].recipient_kind == "wallet"
     assert contributors["synthetic-test-wallet-1"].wallet_address == TEST_WALLET_A
     assert contributors["synthetic-test-wallet-1"].weight_bps == 100
+    assert contributors["synthetic-test-wallet-1"].recipient_kind == "wallet"
     assert contributors["synthetic-test-wallet-2"].wallet_address == TEST_WALLET_B
     assert contributors["synthetic-test-wallet-2"].weight_bps == 100
+    assert contributors["synthetic-test-wallet-2"].recipient_kind == "wallet"
 
 
 def test_requires_explicit_synthetic_guard(tmp_path: Path) -> None:
@@ -300,3 +307,131 @@ def test_publish_with_auth_reward_recording_rejects_placeholder_contributors(
                 "--publish",
             ]
         )
+
+
+def test_extra_test_wallet_can_be_auth_recordable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(synthetic.ALLOW_ENV, "true")
+    user_id = "44444444-4444-4444-4444-444444444444"
+    submission_id = "33333333-3333-3333-3333-333333333333"
+
+    output_dir = tmp_path / "out"
+    synthetic.main(
+        [
+            "--manifest",
+            str(_write_json(tmp_path / "manifest.json", _manifest())),
+            "--comparison-report",
+            str(_write_json(tmp_path / "comparison.json", _comparison())),
+            "--baseline-run-id",
+            "run-base",
+            "--candidate-run-id",
+            "run-cand",
+            "--output-dir",
+            str(output_dir),
+            "--environment",
+            "development",
+            "--escrow-wallet",
+            ESCROW,
+            "--extra-test-wallet",
+            f"{TEST_WALLET_A}:100:{user_id}:{submission_id}",
+            "--allow-synthetic-commitments",
+        ]
+    )
+
+    request = MintRequest.model_validate_json(
+        (output_dir / "synthetic_mint_request.json").read_text()
+    )
+    extra = next(item for item in request.contributors if item.wallet_address == TEST_WALLET_A)
+    assert extra.contributor_id == user_id
+    assert extra.submission_id == submission_id
+
+
+def test_settlement_template_is_written(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(synthetic.ALLOW_ENV, "true")
+    output_dir = tmp_path / "out"
+
+    synthetic.main(
+        [
+            "--manifest",
+            str(_write_json(tmp_path / "manifest.json", _manifest())),
+            "--comparison-report",
+            str(_write_json(tmp_path / "comparison.json", _comparison())),
+            "--baseline-run-id",
+            "run-base",
+            "--candidate-run-id",
+            "run-cand",
+            "--output-dir",
+            str(output_dir),
+            "--environment",
+            "development",
+            "--escrow-wallet",
+            ESCROW,
+            "--settlement-reward-tokens",
+            "245000",
+            "--settlement-token-address",
+            "0x" + "7" * 40,
+            "--allow-synthetic-commitments",
+        ]
+    )
+
+    template = (output_dir / "settlement_backfill_command.sh").read_text()
+    assert "scripts/backfill_direct_mint_settlements.py" in template
+    assert "--mint-request" in template
+    assert "synthetic_mint_request.json" in template
+    assert "--receipt" in template
+    assert "sepolia_tx_receipt.json" in template
+    assert "--reward-tokens 245000" in template
+    assert "--token-symbol HROUT" in template
+
+
+def test_attester_signature_deadline_and_typed_data_are_written(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(synthetic.ALLOW_ENV, "true")
+    output_dir = tmp_path / "out"
+    signature = "0x" + "1" * 130
+
+    synthetic.main(
+        [
+            "--manifest",
+            str(_write_json(tmp_path / "manifest.json", _manifest())),
+            "--comparison-report",
+            str(_write_json(tmp_path / "comparison.json", _comparison())),
+            "--baseline-run-id",
+            "run-base",
+            "--candidate-run-id",
+            "run-cand",
+            "--output-dir",
+            str(output_dir),
+            "--environment",
+            "development",
+            "--escrow-wallet",
+            ESCROW,
+            "--deadline",
+            "4102444800",
+            "--attester-signature",
+            signature,
+            "--mint-chain-id",
+            "11155111",
+            "--mint-verifying-contract",
+            "0x" + "8" * 40,
+            "--allow-synthetic-commitments",
+        ]
+    )
+
+    request = MintRequest.model_validate_json(
+        (output_dir / "synthetic_mint_request.json").read_text()
+    )
+    assert request.deadline == 4102444800
+    assert request.attester_signatures == [signature.lower()]
+
+    typed_data = json.loads((output_dir / "synthetic_mint_typed_data.json").read_text())
+    assert typed_data["domain"]["chainId"] == 11155111
+    assert typed_data["domain"]["verifyingContract"] == "0x" + "8" * 40
+    assert typed_data["message"]["payload"]["deadline"] == 4102444800

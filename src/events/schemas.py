@@ -222,6 +222,11 @@ class MintRequestContributor(BaseModel):
         default=None, alias="contributionBatchId", min_length=1
     )
     contributor_id: str | None = Field(default=None, alias="contributorId", min_length=1)
+    recipient_kind: Literal["wallet", "escrow"] = Field(
+        default="wallet",
+        alias="recipientKind",
+        description="Mint-time reward routing decision for this contributor",
+    )
 
     @field_validator("wallet_address")
     @classmethod
