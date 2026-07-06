@@ -230,6 +230,15 @@
               "null"
             ],
             "minLength": 1
+          },
+          "recipientKind": {
+            "type": "string",
+            "enum": [
+              "wallet",
+              "escrow"
+            ],
+            "default": "wallet",
+            "description": "Mint-time reward routing decision for this contributor"
           }
         }
       }

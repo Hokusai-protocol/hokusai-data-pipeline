@@ -1049,6 +1049,8 @@ def test_resolve_contributors_account_centric_report_end_to_end(monkeypatch) -> 
 
     by_id = {c["contributor_id"]: c for c in resolved}
     assert by_id["user-a"]["wallet_address"] == "0x" + "aa" * 20
+    assert by_id["user-a"]["recipient_kind"] == "wallet"
     assert by_id["user-b"]["wallet_address"] == escrow
+    assert by_id["user-b"]["recipient_kind"] == "escrow"
     assert sum(c["weight_bps"] for c in resolved) == 10000
     assert len(resolved) == 2

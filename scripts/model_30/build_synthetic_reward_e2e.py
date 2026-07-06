@@ -652,7 +652,8 @@ def _mint_contributors(
     )
     for item in attribution_contributors:
         account_id = item.get("account_id")
-        wallet = (wallet_override or item.get("wallet") or escrow_wallet or "").lower()
+        source_wallet = wallet_override or item.get("wallet")
+        wallet = (source_wallet or escrow_wallet or "").lower()
         if not wallet:
             raise SystemExit(
                 "attribution contributor has no wallet; pass --escrow-wallet or "
@@ -661,6 +662,7 @@ def _mint_contributors(
         contributor: dict[str, Any] = {
             "wallet_address": wallet,
             "weight_bps": base_weights[_contributor_key(item)],
+            "recipientKind": "wallet" if source_wallet else "escrow",
         }
         submission_ids = item.get("submission_ids") or []
         if submission_ids:
@@ -673,6 +675,7 @@ def _mint_contributors(
             "wallet_address": item["wallet_address"],
             "weight_bps": int(item["weight_bps"]),
             "contributorId": item["contributor_id"],
+            "recipientKind": "wallet",
         }
         if item.get("submission_id"):
             contributor["submissionId"] = item["submission_id"]

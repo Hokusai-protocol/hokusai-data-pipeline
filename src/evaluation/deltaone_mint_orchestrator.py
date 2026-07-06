@@ -1750,6 +1750,7 @@ def _build_acceptance_event(
                 submission_id=contributor.get("submission_id"),
                 contribution_batch_id=contributor.get("contribution_batch_id"),
                 contributor_id=contributor.get("contributor_id"),
+                recipient_kind=contributor.get("recipient_kind", "wallet"),
             )
             for contributor in normalized_contributors
         ],
@@ -2056,6 +2057,7 @@ def _extract_optional_contributor_metadata(entry: dict[str, Any]) -> dict[str, s
         "submission_id": ("submission_id", "submissionId"),
         "contribution_batch_id": ("contribution_batch_id", "contributionBatchId"),
         "contributor_id": ("contributor_id", "contributorId"),
+        "recipient_kind": ("recipient_kind", "recipientKind"),
     }
     for normalized_key, aliases in field_aliases.items():
         value = next((entry.get(alias) for alias in aliases if entry.get(alias) is not None), None)
@@ -2163,6 +2165,7 @@ def _build_mint_request(
             submission_id=contributor.submission_id,
             contribution_batch_id=contributor.contribution_batch_id,
             contributor_id=contributor.contributor_id,
+            recipient_kind=contributor.recipient_kind,
         )
         for contributor in acceptance_event.contributors
     ]
