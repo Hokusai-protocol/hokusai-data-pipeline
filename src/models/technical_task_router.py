@@ -1164,6 +1164,14 @@ def _complexity_number(value: Any) -> float:
         "high": 8.0,
         "large": 8.0,
         "very_high": 10.0,
+        # Reasoning-depth spellings emitted by the Hokusai SDK's
+        # deriveTaskDescriptor before it was corrected to send a numeric score.
+        # Without these, every such row fell through to the 5.0 default and the
+        # complexity feature was a constant. Kept so already-ingested rows and
+        # any harness still on an older SDK carry their real signal.
+        "shallow": 3.0,
+        "standard": 5.0,
+        "deep": 8.0,
     }.get(text, 5.0)
 
 
