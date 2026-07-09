@@ -335,6 +335,24 @@ def test_invalid_row_quarantined_with_reason(
     assert _read_jsonl(output_dir / "dataset.jsonl") == [_valid_row("ok")]
 
 
+def test_partial_fidelity_tier_excluded_from_training(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Both rows are schema-valid; the second is dropped purely because intake
+    # classified it partial (telemetry/calibration only), proving the assembler
+    # honors the authoritative per-row fidelity tier.
+    payload = _record_payload("sub-a", [_valid_row("keep"), _valid_row("drop")])
+    payload["metadata"]["row_fidelity_tiers"] = ["training_eligible", "partial"]
+    objects = {_object_key("sub-a"): payload}
+    wallets = {("user-1", "api-1", "svc-1"): "0x742d35cc6634c0532925a3b844bc9e7595f62341"}
+
+    report, output_dir, _ = _run_assemble(tmp_path, monkeypatch, objects=objects, wallets=wallets)
+
+    assert report["excluded_partial_rows"] == 1
+    assert report["row_count"] == 1
+    assert _read_jsonl(output_dir / "dataset.jsonl") == [_valid_row("keep")]
+
+
 def test_unparseable_record_quarantined(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     objects: dict[str, dict[str, Any] | str] = {
         _object_key("sub-a"): "{not-json",

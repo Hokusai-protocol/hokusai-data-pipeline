@@ -26,9 +26,11 @@ from src.api.models.contribution_lifecycle import (
 from src.api.schemas.contribution import (
     ContributionAcceptedResponse,
     ContributionRequest,
+    LifecycleReasonCode,
     LifecycleUpdatePayload,
     RowCounts,
 )
+from src.api.services.contribution_fidelity import BatchClassification, classify_batch
 from src.api.utils.config import get_settings
 
 if TYPE_CHECKING:
@@ -137,6 +139,15 @@ _NOTIFIABLE_LIFECYCLE_STATES = {
     ContributionLifecycleState.REJECTED.value,
     ContributionLifecycleState.EXCLUDED.value,
 }
+
+# Reserved contribution-metadata keys carrying the authoritative, per-row
+# fidelity classification computed at intake. The training assembler honors
+# ``_METADATA_ROW_FIDELITY_TIERS_KEY`` to exclude ``partial`` rows.
+_METADATA_ROW_FIDELITY_TIERS_KEY = "row_fidelity_tiers"
+_METADATA_FIDELITY_SUMMARY_KEY = "fidelity_summary"
+# Lowercase cause understood by ``AuthServiceNotifier._map_reason_code`` and
+# mapped to ``LifecycleReasonCode.EXCLUDED_FROM_TRAINING``.
+_EXCLUDED_FROM_TRAINING_REASON = LifecycleReasonCode.EXCLUDED_FROM_TRAINING.value.lower()
 
 
 class ContributionStore(Protocol):
@@ -328,13 +339,31 @@ class ContributionService:
             )
             return ContributionAcceptance(response=response, status_code=200)
 
+        classification = classify_batch(
+            request.rows,
+            benchmark_spec_id=request.benchmark_spec_id,
+            model_id=model_id,
+        )
+        if classification.accepted_count == 0:
+            raise ContributionValidationError(
+                {
+                    "error": "no_acceptable_rows",
+                    "message": (
+                        "All submitted rows were classified invalid "
+                        "(missing route identity or model selection)"
+                    ),
+                    "submittedRows": len(request.rows),
+                    "rejectedRows": classification.rejected,
+                }
+            )
+
         response = ContributionAcceptedResponse(
             accepted=True,
             modelId=model_id,
             submissionId=submission_id,
             jobId=submission_id,
             jobIds=[submission_id],
-            rowsAccepted=len(request.rows),
+            rowsAccepted=classification.accepted_count,
             submittedRows=len(request.rows),
             tokenReward=0,
             idempotentReplay=False,
@@ -346,13 +375,21 @@ class ContributionService:
                 "api_key_id": auth.get("api_key_id"),
                 "service_id": auth.get("service_id"),
             },
+            _METADATA_ROW_FIDELITY_TIERS_KEY: classification.accepted_tiers,
+            _METADATA_FIDELITY_SUMMARY_KEY: {
+                "training_eligible": classification.training_eligible_count,
+                "partial": classification.partial_count,
+                "passthrough": classification.passthrough_count,
+                "invalid": classification.rejected_count,
+                "rejected": classification.rejected,
+            },
         }
         record = StoredContributionRecord(
             submission_id=submission_id,
             model_id=model_id,
             idempotency_key=resolved_idempotency_key,
             body_hash=body_hash,
-            rows=request.rows,
+            rows=classification.accepted_rows,
             metadata=metadata,
             response_payload=response.model_dump(by_alias=True),
             created_at=datetime.now(timezone.utc).isoformat(),
@@ -361,7 +398,9 @@ class ContributionService:
         try:
             self.create_lifecycle_record(
                 submission_id=submission_id,
-                accepted_row_count=len(request.rows),
+                accepted_row_count=classification.accepted_count,
+                rejected_row_count=classification.rejected_count,
+                reason=self._lifecycle_reason_for(classification),
             )
         except Exception:  # noqa: BLE001
             logger.exception(
@@ -583,6 +622,18 @@ class ContributionService:
         if not database_url:
             return None
         return _lifecycle_session_factory_from_url(database_url)
+
+    @staticmethod
+    def _lifecycle_reason_for(classification: BatchClassification) -> str | None:
+        """Return the excluded-from-training reason when no row can train.
+
+        A submission whose only accepted rows are ``partial`` (telemetry only)
+        carries the ``EXCLUDED_FROM_TRAINING`` reason so the dashboard reflects
+        that nothing from it enters the success-under-budget training set.
+        """
+        if classification.has_only_partial:
+            return _EXCLUDED_FROM_TRAINING_REASON
+        return None
 
     @staticmethod
     def _validate_model_id(model_id: str) -> None:

@@ -299,6 +299,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
         "quarantine_count": 0,
         "quarantined_submissions": 0,
         "quarantined_rows": 0,
+        "excluded_partial_rows": 0,
         "excluded_no_wallet": [],
         "wallet_resolution": {
             "requests": 0,
@@ -344,7 +345,20 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
     for s3_key, record in deduped_records:
         valid_rows: list[dict[str, Any]] = []
         invalid_row_count = 0
+        row_fidelity_tiers = (
+            record.metadata.get("row_fidelity_tiers") if isinstance(record.metadata, dict) else None
+        )
         for row_index, row in enumerate(record.rows):
+            # Honor the authoritative intake fidelity tier: rows classified
+            # ``partial`` (missing numeric cost/budget) are persisted for
+            # telemetry/calibration only and never enter the training set.
+            if (
+                isinstance(row_fidelity_tiers, list)
+                and row_index < len(row_fidelity_tiers)
+                and row_fidelity_tiers[row_index] == "partial"
+            ):
+                report["excluded_partial_rows"] += 1
+                continue
             normalized_row, reason = normalize_row_for_format(
                 row,
                 row_format=getattr(args, "row_format", "benchmark"),
