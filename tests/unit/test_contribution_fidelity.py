@@ -248,3 +248,112 @@ def test_classify_row_tiers_directly() -> None:
     assert classify_row(invalid).tier is FidelityTier.INVALID
 
     assert classify_row({"task_id": "row-1"}).tier is FidelityTier.PASSTHROUGH
+
+
+# --- Fidelity tiers surfaced in the contribution response (HOK-2494) ----------
+#
+# The classification is computed server-side and stored in record metadata. It is
+# also returned to the submitting client so a contributor can tell a row that
+# trains from a row that is merely accepted.
+
+
+def test_response_reports_training_eligible_tier() -> None:
+    service, _ = _service()
+
+    accepted = _accept(service, [_harness_row()], "batch-tier-1")
+
+    assert accepted.response.row_fidelity_tiers == ["training_eligible"]
+    assert accepted.response.fidelity_summary.training_eligible == 1
+    assert accepted.response.fidelity_summary.partial == 0
+    assert accepted.response.rejected_rows == []
+
+
+def test_response_reports_partial_tier_when_cost_missing() -> None:
+    service, _ = _service()
+    row = _harness_row()
+    del row["actual_cost_usd"]
+
+    accepted = _accept(service, [row], "batch-tier-2")
+
+    # Accepted, but visibly not training data.
+    assert accepted.response.accepted is True
+    assert accepted.response.rows_accepted == 1
+    assert accepted.response.row_fidelity_tiers == ["partial"]
+    assert accepted.response.fidelity_summary.partial == 1
+    assert accepted.response.fidelity_summary.training_eligible == 0
+
+
+def test_fidelity_summary_counts_sum_to_submitted_rows() -> None:
+    service, _ = _service()
+    partial = _harness_row()
+    del partial["actual_cost_usd"]
+    invalid = _harness_row()
+    del invalid["selected_models"]
+    del invalid["allowed_models"]
+
+    accepted = _accept(
+        service,
+        [_harness_row(task_id="a"), partial, invalid, {"task_id": "legacy"}],
+        "batch-tier-3",
+    )
+
+    summary = accepted.response.fidelity_summary
+    total = summary.training_eligible + summary.partial + summary.passthrough + summary.invalid
+    assert total == accepted.response.submitted_rows == 4
+    assert summary.training_eligible == 1
+    assert summary.partial == 1
+    assert summary.passthrough == 1
+    assert summary.invalid == 1
+    # Tiers align by index to the accepted rows only; the invalid row is absent.
+    assert accepted.response.row_fidelity_tiers == ["training_eligible", "partial", "passthrough"]
+
+
+def test_response_reports_rejected_row_reasons() -> None:
+    service, _ = _service()
+    invalid = _harness_row()
+    del invalid["selected_models"]
+    del invalid["allowed_models"]
+
+    accepted = _accept(service, [_harness_row(task_id="a"), invalid], "batch-tier-4")
+
+    assert len(accepted.response.rejected_rows) == 1
+    assert accepted.response.rejected_rows[0].index == 1
+    assert accepted.response.rejected_rows[0].reason
+
+
+def test_idempotent_replay_returns_stored_tiers_without_reclassifying() -> None:
+    service, store = _service()
+    rows = [_harness_row()]
+
+    first = _accept(service, rows, "batch-replay")
+    assert first.status_code == 201
+
+    # Mutating the stored classification proves the replay reads it back rather
+    # than recomputing: a reclassification would still say training_eligible.
+    store.records[("30", "batch-replay")].response_payload["rowFidelityTiers"] = ["partial"]
+
+    replay = _accept(service, rows, "batch-replay")
+
+    assert replay.status_code == 200
+    assert replay.response.idempotent_replay is True
+    assert replay.response.row_fidelity_tiers == ["partial"]
+
+
+def test_replay_of_legacy_record_omits_tiers_rather_than_fabricating() -> None:
+    service, store = _service()
+    rows = [_harness_row()]
+
+    _accept(service, rows, "batch-legacy-replay")
+
+    # Simulate a record persisted before the tier fields existed.
+    payload = store.records[("30", "batch-legacy-replay")].response_payload
+    payload.pop("rowFidelityTiers")
+    payload.pop("fidelitySummary")
+    payload.pop("rejectedRows")
+
+    replay = _accept(service, rows, "batch-legacy-replay")
+
+    assert replay.status_code == 200
+    assert replay.response.row_fidelity_tiers is None
+    assert replay.response.fidelity_summary is None
+    assert replay.response.rejected_rows == []

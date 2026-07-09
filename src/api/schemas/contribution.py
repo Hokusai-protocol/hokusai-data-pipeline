@@ -41,6 +41,26 @@ class ContributionRequest(BaseModel):
         return rows
 
 
+class FidelitySummary(BaseModel):
+    """Per-tier row counts for a classified contribution batch."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    training_eligible: int = 0
+    partial: int = 0
+    passthrough: int = 0
+    invalid: int = 0
+
+
+class RejectedRow(BaseModel):
+    """A row rejected as invalid, with its position in the submitted batch."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    index: int
+    reason: str
+
+
 class ContributionAcceptedResponse(BaseModel):
     """Response returned to contribution clients after acceptance or replay."""
 
@@ -55,6 +75,12 @@ class ContributionAcceptedResponse(BaseModel):
     submitted_rows: int = Field(..., alias="submittedRows")
     token_reward: int = Field(default=0, alias="tokenReward")
     idempotent_replay: bool = Field(default=False, alias="idempotentReplay")
+    # Authoritative, server-assigned classification. ``row_fidelity_tiers`` is
+    # aligned by index to the accepted rows. Both stay ``None`` when replaying a
+    # record persisted before this field existed: absent, never fabricated.
+    row_fidelity_tiers: list[str] | None = Field(default=None, alias="rowFidelityTiers")
+    fidelity_summary: FidelitySummary | None = Field(default=None, alias="fidelitySummary")
+    rejected_rows: list[RejectedRow] = Field(default_factory=list, alias="rejectedRows")
 
 
 class ContributionLifecycleResponse(BaseModel):

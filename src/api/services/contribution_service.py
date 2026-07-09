@@ -26,8 +26,10 @@ from src.api.models.contribution_lifecycle import (
 from src.api.schemas.contribution import (
     ContributionAcceptedResponse,
     ContributionRequest,
+    FidelitySummary,
     LifecycleReasonCode,
     LifecycleUpdatePayload,
+    RejectedRow,
     RowCounts,
 )
 from src.api.services.contribution_fidelity import BatchClassification, classify_batch
@@ -367,6 +369,17 @@ class ContributionService:
             submittedRows=len(request.rows),
             tokenReward=0,
             idempotentReplay=False,
+            rowFidelityTiers=list(classification.accepted_tiers),
+            fidelitySummary=FidelitySummary(
+                training_eligible=classification.training_eligible_count,
+                partial=classification.partial_count,
+                passthrough=classification.passthrough_count,
+                invalid=classification.rejected_count,
+            ),
+            rejectedRows=[
+                RejectedRow(index=entry["index"], reason=entry["reason"])
+                for entry in classification.rejected
+            ],
         )
         metadata = {
             **request.metadata.model_dump(exclude_none=True),
