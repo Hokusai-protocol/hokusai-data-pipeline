@@ -18,6 +18,9 @@ the success-under-budget training set:
 * ``partial`` -- has route/model identity and a completion signal but is missing
   a numeric cost or budget, so success-under-budget is uncomputable. Persisted
   and counted as accepted, but excluded from the training set.
+* ``non_ranking`` -- has an explicit singleton candidate pool. Persisted for
+  telemetry/debugging, but excluded from ranking training because no comparison
+  was possible.
 * ``invalid`` -- missing route identity or model selection entirely. Rejected;
   not persisted as accepted.
 * ``passthrough`` -- a row that does not present as a router/harness outcome row
@@ -74,6 +77,7 @@ class FidelityTier(str, Enum):
 
     TRAINING_ELIGIBLE = "training_eligible"
     PARTIAL = "partial"
+    NON_RANKING = "non_ranking"
     INVALID = "invalid"
     PASSTHROUGH = "passthrough"
 
@@ -101,6 +105,7 @@ class BatchClassification:
     rejected: list[dict[str, Any]] = field(default_factory=list)
     training_eligible_count: int = 0
     partial_count: int = 0
+    non_ranking_count: int = 0
     passthrough_count: int = 0
 
     @property
@@ -115,9 +120,9 @@ class BatchClassification:
 
     @property
     def has_only_partial(self: BatchClassification) -> bool:
-        """Return True when at least one row is partial and none are training-usable."""
+        """Return True when accepted rows are telemetry-only and none are training-usable."""
         return (
-            self.partial_count > 0
+            (self.partial_count > 0 or self.non_ranking_count > 0)
             and self.training_eligible_count == 0
             and self.passthrough_count == 0
         )
@@ -140,6 +145,11 @@ def _extract_allowed_models(row: dict[str, Any]) -> list[str]:
     if isinstance(allowed, list):
         return [str(model) for model in allowed if isinstance(model, str) and model]
     return []
+
+
+def _has_ranking_candidate_pool(allowed_models: list[str]) -> bool:
+    """Return True when a row can support a model-vs-model ranking decision."""
+    return len(set(allowed_models)) >= 2
 
 
 def _extract_selected_models(row: dict[str, Any]) -> tuple[list[str], bool]:
@@ -288,6 +298,9 @@ def _classify_router_outcome_row(
         TECHNICAL_TASK_ROUTER_ROW_V1,
         TECHNICAL_TASK_ROUTER_ROW_V2,
     ):
+        allowed_models = _extract_allowed_models(row)
+        if allowed_models and not _has_ranking_candidate_pool(allowed_models):
+            return RowClassification(tier=FidelityTier.NON_RANKING, row=row)
         return RowClassification(tier=FidelityTier.TRAINING_ELIGIBLE, row=row)
 
     forbidden_path = _contains_forbidden_field(row)
@@ -308,6 +321,8 @@ def _classify_router_outcome_row(
         return RowClassification(
             tier=FidelityTier.INVALID, row=None, reason="missing_allowed_models"
         )
+    if not _has_ranking_candidate_pool(allowed_models):
+        return RowClassification(tier=FidelityTier.NON_RANKING, row=row)
 
     budget = _coerce_number(row.get("budget_usd"))
     if budget is None:
@@ -372,6 +387,8 @@ def classify_batch(
             result.training_eligible_count += 1
         elif tier is FidelityTier.PARTIAL:
             result.partial_count += 1
+        elif tier is FidelityTier.NON_RANKING:
+            result.non_ranking_count += 1
         else:
             result.passthrough_count += 1
     return result

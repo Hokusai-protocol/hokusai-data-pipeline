@@ -373,6 +373,7 @@ class ContributionService:
             fidelitySummary=FidelitySummary(
                 training_eligible=classification.training_eligible_count,
                 partial=classification.partial_count,
+                non_ranking=classification.non_ranking_count,
                 passthrough=classification.passthrough_count,
                 invalid=classification.rejected_count,
             ),
@@ -392,6 +393,7 @@ class ContributionService:
             _METADATA_FIDELITY_SUMMARY_KEY: {
                 "training_eligible": classification.training_eligible_count,
                 "partial": classification.partial_count,
+                "non_ranking": classification.non_ranking_count,
                 "passthrough": classification.passthrough_count,
                 "invalid": classification.rejected_count,
                 "rejected": classification.rejected,
@@ -640,9 +642,10 @@ class ContributionService:
     def _lifecycle_reason_for(classification: BatchClassification) -> str | None:
         """Return the excluded-from-training reason when no row can train.
 
-        A submission whose only accepted rows are ``partial`` (telemetry only)
-        carries the ``EXCLUDED_FROM_TRAINING`` reason so the dashboard reflects
-        that nothing from it enters the success-under-budget training set.
+        A submission whose only accepted rows are telemetry-only
+        (``partial``/``non_ranking``) carries the ``EXCLUDED_FROM_TRAINING``
+        reason so the dashboard reflects that nothing from it enters the
+        success-under-budget training set.
         """
         if classification.has_only_partial:
             return _EXCLUDED_FROM_TRAINING_REASON

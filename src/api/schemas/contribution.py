@@ -48,6 +48,7 @@ class FidelitySummary(BaseModel):
 
     training_eligible: int = 0
     partial: int = 0
+    non_ranking: int = 0
     passthrough: int = 0
     invalid: int = 0
 

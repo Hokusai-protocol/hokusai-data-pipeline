@@ -353,6 +353,21 @@ def test_partial_fidelity_tier_excluded_from_training(
     assert _read_jsonl(output_dir / "dataset.jsonl") == [_valid_row("keep")]
 
 
+def test_non_ranking_fidelity_tier_excluded_from_training(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = _record_payload("sub-a", [_valid_row("keep"), _valid_row("singleton")])
+    payload["metadata"]["row_fidelity_tiers"] = ["training_eligible", "non_ranking"]
+    objects = {_object_key("sub-a"): payload}
+    wallets = {("user-1", "api-1", "svc-1"): "0x742d35cc6634c0532925a3b844bc9e7595f62341"}
+
+    report, output_dir, _ = _run_assemble(tmp_path, monkeypatch, objects=objects, wallets=wallets)
+
+    assert report["excluded_non_ranking_rows"] == 1
+    assert report["row_count"] == 1
+    assert _read_jsonl(output_dir / "dataset.jsonl") == [_valid_row("keep")]
+
+
 def test_unparseable_record_quarantined(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     objects: dict[str, dict[str, Any] | str] = {
         _object_key("sub-a"): "{not-json",

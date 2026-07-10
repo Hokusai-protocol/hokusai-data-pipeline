@@ -34,6 +34,7 @@ from src.api.utils.config import get_settings
 DEFAULT_MODEL_30_MLFLOW_URI = "models:/Technical Task Router@production"
 MODEL_30_VERSION = "production"
 MODEL_30_SCHEMA = "technical_task_router_inputs/v2"
+MODEL_30_CANDIDATE_POOL_CONTRACT = "model_30_candidate_pool/v1"
 MODEL_ID_PATTERN = re.compile(r"^(claude-|gpt-|deepseek-)")
 ROUTER_FEATURE_COLUMNS: tuple[str, ...] = (
     "task_type",
@@ -318,6 +319,34 @@ def _role_available_models(routing: Any, role: str) -> list[str]:
         return []
     role_values = getattr(routing, f"available_{role}_models")
     return _sorted_unique(role_values or routing.available_models)
+
+
+def summarize_candidate_pool_fidelity(
+    validated_inputs: TechnicalTaskRouterInputs,
+) -> dict[str, Any]:
+    """Return canonical candidate-pool policy metadata for a model 30 request."""
+    routing = validated_inputs.routing
+    role_pool_sizes = {
+        role: len(_role_available_models(routing, role))
+        for role in ("planner", "coder", "reviewer")
+    }
+    constrained_sizes = [size for size in role_pool_sizes.values() if size > 0]
+    if not constrained_sizes:
+        fidelity = "unconstrained"
+    elif all(size == 1 for size in constrained_sizes):
+        fidelity = "non_ranking"
+    elif any(size == 1 for size in constrained_sizes):
+        fidelity = "partially_ranking"
+    else:
+        fidelity = "ranking_eligible"
+
+    return {
+        "schema": MODEL_30_CANDIDATE_POOL_CONTRACT,
+        "fidelity": fidelity,
+        "role_pool_sizes": role_pool_sizes,
+        "ranking_eligible": fidelity in {"ranking_eligible", "partially_ranking"},
+        "non_ranking_roles": [role for role, size in role_pool_sizes.items() if size == 1],
+    }
 
 
 def call_mlflow_model_30(

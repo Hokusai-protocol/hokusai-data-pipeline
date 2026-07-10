@@ -92,6 +92,52 @@ def test_validate_nested_inputs_accepts_all_allowed_groups() -> None:
     assert validated.routing.objective.value == "highest_reliability"
 
 
+def test_validate_nested_inputs_accepts_camel_case_sdk_contract() -> None:
+    validated = model_30_adapter.validate_nested_model_30_inputs(
+        {
+            "task": {
+                "description": "Refactor billing webhook retry handling",
+                "taskType": "refactor",
+                "repoType": "monorepo",
+            },
+            "routing": {
+                "availableModels": ["gpt-5.4", "claude-sonnet-4-6"],
+                "availableCoderModels": ["gpt-5.4"],
+                "preferredModels": ["claude-sonnet-4-6"],
+                "maxCostUsd": 0.5,
+                "maxLatencySeconds": 30,
+                "prioritizeQuality": True,
+            },
+            "context": {
+                "repoSizeBucket": "large",
+                "requiresTests": True,
+                "fileCount": 6,
+                "securitySensitive": True,
+            },
+            "workflow": {
+                "executionEnvironment": "ci",
+                "humanReviewRequired": True,
+            },
+            "metadata": {
+                "externalTaskId": "task-123",
+                "runId": "run-456",
+                "integrationVersion": "2026.05",
+                "idempotencyKey": "idem-789",
+            },
+        }
+    )
+
+    assert validated.task.task_type == "refactor"
+    assert validated.task.repo_type == "monorepo"
+    assert validated.routing is not None
+    assert validated.routing.available_coder_models == ["gpt-5.4"]
+    assert validated.routing.max_cost_usd == 0.5
+    assert validated.context is not None
+    assert validated.context.security_sensitive is True
+    assert validated.metadata is not None
+    assert validated.metadata.external_task_id == "task-123"
+
+
 def test_validate_nested_inputs_rejects_missing_task() -> None:
     with pytest.raises(Exception) as excinfo:
         model_30_adapter.validate_nested_model_30_inputs({"routing": {"max_cost_usd": 0.5}})
@@ -160,6 +206,18 @@ def test_validate_nested_inputs_rejects_unknown_objective() -> None:
     assert "lowest_cost" in str(excinfo.value)
 
 
+def test_validate_nested_inputs_rejects_explicit_empty_candidate_pool() -> None:
+    with pytest.raises(Exception) as excinfo:
+        model_30_adapter.validate_nested_model_30_inputs(
+            {
+                **_minimal_inputs(),
+                "routing": {"availableModels": []},
+            }
+        )
+
+    assert "at least 1 item" in str(excinfo.value)
+
+
 def test_validate_nested_inputs_rejects_unknown_or_duplicate_stages() -> None:
     with pytest.raises(Exception) as unknown_exc:
         model_30_adapter.validate_nested_model_30_inputs(
@@ -211,6 +269,47 @@ def test_model_30_inputs_to_features_honors_role_specific_available_models() -> 
     assert row["available_planner_models"] == ["claude-sonnet-4-6"]
     assert row["available_coder_models"] == ["gpt-5.4"]
     assert row["available_reviewer_models"] == ["claude-haiku-4-5-20251001"]
+
+
+def test_candidate_pool_fidelity_summarizes_unconstrained_and_singleton_pools() -> None:
+    unconstrained = model_30_adapter.validate_nested_model_30_inputs(_minimal_inputs())
+    singleton = model_30_adapter.validate_nested_model_30_inputs(
+        {
+            **_minimal_inputs(),
+            "routing": {"availableModels": ["gpt-5.4"]},
+        }
+    )
+    partial = model_30_adapter.validate_nested_model_30_inputs(
+        {
+            **_minimal_inputs(),
+            "routing": {
+                "availableModels": ["gpt-5.4", "claude-sonnet-4-6"],
+                "availableCoderModels": ["gpt-5.4"],
+            },
+        }
+    )
+
+    assert model_30_adapter.summarize_candidate_pool_fidelity(unconstrained) == {
+        "schema": model_30_adapter.MODEL_30_CANDIDATE_POOL_CONTRACT,
+        "fidelity": "unconstrained",
+        "role_pool_sizes": {"planner": 0, "coder": 0, "reviewer": 0},
+        "ranking_eligible": False,
+        "non_ranking_roles": [],
+    }
+    assert model_30_adapter.summarize_candidate_pool_fidelity(singleton) == {
+        "schema": model_30_adapter.MODEL_30_CANDIDATE_POOL_CONTRACT,
+        "fidelity": "non_ranking",
+        "role_pool_sizes": {"planner": 1, "coder": 1, "reviewer": 1},
+        "ranking_eligible": False,
+        "non_ranking_roles": ["planner", "coder", "reviewer"],
+    }
+    assert model_30_adapter.summarize_candidate_pool_fidelity(partial) == {
+        "schema": model_30_adapter.MODEL_30_CANDIDATE_POOL_CONTRACT,
+        "fidelity": "partially_ranking",
+        "role_pool_sizes": {"planner": 2, "coder": 1, "reviewer": 2},
+        "ranking_eligible": True,
+        "non_ranking_roles": ["coder"],
+    }
 
 
 def test_model_30_inputs_to_features_does_not_require_post_routing_outcomes() -> None:
