@@ -77,7 +77,7 @@ def _canonical_v1_row() -> dict[str, Any]:
         "eval_id": "eval-1",
         "model_id": "30",
         "task_descriptor": {"task_type": "bugfix"},
-        "allowed_models": ["gpt-5.4"],
+        "allowed_models": ["gpt-5.4", "claude-sonnet-4-6"],
         "selected_models": ["gpt-5.4"],
         "max_cost_usd": 1.0,
         "actual_cost_usd": 0.5,
@@ -146,6 +146,40 @@ def test_partial_harness_row_accepted_but_excluded_from_training() -> None:
     assert record.metadata["fidelity_summary"]["partial"] == 1
     # Persisted for telemetry in its original shape, never normalized to training.
     assert record.rows[0]["schema_version"] == "harness_outcome_row/v1"
+
+
+def test_singleton_candidate_pool_is_non_ranking_and_excluded_from_training() -> None:
+    service, store = _service()
+    row = _harness_row(
+        allowed_models=["gpt-5.4"],
+        selected_models={"coder": "gpt-5.4", "reviewer": "gpt-5.4"},
+    )
+
+    accepted = _accept(service, [row], "batch-singleton")
+
+    assert accepted.status_code == 201
+    assert accepted.response.rows_accepted == 1
+    assert accepted.response.row_fidelity_tiers == ["non_ranking"]
+    assert accepted.response.fidelity_summary is not None
+    assert accepted.response.fidelity_summary.non_ranking == 1
+    assert accepted.response.fidelity_summary.training_eligible == 0
+
+    record = store.records[("30", "batch-singleton")]
+    assert record.metadata["row_fidelity_tiers"] == ["non_ranking"]
+    assert record.metadata["fidelity_summary"]["non_ranking"] == 1
+    # The row is persisted for telemetry in its submitted shape, not normalized
+    # into the canonical training schema.
+    assert record.rows[0]["schema_version"] == "harness_outcome_row/v1"
+
+
+def test_canonical_singleton_candidate_pool_is_non_ranking() -> None:
+    row = _canonical_v1_row()
+    row["allowed_models"] = ["gpt-5.4"]
+
+    classification = classify_row(row)
+
+    assert classification.tier is FidelityTier.NON_RANKING
+    assert classification.row == row
 
 
 def test_partial_only_submission_reason_is_excluded_from_training() -> None:
@@ -242,6 +276,12 @@ def test_classify_row_tiers_directly() -> None:
     del partial["budget_usd"]
     assert classify_row(partial).tier is FidelityTier.PARTIAL
 
+    singleton = _harness_row(
+        allowed_models=["gpt-5.4"],
+        selected_models={"coder": "gpt-5.4", "reviewer": "gpt-5.4"},
+    )
+    assert classify_row(singleton).tier is FidelityTier.NON_RANKING
+
     invalid = _harness_row()
     del invalid["selected_models"]
     del invalid["allowed_models"]
@@ -298,7 +338,13 @@ def test_fidelity_summary_counts_sum_to_submitted_rows() -> None:
     )
 
     summary = accepted.response.fidelity_summary
-    total = summary.training_eligible + summary.partial + summary.passthrough + summary.invalid
+    total = (
+        summary.training_eligible
+        + summary.partial
+        + summary.non_ranking
+        + summary.passthrough
+        + summary.invalid
+    )
     assert total == accepted.response.submitted_rows == 4
     assert summary.training_eligible == 1
     assert summary.partial == 1

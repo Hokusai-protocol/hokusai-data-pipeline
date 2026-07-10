@@ -7,6 +7,21 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+def _to_camel(field_name: str) -> str:
+    parts = field_name.split("_")
+    return parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
+
+
+class TechnicalTaskRouterBaseModel(BaseModel):
+    """Shared public contract settings for model 30 request/response schemas."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        populate_by_name=True,
+        alias_generator=_to_camel,
+    )
+
+
 class TechnicalTaskRoutingObjective(str, Enum):
     """User-facing strategy objective for model 30 routing."""
 
@@ -23,10 +38,8 @@ class TechnicalTaskWorkflowStage(str, Enum):
     REVIEW = "review"
 
 
-class TechnicalTaskGroup(BaseModel):
+class TechnicalTaskGroup(TechnicalTaskRouterBaseModel):
     """Required task description for model 30 routing."""
-
-    model_config = ConfigDict(extra="forbid")
 
     description: str
     task_type: str
@@ -35,10 +48,15 @@ class TechnicalTaskGroup(BaseModel):
     repo_type: str | None = None
 
 
-class TechnicalTaskRoutingGroup(BaseModel):
-    """Optional routing constraints and preferences."""
+class TechnicalTaskRoutingGroup(TechnicalTaskRouterBaseModel):
+    """Optional routing constraints and preferences.
 
-    model_config = ConfigDict(extra="forbid")
+    Candidate-pool policy:
+    * omit all pool fields to request unconstrained global ranking;
+    * send two or more unique candidates in a role pool for ranking-eligible routing;
+    * send exactly one unique candidate to force that role into non-ranking mode;
+    * explicit empty lists are rejected.
+    """
 
     available_models: list[str] | None = Field(default=None, min_length=1)
     available_planner_models: list[str] | None = Field(default=None, min_length=1)
@@ -52,10 +70,8 @@ class TechnicalTaskRoutingGroup(BaseModel):
     prioritize_speed: bool | None = None
 
 
-class TechnicalTaskContextGroup(BaseModel):
+class TechnicalTaskContextGroup(TechnicalTaskRouterBaseModel):
     """Optional task context that can improve routing quality."""
-
-    model_config = ConfigDict(extra="forbid")
 
     domain: str | None = None
     repo_size_bucket: str | None = None
@@ -66,10 +82,8 @@ class TechnicalTaskContextGroup(BaseModel):
     security_sensitive: bool | None = None
 
 
-class TechnicalTaskWorkflowGroup(BaseModel):
+class TechnicalTaskWorkflowGroup(TechnicalTaskRouterBaseModel):
     """Optional workflow and execution-surface metadata."""
-
-    model_config = ConfigDict(extra="forbid")
 
     surface: str | None = None
     stages: list[TechnicalTaskWorkflowStage] | None = Field(default=None, min_length=1)
@@ -86,10 +100,8 @@ class TechnicalTaskWorkflowGroup(BaseModel):
         return stages
 
 
-class TechnicalTaskMetadataGroup(BaseModel):
+class TechnicalTaskMetadataGroup(TechnicalTaskRouterBaseModel):
     """Optional integration metadata."""
-
-    model_config = ConfigDict(extra="forbid")
 
     external_task_id: str | None = None
     run_id: str | None = None
@@ -97,10 +109,8 @@ class TechnicalTaskMetadataGroup(BaseModel):
     idempotency_key: str | None = None
 
 
-class TechnicalTaskRouterInputs(BaseModel):
+class TechnicalTaskRouterInputs(TechnicalTaskRouterBaseModel):
     """Validated model-30 payload matching technical_task_router_inputs/v2."""
-
-    model_config = ConfigDict(extra="forbid")
 
     task: TechnicalTaskGroup
     routing: TechnicalTaskRoutingGroup | None = None
@@ -109,10 +119,8 @@ class TechnicalTaskRouterInputs(BaseModel):
     metadata: TechnicalTaskMetadataGroup | None = None
 
 
-class TechnicalTaskStrategyRecommendation(BaseModel):
+class TechnicalTaskStrategyRecommendation(TechnicalTaskRouterBaseModel):
     """One model-30 workflow strategy recommendation."""
-
-    model_config = ConfigDict(extra="forbid")
 
     objective: TechnicalTaskRoutingObjective
     planner_model: str | None = None
@@ -126,20 +134,16 @@ class TechnicalTaskStrategyRecommendation(BaseModel):
     rationale: str | None = None
 
 
-class TechnicalTaskTradeoffSummary(BaseModel):
+class TechnicalTaskTradeoffSummary(TechnicalTaskRouterBaseModel):
     """Comparable strategy summaries for the three primary user objectives."""
-
-    model_config = ConfigDict(extra="forbid")
 
     lowest_cost: TechnicalTaskStrategyRecommendation | None = None
     fastest_completion: TechnicalTaskStrategyRecommendation | None = None
     highest_reliability: TechnicalTaskStrategyRecommendation | None = None
 
 
-class TechnicalTaskNearestNeighborsSummary(BaseModel):
+class TechnicalTaskNearestNeighborsSummary(TechnicalTaskRouterBaseModel):
     """Nearest-neighbor support metadata for model 30 estimates."""
-
-    model_config = ConfigDict(extra="forbid")
 
     count: int = Field(ge=0)
     success_under_budget_rate: float | None = Field(default=None, ge=0, le=1)
@@ -147,10 +151,8 @@ class TechnicalTaskNearestNeighborsSummary(BaseModel):
     mean_duration_seconds: float | None = Field(default=None, ge=0)
 
 
-class TechnicalTaskRouterPredictions(BaseModel):
+class TechnicalTaskRouterPredictions(TechnicalTaskRouterBaseModel):
     """Public model-30 v2 prediction response contract."""
-
-    model_config = ConfigDict(extra="forbid")
 
     recommended_strategy: TechnicalTaskStrategyRecommendation
     alternatives: list[TechnicalTaskStrategyRecommendation] = Field(default_factory=list)
