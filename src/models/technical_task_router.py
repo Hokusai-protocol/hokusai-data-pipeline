@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import product
 from typing import Any
 
@@ -76,6 +76,37 @@ FEATURE_DEFAULTS = {
     "description_length_bucket": "medium",
     "risk_level": "low",
 }
+
+
+@dataclass(frozen=True)
+class NormalizedServingFeatures:
+    """Serving features plus counts of defaults applied while producing them."""
+
+    features: dict[str, Any]
+    default_counts: dict[str, dict[str, int]]
+
+
+@dataclass
+class _FeatureDefaultTracker:
+    counts: dict[str, dict[str, int]] = field(default_factory=dict)
+    emit_metrics: bool = True
+
+    def record(self: _FeatureDefaultTracker, feature: str, reason: str) -> None:
+        feature_counts = self.counts.setdefault(feature, {})
+        feature_counts[reason] = feature_counts.get(reason, 0) + 1
+        if self.emit_metrics:
+            _record_feature_default_metric(feature, reason)
+
+    def merge(self: _FeatureDefaultTracker, other: _FeatureDefaultTracker) -> None:
+        for feature, reason_counts in other.counts.items():
+            feature_counts = self.counts.setdefault(feature, {})
+            for reason, count in reason_counts.items():
+                feature_counts[reason] = feature_counts.get(reason, 0) + count
+
+    def as_dict(self: _FeatureDefaultTracker) -> dict[str, dict[str, int]]:
+        return {
+            feature: dict(reason_counts) for feature, reason_counts in sorted(self.counts.items())
+        }
 
 
 @dataclass(frozen=True)
@@ -226,14 +257,27 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             raise RuntimeError("TechnicalTaskRouterModel.load_context() has not been called")
 
         frame = _coerce_input_frame(model_input)
-        predictions = [self._predict_row(row.to_dict()) for _, row in frame.iterrows()]
-        return pd.DataFrame(predictions)
+        batch_defaults = _FeatureDefaultTracker(emit_metrics=False)
+        predictions = [
+            self._predict_row(row.to_dict(), default_tracker=batch_defaults)
+            for _, row in frame.iterrows()
+        ]
+        result = pd.DataFrame(predictions)
+        result.attrs["feature_default_counts"] = batch_defaults.as_dict()
+        return result
 
     def _predict_row(
         self: TechnicalTaskRouterModel,
         raw_row: dict[str, Any],
+        *,
+        default_tracker: _FeatureDefaultTracker | None = None,
     ) -> dict[str, Any]:
-        features = _normalize_serving_features(raw_row)
+        normalized = _normalize_serving_features_with_counts(raw_row)
+        features = normalized.features
+        if default_tracker is not None:
+            default_tracker.merge(
+                _FeatureDefaultTracker(counts=normalized.default_counts, emit_metrics=False)
+            )
         neighbors = self._nearest_neighbors(features)
         strategies = self._rank_strategies(neighbors, features)
         recommended_strategy = _recommended_strategy(strategies, features["routing_objective"])
@@ -536,49 +580,93 @@ def _coerce_input_frame(model_input: Any) -> pd.DataFrame:
 
 
 def _normalize_serving_features(row: dict[str, Any]) -> dict[str, Any]:
+    return _normalize_serving_features_with_counts(row).features
+
+
+def _normalize_serving_features_with_counts(row: dict[str, Any]) -> NormalizedServingFeatures:
+    tracker = _FeatureDefaultTracker()
     descriptor = _parse_json_object(row.get("task_descriptor"))
     context = _parse_json_object(descriptor.get("context"))
     workflow = _parse_json_object(descriptor.get("workflow"))
 
     task_description = str(row.get("task_description") or descriptor.get("description") or "")
+    has_task_description = (
+        _first_present([row.get("task_description"), descriptor.get("description")]) is not None
+    )
+    task_type = _feature_value_or_default(
+        "task_type",
+        [row.get("task_type"), descriptor.get("task_type")],
+        FEATURE_DEFAULTS["task_type"],
+        tracker,
+    )
+    language_source = _feature_value_or_default(
+        "language",
+        [row.get("language"), descriptor.get("language")],
+        FEATURE_DEFAULTS["language"],
+        tracker,
+    )
+    language = _normalize_language(language_source)
+    if language_source != FEATURE_DEFAULTS["language"] and _language_unmapped(language_source):
+        tracker.record("language", "unmapped")
+    files_touched_bucket = _first_nonempty([row.get("files_touched_bucket")])
+    if not files_touched_bucket:
+        files_touched_bucket, reason = _files_bucket_with_reason(row.get("file_count"))
+        if reason is not None:
+            tracker.record("files_touched_bucket", reason)
+    description_length_bucket = _first_nonempty([row.get("description_length_bucket")])
+    if not description_length_bucket:
+        description_length_bucket, reason = _description_bucket_with_reason(
+            task_description,
+            has_task_description,
+        )
+        if reason is not None:
+            tracker.record("description_length_bucket", reason)
+    requires_tests, reason = _coerce_bool_with_reason(row.get("requires_tests"))
+    if reason is not None:
+        tracker.record("requires_tests", reason)
+
     normalized = {
-        "task_type": _first_nonempty(
-            [row.get("task_type"), descriptor.get("task_type"), FEATURE_DEFAULTS["task_type"]]
+        "task_type": task_type,
+        "language": language,
+        "domain": _feature_value_or_default(
+            "domain",
+            [row.get("domain"), context.get("domain")],
+            FEATURE_DEFAULTS["domain"],
+            tracker,
         ),
-        "language": _normalize_language(
-            _first_nonempty(
-                [row.get("language"), descriptor.get("language"), FEATURE_DEFAULTS["language"]]
-            )
+        "repo_size_bucket": _feature_value_or_default(
+            "repo_size_bucket",
+            [row.get("repo_size_bucket"), context.get("repo_size_bucket")],
+            FEATURE_DEFAULTS["repo_size_bucket"],
+            tracker,
         ),
-        "domain": _first_nonempty(
-            [row.get("domain"), context.get("domain"), FEATURE_DEFAULTS["domain"]]
+        "files_touched_bucket": files_touched_bucket,
+        "description_length_bucket": description_length_bucket,
+        "risk_level": _feature_value_or_default(
+            "risk_level",
+            [row.get("risk_level"), context.get("risk_level")],
+            FEATURE_DEFAULTS["risk_level"],
+            tracker,
         ),
-        "repo_size_bucket": _first_nonempty(
-            [
-                row.get("repo_size_bucket"),
-                context.get("repo_size_bucket"),
-                FEATURE_DEFAULTS["repo_size_bucket"],
-            ]
+        "requires_tests": requires_tests,
+        "is_migration": _serving_bool_feature(
+            "is_migration",
+            row,
+            tracker,
+            fallback=_contains_any(task_description, ["migration", "schema", "alembic"]),
         ),
-        "files_touched_bucket": _first_nonempty(
-            [row.get("files_touched_bucket"), _files_bucket(row.get("file_count"))]
+        "ui_heavy": _serving_bool_feature(
+            "ui_heavy",
+            row,
+            tracker,
+            fallback=_contains_any(task_description, ["ui", "frontend", "component"]),
         ),
-        "description_length_bucket": _first_nonempty(
-            [row.get("description_length_bucket"), _description_bucket(task_description)]
+        "cross_service": _serving_bool_feature(
+            "cross_service",
+            row,
+            tracker,
+            fallback=_contains_any(task_description, ["service", "integration", "api"]),
         ),
-        "risk_level": _first_nonempty(
-            [row.get("risk_level"), context.get("risk_level"), FEATURE_DEFAULTS["risk_level"]]
-        ),
-        "requires_tests": _coerce_bool(row.get("requires_tests")),
-        "is_migration": _coerce_bool(row["is_migration"])
-        if "is_migration" in row
-        else _contains_any(task_description, ["migration", "schema", "alembic"]),
-        "ui_heavy": _coerce_bool(row["ui_heavy"])
-        if "ui_heavy" in row
-        else _contains_any(task_description, ["ui", "frontend", "component"]),
-        "cross_service": _coerce_bool(row["cross_service"])
-        if "cross_service" in row
-        else _contains_any(task_description, ["service", "integration", "api"]),
         "allowed_models": row.get("allowed_models"),
         "preferred_models": row.get("preferred_models"),
         "available_planner_models": row.get("available_planner_models"),
@@ -593,14 +681,25 @@ def _normalize_serving_features(row: dict[str, Any]) -> dict[str, Any]:
         "expected_cost_usd": row.get("expected_cost_usd"),
     }
 
-    normalized["complexity"] = _complexity_number(
+    complexity_value = (
         row.get("complexity")
         or row.get("estimated_complexity")
         or context.get("estimated_complexity")
     )
-    normalized["workflow_stages"] = _normalize_workflow_stages(normalized["workflow_stages"])
-    normalized["routing_objective"] = _normalize_objective(normalized["routing_objective"])
-    return normalized
+    normalized["complexity"], reason = _complexity_number_with_reason(complexity_value)
+    if reason is not None:
+        tracker.record("complexity", reason)
+    normalized["workflow_stages"], reason = _normalize_workflow_stages_with_reason(
+        normalized["workflow_stages"]
+    )
+    if reason is not None:
+        tracker.record("workflow_stages", reason)
+    normalized["routing_objective"], reason = _normalize_objective_with_reason(
+        normalized["routing_objective"]
+    )
+    if reason is not None:
+        tracker.record("routing_objective", reason)
+    return NormalizedServingFeatures(features=normalized, default_counts=tracker.as_dict())
 
 
 def _similarity(features: dict[str, Any], row: dict[str, Any]) -> float:
@@ -1143,20 +1242,39 @@ def _is_finite_number(value: Any) -> bool:
 
 
 def _coerce_bool(value: Any) -> bool:
+    coerced, _ = _coerce_bool_with_reason(value)
+    return coerced
+
+
+def _coerce_bool_with_reason(value: Any) -> tuple[bool, str | None]:
+    if _is_absent_value(value):
+        return False, "absent"
     if isinstance(value, bool):
-        return value
+        return value, None
     if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "y"}
+        text = value.strip().lower()
+        if text in {"1", "true", "yes", "y"}:
+            return True, None
+        if text in {"0", "false", "no", "n"}:
+            return False, None
+        return False, "unrecognized"
     if _is_finite_number(value):
-        return bool(float(value))
-    return False
+        return bool(float(value)), None
+    return False, "unrecognized"
 
 
 def _complexity_number(value: Any) -> float:
+    number, _ = _complexity_number_with_reason(value)
+    return number
+
+
+def _complexity_number_with_reason(value: Any) -> tuple[float, str | None]:
     if _is_finite_number(value):
-        return float(value)
+        return float(value), None
+    if _is_absent_value(value):
+        return 5.0, "absent"
     text = str(value or "").strip().lower()
-    return {
+    words = {
         "low": 3.0,
         "small": 3.0,
         "medium": 5.0,
@@ -1172,29 +1290,48 @@ def _complexity_number(value: Any) -> float:
         "shallow": 3.0,
         "standard": 5.0,
         "deep": 8.0,
-    }.get(text, 5.0)
+    }
+    if text in words:
+        return words[text], None
+    return 5.0, "unrecognized_word"
 
 
 def _files_bucket(value: Any) -> str:
+    bucket, _ = _files_bucket_with_reason(value)
+    return bucket
+
+
+def _files_bucket_with_reason(value: Any) -> tuple[str, str | None]:
+    if _is_absent_value(value):
+        return FEATURE_DEFAULTS["files_touched_bucket"], "absent"
     if not _is_finite_number(value):
-        return FEATURE_DEFAULTS["files_touched_bucket"]
+        return FEATURE_DEFAULTS["files_touched_bucket"], "unrecognized"
     count = int(float(value))
     if count <= 1:
-        return "1"
+        return "1", None
     if count <= 5:
-        return "2_5"
+        return "2_5", None
     if count <= 15:
-        return "6_15"
-    return "16_plus"
+        return "6_15", None
+    return "16_plus", None
 
 
 def _description_bucket(description: str) -> str:
+    bucket, _ = _description_bucket_with_reason(description, True)
+    return bucket
+
+
+def _description_bucket_with_reason(
+    description: str,
+    has_description: bool,
+) -> tuple[str, str | None]:
     words = len(description.split())
+    reason = None if has_description else "absent"
     if words < 25:
-        return "short"
+        return "short", reason
     if words < 120:
-        return "medium"
-    return "long"
+        return "medium", reason
+    return "long", reason
 
 
 def _normalize_language(value: Any) -> str:
@@ -1202,6 +1339,89 @@ def _normalize_language(value: Any) -> str:
     if language in {"typescript", "javascript", "python"}:
         return {"typescript": "ts", "javascript": "js", "python": "py"}[language]
     return language or "unknown"
+
+
+def _language_unmapped(value: Any) -> bool:
+    language = str(value or "").strip().lower()
+    return bool(language) and language not in {
+        "typescript",
+        "javascript",
+        "python",
+        "ts",
+        "js",
+        "py",
+        "unknown",
+    }
+
+
+def _serving_bool_feature(
+    feature: str,
+    row: dict[str, Any],
+    tracker: _FeatureDefaultTracker,
+    *,
+    fallback: bool,
+) -> bool:
+    if feature not in row:
+        return fallback
+    value, reason = _coerce_bool_with_reason(row[feature])
+    if reason is not None:
+        tracker.record(feature, reason)
+    return value
+
+
+def _feature_value_or_default(
+    feature: str,
+    values: Iterable[Any],
+    default: str,
+    tracker: _FeatureDefaultTracker,
+) -> str:
+    value = _first_present(values)
+    if value is None:
+        tracker.record(feature, "absent")
+        return default
+    return str(value).strip()
+
+
+def _first_present(values: Iterable[Any]) -> Any | None:
+    for value in values:
+        if _is_absent_value(value):
+            continue
+        return value
+    return None
+
+
+def _is_absent_value(value: Any) -> bool:
+    if value is None:
+        return True
+    return isinstance(value, str) and not value.strip()
+
+
+def _normalize_workflow_stages_with_reason(raw_value: Any) -> tuple[list[str], str | None]:
+    values = _parse_json_list(raw_value)
+    stages = [stage for stage in values if stage in set(ROLE_STAGES.values())]
+    if stages:
+        return stages, None
+    if _is_absent_value(raw_value):
+        return list(ROLE_STAGES.values()), "absent"
+    return list(ROLE_STAGES.values()), "unrecognized"
+
+
+def _normalize_objective_with_reason(raw_value: Any) -> tuple[str, str | None]:
+    value = str(raw_value or "").strip()
+    if value in STRATEGY_OBJECTIVES:
+        return value, None
+    if _is_absent_value(raw_value):
+        return "highest_reliability", "absent"
+    return "highest_reliability", "unrecognized"
+
+
+def _record_feature_default_metric(feature: str, reason: str) -> None:
+    try:
+        from src.utils.prometheus_metrics import record_feature_default_applied
+    except ImportError:
+        return
+
+    record_feature_default_applied(feature, reason)
 
 
 def _contains_any(value: str, needles: Iterable[str]) -> bool:
