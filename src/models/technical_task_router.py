@@ -583,8 +583,12 @@ def _normalize_serving_features(row: dict[str, Any]) -> dict[str, Any]:
     return _normalize_serving_features_with_counts(row).features
 
 
-def _normalize_serving_features_with_counts(row: dict[str, Any]) -> NormalizedServingFeatures:
-    tracker = _FeatureDefaultTracker()
+def _normalize_serving_features_with_counts(
+    row: dict[str, Any],
+    *,
+    emit_metrics: bool = True,
+) -> NormalizedServingFeatures:
+    tracker = _FeatureDefaultTracker(emit_metrics=emit_metrics)
     descriptor = _parse_json_object(row.get("task_descriptor"))
     context = _parse_json_object(descriptor.get("context"))
     workflow = _parse_json_object(descriptor.get("workflow"))

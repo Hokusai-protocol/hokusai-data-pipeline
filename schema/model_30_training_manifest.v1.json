@@ -114,6 +114,47 @@
         "exclude",
         "hold"
       ]
+    },
+    "feature_health": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "row_count",
+        "thresholds",
+        "features",
+        "warnings",
+        "failures"
+      ],
+      "properties": {
+        "row_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "thresholds": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "number",
+              "integer"
+            ]
+          }
+        },
+        "features": {
+          "type": "object"
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "failures": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
     }
   }
 }

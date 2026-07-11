@@ -40,9 +40,20 @@ from src.api.services.contribution_service import (  # noqa: E402
     S3ContributionStore,
     StoredContributionRecord,
 )
+from src.models.technical_task_router import (  # noqa: E402
+    FEATURE_DEFAULTS,
+    _normalize_serving_features_with_counts,
+)
 
 LOGGER = logging.getLogger(__name__)
 WALLET_POLICIES = ("quarantine", "exclude", "hold")
+FEATURE_HEALTH_FEATURES = ("complexity", *FEATURE_DEFAULTS.keys())
+DEFAULT_FEATURE_HEALTH_MAX_DEFAULT_PERCENT = 90.0
+DEFAULT_FEATURE_HEALTH_MIN_FAILURE_ROWS = 10
+
+
+class FeatureHealthError(RuntimeError):
+    """Raised when the assembled corpus fails feature-health gates."""
 
 
 @dataclass(frozen=True)
@@ -276,6 +287,135 @@ def account_id_for_record(record: StoredContributionRecord) -> str | None:
     return str(user_id) if user_id is not None else None
 
 
+def build_feature_health(
+    rows: Iterable[dict[str, Any]],
+    *,
+    max_default_percent: float,
+    min_failure_rows: int,
+) -> dict[str, Any]:
+    """Return per-feature quality statistics for rows that will train Model 30."""
+    row_count = 0
+    values: dict[str, dict[str, Any]] = {feature: {} for feature in FEATURE_HEALTH_FEATURES}
+    coercion_counts: dict[str, dict[str, int]] = {
+        feature: {} for feature in FEATURE_HEALTH_FEATURES
+    }
+
+    for row in rows:
+        row_count += 1
+        normalized = _normalize_serving_features_with_counts(row, emit_metrics=False)
+        for feature in FEATURE_HEALTH_FEATURES:
+            value = normalized.features.get(feature)
+            values[feature][_feature_value_key(value)] = value
+            for reason, count in normalized.default_counts.get(feature, {}).items():
+                feature_counts = coercion_counts[feature]
+                feature_counts[reason] = feature_counts.get(reason, 0) + count
+
+    features: dict[str, dict[str, Any]] = {}
+    failures: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    can_fail = row_count >= min_failure_rows
+
+    for feature in FEATURE_HEALTH_FEATURES:
+        feature_values = values[feature]
+        counts = coercion_counts[feature]
+        absent_count = counts.get("absent", 0)
+        default_count = sum(count for reason, count in counts.items() if reason != "absent")
+        percent_absent = _percent(absent_count, row_count)
+        percent_defaulted = _percent(default_count, row_count)
+        cardinality = len(feature_values)
+        constant_value = next(iter(feature_values.values())) if cardinality == 1 else None
+        entry = {
+            "cardinality": cardinality,
+            "constant_value": constant_value,
+            "default_count": default_count,
+            "percent_defaulted": percent_defaulted,
+            "absent_count": absent_count,
+            "percent_absent": percent_absent,
+            "coercion_counts": {reason: counts[reason] for reason in sorted(counts)},
+        }
+        features[feature] = entry
+
+        if row_count == 0:
+            continue
+        if percent_defaulted > max_default_percent:
+            finding = {
+                "feature": feature,
+                "statistic": "percent_defaulted",
+                "value": percent_defaulted,
+                "threshold": max_default_percent,
+                "message": (
+                    f"Feature `{feature}` defaulted on {percent_defaulted:.1f}% "
+                    f"of {row_count} rows"
+                ),
+            }
+            (failures if can_fail else warnings).append(finding)
+            continue
+        if default_count > 0:
+            warnings.append(
+                {
+                    "feature": feature,
+                    "statistic": "percent_defaulted",
+                    "value": percent_defaulted,
+                    "threshold": max_default_percent,
+                    "message": (
+                        f"Feature `{feature}` defaulted on {percent_defaulted:.1f}% "
+                        f"of {row_count} rows"
+                    ),
+                }
+            )
+        if cardinality == 1:
+            finding = {
+                "feature": feature,
+                "statistic": "cardinality",
+                "value": cardinality,
+                "constant_value": constant_value,
+                "message": (
+                    f"Feature `{feature}` is constant (value "
+                    f"{_format_feature_value(constant_value)}) across {row_count} rows"
+                ),
+            }
+            (failures if can_fail else warnings).append(finding)
+        if absent_count > 0:
+            warnings.append(
+                {
+                    "feature": feature,
+                    "statistic": "percent_absent",
+                    "value": percent_absent,
+                    "message": (
+                        f"Feature `{feature}` was absent on {percent_absent:.1f}% "
+                        f"of {row_count} rows"
+                    ),
+                }
+            )
+
+    return {
+        "row_count": row_count,
+        "thresholds": {
+            "max_default_percent": max_default_percent,
+            "min_failure_rows": min_failure_rows,
+        },
+        "features": features,
+        "warnings": warnings,
+        "failures": failures,
+    }
+
+
+def _feature_value_key(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _format_feature_value(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _percent(count: int, total: int) -> float:
+    if total <= 0:
+        return 0.0
+    return round((count / total) * 100.0, 3)
+
+
 def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -308,6 +448,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
             "invalid_format": 0,
         },
         "dataset_hash": "",
+        "feature_health": {},
         "manifest_digest": "",
         "row_count": 0,
         "block_count": 0,
@@ -410,6 +551,24 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
 
     processed_submissions.sort(key=lambda item: item.submission_id)
     report["excluded_no_wallet"] = sorted(report["excluded_no_wallet"])
+    training_rows = [row for submission in processed_submissions for row in submission.rows]
+    feature_health = build_feature_health(
+        training_rows,
+        max_default_percent=float(
+            getattr(
+                args,
+                "feature_health_max_default_percent",
+                DEFAULT_FEATURE_HEALTH_MAX_DEFAULT_PERCENT,
+            )
+        ),
+        min_failure_rows=int(
+            getattr(
+                args,
+                "feature_health_min_failure_rows",
+                DEFAULT_FEATURE_HEALTH_MIN_FAILURE_ROWS,
+            )
+        ),
+    )
 
     dataset_path = output_dir / "dataset.jsonl"
     manifest_path = output_dir / "manifest.json"
@@ -459,6 +618,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
         "quarantine_count": len(quarantines),
         "duplicates_dropped": duplicates,
         "wallet_policy": args.on_missing_wallet,
+        "feature_health": feature_health,
     }
     manifest_digest = f"sha256:{hashlib.sha256(canonical_manifest_bytes(manifest)).hexdigest()}"
     manifest["manifest_digest"] = manifest_digest
@@ -468,6 +628,7 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
     )
 
     report["dataset_hash"] = dataset_hash
+    report["feature_health"] = feature_health
     report["manifest_digest"] = manifest_digest
     report["row_count"] = row_count
     report["block_count"] = len(blocks)
@@ -476,6 +637,9 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
         [entry for entry in quarantines if entry["reason"] == "invalid_row"]
     )
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    if feature_health["failures"]:
+        raise FeatureHealthError(feature_health["failures"][0]["message"])
 
     if args.mlflow_run_id:
         if args.mlflow_tracking_uri:
@@ -519,6 +683,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "compact Wavemill rows, normalizing compact rows to router-training shape."
         ),
     )
+    parser.add_argument(
+        "--feature-health-max-default-percent",
+        type=float,
+        default=DEFAULT_FEATURE_HEALTH_MAX_DEFAULT_PERCENT,
+        help="Fail non-trivial corpora when a feature defaults above this percent.",
+    )
+    parser.add_argument(
+        "--feature-health-min-failure-rows",
+        type=int,
+        default=DEFAULT_FEATURE_HEALTH_MIN_FAILURE_ROWS,
+        help="Warn instead of failing feature-health gates below this row count.",
+    )
     return parser.parse_args(argv)
 
 
@@ -528,6 +704,9 @@ def main(argv: list[str] | None = None) -> int:
         assemble(parse_args(argv))
     except SystemExit as exc:
         return int(exc.code) if isinstance(exc.code, int) else 2
+    except FeatureHealthError:
+        LOGGER.exception("assembler_feature_health_failure")
+        return 5
     except RuntimeError:
         LOGGER.exception("assembler_s3_failure")
         return 3
