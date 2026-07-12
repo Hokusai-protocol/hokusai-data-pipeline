@@ -634,13 +634,17 @@ def _normalize_serving_features_with_counts(
         "language": language,
         "domain": _feature_value_or_default(
             "domain",
-            [row.get("domain"), context.get("domain")],
+            [row.get("domain"), descriptor.get("domain"), context.get("domain")],
             FEATURE_DEFAULTS["domain"],
             tracker,
         ),
         "repo_size_bucket": _feature_value_or_default(
             "repo_size_bucket",
-            [row.get("repo_size_bucket"), context.get("repo_size_bucket")],
+            [
+                row.get("repo_size_bucket"),
+                descriptor.get("repo_size_bucket"),
+                context.get("repo_size_bucket"),
+            ],
             FEATURE_DEFAULTS["repo_size_bucket"],
             tracker,
         ),
@@ -648,7 +652,7 @@ def _normalize_serving_features_with_counts(
         "description_length_bucket": description_length_bucket,
         "risk_level": _feature_value_or_default(
             "risk_level",
-            [row.get("risk_level"), context.get("risk_level")],
+            [row.get("risk_level"), descriptor.get("risk_level"), context.get("risk_level")],
             FEATURE_DEFAULTS["risk_level"],
             tracker,
         ),
@@ -688,6 +692,7 @@ def _normalize_serving_features_with_counts(
     complexity_value = (
         row.get("complexity")
         or row.get("estimated_complexity")
+        or descriptor.get("complexity")
         or context.get("estimated_complexity")
     )
     normalized["complexity"], reason = _complexity_number_with_reason(complexity_value)
