@@ -62,6 +62,16 @@ class RejectedRow(BaseModel):
     reason: str
 
 
+class DescriptorWarning(BaseModel):
+    """A non-fatal harness task-descriptor contract violation."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    index: int
+    path: str
+    message: str
+
+
 class ContributionAcceptedResponse(BaseModel):
     """Response returned to contribution clients after acceptance or replay."""
 
@@ -82,6 +92,10 @@ class ContributionAcceptedResponse(BaseModel):
     row_fidelity_tiers: list[str] | None = Field(default=None, alias="rowFidelityTiers")
     fidelity_summary: FidelitySummary | None = Field(default=None, alias="fidelitySummary")
     rejected_rows: list[RejectedRow] = Field(default_factory=list, alias="rejectedRows")
+    descriptor_warnings: list[DescriptorWarning] = Field(
+        default_factory=list,
+        alias="descriptorWarnings",
+    )
 
 
 class ContributionLifecycleResponse(BaseModel):

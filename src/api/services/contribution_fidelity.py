@@ -40,7 +40,11 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
+
+import jsonschema
 
 # Canonical rich benchmark row schema versions. These are already validated by
 # the assembler against the JSON schema and must not be weakened here.
@@ -49,6 +53,8 @@ TECHNICAL_TASK_ROUTER_ROW_V2 = "technical_task_router_row/v2"
 
 # Lighter harness outcome row emitted by SDK plugin integrations.
 HARNESS_OUTCOME_ROW_V1 = "harness_outcome_row/v1"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_TASK_DESCRIPTOR_SCHEMA = _REPO_ROOT / "schema" / "hokusai_task_descriptor.v1.json"
 
 # Scorer ref and schema version the normalized canonical row must carry so the
 # assembler's ``technical_task_router_row.v1.json`` validation accepts it.
@@ -92,6 +98,7 @@ class RowClassification:
     # submitted. ``None`` for ``invalid`` rows (which are not persisted).
     row: dict[str, Any] | None
     reason: str | None = None
+    descriptor_warnings: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -103,6 +110,7 @@ class BatchClassification:
     accepted_tiers: list[str] = field(default_factory=list)
     # Rejected (invalid) rows: original submission index + human-readable reason.
     rejected: list[dict[str, Any]] = field(default_factory=list)
+    descriptor_warnings: list[dict[str, Any]] = field(default_factory=list)
     training_eligible_count: int = 0
     partial_count: int = 0
     non_ranking_count: int = 0
@@ -138,6 +146,43 @@ def _coerce_number(value: Any) -> float | None:
             return None
         return number
     return None
+
+
+@lru_cache(maxsize=1)
+def _task_descriptor_validator() -> jsonschema.protocols.Validator:
+    schema = json.loads(_TASK_DESCRIPTOR_SCHEMA.read_text(encoding="utf-8"))
+    validator_cls = jsonschema.validators.validator_for(schema)
+    validator_cls.check_schema(schema)
+    return validator_cls(schema)
+
+
+def _descriptor_path(error: jsonschema.ValidationError) -> str:
+    parts = ["task_descriptor", *(str(part) for part in error.absolute_path)]
+    return ".".join(parts)
+
+
+def _validate_harness_task_descriptor(row: dict[str, Any]) -> list[dict[str, str]]:
+    if row.get("schema_version") != HARNESS_OUTCOME_ROW_V1:
+        return []
+    descriptor = row.get("task_descriptor")
+    if not isinstance(descriptor, dict):
+        return [
+            {
+                "path": "task_descriptor",
+                "message": "task_descriptor must be an object",
+            }
+        ]
+    errors = sorted(
+        _task_descriptor_validator().iter_errors(descriptor),
+        key=lambda error: list(error.absolute_path),
+    )
+    return [
+        {
+            "path": _descriptor_path(error),
+            "message": error.message,
+        }
+        for error in errors
+    ]
 
 
 def _extract_allowed_models(row: dict[str, Any]) -> list[str]:
@@ -293,6 +338,7 @@ def _classify_router_outcome_row(
     benchmark_spec_id: str | None,
     model_id: str,
 ) -> RowClassification:
+    descriptor_warnings = _validate_harness_task_descriptor(row)
     # Canonical rich rows keep their existing, stricter contract untouched.
     if row.get("schema_version") in (
         TECHNICAL_TASK_ROUTER_ROW_V1,
@@ -309,20 +355,31 @@ def _classify_router_outcome_row(
             tier=FidelityTier.INVALID,
             row=None,
             reason=f"forbidden_field:{forbidden_path}",
+            descriptor_warnings=descriptor_warnings,
         )
 
     allowed_models = _extract_allowed_models(row)
     selected_models, has_roles = _extract_selected_models(row)
     if not selected_models:
         return RowClassification(
-            tier=FidelityTier.INVALID, row=None, reason="missing_selected_models"
+            tier=FidelityTier.INVALID,
+            row=None,
+            reason="missing_selected_models",
+            descriptor_warnings=descriptor_warnings,
         )
     if not allowed_models:
         return RowClassification(
-            tier=FidelityTier.INVALID, row=None, reason="missing_allowed_models"
+            tier=FidelityTier.INVALID,
+            row=None,
+            reason="missing_allowed_models",
+            descriptor_warnings=descriptor_warnings,
         )
     if not _has_ranking_candidate_pool(allowed_models):
-        return RowClassification(tier=FidelityTier.NON_RANKING, row=row)
+        return RowClassification(
+            tier=FidelityTier.NON_RANKING,
+            row=row,
+            descriptor_warnings=descriptor_warnings,
+        )
 
     budget = _coerce_number(row.get("budget_usd"))
     if budget is None:
@@ -343,10 +400,18 @@ def _classify_router_outcome_row(
         normalized = normalize_harness_row_to_canonical(
             row, benchmark_spec_id=benchmark_spec_id, model_id=model_id
         )
-        return RowClassification(tier=FidelityTier.TRAINING_ELIGIBLE, row=normalized)
+        return RowClassification(
+            tier=FidelityTier.TRAINING_ELIGIBLE,
+            row=normalized,
+            descriptor_warnings=descriptor_warnings,
+        )
 
     # Has route/model identity but cannot support success-under-budget training.
-    return RowClassification(tier=FidelityTier.PARTIAL, row=row)
+    return RowClassification(
+        tier=FidelityTier.PARTIAL,
+        row=row,
+        descriptor_warnings=descriptor_warnings,
+    )
 
 
 def classify_row(
@@ -375,6 +440,8 @@ def classify_batch(
     for index, row in enumerate(rows):
         classification = classify_row(row, benchmark_spec_id=benchmark_spec_id, model_id=model_id)
         tier = classification.tier
+        for warning in classification.descriptor_warnings:
+            result.descriptor_warnings.append({"index": index, **warning})
         if tier is FidelityTier.INVALID:
             result.rejected.append(
                 {"index": index, "reason": classification.reason or "invalid_row"}

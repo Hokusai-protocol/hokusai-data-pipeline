@@ -26,6 +26,7 @@ from src.api.models.contribution_lifecycle import (
 from src.api.schemas.contribution import (
     ContributionAcceptedResponse,
     ContributionRequest,
+    DescriptorWarning,
     FidelitySummary,
     LifecycleReasonCode,
     LifecycleUpdatePayload,
@@ -356,6 +357,7 @@ class ContributionService:
                     ),
                     "submittedRows": len(request.rows),
                     "rejectedRows": classification.rejected,
+                    "descriptorWarnings": classification.descriptor_warnings,
                 }
             )
 
@@ -380,6 +382,14 @@ class ContributionService:
             rejectedRows=[
                 RejectedRow(index=entry["index"], reason=entry["reason"])
                 for entry in classification.rejected
+            ],
+            descriptorWarnings=[
+                DescriptorWarning(
+                    index=entry["index"],
+                    path=entry["path"],
+                    message=entry["message"],
+                )
+                for entry in classification.descriptor_warnings
             ],
         )
         metadata = {

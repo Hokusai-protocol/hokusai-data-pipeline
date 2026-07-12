@@ -52,7 +52,7 @@ class InMemoryContributionStore:
 def _harness_row(**overrides: Any) -> dict[str, Any]:
     row: dict[str, Any] = {
         "schema_version": "harness_outcome_row/v1",
-        "task_descriptor": {"task_type": "bugfix", "language": "python"},
+        "task_descriptor": {"task_type": "bugfix", "language": "python", "complexity": 5},
         "allowed_models": ["gpt-5.4", "claude-sonnet-4-6"],
         "selected_models": {"coder": "gpt-5.4", "reviewer": "claude-sonnet-4-6"},
         "budget_usd": 2.0,
@@ -129,6 +129,20 @@ def test_training_eligible_harness_row_accepted_and_normalized() -> None:
     )
     jsonschema.validate(normalized, schema)
     assert _task_router_row_is_feasible(normalized) is True
+
+
+def test_hokusai_task_descriptor_schema_accepts_numeric_lowercase_contract() -> None:
+    schema = json.loads(Path("schema/hokusai_task_descriptor.v1.json").read_text())
+
+    jsonschema.validate(
+        {"task_type": "bugfix", "language": "typescript", "complexity": 5},
+        schema,
+    )
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(
+            {"task_type": "bugfix", "language": "TypeScript", "complexity": "standard"},
+            schema,
+        )
 
 
 def test_partial_harness_row_accepted_but_excluded_from_training() -> None:
@@ -267,6 +281,34 @@ def test_forbidden_field_in_harness_row_is_rejected() -> None:
         _accept(service, [row], "batch-forbidden")
 
     assert store.records == {}
+
+
+def test_pre_hok2495_descriptor_violations_warn_without_rejecting() -> None:
+    service, store = _service()
+    row = _harness_row(
+        task_descriptor={
+            "task_type": "bugfix",
+            "language": "TypeScript",
+            "complexity": "standard",
+        }
+    )
+
+    accepted = _accept(service, [row], "batch-descriptor-warning")
+
+    assert accepted.status_code == 201
+    assert accepted.response.rows_accepted == 1
+    assert accepted.response.row_fidelity_tiers == ["training_eligible"]
+    warnings = accepted.response.descriptor_warnings
+    assert [(warning.index, warning.path) for warning in warnings] == [
+        (0, "task_descriptor.complexity"),
+        (0, "task_descriptor.language"),
+    ]
+    assert any("not of type 'number'" in warning.message for warning in warnings)
+    assert any("not one of" in warning.message for warning in warnings)
+
+    record = store.records[("30", "batch-descriptor-warning")]
+    assert record.rows[0]["schema_version"] == "technical_task_router_row/v1"
+    assert record.response_payload["descriptorWarnings"]
 
 
 def test_classify_row_tiers_directly() -> None:
