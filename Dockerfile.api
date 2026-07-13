@@ -20,6 +20,7 @@ RUN python -m spacy download en_core_web_sm
 
 # Copy application code
 COPY src/ ./src/
+COPY schema/ ./schema/
 COPY tests/ ./tests/
 COPY data/test_fixtures/ ./data/test_fixtures/
 COPY scripts/model_30/seed_ci_mlflow_model.py /app/scripts/model_30/seed_ci_mlflow_model.py
