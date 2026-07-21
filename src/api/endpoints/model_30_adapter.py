@@ -16,6 +16,7 @@ import time
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from enum import Enum
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +36,10 @@ DEFAULT_MODEL_30_MLFLOW_URI = "models:/Technical Task Router@production"
 MODEL_30_VERSION = "production"
 MODEL_30_SCHEMA = "technical_task_router_inputs/v2"
 MODEL_30_CANDIDATE_POOL_CONTRACT = "model_30_candidate_pool/v1"
-MODEL_ID_PATTERN = re.compile(r"^(claude-|gpt-|deepseek-)")
+MODEL_30_SUPPORTED_MODELS_PATH = (
+    Path(__file__).resolve().parents[3] / "configs" / "model_30_launch_priority_models.v1.json"
+)
+logger = logging.getLogger(__name__)
 ROUTER_FEATURE_COLUMNS: tuple[str, ...] = (
     "task_type",
     "language",
@@ -314,11 +318,70 @@ def _sorted_unique(values: list[str] | None) -> list[str]:
     return sorted(set(values))
 
 
+@lru_cache(maxsize=1)
+def _model_30_catalog() -> dict[str, dict[str, Any]]:
+    """Return every accepted catalog identifier keyed by normalized spelling.
+
+    The launch-priority manifest is the single serving allowlist.  Its provider
+    IDs and aliases are both accepted at the boundary, while responses and
+    MLflow feature values use the first alias as the stable public ID.
+    """
+    payload = json.loads(MODEL_30_SUPPORTED_MODELS_PATH.read_text(encoding="utf-8"))
+    if payload.get("schema_version") != "model_30_launch_priority_models/v1":
+        raise ValueError("Model 30 supported-model catalog has an unsupported schema version")
+
+    catalog: dict[str, dict[str, Any]] = {}
+    for model in payload.get("models", []):
+        aliases = [str(alias).strip() for alias in model.get("aliases", []) if str(alias).strip()]
+        provider_id = str(model.get("model_id", "")).strip()
+        if not provider_id or not aliases:
+            continue
+        entry = {
+            "canonical_id": aliases[0],
+            "status": str(model.get("status", "")),
+            "roles": set(model.get("role_eligibility", [])),
+        }
+        for identifier in [provider_id, *aliases]:
+            key = identifier.casefold()
+            if key in catalog and catalog[key]["canonical_id"] != entry["canonical_id"]:
+                raise ValueError(f"Ambiguous Model 30 catalog alias: {identifier}")
+            catalog[key] = entry
+    return catalog
+
+
+def _resolve_supported_model_id(model_id: Any, *, role: str | None = None) -> str | None:
+    if not isinstance(model_id, str) or not model_id.strip():
+        return None
+    entry = _model_30_catalog().get(model_id.strip().casefold())
+    if entry is None or entry["status"] not in {"active", "watchlist"}:
+        return None
+    if role is not None and role not in entry["roles"]:
+        return None
+    return str(entry["canonical_id"])
+
+
+def _filter_supported_models(values: list[str] | None, *, role: str) -> list[str]:
+    accepted: list[str] = []
+    dropped: list[str] = []
+    for value in values or []:
+        canonical_id = _resolve_supported_model_id(value, role=role)
+        if canonical_id is None:
+            dropped.append(str(value))
+        else:
+            accepted.append(canonical_id)
+    if dropped:
+        logger.warning(
+            "model_30_candidate_pool_filtered",
+            extra={"role": role, "dropped_model_ids": sorted(set(dropped))},
+        )
+    return sorted(set(accepted))
+
+
 def _role_available_models(routing: Any, role: str) -> list[str]:
     if routing is None:
         return []
     role_values = getattr(routing, f"available_{role}_models")
-    return _sorted_unique(role_values or routing.available_models)
+    return _filter_supported_models(role_values or routing.available_models, role=role)
 
 
 def summarize_candidate_pool_fidelity(
@@ -646,9 +709,7 @@ def _normalize_v2_router_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
         or {"count": 0},
     }
     parsed = TechnicalTaskRouterPredictions.model_validate(payload)
-    result = parsed.model_dump(mode="json")
-    _validate_public_model_ids(result)
-    return result
+    return _canonicalize_response_model_ids(parsed.model_dump(mode="json"))
 
 
 def _public_strategy_payload(strategy: Any) -> Any:
@@ -812,18 +873,35 @@ def _coerce_string(value: Any, *, default: str) -> str:
     return str(value)
 
 
-def _validate_public_model_ids(payload: dict[str, Any]) -> None:
-    invalid: list[str] = []
+def _canonicalize_response_model_ids(payload: dict[str, Any]) -> dict[str, Any]:
+    """Canonicalize known outputs and remove unsupported model assignments.
+
+    An artifact can contain stale labels.  That is a data-quality signal, not an
+    availability failure: preserve its estimates and return the usable portions
+    of the strategy instead of converting the whole routing request to a 503.
+    """
+    dropped: list[str] = []
     for strategy in _iter_strategy_payloads(payload):
-        for key in ("planner_model", "coder_model", "reviewer_model"):
+        for key, role in (
+            ("planner_model", "planner"),
+            ("coder_model", "coder"),
+            ("reviewer_model", "reviewer"),
+        ):
             model_id = strategy.get(key)
-            if model_id and not MODEL_ID_PATTERN.match(str(model_id)):
-                invalid.append(str(model_id))
-    if invalid:
-        raise ValueError(
-            "MLflow output contained non-public or malformed model identifiers: "
-            f"{sorted(set(invalid))}"
+            if not model_id:
+                continue
+            canonical_id = _resolve_supported_model_id(model_id, role=role)
+            if canonical_id is None:
+                dropped.append(str(model_id))
+                strategy[key] = None
+            else:
+                strategy[key] = canonical_id
+    if dropped:
+        logger.warning(
+            "model_30_response_models_filtered",
+            extra={"dropped_model_ids": sorted(set(dropped))},
         )
+    return payload
 
 
 def _iter_strategy_payloads(payload: dict[str, Any]) -> list[dict[str, Any]]:

@@ -818,7 +818,7 @@ def test_normalize_output_rewrites_nonpositive_durations_to_null() -> None:
     assert normalized["nearest_neighbors"]["mean_duration_seconds"] is None
 
 
-def test_normalize_output_rejects_fake_model_ids() -> None:
+def test_normalize_output_filters_unknown_model_ids_without_failing_request() -> None:
     raw = {
         "recommended_strategy": {
             "objective": "highest_reliability",
@@ -836,12 +836,49 @@ def test_normalize_output_rejects_fake_model_ids() -> None:
         "nearest_neighbors": {"count": 40},
     }
 
-    with pytest.raises(model_30_adapter.Model30InferenceError, match="non-public") as excinfo:
-        model_30_adapter.normalize_model_30_output(
-            raw,
-            model_30_adapter.validate_nested_model_30_inputs(_full_inputs()),
-        )
-    assert isinstance(excinfo.value.original_exc, ValueError)
+    normalized = model_30_adapter.normalize_model_30_output(
+        raw,
+        model_30_adapter.validate_nested_model_30_inputs(_full_inputs()),
+    )
+
+    assert normalized["recommended_strategy"]["coder_model"] is None
+
+
+def test_candidate_pool_filters_unknown_ids_and_canonicalizes_provider_ids() -> None:
+    payload = _full_inputs()
+    payload["routing"]["available_models"] = ["z-ai/glm-5.2", "unknown/model", "gpt-5.4"]
+
+    features = model_30_adapter.model_30_inputs_to_features(
+        model_30_adapter.validate_nested_model_30_inputs(payload)
+    )
+
+    assert features.iloc[0]["available_coder_models"] == ["glm-5.2", "gpt-5.4"]
+
+
+def test_normalize_output_accepts_and_canonicalizes_glm_5_2() -> None:
+    raw = {
+        "recommended_strategy": {
+            "objective": "highest_reliability",
+            "coder_model": "z-ai/glm-5.2",
+            "stages": ["code"],
+            "estimated_success_under_budget": 0.82,
+            "estimated_cost_usd": 4.8,
+            "confidence": 0.71,
+        },
+        "tradeoffs": {
+            "lowest_cost": None,
+            "fastest_completion": None,
+            "highest_reliability": None,
+        },
+        "nearest_neighbors": {"count": 40},
+    }
+
+    normalized = model_30_adapter.normalize_model_30_output(
+        raw,
+        model_30_adapter.validate_nested_model_30_inputs(_full_inputs()),
+    )
+
+    assert normalized["recommended_strategy"]["coder_model"] == "glm-5.2"
 
 
 def test_normalize_output_rejects_empty_output() -> None:

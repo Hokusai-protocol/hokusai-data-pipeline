@@ -23,6 +23,7 @@ COPY src/ ./src/
 COPY schema/ ./schema/
 COPY tests/ ./tests/
 COPY data/test_fixtures/ ./data/test_fixtures/
+COPY configs/model_30_launch_priority_models.v1.json ./configs/model_30_launch_priority_models.v1.json
 COPY scripts/model_30/seed_ci_mlflow_model.py /app/scripts/model_30/seed_ci_mlflow_model.py
 
 # Alembic migration harness (run via scripts/run_migrations.sh as a one-shot
