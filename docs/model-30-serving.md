@@ -194,7 +194,7 @@ The current serving path validates the nested request, maps it into a one-row pa
 
 `estimated_duration_seconds` and `nearest_neighbors.mean_duration_seconds` are `null` when no positive duration evidence exists for a strategy. The `fastest_completion` tradeoff sorts null-duration strategies after positive-duration strategies; if all strategies lack duration evidence the tradeoff is still populated with an otherwise-best candidate and a null duration.
 
-The normalizer validates strategy outputs against the public response schema and rejects malformed model identifiers such as `deep-coder-v2`, `fast-coder-v1`, and `<synthetic>`. It keeps a compatibility shim for older smoke artifacts that emit only legacy selected-model fields, but the production Technical Task Router artifact is expected to emit the v2 strategy payload directly.
+The versioned `configs/model_30_launch_priority_models.v1.json` catalog is the serving allowlist. It maps provider IDs and aliases to a single public alias, including the Wavemill/OpenRouter model families. Unknown, disabled, or role-ineligible caller candidates are removed before inference; an artifact output with a stale identifier has only that assignment removed and is logged as `model_30_response_models_filtered`. Neither condition turns an otherwise valid routing response into a 503.
 
 For legacy smoke artifacts only, normalization accepts common aliases:
 
@@ -203,7 +203,7 @@ For legacy smoke artifacts only, normalization accepts common aliases:
 - `score`, `probability` -> confidence
 - `cost`, `estimated_cost` -> estimated cost
 
-There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures return `503` with a `Model 30 MLflow inference failed` prefix.
+Artifact load, predict, and structural normalization failures still return `503` with a `Model 30 MLflow inference failed` prefix. Candidate catalog filtering is not an inference failure.
 
 ## Usage Debit Rejection
 
