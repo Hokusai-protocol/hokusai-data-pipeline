@@ -179,6 +179,19 @@ The current serving path validates the nested request, maps it into a one-row pa
     "fastest_completion": null,
     "highest_reliability": null
   },
+  "diagnostics": {
+    "warnings": [],
+    "degenerate_objectives": [],
+    "candidate_spread": {
+      "min_cost": 1.2,
+      "max_cost": 9.4,
+      "min_success": 0.4,
+      "max_success": 0.82
+    },
+    "candidate_count": 8,
+    "feasible_candidate_count": 5,
+    "max_cost_usd": 10.0
+  },
   "nearest_neighbors": {
     "count": 40,
     "success_under_budget_rate": 0.78,
@@ -191,6 +204,18 @@ The current serving path validates the nested request, maps it into a one-row pa
 `estimated_duration_seconds` and `nearest_neighbors.mean_duration_seconds` are `null` when no positive duration evidence exists for a strategy. The `fastest_completion` tradeoff sorts null-duration strategies after positive-duration strategies; if all strategies lack duration evidence the tradeoff is still populated with an otherwise-best candidate and a null duration.
 
 The normalizer validates strategy outputs against the public response schema and rejects malformed model identifiers such as `deep-coder-v2`, `fast-coder-v1`, and `<synthetic>`. It keeps a compatibility shim for older smoke artifacts that emit only legacy selected-model fields, but the production Technical Task Router artifact is expected to emit the v2 strategy payload directly.
+
+When a candidate route has no exact historical match, its success and cost estimates are derived from the selected roles' evidence. The router does not substitute the undifferentiated neighbor aggregate for every unsupported route. Fallback duration remains `null` unless route-specific duration evidence exists.
+
+When `max_cost_usd` is present, Model 30 removes routes whose estimated cost is greater than the cap before ranking any objective. A route whose estimate equals the cap remains feasible. If no generated route is feasible, prediction fails explicitly instead of returning an over-budget recommendation.
+
+Objective ordering is deterministic:
+
+- `highest_reliability` sorts by estimated success descending, confidence descending, cost ascending, then canonical route identity.
+- `lowest_cost` sorts by cost ascending, estimated success descending, confidence descending, then canonical route identity.
+- `fastest_completion` sorts known durations before unknown durations, then duration and cost ascending, estimated success and confidence descending, and canonical route identity.
+
+The optional `diagnostics` object is emitted by corrected Model 30 artifacts. `candidate_spread` reports the minimum and maximum cost and success estimates across all generated routes, while the candidate counts show how many remain after budget filtering. `degenerate_objectives` lists objectives whose winners share the same canonical route. When all three objectives collapse, `warnings` contains `objective_routes_collapsed` and the API emits a structured `model_30_objective_routes_collapsed` warning. Older artifacts without `diagnostics` remain supported and their normalized responses omit the field.
 
 For legacy smoke artifacts only, normalization accepts common aliases:
 

@@ -125,6 +125,84 @@ def test_model_30_predict_emits_single_latency_trace_record(caplog) -> None:
     assert trace_record.timeout_deadline_boundary_ms >= 0.0
 
 
+def test_model_30_predict_preserves_routing_diagnostics() -> None:
+    app = FastAPI()
+    app.include_router(model_serving.router)
+    app.dependency_overrides[require_auth] = lambda: {
+        "user_id": "integration-user",
+        "api_key_id": "integration-key",
+        "scopes": ["model:write"],
+    }
+    app.dependency_overrides[get_contributor_logger] = lambda: FakeContributorLogger()
+    client = TestClient(app)
+    strategy = {
+        "objective": "highest_reliability",
+        "planner_model": None,
+        "coder_model": "gpt-5.4",
+        "reviewer_model": None,
+        "stages": ["code"],
+        "estimated_success_under_budget": 0.8,
+        "estimated_cost_usd": 2.0,
+        "estimated_duration_seconds": 30.0,
+        "confidence": 0.7,
+    }
+
+    _replace_registry_entry(
+        "30",
+        cache_checker=lambda _uri: True,
+        model_caller=lambda _uri, _features, timings=None: (
+            timings.update({"artifact_load_ms": 0.1, "inference_only_ms": 2.0})
+            or {
+                "recommended_strategy": strategy,
+                "alternatives": [],
+                "tradeoffs": {
+                    "lowest_cost": {**strategy, "objective": "lowest_cost"},
+                    "fastest_completion": {**strategy, "objective": "fastest_completion"},
+                    "highest_reliability": strategy,
+                },
+                "diagnostics": {
+                    "warnings": ["objective_routes_collapsed"],
+                    "degenerate_objectives": [
+                        "lowest_cost",
+                        "fastest_completion",
+                        "highest_reliability",
+                    ],
+                    "candidate_spread": {
+                        "min_cost": 2.0,
+                        "max_cost": 2.0,
+                        "min_success": 0.8,
+                        "max_success": 0.8,
+                    },
+                    "candidate_count": 1,
+                    "feasible_candidate_count": 1,
+                    "max_cost_usd": 5.0,
+                },
+                "nearest_neighbors": {"count": 4},
+            }
+        ),
+    )
+    response = client.post(
+        "/api/v1/models/30/predict",
+        json={
+            "inputs": {
+                "task": {"description": "Fix routing", "task_type": "bugfix"},
+                "routing": {"max_cost_usd": 5.0},
+                "workflow": {"stages": ["code"]},
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    diagnostics = response.json()["predictions"]["diagnostics"]
+    assert diagnostics["warnings"] == ["objective_routes_collapsed"]
+    assert diagnostics["candidate_spread"] == {
+        "min_cost": 2.0,
+        "max_cost": 2.0,
+        "min_success": 0.8,
+        "max_success": 0.8,
+    }
+
+
 def test_model_30_health_reports_not_ready_until_cached() -> None:
     app = FastAPI()
     app.include_router(model_serving.router)
