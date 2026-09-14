@@ -244,6 +244,29 @@ When the auth service rejects a usage debit, the API returns `402 Payment Requir
 
 The downstream handler is not invoked. Clients should top up their balance and retry.
 
+If the auth service cannot confirm the debit, the API fails closed before Model 30 runs and returns `503 Service Unavailable`:
+
+```json
+{
+  "error": "usage_debit_unavailable",
+  "detail": "Unable to confirm usage debit. Please retry."
+}
+```
+
+This response covers auth-service 5xx responses, transport or timeout failures, unexpected debit errors, non-402 debit responses such as 404 or 409, and a missing debit key ID. It includes `Retry-After: 1` and `X-Request-ID` headers. Retrying is safe from the model service's perspective because the prediction handler was not invoked.
+
+A debit is confirmed only by a 2xx response. `402` remains a confirmed insufficient-funds rejection and keeps the response contract above. Free `POST /api/v1/models/{model_id}/contributions` ingestion and MLflow registry administration remain outside the debit path.
+
+Debit outcome logs contain a normalized outcome, opaque API-key ID, model ID, idempotency key, request ID, endpoint, attempt count, and upstream status when available. They never contain the submitted API-key secret, and auth-service response details are not returned to clients.
+
+Example CloudWatch Logs Insights query for failed debit outcomes:
+
+```text
+fields @timestamp, outcome, failure_type, status_code, key_id, model_id, idempotency_key, request_id
+| filter event in ["usage_debit_failure", "usage_debit_outcome"] and outcome = "error"
+| sort @timestamp desc
+```
+
 ## Startup Lifecycle
 
 At process startup the API now performs two separate MLflow steps:

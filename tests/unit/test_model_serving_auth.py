@@ -8,6 +8,7 @@ import uuid
 from dataclasses import replace
 from unittest.mock import AsyncMock, Mock, patch
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -15,7 +16,7 @@ from fastapi.testclient import TestClient
 from src.api.dependencies import get_contributor_logger
 from src.api.endpoints import model_serving
 from src.api.utils.config import get_settings
-from src.middleware.auth import APIKeyAuthMiddleware
+from src.middleware.auth import APIKeyAuthMiddleware, ValidationResult
 
 
 class FakeContributorLogger:
@@ -291,6 +292,63 @@ class TestAuthMiddlewareIntegration:
                 # Not by the endpoint itself
                 assert mock_validate.call_count == 1
 
+    @pytest.mark.parametrize(
+        "debit_failure",
+        [
+            pytest.param(409, id="http-409"),
+            pytest.param(500, id="http-500"),
+            pytest.param(httpx.ConnectError("connection failed"), id="connection-error"),
+            pytest.param(httpx.TimeoutException("request timed out"), id="timeout"),
+        ],
+    )
+    def test_model_30_debit_failure_never_invokes_handler(self, client, debit_failure):
+        """Model 30 fails closed for HTTP and transport debit failures."""
+        validation = ValidationResult(
+            is_valid=True,
+            user_id="test-user",
+            key_id="test-key-id",
+            service_id="hokusai_api",
+            scopes=["model:read"],
+        )
+        debit_response = Mock(status_code=debit_failure, text="debit failed")
+
+        with (
+            patch.object(
+                APIKeyAuthMiddleware,
+                "validate_with_auth_service",
+                new_callable=AsyncMock,
+                return_value=validation,
+            ),
+            patch("src.middleware.auth.httpx.AsyncClient") as mock_client_class,
+            patch(
+                "src.api.endpoints.model_serving.serving_service.serve_prediction",
+                new_callable=AsyncMock,
+            ) as mock_serve,
+        ):
+            mock_client = AsyncMock()
+            if isinstance(debit_failure, int):
+                mock_client.post.return_value = debit_response
+            else:
+                mock_client.post.side_effect = debit_failure
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_class.return_value = mock_client
+
+            response = client.post(
+                "/api/v1/models/30/predict",
+                headers={
+                    "Authorization": "Bearer hk_live_test_key",
+                    "X-Request-ID": "req-model-30-debit-failure",
+                },
+                json={"inputs": {"task": {"description": "Route this task"}}},
+            )
+
+        assert response.status_code == 503
+        assert response.json()["error"] == "usage_debit_unavailable"
+        assert response.headers["X-Request-ID"] == "req-model-30-debit-failure"
+        assert response.headers["Retry-After"] == "1"
+        mock_serve.assert_not_awaited()
+
 
 class TestAuthErrorMessages:
     """Test that auth error messages are clear and helpful."""
@@ -355,9 +413,9 @@ class TestAuthPerformance:
                 json={"inputs": {"test": "data"}},
             )
 
-            # Should return 401 with timeout message
-            assert response.status_code == 401
-            assert "timeout" in response.json()["detail"].lower()
+            assert response.status_code == 503
+            assert response.headers["Retry-After"] == "1"
+            assert "service" in response.json()["detail"].lower()
 
 
 if __name__ == "__main__":

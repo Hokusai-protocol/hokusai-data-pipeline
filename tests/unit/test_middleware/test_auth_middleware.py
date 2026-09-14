@@ -175,6 +175,9 @@ class TestAPIKeyAuthMiddleware:
             "balance": 10.0,
         }
         mock_cache.get.return_value = json.dumps(cached_data)
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_post.return_value = mock_response
 
         # Act
         response = client.get("/protected", headers={"Authorization": f"Bearer {api_key}"})

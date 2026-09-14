@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
+from src.api.middleware.validation_logging import get_or_generate_request_id
 from src.api.utils.config import get_settings
 
 try:
@@ -34,7 +35,12 @@ _UPSTREAM_SCHEMA_ERROR_MARKERS = (
 )
 _LOG_RESPONSE_BODY_LIMIT = 2048
 _DEBIT_REJECTED_HTTP_STATUS = 402
+_DEBIT_UNAVAILABLE_HTTP_STATUS = 503
+_DEBIT_ACCEPTED = "accepted"
+_DEBIT_REJECTED = "rejected"
+_DEBIT_ERROR = "error"
 _CONTRIBUTION_INGESTION_PATH_RE = re.compile(r"^/api/v1/models/[^/]+/contributions/?$")
+_BILLABLE_PREDICTION_PATH_RE = re.compile(r"^/api/v1/models/[^/]+/predict/?$")
 
 
 @dataclass
@@ -212,6 +218,10 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         error_marker: str,
         key_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        model_id: Optional[str] = None,
+        request_id: Optional[str] = None,
+        outcome: Optional[str] = None,
+        attempts: Optional[int] = None,
     ) -> None:
         """Emit structured attribution for deterministic upstream schema failures."""
         logger.warning(
@@ -224,6 +234,10 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                     "error_marker": error_marker,
                     "key_id": key_id,
                     "idempotency_key": idempotency_key,
+                    "model_id": model_id,
+                    "request_id": request_id,
+                    "outcome": outcome,
+                    "attempts": attempts,
                 }
             )
         )
@@ -526,6 +540,24 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             and _CONTRIBUTION_INGESTION_PATH_RE.fullmatch(request.url.path) is not None
         )
 
+    def _is_billable_prediction_request(self, request: Request) -> bool:  # noqa: ANN101
+        """Return True for billable POST model prediction requests."""
+        return (
+            request.method.upper() == "POST"
+            and _BILLABLE_PREDICTION_PATH_RE.fullmatch(request.url.path) is not None
+        )
+
+    def _usage_debit_unavailable_response(self, request_id: str) -> JSONResponse:  # noqa: ANN101
+        """Return a retryable response without exposing auth-service details."""
+        return JSONResponse(
+            status_code=_DEBIT_UNAVAILABLE_HTTP_STATUS,
+            content={
+                "error": "usage_debit_unavailable",
+                "detail": "Unable to confirm usage debit. Please retry.",
+            },
+            headers={"Retry-After": "1", "X-Request-ID": request_id},
+        )
+
     def _is_internal_request(self, client_ip: str) -> bool:  # noqa: ANN101
         """Detect if request is from internal service.
 
@@ -748,9 +780,36 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             )
             return await call_next(request)
 
-        # Debit usage before the model handler runs so 402 can be returned to the client.
+        # Debit usage before the model handler runs. Billable predictions must never
+        # reach the handler without both a debit identity and a confirmed 2xx outcome.
+        if (
+            not is_registry_request
+            and self._is_billable_prediction_request(request)
+            and not validation_result.key_id
+        ):
+            request_id = get_or_generate_request_id(request)
+            logger.error(
+                json.dumps(
+                    {
+                        "event": "usage_debit_outcome",
+                        "outcome": _DEBIT_ERROR,
+                        "failure_type": "missing_key_id",
+                        "status_code": None,
+                        "key_id": None,
+                        "model_id": self._extract_model_id(request.url.path),
+                        "endpoint": request.url.path,
+                        "idempotency_key": None,
+                        "request_id": request_id,
+                        "attempts": 0,
+                    }
+                )
+            )
+            return self._usage_debit_unavailable_response(request_id)
+
         if validation_result.key_id and not is_registry_request:
             model_id = self._extract_model_id(request.url.path)
+            request_id = get_or_generate_request_id(request)
+            idempotency_key = f"{validation_result.key_id}-{int(time.time() * 1000)}"
             try:
                 debit_outcome = await self._debit_usage(
                     validation_result.key_id,
@@ -758,24 +817,33 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                     request.url.path,
                     0,
                     0,
-                    request_id=request.headers.get("x-request-id"),
+                    request_id=request_id,
                     account_id=validation_result.user_id,
                     request_state=request.state,
+                    idempotency_key=idempotency_key,
                 )
-            except Exception:
-                # Auth-service debit failures are fail-open unless the debit path returns an
-                # explicit rejection. This prevents coroutine boundary errors such as
-                # RuntimeError("coroutine raised StopIteration") from turning into a 500.
+            except Exception as exc:
+                # Keep coroutine-boundary and other unexpected debit failures client-safe,
+                # but never turn them into unbilled downstream work.
                 logger.exception(
-                    "usage debit raised unexpectedly; allowing request",
-                    extra={
-                        "key_id": validation_result.key_id,
-                        "user_id": validation_result.user_id,
-                        "path": request.url.path,
-                    },
+                    json.dumps(
+                        {
+                            "event": "usage_debit_outcome",
+                            "outcome": _DEBIT_ERROR,
+                            "failure_type": "unexpected_exception",
+                            "exception_type": type(exc).__name__,
+                            "status_code": None,
+                            "key_id": validation_result.key_id,
+                            "model_id": model_id,
+                            "endpoint": request.url.path,
+                            "idempotency_key": idempotency_key,
+                            "request_id": request_id,
+                            "attempts": 1,
+                        }
+                    )
                 )
-                debit_outcome = "error"
-            if debit_outcome == "rejected":
+                return self._usage_debit_unavailable_response(request_id)
+            if debit_outcome == _DEBIT_REJECTED:
                 return JSONResponse(
                     status_code=_DEBIT_REJECTED_HTTP_STATUS,
                     content={
@@ -783,7 +851,10 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                         "reason": getattr(request.state, "_debit_reject_reason", None),
                         "reason_code": getattr(request.state, "_debit_reject_reason_code", None),
                     },
+                    headers={"X-Request-ID": request_id},
                 )
+            if debit_outcome != _DEBIT_ACCEPTED:
+                return self._usage_debit_unavailable_response(request_id)
 
         # Process request
         response = await call_next(request)
@@ -863,6 +934,7 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         request_id: Optional[str] = None,
         account_id: Optional[str] = None,
         request_state: Any = None,
+        idempotency_key: Optional[str] = None,
     ) -> str:
         """Debit usage to auth service with retry logic.
 
@@ -877,9 +949,10 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             request_id: Request identifier for logging
             account_id: Account/user identifier for logging
             request_state: Request state object to store rejection details for the response
+            idempotency_key: Stable key supplied by dispatch for request correlation
 
         """
-        idempotency_key = f"{key_id}-{int(time.time() * 1000)}"
+        idempotency_key = idempotency_key or f"{key_id}-{int(time.time() * 1000)}"
         payload = {
             "model_id": model_id,
             "endpoint": endpoint,
@@ -898,8 +971,23 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                         f"{self.auth_service_url}/api/v1/usage/{key_id}/debit",
                         json=payload,
                     )
-                    if response.status_code < 300:
-                        return "accepted"
+                    if 200 <= response.status_code < 300:
+                        logger.info(
+                            json.dumps(
+                                {
+                                    "event": "usage_debit_outcome",
+                                    "outcome": _DEBIT_ACCEPTED,
+                                    "status_code": response.status_code,
+                                    "key_id": key_id,
+                                    "model_id": model_id,
+                                    "endpoint": endpoint,
+                                    "idempotency_key": idempotency_key,
+                                    "request_id": request_id,
+                                    "attempts": attempt + 1,
+                                }
+                            )
+                        )
+                        return _DEBIT_ACCEPTED
 
                     if response.status_code == _DEBIT_REJECTED_HTTP_STATUS:
                         try:
@@ -926,16 +1014,20 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                             request_state._debit_reject_reason = reason
                             request_state._debit_reject_reason_code = reason_code
 
-                        logger.warning(
-                            "usage debit rejected",
-                            extra={
-                                "event": "usage.debit.rejected",
-                                "account_id": account_id,
-                                "model_id": model_id,
-                                "reason_code": reason_code,
-                                "request_id": request_id,
-                            },
-                        )
+                        rejection_fields = {
+                            "event": "usage.debit.rejected",
+                            "outcome": _DEBIT_REJECTED,
+                            "status_code": response.status_code,
+                            "account_id": account_id,
+                            "key_id": key_id,
+                            "model_id": model_id,
+                            "endpoint": endpoint,
+                            "idempotency_key": idempotency_key,
+                            "reason_code": reason_code,
+                            "request_id": request_id,
+                            "attempts": attempt + 1,
+                        }
+                        logger.warning(json.dumps(rejection_fields), extra=rejection_fields)
                         if sentry_sdk:
                             sentry_sdk.set_context(
                                 "usage_debit",
@@ -951,23 +1043,26 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                         self._emit_usage_debit_rejected_metric(
                             model_id, rejection_reason="InsufficientBalance"
                         )
-                        return "rejected"
+                        return _DEBIT_REJECTED
 
                     response_body = self._truncate_response_body(response.text)
 
                     failure_fields = {
                         "event": "usage_debit_failure",
+                        "outcome": _DEBIT_ERROR,
                         "status_code": response.status_code,
                         "response_body": response_body,
                         "key_id": key_id,
                         "model_id": model_id,
                         "endpoint": endpoint,
                         "idempotency_key": idempotency_key,
+                        "request_id": request_id,
+                        "attempts": attempt + 1,
                     }
 
                     if response.status_code < 500:
                         logger.warning(json.dumps(failure_fields))
-                        return "error"  # Client error — don't retry
+                        return _DEBIT_ERROR  # Client error — don't retry
 
                     error_marker = self._get_upstream_schema_error_marker(response.text)
                     if error_marker:
@@ -978,11 +1073,15 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                             error_marker=error_marker,
                             key_id=key_id,
                             idempotency_key=idempotency_key,
+                            model_id=model_id,
+                            request_id=request_id,
+                            outcome=_DEBIT_ERROR,
+                            attempts=attempt + 1,
                         )
                         self._emit_usage_debit_rejected_metric(
                             model_id, rejection_reason="UpstreamSchemaError"
                         )
-                        return "error"
+                        return _DEBIT_ERROR
 
                     logger.warning(json.dumps(failure_fields))
 
@@ -996,19 +1095,32 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
                                 }
                             )
                         )
-                        return "error"
+                        return _DEBIT_ERROR
             except Exception as e:
                 if attempt == max_retries - 1:
                     logger.warning(
-                        f"Failed to debit usage after {max_retries} attempts "
-                        f"for key_id={key_id}: {e}"
+                        json.dumps(
+                            {
+                                "event": "usage_debit_failure",
+                                "outcome": _DEBIT_ERROR,
+                                "failure_type": "transport_error",
+                                "exception_type": type(e).__name__,
+                                "status_code": None,
+                                "key_id": key_id,
+                                "model_id": model_id,
+                                "endpoint": endpoint,
+                                "idempotency_key": idempotency_key,
+                                "request_id": request_id,
+                                "attempts": max_retries,
+                            }
+                        )
                     )
-                    return "error"
+                    return _DEBIT_ERROR
             # Exponential backoff: 1s, 2s, 4s
             if attempt < max_retries - 1:
                 await asyncio.sleep(2**attempt)
 
-        return "error"
+        return _DEBIT_ERROR
 
 
 # Compatibility functions for routes that expect these functions
