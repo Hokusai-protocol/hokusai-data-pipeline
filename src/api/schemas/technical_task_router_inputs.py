@@ -151,10 +151,31 @@ class TechnicalTaskNearestNeighborsSummary(TechnicalTaskRouterBaseModel):
     mean_duration_seconds: float | None = Field(default=None, ge=0)
 
 
+class TechnicalTaskCandidateSpread(TechnicalTaskRouterBaseModel):
+    """Range of cost and reliability estimates across generated routes."""
+
+    min_cost: float = Field(ge=0)
+    max_cost: float = Field(ge=0)
+    min_success: float = Field(ge=0, le=1)
+    max_success: float = Field(ge=0, le=1)
+
+
+class TechnicalTaskRouterDiagnostics(TechnicalTaskRouterBaseModel):
+    """Additive diagnostics explaining candidate feasibility and objective collapse."""
+
+    warnings: list[str] = Field(default_factory=list)
+    degenerate_objectives: list[TechnicalTaskRoutingObjective] = Field(default_factory=list)
+    candidate_spread: TechnicalTaskCandidateSpread
+    candidate_count: int = Field(ge=0)
+    feasible_candidate_count: int = Field(ge=0)
+    max_cost_usd: float | None = Field(default=None, gt=0)
+
+
 class TechnicalTaskRouterPredictions(TechnicalTaskRouterBaseModel):
     """Public model-30 v2 prediction response contract."""
 
     recommended_strategy: TechnicalTaskStrategyRecommendation
     alternatives: list[TechnicalTaskStrategyRecommendation] = Field(default_factory=list)
     tradeoffs: TechnicalTaskTradeoffSummary
+    diagnostics: TechnicalTaskRouterDiagnostics | None = None
     nearest_neighbors: TechnicalTaskNearestNeighborsSummary

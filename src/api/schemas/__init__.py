@@ -28,10 +28,12 @@ from .model_registration_event import (
 )
 from .sales_lead_scoring_inputs import MODEL_27_INPUT_FIELDS, SalesLeadScoringInputs
 from .technical_task_router_inputs import (
+    TechnicalTaskCandidateSpread,
     TechnicalTaskContextGroup,
     TechnicalTaskGroup,
     TechnicalTaskMetadataGroup,
     TechnicalTaskNearestNeighborsSummary,
+    TechnicalTaskRouterDiagnostics,
     TechnicalTaskRouterInputs,
     TechnicalTaskRouterPredictions,
     TechnicalTaskRoutingGroup,
@@ -68,11 +70,13 @@ __all__ = [
     "MODEL_27_INPUT_FIELDS",
     "SalesLeadScoringInputs",
     "TechnicalTaskContextGroup",
+    "TechnicalTaskCandidateSpread",
     "TechnicalTaskGroup",
     "TechnicalTaskMetadataGroup",
     "TechnicalTaskNearestNeighborsSummary",
     "TechnicalTaskRouterPredictions",
     "TechnicalTaskRouterInputs",
+    "TechnicalTaskRouterDiagnostics",
     "TechnicalTaskRoutingObjective",
     "TechnicalTaskRoutingGroup",
     "TechnicalTaskStrategyRecommendation",

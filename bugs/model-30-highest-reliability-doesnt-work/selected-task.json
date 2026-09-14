@@ -1,0 +1,15 @@
+{
+  "taskId": "HOK-2877",
+  "linearIssueId": "e60f78a6-ac85-4273-8297-b1213a46ef79",
+  "title": "Model 30 highest_reliability doesn't work",
+  "description": "When a candidate route lacks an exact historical match, Model 30 estimates every candidate using the same aggregate neighbor evidence. That flattens success and cost estimates across routes; despite highest_reliability nominally sorting by success, the candidates tie and the cheap/default route wins.\n\nThe Hokusai fix should:\n\n- Produce route-specific success and cost estimates for fallback candidates.\n\n- Filter candidates by max_cost_usd before ranking.\n\n- Select highest_reliability by highest estimated_success_under_budget, with deterministic tie-breakers.\n\n- Preserve lowest_cost as the cheapest feasible candidate.\n\n- Emit a diagnostic/warning and tradeoff spread when all objective routes genuinely collapse to the same route.\n\nWavemill needs only the companion compatibility work to retain that diagnostic in its route provenance.",
+  "labels": [],
+  "state": "Backlog",
+  "priority": "Urgent",
+  "projectName": "Hokusai data pipeline",
+  "workflowType": "bugfix",
+  "featureName": "model-30-highest-reliability-doesnt-work",
+  "contextPath": "bugs/model-30-highest-reliability-doesnt-work/selected-task.json",
+  "url": "https://linear.app/hokusai/issue/HOK-2877/model-30-highestreliability-doesnt-work",
+  "selectedAt": "2026-09-14T12:51:58Z"
+}

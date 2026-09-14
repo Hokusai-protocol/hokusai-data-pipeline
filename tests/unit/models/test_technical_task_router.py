@@ -139,6 +139,7 @@ def test_load_context_loads_router_dataset_artifact() -> None:
         "recommended_strategy",
         "alternatives",
         "tradeoffs",
+        "diagnostics",
         "nearest_neighbors",
         "neighbor_provenance",
     ]
@@ -263,6 +264,198 @@ def test_strategy_router_respects_available_models_and_requested_stages() -> Non
         "fastest_completion",
         "highest_reliability",
     }
+
+
+def _route_ranking_rows() -> list[dict[str, Any]]:
+    common = {
+        "task_type": "feature",
+        "language": "python",
+        "domain": "backend",
+        "repo_size_bucket": "medium",
+        "files_touched_bucket": "2_5",
+        "description_length_bucket": "medium",
+        "risk_level": "low",
+        "under_budget": True,
+    }
+    return [
+        {
+            **common,
+            "completed_successfully": True,
+            "score": 0.95,
+            "planner_model": "model-a",
+            "coder_model": "model-a",
+            "reviewer_model": "model-a",
+            "expected_cost_usd": 8.0,
+            "actual_cost_usd": 8.0,
+            "actual_time_seconds": 100.0,
+        },
+        {
+            **common,
+            "completed_successfully": False,
+            "score": 0.20,
+            "planner_model": "model-b",
+            "coder_model": "model-b",
+            "reviewer_model": "model-b",
+            "expected_cost_usd": 1.0,
+            "actual_cost_usd": 1.0,
+            "actual_time_seconds": 20.0,
+        },
+    ]
+
+
+def _predict_route_ranking(
+    tmp_path: Path,
+    rows: list[dict[str, Any]],
+    *,
+    max_cost_usd: float,
+    workflow_stages: list[str] | None = None,
+) -> dict[str, Any]:
+    csv_path = tmp_path / "route-ranking.csv"
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
+    router = TechnicalTaskRouterModel(k_neighbors=len(rows))
+    router.load_context(SimpleNamespace(artifacts={ROUTER_DATASET_ARTIFACT: str(csv_path)}))
+    stages = workflow_stages or ["plan", "code", "review"]
+    available = json.dumps(["model-a", "model-b"])
+    features = pd.DataFrame(
+        [
+            {
+                "task_type": "feature",
+                "language": "python",
+                "domain": "backend",
+                "workflow_stages": json.dumps(stages),
+                "available_planner_models": available,
+                "available_coder_models": available,
+                "available_reviewer_models": available,
+                "routing_objective": "highest_reliability",
+                "max_cost_usd": max_cost_usd,
+            }
+        ]
+    )
+    return router.predict(None, features).iloc[0].to_dict()
+
+
+def test_strategy_fallback_uses_route_specific_role_evidence_and_budget(
+    tmp_path: Path,
+) -> None:
+    out = _predict_route_ranking(tmp_path, _route_ranking_rows(), max_cost_usd=5.0)
+
+    reliable = out["tradeoffs"]["highest_reliability"]
+    cheapest = out["tradeoffs"]["lowest_cost"]
+
+    assert (reliable["planner_model"], reliable["coder_model"], reliable["reviewer_model"]) == (
+        "model-a",
+        "model-b",
+        "model-b",
+    )
+    assert reliable["estimated_success_under_budget"] == pytest.approx(0.391667)
+    assert reliable["estimated_cost_usd"] == pytest.approx(3.333333)
+    assert reliable["estimated_duration_seconds"] is None
+    assert "role-level fallback evidence" in reliable["rationale"]
+    assert (cheapest["planner_model"], cheapest["coder_model"], cheapest["reviewer_model"]) == (
+        "model-b",
+        "model-b",
+        "model-b",
+    )
+    assert cheapest["estimated_success_under_budget"] == pytest.approx(0.06)
+    assert cheapest["estimated_cost_usd"] == pytest.approx(1.0)
+    assert reliable["estimated_success_under_budget"] > cheapest["estimated_success_under_budget"]
+    assert out["recommended_strategy"] == reliable
+
+    for strategy in [out["recommended_strategy"], *out["alternatives"], *out["tradeoffs"].values()]:
+        if strategy is not None:
+            assert strategy["estimated_cost_usd"] <= 5.0
+
+    diagnostics = out["diagnostics"]
+    assert diagnostics == {
+        "warnings": [],
+        "degenerate_objectives": ["lowest_cost", "fastest_completion"],
+        "candidate_spread": {
+            "min_cost": 1.0,
+            "max_cost": 8.0,
+            "min_success": 0.06,
+            "max_success": 0.985,
+        },
+        "candidate_count": 8,
+        "feasible_candidate_count": 4,
+        "max_cost_usd": 5.0,
+    }
+
+
+def test_strategy_budget_includes_route_exactly_at_cap(tmp_path: Path) -> None:
+    rows = _route_ranking_rows()
+    rows[0]["actual_cost_usd"] = 5.0
+    rows[0]["expected_cost_usd"] = 5.0
+
+    out = _predict_route_ranking(
+        tmp_path,
+        rows,
+        max_cost_usd=5.0,
+        workflow_stages=["code"],
+    )
+
+    assert out["recommended_strategy"]["coder_model"] == "model-a"
+    assert out["recommended_strategy"]["estimated_cost_usd"] == 5.0
+
+
+def test_strategy_budget_raises_when_no_route_is_feasible(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="No routing strategies fit max_cost_usd=0.500000"):
+        _predict_route_ranking(tmp_path, _route_ranking_rows(), max_cost_usd=0.5)
+
+
+def test_strategy_diagnostics_warn_when_all_objectives_collapse(tmp_path: Path) -> None:
+    rows = _route_ranking_rows()
+    rows[0]["actual_cost_usd"] = 1.0
+    rows[0]["expected_cost_usd"] = 1.0
+    rows[0]["actual_time_seconds"] = 10.0
+    rows[1]["actual_cost_usd"] = 2.0
+    rows[1]["expected_cost_usd"] = 2.0
+
+    out = _predict_route_ranking(
+        tmp_path,
+        rows,
+        max_cost_usd=5.0,
+        workflow_stages=["code"],
+    )
+
+    assert out["diagnostics"]["warnings"] == ["objective_routes_collapsed"]
+    assert out["diagnostics"]["degenerate_objectives"] == [
+        "lowest_cost",
+        "fastest_completion",
+        "highest_reliability",
+    ]
+    assert {
+        tradeoff["coder_model"] for tradeoff in out["tradeoffs"].values() if tradeoff is not None
+    } == {"model-a"}
+
+
+def test_strategy_ties_use_canonical_route_identity(tmp_path: Path) -> None:
+    rows = _route_ranking_rows()
+    for row in rows:
+        row.update(
+            {
+                "completed_successfully": True,
+                "score": 0.9,
+                "actual_cost_usd": 1.0,
+                "expected_cost_usd": 1.0,
+                "actual_time_seconds": 10.0,
+            }
+        )
+
+    first = _predict_route_ranking(
+        tmp_path,
+        rows,
+        max_cost_usd=5.0,
+        workflow_stages=["code"],
+    )
+    second = _predict_route_ranking(
+        tmp_path,
+        list(reversed(rows)),
+        max_cost_usd=5.0,
+        workflow_stages=["code"],
+    )
+
+    assert first["recommended_strategy"]["coder_model"] == "model-a"
+    assert second["recommended_strategy"]["coder_model"] == "model-a"
 
 
 def test_registration_dataset_validation_accepts_public_model_ids() -> None:
