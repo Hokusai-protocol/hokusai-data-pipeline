@@ -1,0 +1,152 @@
+{
+  "provenance": {
+    "source": "hokusai-sdk",
+    "source_repository": "https://github.com/Hokusai-protocol/hokusai-sdk",
+    "source_commit": "d5eaf4ce9d23a7d231fc631acbb27ebc97f93f88",
+    "source_package": "@hokusai/core@0.2.0",
+    "descriptor_generator": "packages/core/src/task-descriptor.ts deriveTaskDescriptor",
+    "reference_harness_fixture": "examples/reference-harness/examples/contribution-row.example.json",
+    "reference_harness_fixture_sha256": "0b7f8750bc59742f644b2a1c6ff848c1879c0825158d4fae43ac0b72eed6f854",
+    "generation_command": "npx tsx --eval \"import { deriveTaskDescriptor } from './packages/core/src/task-descriptor.ts'; const base={repositorySignals:{fileCount:250,extensionCounts:{ts:12}}}; const cases=[['shallow','Implement login'],['standard','Implement checkout validation for the TypeScript API client.'],['deep','Implement deep root cause analysis for checkout timeout handling.']]; console.log(JSON.stringify(cases.map(([id, taskText])=>({id, taskText, task_descriptor: deriveTaskDescriptor({taskText, ...base})})), null, 2));\""
+  },
+  "rows": [
+    {
+      "case": "shallow",
+      "sdk_task_text": "Implement login",
+      "schema_version": "harness_outcome_row/v1",
+      "task_descriptor": {
+        "task_type": "feature",
+        "complexity": 3,
+        "repo_size_bucket": "medium",
+        "language": "typescript"
+      },
+      "allowed_models": [
+        "claude-haiku-4-5",
+        "claude-sonnet-4-6",
+        "claude-opus-4-8"
+      ],
+      "selected_models": {
+        "coder": "claude-sonnet-4-6",
+        "reviewer": "claude-sonnet-4-6"
+      },
+      "completion_result": "success",
+      "budget_usd": 0.5,
+      "actual_cost_usd": 0.177,
+      "wall_clock_seconds": 74.5,
+      "inference_log_id": "73c19164-7194-48b1-a62e-7314bcf3ebd5",
+      "harness": "reference-harness",
+      "task_id": "ref-task-shallow",
+      "observed_at": "2026-06-08T00:00:00.000Z",
+      "harness_metadata": {
+        "harness": "reference-harness",
+        "sdk_version": "0.2.0"
+      },
+      "domain": "backend",
+      "files_touched_bucket": "2_5",
+      "description_length_bucket": "short",
+      "risk_level": "low",
+      "requires_tests": false,
+      "is_migration": false,
+      "ui_heavy": false,
+      "cross_service": false,
+      "workflow_stages": [
+        "plan",
+        "code",
+        "review"
+      ],
+      "routing_objective": "highest_reliability"
+    },
+    {
+      "case": "standard",
+      "sdk_task_text": "Implement checkout validation for the TypeScript API client.",
+      "schema_version": "harness_outcome_row/v1",
+      "task_descriptor": {
+        "task_type": "feature",
+        "complexity": 5,
+        "repo_size_bucket": "medium",
+        "language": "typescript"
+      },
+      "allowed_models": [
+        "claude-haiku-4-5",
+        "claude-sonnet-4-6",
+        "claude-opus-4-8"
+      ],
+      "selected_models": {
+        "coder": "claude-sonnet-4-6",
+        "reviewer": "claude-sonnet-4-6"
+      },
+      "completion_result": "success",
+      "budget_usd": 0.5,
+      "actual_cost_usd": 0.177,
+      "wall_clock_seconds": 74.5,
+      "inference_log_id": "73c19164-7194-48b1-a62e-7314bcf3ebd5",
+      "harness": "reference-harness",
+      "task_id": "ref-task-standard",
+      "observed_at": "2026-06-08T00:00:00.000Z",
+      "harness_metadata": {
+        "harness": "reference-harness",
+        "sdk_version": "0.2.0"
+      },
+      "domain": "backend",
+      "files_touched_bucket": "2_5",
+      "description_length_bucket": "short",
+      "risk_level": "low",
+      "requires_tests": false,
+      "is_migration": false,
+      "ui_heavy": false,
+      "cross_service": false,
+      "workflow_stages": [
+        "plan",
+        "code",
+        "review"
+      ],
+      "routing_objective": "highest_reliability"
+    },
+    {
+      "case": "deep",
+      "sdk_task_text": "Implement deep root cause analysis for checkout timeout handling.",
+      "schema_version": "harness_outcome_row/v1",
+      "task_descriptor": {
+        "task_type": "feature",
+        "complexity": 8,
+        "repo_size_bucket": "medium",
+        "language": "typescript"
+      },
+      "allowed_models": [
+        "claude-haiku-4-5",
+        "claude-sonnet-4-6",
+        "claude-opus-4-8"
+      ],
+      "selected_models": {
+        "coder": "claude-sonnet-4-6",
+        "reviewer": "claude-sonnet-4-6"
+      },
+      "completion_result": "success",
+      "budget_usd": 0.5,
+      "actual_cost_usd": 0.177,
+      "wall_clock_seconds": 74.5,
+      "inference_log_id": "73c19164-7194-48b1-a62e-7314bcf3ebd5",
+      "harness": "reference-harness",
+      "task_id": "ref-task-deep",
+      "observed_at": "2026-06-08T00:00:00.000Z",
+      "harness_metadata": {
+        "harness": "reference-harness",
+        "sdk_version": "0.2.0"
+      },
+      "domain": "backend",
+      "files_touched_bucket": "2_5",
+      "description_length_bucket": "short",
+      "risk_level": "low",
+      "requires_tests": false,
+      "is_migration": false,
+      "ui_heavy": false,
+      "cross_service": false,
+      "workflow_stages": [
+        "plan",
+        "code",
+        "review"
+      ],
+      "routing_objective": "highest_reliability"
+    }
+  ]
+}

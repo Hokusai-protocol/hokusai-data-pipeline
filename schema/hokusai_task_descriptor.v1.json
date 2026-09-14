@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "hokusai_task_descriptor/v1",
+  "title": "HokusaiTaskDescriptor",
+  "description": "Descriptor emitted by Hokusai SDK harness integrations for technical task routing. Benchmark-author descriptors remain opaque in technical_task_router_row/v1.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "task_type",
+    "language",
+    "complexity"
+  ],
+  "properties": {
+    "task_type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Lowercase task category such as bugfix, feature, refactor, test, docs, migration, or maintenance."
+    },
+    "language": {
+      "type": "string",
+      "description": "Lowercase HokusaiLanguage identifier, not a display label.",
+      "enum": [
+        "python",
+        "typescript",
+        "javascript",
+        "go",
+        "rust",
+        "java",
+        "bash",
+        "multi",
+        "unknown"
+      ]
+    },
+    "complexity": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "Numeric task complexity on the router scale: 3=low/shallow, 5=medium/standard, 8=high/deep."
+    },
+    "description": {
+      "type": "string"
+    },
+    "domain": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo_size_bucket": {
+      "type": "string",
+      "enum": [
+        "small",
+        "medium",
+        "large"
+      ]
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "file_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "context": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "domain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "repo_size_bucket": {
+          "type": "string",
+          "enum": [
+            "small",
+            "medium",
+            "large"
+          ]
+        },
+        "risk_level": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "estimated_complexity": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 10
+        }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

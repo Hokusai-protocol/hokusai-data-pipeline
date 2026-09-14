@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 from copy import deepcopy
 from uuid import uuid4
@@ -89,6 +90,11 @@ def _summarize_validation_errors(errors: list[dict]) -> list[str]:
     return summaries
 
 
+def _log_validation_422(logger_: logging.Logger, payload: dict) -> None:
+    """Emit validation details in both LogRecord extras and CloudWatch-visible text."""
+    logger_.warning(json.dumps(payload, default=str, sort_keys=True), extra=payload)
+
+
 def emit_model_serving_validation_422(
     logger_: logging.Logger,
     request_id: str,
@@ -98,18 +104,16 @@ def emit_model_serving_validation_422(
 ) -> None:
     """Emit a structured validation_422 record for model-serving schema errors."""
     validation_errors = redact_pydantic_errors(pydantic_errors)
-    logger_.warning(
-        "validation_422",
-        extra={
-            "event_type": "validation_422",
-            "request_id": request_id,
-            "endpoint": f"/api/v1/models/{model_id}/predict",
-            "validation_errors": validation_errors,
-            "validation_error_summary": _summarize_validation_errors(validation_errors),
-            "caller_fingerprint": (caller_context or {}).get("caller_fingerprint"),
-            "model_id": model_id,
-        },
-    )
+    payload = {
+        "event_type": "validation_422",
+        "request_id": request_id,
+        "endpoint": f"/api/v1/models/{model_id}/predict",
+        "validation_errors": validation_errors,
+        "validation_error_summary": _summarize_validation_errors(validation_errors),
+        "caller_fingerprint": (caller_context or {}).get("caller_fingerprint"),
+        "model_id": model_id,
+    }
+    _log_validation_422(logger_, payload)
 
 
 async def validation_422_exception_handler(
@@ -119,19 +123,17 @@ async def validation_422_exception_handler(
     """Log FastAPI request validation errors without exposing payload values."""
     request_id = get_or_generate_request_id(request)
     validation_errors = redact_pydantic_errors(exc.errors())
-    logger.warning(
-        "validation_422",
-        extra={
-            "event_type": "validation_422",
-            "request_id": request_id,
-            "endpoint": request.url.path,
-            "method": request.method,
-            "path_params": dict(request.path_params),
-            "validation_errors": validation_errors,
-            "validation_error_summary": _summarize_validation_errors(validation_errors),
-            "caller_fingerprint": build_caller_fingerprint(request),
-        },
-    )
+    payload = {
+        "event_type": "validation_422",
+        "request_id": request_id,
+        "endpoint": request.url.path,
+        "method": request.method,
+        "path_params": dict(request.path_params),
+        "validation_errors": validation_errors,
+        "validation_error_summary": _summarize_validation_errors(validation_errors),
+        "caller_fingerprint": build_caller_fingerprint(request),
+    }
+    _log_validation_422(logger, payload)
     response = await request_validation_exception_handler(request, exc)
     response.headers["X-Request-ID"] = request_id
     return response

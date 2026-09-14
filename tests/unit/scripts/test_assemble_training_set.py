@@ -11,6 +11,7 @@ import jsonschema
 import pytest
 
 from scripts.model_30 import assemble_training_set as assembler
+from src.api.services.auth_service_notifier import WalletResolution
 
 # MLflow auth in production uses shared env such as `MLFLOW_TRACKING_TOKEN`.
 
@@ -51,10 +52,15 @@ class FakeNotifier:
         user_id: str | None,
         api_key_id: str | None = None,
         service_id: str | None = None,
-    ) -> str | None:
+    ) -> WalletResolution:
         key = (user_id, api_key_id, service_id)
         self.calls.append(key)
-        return self.wallets.get(key)
+        wallet = self.wallets.get(key)
+        return WalletResolution(
+            resolved=wallet is not None,
+            has_verified_wallet=wallet is not None,
+            wallet_address=wallet,
+        )
 
 
 def _valid_row(row_id: str) -> dict[str, Any]:
@@ -75,6 +81,23 @@ def _valid_row(row_id: str) -> dict[str, Any]:
     }
 
 
+def _feature_row(row_id: str, *, complexity: Any, task_type: str | None = None) -> dict[str, Any]:
+    row = _valid_row(row_id)
+    row["task_descriptor"] = {
+        "description": "Refactor a backend integration with tests and telemetry coverage.",
+        "task_type": task_type or f"task-{row_id}",
+        "language": "python",
+        "context": {
+            "domain": "backend",
+            "repo_size_bucket": "medium",
+            "risk_level": "medium",
+            "estimated_complexity": complexity,
+        },
+    }
+    row["routing_objective"] = "highest_reliability"
+    return row
+
+
 def _record_payload(
     submission_id: str,
     rows: list[dict[str, Any]],
@@ -91,7 +114,8 @@ def _record_payload(
         "body_hash": f"hash-{submission_id}",
         "rows": rows,
         "metadata": {
-            "auth": {
+            # Matches the production submission shape (contribution_service writes auth_context).
+            "auth_context": {
                 "user_id": user_id,
                 "api_key_id": api_key_id,
                 "service_id": service_id,
@@ -115,6 +139,11 @@ def _run_assemble(
     wallets: dict[tuple[str | None, str | None, str | None], str | None] | None = None,
     on_missing_wallet: str = "quarantine",
     mlflow_run_id: str | None = None,
+    row_format: str = "benchmark",
+    feature_health_max_default_percent: float = (
+        assembler.DEFAULT_FEATURE_HEALTH_MAX_DEFAULT_PERCENT
+    ),
+    feature_health_min_failure_rows: int = assembler.DEFAULT_FEATURE_HEALTH_MIN_FAILURE_ROWS,
 ) -> tuple[dict[str, Any], Path, FakeNotifier]:
     serialized = {
         key: value if isinstance(value, str) else json.dumps(value, sort_keys=True)
@@ -139,6 +168,9 @@ def _run_assemble(
         mlflow_run_id=mlflow_run_id,
         mlflow_tracking_uri=None,
         row_schema=str(Path("schema/technical_task_router_row.v1.json").resolve()),
+        row_format=row_format,
+        feature_health_max_default_percent=feature_health_max_default_percent,
+        feature_health_min_failure_rows=feature_health_min_failure_rows,
     )
     report = assembler.assemble(args)
     return report, tmp_path, fake_notifier
@@ -173,6 +205,48 @@ def test_deterministic_hash_same_inputs(tmp_path: Path, monkeypatch: pytest.Monk
 
     assert report_one["dataset_hash"] == report_two["dataset_hash"]
     assert (out_one / "dataset.jsonl").read_bytes() == (out_two / "dataset.jsonl").read_bytes()
+
+
+def test_auto_row_format_accepts_compact_wavemill_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    objects = {
+        _object_key("compact"): _record_payload(
+            "compact",
+            [
+                {
+                    "task_id": "redacted-task",
+                    "harness": "wavemill",
+                    "actual_cost_usd": 1.25,
+                    "success_under_budget": True,
+                    "wall_clock_seconds": 123.4,
+                    "inputs": {
+                        "planner_model": "gpt-5.5",
+                        "coder_model": "gpt-5.4",
+                        "reviewer_model": "claude-sonnet-4-6",
+                        "rubric_mean_score": 0.91,
+                    },
+                }
+            ],
+        )
+    }
+    wallets = {("user-1", "api-1", "svc-1"): "0x742d35cc6634c0532925a3b844bc9e7595f62341"}
+
+    report, out_dir, _ = _run_assemble(
+        tmp_path,
+        monkeypatch,
+        objects=objects,
+        wallets=wallets,
+        row_format="auto",
+    )
+
+    rows = _read_jsonl(out_dir / "dataset.jsonl")
+    assert report["row_count"] == 1
+    assert report["quarantine_count"] == 0
+    assert rows[0]["planner_model"] == "gpt-5.5"
+    assert rows[0]["coder_model"] == "gpt-5.4"
+    assert rows[0]["reviewer_model"] == "claude-sonnet-4-6"
+    assert rows[0]["score"] == "0.91"
 
 
 def test_listing_order_does_not_affect_hash(
@@ -238,6 +312,99 @@ def test_manifest_block_contiguity(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert manifest["blocks"][1]["row_end"] == 2
 
 
+def test_manifest_block_carries_account_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    objects = {
+        _object_key("sub-a"): _record_payload("sub-a", [_valid_row("r-1")]),
+    }
+    wallets = {("user-1", "api-1", "svc-1"): "0x742d35cc6634c0532925a3b844bc9e7595f62341"}
+
+    _, output_dir, _ = _run_assemble(tmp_path, monkeypatch, objects=objects, wallets=wallets)
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+
+    # HOK-2245: the contributing account (auth_context.user_id) is threaded into the manifest
+    # alongside the wallet, so attribution can credit a contributor by account.
+    assert manifest["blocks"][0]["account_id"] == "user-1"
+    assert manifest["blocks"][0]["wallet"] == "0x742d35cc6634c0532925a3b844bc9e7595f62341"
+
+
+def test_feature_health_persisted_and_warns_for_small_constant_corpus(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    objects = {
+        _object_key("sub-a"): _record_payload(
+            "sub-a",
+            [
+                _feature_row("r-1", complexity="standard"),
+                _feature_row("r-2", complexity="standard"),
+            ],
+        )
+    }
+    wallets = {("user-1", "api-1", "svc-1"): "0x742d35cc6634c0532925a3b844bc9e7595f62341"}
+
+    report, output_dir, _ = _run_assemble(tmp_path, monkeypatch, objects=objects, wallets=wallets)
+    manifest = json.loads((output_dir / "manifest.json").read_text(encoding="utf-8"))
+    health = report["feature_health"]
+
+    assert health["row_count"] == 2
+    assert health["features"]["complexity"]["cardinality"] == 1
+    assert health["features"]["complexity"]["constant_value"] == 5.0
+    assert health["failures"] == []
+    assert any(
+        warning["feature"] == "complexity" and warning["statistic"] == "cardinality"
+        for warning in health["warnings"]
+    )
+    assert manifest["feature_health"] == health
+
+
+def test_feature_health_fails_pre_hok2495_constant_standard_complexity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    objects = {
+        _object_key("sub-a"): _record_payload(
+            "sub-a",
+            [_feature_row(f"r-{index}", complexity="standard") for index in range(12)],
+        )
+    }
+    wallets = {("user-1", "api-1", "svc-1"): "0x742d35cc6634c0532925a3b844bc9e7595f62341"}
+
+    with pytest.raises(
+        assembler.FeatureHealthError,
+        match=r"Feature `complexity` is constant \(value 5.0\) across 12 rows",
+    ):
+        _run_assemble(tmp_path, monkeypatch, objects=objects, wallets=wallets)
+
+    report = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+    assert report["feature_health"]["failures"][0]["feature"] == "complexity"
+    assert report["feature_health"]["failures"][0]["statistic"] == "cardinality"
+    assert manifest["feature_health"] == report["feature_health"]
+
+
+def test_feature_health_fails_when_default_rate_exceeds_threshold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    objects = {
+        _object_key("sub-a"): _record_payload(
+            "sub-a",
+            [_feature_row(f"r-{index}", complexity="routine") for index in range(10)],
+        )
+    }
+    wallets = {("user-1", "api-1", "svc-1"): "0x742d35cc6634c0532925a3b844bc9e7595f62341"}
+
+    with pytest.raises(
+        assembler.FeatureHealthError,
+        match=r"Feature `complexity` defaulted on 100.0% of 10 rows",
+    ):
+        _run_assemble(tmp_path, monkeypatch, objects=objects, wallets=wallets)
+
+    report = json.loads((tmp_path / "report.json").read_text(encoding="utf-8"))
+    complexity_health = report["feature_health"]["features"]["complexity"]
+    assert complexity_health["coercion_counts"] == {"unrecognized_word": 10}
+    assert complexity_health["default_count"] == 10
+    assert complexity_health["percent_defaulted"] == 100.0
+    assert report["feature_health"]["failures"][0]["statistic"] == "percent_defaulted"
+
+
 def test_dedup_keeps_lowest_s3_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     objects = {
         _object_key("aaa-sub"): _record_payload("dup", [_valid_row("r-1")]),
@@ -267,6 +434,39 @@ def test_invalid_row_quarantined_with_reason(
     assert report["quarantined_rows"] == 1
     assert any(entry["reason"] == "invalid_row" for entry in quarantine_rows)
     assert _read_jsonl(output_dir / "dataset.jsonl") == [_valid_row("ok")]
+
+
+def test_partial_fidelity_tier_excluded_from_training(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Both rows are schema-valid; the second is dropped purely because intake
+    # classified it partial (telemetry/calibration only), proving the assembler
+    # honors the authoritative per-row fidelity tier.
+    payload = _record_payload("sub-a", [_valid_row("keep"), _valid_row("drop")])
+    payload["metadata"]["row_fidelity_tiers"] = ["training_eligible", "partial"]
+    objects = {_object_key("sub-a"): payload}
+    wallets = {("user-1", "api-1", "svc-1"): "0x742d35cc6634c0532925a3b844bc9e7595f62341"}
+
+    report, output_dir, _ = _run_assemble(tmp_path, monkeypatch, objects=objects, wallets=wallets)
+
+    assert report["excluded_partial_rows"] == 1
+    assert report["row_count"] == 1
+    assert _read_jsonl(output_dir / "dataset.jsonl") == [_valid_row("keep")]
+
+
+def test_non_ranking_fidelity_tier_excluded_from_training(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = _record_payload("sub-a", [_valid_row("keep"), _valid_row("singleton")])
+    payload["metadata"]["row_fidelity_tiers"] = ["training_eligible", "non_ranking"]
+    objects = {_object_key("sub-a"): payload}
+    wallets = {("user-1", "api-1", "svc-1"): "0x742d35cc6634c0532925a3b844bc9e7595f62341"}
+
+    report, output_dir, _ = _run_assemble(tmp_path, monkeypatch, objects=objects, wallets=wallets)
+
+    assert report["excluded_non_ranking_rows"] == 1
+    assert report["row_count"] == 1
+    assert _read_jsonl(output_dir / "dataset.jsonl") == [_valid_row("keep")]
 
 
 def test_unparseable_record_quarantined(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

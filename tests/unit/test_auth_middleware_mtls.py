@@ -155,7 +155,7 @@ class TestMTLSAuthenticationDispatch:
             from src.middleware.auth import ValidationResult
 
             mock_validate.return_value = ValidationResult(
-                is_valid=True, user_id="user123", key_id="key123", scopes=["mlflow:write"]
+                is_valid=True, user_id="user123", key_id="key123", scopes=["mlflow:admin"]
             )
 
             # Mock call_next
@@ -193,7 +193,7 @@ class TestMTLSAuthenticationDispatch:
             from src.middleware.auth import ValidationResult
 
             mock_validate.return_value = ValidationResult(
-                is_valid=True, user_id="user123", key_id="key123", scopes=["mlflow:write"]
+                is_valid=True, user_id="user123", key_id="key123", scopes=["mlflow:admin"]
             )
 
             # Mock call_next
@@ -303,7 +303,7 @@ class TestMTLSAuthenticationDispatch:
                 await self.middleware.dispatch(mock_request, mock_call_next)
 
                 # Verify warning was logged
-                mock_logger.warning.assert_called_with(
+                mock_logger.warning.assert_any_call(
                     "Internal request from 10.0.1.5 without valid mTLS certificate"
                 )
 

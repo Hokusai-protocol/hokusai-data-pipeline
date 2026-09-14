@@ -7,6 +7,11 @@ ENVIRONMENT=${ENVIRONMENT:-development}
 MLFLOW_MTLS_ENABLED=${MLFLOW_MTLS_ENABLED:-false}
 echo "Environment: $ENVIRONMENT"
 echo "mTLS: $MLFLOW_MTLS_ENABLED"
+# MLflow 3.x matches the Host header including port, and the ALB forwards the
+# internal target host as "<host>:5000" (and the public host as "<host>:443").
+# Include the port-qualified variants or MLflow rejects them as DNS rebinding.
+MLFLOW_ALLOWED_HOSTS=${MLFLOW_ALLOWED_HOSTS:-"registry.hokus.ai,registry.hokus.ai:443,mlflow.hokusai-development.local,mlflow.hokusai-development.local:5000,mlflow.hokusai-production.local,mlflow.hokusai-production.local:5000,localhost,localhost:5000,127.0.0.1,127.0.0.1:5000,mlflow,mlflow:5000"}
+echo "Allowed hosts: $MLFLOW_ALLOWED_HOSTS"
 
 # Configure mTLS when explicitly enabled. Historically this branched on
 # ENVIRONMENT=staging/production, which forced dev to lie about its environment
@@ -74,24 +79,22 @@ else
     UVICORN_SSL_OPTS=""
 fi
 
-# Start MLflow server
+export _MLFLOW_SERVER_FILE_STORE="${BACKEND_STORE_URI}"
+export _MLFLOW_SERVER_ARTIFACT_ROOT="${DEFAULT_ARTIFACT_ROOT}"
+export _MLFLOW_SERVER_SERVE_ARTIFACTS="true"
+export _MLFLOW_STATIC_PREFIX="/mlflow"
+export MLFLOW_SERVER_ALLOWED_HOSTS="$MLFLOW_ALLOWED_HOSTS"
+export _MLFLOW_SGI_NAME="uvicorn"
+
+# Start MLflow server through the Hokusai admin gateway. This protects direct
+# ALB routes to /mlflow/* even when they bypass the FastAPI proxy service.
 if [ -n "$UVICORN_SSL_OPTS" ]; then
-    exec mlflow server \
+    exec uvicorn hokusai_mlflow_admin_gateway:app \
         --host 0.0.0.0 \
         --port 5000 \
-        --allowed-hosts "*" \
-        --static-prefix /mlflow \
-        --backend-store-uri "${BACKEND_STORE_URI}" \
-        --default-artifact-root "${DEFAULT_ARTIFACT_ROOT}" \
-        --serve-artifacts \
-        --uvicorn-opts "$UVICORN_SSL_OPTS"
+        $UVICORN_SSL_OPTS
 else
-    exec mlflow server \
+    exec uvicorn hokusai_mlflow_admin_gateway:app \
         --host 0.0.0.0 \
-        --port 5000 \
-        --allowed-hosts "*" \
-        --static-prefix /mlflow \
-        --backend-store-uri "${BACKEND_STORE_URI}" \
-        --default-artifact-root "${DEFAULT_ARTIFACT_ROOT}" \
-        --serve-artifacts
+        --port 5000
 fi

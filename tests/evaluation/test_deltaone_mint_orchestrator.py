@@ -15,10 +15,13 @@ import pytest
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from src.api.schemas.token_mint import TokenMintResult
+from src.api.services.auth_service_notifier import WalletResolution
 from src.cli.attestation import AttestationState
 from src.evaluation.deltaone_evaluator import DeltaOneDecision
 from src.evaluation.deltaone_mint_orchestrator import DeltaOneMintOrchestrator
+from src.evaluation.event_payload import EventPayloadError
 from src.evaluation.tags import (
+    PER_ROW_ARTIFACT_URI_TAG,
     WEIGHT_COMMITMENT_BASELINE_TAG,
     WEIGHT_COMMITMENT_CANDIDATE_TAG,
 )
@@ -26,6 +29,16 @@ from src.events.publishers.mint_request_publisher import QUEUE_NAME, MintRequest
 
 _CONTRIBUTORS_TAG = json.dumps(
     [{"wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341", "weight_bps": 10000}]
+)
+_AUTH_RECORDABLE_CONTRIBUTORS_TAG = json.dumps(
+    [
+        {
+            "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+            "weight_bps": 10000,
+            "submissionId": "batch-123",
+            "contributorId": "36121dbd-a9e0-4c8f-ba4d-57708814b6f8",
+        }
+    ]
 )
 _BASELINE_COMMITMENT = "0x" + "12" * 32
 _CANDIDATE_COMMITMENT = "0x" + "34" * 32
@@ -36,7 +49,16 @@ class _FakeRewardNotifier:
         self.calls: list[dict[str, object]] = []
         self.fail_statuses = fail_statuses or set()
 
-    def notify_reward_entitlement(self, *, mint_request, status, mint_result=None):
+    def notify_reward_entitlement(
+        self,
+        *,
+        mint_request,
+        status,
+        mint_result=None,
+        recipient_kinds=None,
+        reward_tokens=None,
+        token_address=None,
+    ):
         self.calls.append(
             {"mint_request": mint_request, "status": status, "mint_result": mint_result}
         )
@@ -93,6 +115,12 @@ def _default_tags() -> dict[str, str]:
         WEIGHT_COMMITMENT_BASELINE_TAG: _BASELINE_COMMITMENT,
         WEIGHT_COMMITMENT_CANDIDATE_TAG: _CANDIDATE_COMMITMENT,
     }
+
+
+def _auth_recordable_tags() -> dict[str, str]:
+    tags = _default_tags()
+    tags["hokusai.contributors"] = _AUTH_RECORDABLE_CONTRIBUTORS_TAG
+    return tags
 
 
 def test_acceptance_publish_success_advances_canonical_score(monkeypatch) -> None:
@@ -484,6 +512,96 @@ def test_reward_entitlement_failure_does_not_block_publish(monkeypatch) -> None:
     assert client.tags["hokusai.canonical_score"] == "0.92"
 
 
+def test_auth_reward_recording_rejects_unrecordable_contributors_before_publish(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("MINT_REQUIRE_AUTH_REWARD_RECORDING", "true")
+    decision = _accepted_decision()
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+    mint_hook = Mock()
+    mint_hook.mint.return_value = TokenMintResult(
+        status="success",
+        audit_ref="audit-1",
+        timestamp=datetime.now(timezone.utc),
+    )
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(run_metrics={"accuracy": 0.92}, initial_tags=_default_tags())
+    dispatch_mock = Mock(return_value=[])
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        dispatch_mock,
+    )
+
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=_FakeRewardNotifier(),
+    )
+
+    with pytest.raises(EventPayloadError, match="cannot be recorded by auth reward ingest"):
+        orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert redis_client.llen(QUEUE_NAME) == 0
+    assert "hokusai.canonical_score" not in client.tags
+
+
+def test_strict_reward_entitlement_failure_dispatches_reconciliation_event(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("MINT_REQUIRE_AUTH_REWARD_RECORDING", "true")
+    decision = _accepted_decision()
+    evaluator = Mock()
+    evaluator.evaluate.return_value = decision
+    evaluator.delta_threshold_pp = 1.0
+    mint_hook = Mock()
+    mint_hook.mint.return_value = TokenMintResult(
+        status="success",
+        audit_ref="audit-1",
+        timestamp=datetime.now(timezone.utc),
+    )
+    redis_client = fakeredis.FakeRedis(decode_responses=True)
+    client = _FakeMlflowClient(
+        run_metrics={"accuracy": 0.92},
+        initial_tags=_auth_recordable_tags(),
+    )
+    dispatch_mock = Mock(return_value=[])
+    monkeypatch.setattr(
+        "src.evaluation.deltaone_mint_orchestrator.dispatch_deltaone_webhook_event",
+        dispatch_mock,
+    )
+    notifier = _FakeRewardNotifier(fail_statuses={"pending"})
+    orchestrator = DeltaOneMintOrchestrator(
+        evaluator=evaluator,
+        mint_hook=mint_hook,
+        mlflow_client=client,
+        mint_request_publisher=MintRequestPublisher(redis_client=redis_client),
+        reward_entitlement_notifier=notifier,
+    )
+
+    with pytest.raises(EventPayloadError, match="auth reward ingest failed"):
+        orchestrator.process_evaluation("run-candidate", "run-baseline")
+
+    assert redis_client.llen(QUEUE_NAME) == 1
+    assert "hokusai.canonical_score" not in client.tags
+    failure_call = next(
+        call
+        for call in dispatch_mock.call_args_list
+        if call.kwargs["event_type"] == "deltaone.reward_ingest_failed"
+    )
+    assert failure_call.kwargs["payload"]["status"] == "pending"
+    assert failure_call.kwargs["payload"]["contributors"] == [
+        {
+            "contributor_id": "36121dbd-a9e0-4c8f-ba4d-57708814b6f8",
+            "submission_id": "batch-123",
+            "wallet_address": "0x742d35cc6634c0532925a3b844bc9e7595f62341",
+        }
+    ]
+
+
 def test_claimable_reward_entitlement_sent_when_vesting_present(monkeypatch) -> None:
     decision = _accepted_decision()
     evaluator = Mock()
@@ -654,3 +772,285 @@ def test_post_attach_baseline_drift_blocks_publish(monkeypatch, caplog) -> None:
         for record in caplog.records
     )
     assert redis_client.llen(QUEUE_NAME) == 0
+
+
+def test_autosign_disabled_by_default(monkeypatch) -> None:
+    from src.evaluation.deltaone_mint_orchestrator import _autosign_attestation_signatures
+
+    monkeypatch.delenv("MINT_ATTESTER_AUTOSIGN", raising=False)
+    assert _autosign_attestation_signatures(b"\x11" * 32, run_id="run-candidate") is None
+
+
+def test_autosign_env_custody_signs_and_recovers(monkeypatch) -> None:
+    from eth_keys import keys
+
+    from src.api.services.signer_custody import address_for_private_key
+    from src.evaluation.deltaone_mint_orchestrator import _autosign_attestation_signatures
+
+    private_key = "0x" + "cd" * 32
+    digest = b"\x22" * 32
+    monkeypatch.setenv("ENVIRONMENT", "local")
+    monkeypatch.setenv("MINT_ATTESTER_AUTOSIGN", "true")
+    monkeypatch.setenv("SIGNER_CUSTODY_MODE", "env")
+    monkeypatch.setenv("MINT_ATTESTER_PRIVATE_KEY", private_key)
+
+    signatures = _autosign_attestation_signatures(digest, run_id="run-candidate")
+
+    assert signatures is not None and len(signatures) == 1
+    raw = bytes.fromhex(signatures[0].removeprefix("0x"))
+    recovered = keys.Signature(
+        vrs=(raw[64] - 27, int.from_bytes(raw[:32], "big"), int.from_bytes(raw[32:64], "big"))
+    ).recover_public_key_from_msg_hash(digest)
+    assert "0x" + recovered.to_canonical_address().hex() == address_for_private_key(private_key)
+
+
+def test_autosign_env_custody_requires_private_key(monkeypatch) -> None:
+    from src.evaluation.deltaone_mint_orchestrator import _autosign_attestation_signatures
+
+    monkeypatch.setenv("ENVIRONMENT", "local")
+    monkeypatch.setenv("MINT_ATTESTER_AUTOSIGN", "true")
+    monkeypatch.setenv("SIGNER_CUSTODY_MODE", "env")
+    monkeypatch.delenv("MINT_ATTESTER_PRIVATE_KEY", raising=False)
+
+    with pytest.raises(EventPayloadError, match="MINT_ATTESTER_PRIVATE_KEY"):
+        _autosign_attestation_signatures(b"\x33" * 32, run_id="run-candidate")
+
+
+def test_autosign_rejected_outside_local_test(monkeypatch) -> None:
+    from src.evaluation.deltaone_mint_orchestrator import _autosign_attestation_signatures
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("MINT_ATTESTER_AUTOSIGN", "true")
+    monkeypatch.setenv("SIGNER_CUSTODY_MODE", "env")
+    monkeypatch.setenv("MINT_ATTESTER_PRIVATE_KEY", "0x" + "cd" * 32)
+
+    with pytest.raises(EventPayloadError, match="only allowed in local/test"):
+        _autosign_attestation_signatures(b"\x44" * 32, run_id="run-candidate")
+
+
+def test_autosign_kms_custody_rejected(monkeypatch) -> None:
+    from src.evaluation.deltaone_mint_orchestrator import _autosign_attestation_signatures
+
+    monkeypatch.setenv("ENVIRONMENT", "local")
+    monkeypatch.setenv("MINT_ATTESTER_AUTOSIGN", "true")
+    monkeypatch.setenv("SIGNER_CUSTODY_MODE", "kms")
+
+    with pytest.raises(EventPayloadError, match="cannot use KMS custody"):
+        _autosign_attestation_signatures(b"\x55" * 32, run_id="run-candidate")
+
+
+def _per_row_orchestrator() -> DeltaOneMintOrchestrator:
+    return DeltaOneMintOrchestrator(
+        evaluator=Mock(),
+        mint_hook=Mock(),
+        mlflow_client=_FakeMlflowClient(
+            run_metrics={},
+            initial_tags={PER_ROW_ARTIFACT_URI_TAG: "runs:/run-baseline/attribution"},
+        ),
+        mint_request_publisher=MintRequestPublisher(
+            redis_client=fakeredis.FakeRedis(decode_responses=True)
+        ),
+        reward_entitlement_notifier=_FakeRewardNotifier(),
+    )
+
+
+def test_load_attribution_report_builds_from_per_row_when_no_report_tag(monkeypatch) -> None:
+    import pandas as pd
+
+    from src.evaluation import deltaone_mint_orchestrator as orch_mod
+
+    candidate_frame = pd.DataFrame(
+        [
+            {
+                "row_id": "r0",
+                "completed_successfully": True,
+                "neighbor_provenance": json.dumps(
+                    [{"training_row_index": 0, "weight": 1.0, "account_id": "user-a"}]
+                ),
+            }
+        ]
+    )
+    baseline_frame = pd.DataFrame(
+        [{"row_id": "r0", "completed_successfully": False, "neighbor_provenance": "[]"}]
+    )
+
+    def _fake_read(uri: str):
+        return candidate_frame if "candidate" in uri else baseline_frame
+
+    monkeypatch.setattr(orch_mod, "_read_per_row_artifact", _fake_read)
+
+    orchestrator = _per_row_orchestrator()
+    report = orchestrator._load_attribution_report(
+        {PER_ROW_ARTIFACT_URI_TAG: "runs:/run-candidate/attribution"},
+        "run-candidate",
+        baseline_run_id="run-baseline",
+        model_id="model-a",
+    )
+
+    assert report is not None
+    assert [c["account_id"] for c in report["contributors"]] == ["user-a"]
+    assert report["candidate_run_id"] == "run-candidate"
+    assert report["baseline_run_id"] == "run-baseline"
+
+
+def test_load_attribution_report_returns_none_without_per_row_tags(monkeypatch) -> None:
+    from src.evaluation import deltaone_mint_orchestrator as orch_mod
+
+    monkeypatch.setattr(
+        orch_mod,
+        "_read_per_row_artifact",
+        lambda _uri: pytest.fail("should not read when candidate has no per-row tag"),
+    )
+
+    orchestrator = _per_row_orchestrator()
+    report = orchestrator._load_attribution_report(
+        {},  # candidate run has neither a report tag nor a per-row tag
+        "run-candidate",
+        baseline_run_id="run-baseline",
+        model_id="model-a",
+    )
+
+    assert report is None
+
+
+class _FakeWalletResolver:
+    """Auth notifier stub exposing resolve_wallet keyed by user_id (HOK-2244)."""
+
+    def __init__(self, verified_wallets: dict[str, str]) -> None:
+        self._verified = verified_wallets
+
+    def resolve_wallet(self, *, user_id, api_key_id=None, service_id=None) -> WalletResolution:
+        wallet = self._verified.get(user_id)
+        if wallet:
+            return WalletResolution(resolved=True, has_verified_wallet=True, wallet_address=wallet)
+        return WalletResolution(resolved=True, has_verified_wallet=False, wallet_address=None)
+
+
+def _resolver_orchestrator(verified_wallets: dict[str, str]) -> DeltaOneMintOrchestrator:
+    return DeltaOneMintOrchestrator(
+        evaluator=Mock(),
+        mint_hook=Mock(),
+        mlflow_client=_FakeMlflowClient(run_metrics={}),
+        mint_request_publisher=MintRequestPublisher(
+            redis_client=fakeredis.FakeRedis(decode_responses=True)
+        ),
+        reward_entitlement_notifier=_FakeWalletResolver(verified_wallets),
+    )
+
+
+def test_resolve_contributor_wallets_mixed_wallet_and_escrow(monkeypatch) -> None:
+    escrow = "0x" + "ee" * 20
+    monkeypatch.setenv("PENDING_CLAIMS_ESCROW_ADDRESS", escrow)
+    orchestrator = _resolver_orchestrator({"user-a": "0x" + "aa" * 20})
+
+    resolved = orchestrator._resolve_contributor_wallets(
+        [
+            {"account_id": "user-a", "weight_bps": 6000, "submission_id": "s1"},
+            {"account_id": "user-b", "weight_bps": 4000},  # no verified wallet -> escrow
+        ],
+        run_id="run-x",
+    )
+
+    by_id = {c["contributor_id"]: c for c in resolved}
+    assert by_id["user-a"]["wallet_address"] == "0x" + "aa" * 20
+    assert by_id["user-a"]["submission_id"] == "s1"
+    assert by_id["user-a"]["recipient_kind"] == "wallet"  # verified wallet
+    assert by_id["user-b"]["wallet_address"] == escrow  # routed to escrow, not dropped
+    assert by_id["user-b"]["recipient_kind"] == "escrow"  # HOK-2270 explicit flag
+    assert len(resolved) == 2
+    assert all("account_id" not in c for c in resolved)  # mapped to contributor_id
+
+
+def test_notify_reward_entitlement_threads_kinds_and_tokens(monkeypatch) -> None:
+    # HOK-2270: the orchestrator threads recipient_kind + reward_tokens into the notifier so
+    # auth ingests account-centric rows with an explicit escrow flag (no address matching).
+    captured: dict[str, object] = {}
+
+    class _CapturingNotifier:
+        def notify_reward_entitlement(
+            self,
+            *,
+            mint_request,
+            status,
+            mint_result=None,
+            recipient_kinds=None,
+            reward_tokens=None,
+            token_address=None,
+        ):
+            captured["recipient_kinds"] = recipient_kinds
+            captured["reward_tokens"] = reward_tokens
+            captured["token_address"] = token_address
+            return True, None
+
+    orchestrator = _resolver_orchestrator({})
+    orchestrator._reward_entitlement_notifier = _CapturingNotifier()
+    escrow = "0x" + "ee" * 20
+
+    orchestrator._notify_reward_entitlement(
+        mint_request=SimpleNamespace(idempotency_key="0x" + "ab" * 32),
+        status="pending",
+        contributors=[
+            {"wallet_address": "0x" + "aa" * 20, "recipient_kind": "wallet"},
+            {"wallet_address": escrow, "recipient_kind": "escrow"},
+        ],
+        reward_tokens=1000.0,
+        token_address="0x" + "70" * 20,
+    )
+
+    assert captured["recipient_kinds"] == {"0x" + "aa" * 20: "wallet", escrow: "escrow"}
+    assert captured["reward_tokens"] == 1000.0
+    assert captured["token_address"] == "0x" + "70" * 20
+
+
+def test_resolve_contributor_wallets_keeps_legacy_wallet() -> None:
+    orchestrator = _resolver_orchestrator({})  # resolver would say "unverified"
+    legacy = [{"wallet_address": "0x" + "bb" * 20, "weight_bps": 10000}]
+
+    # A contributor that already carries a wallet (lineage report/spec/tag) is untouched.
+    assert orchestrator._resolve_contributor_wallets(legacy, run_id="run-x") == legacy
+
+
+def test_resolve_contributor_wallets_requires_identity() -> None:
+    orchestrator = _resolver_orchestrator({})
+    with pytest.raises(EventPayloadError, match="neither wallet_address nor account_id"):
+        orchestrator._resolve_contributor_wallets([{"weight_bps": 10000}], run_id="run-x")
+
+
+def test_resolve_contributor_wallets_escrow_unset_raises_not_drops(monkeypatch) -> None:
+    monkeypatch.delenv("PENDING_CLAIMS_ESCROW_ADDRESS", raising=False)
+    orchestrator = _resolver_orchestrator({})  # user-b has no verified wallet
+    with pytest.raises(EventPayloadError, match="PENDING_CLAIMS_ESCROW_ADDRESS"):
+        orchestrator._resolve_contributor_wallets(
+            [{"account_id": "user-b", "weight_bps": 10000}], run_id="run-x"
+        )
+
+
+def test_resolve_contributors_account_centric_report_end_to_end(monkeypatch) -> None:
+    # Acceptance: account-centric attribution report -> resolved contributor set with mixed
+    # verified-wallet and no-wallet (escrow) accounts; none dropped.
+    escrow = "0x" + "ee" * 20
+    monkeypatch.setenv("PENDING_CLAIMS_ESCROW_ADDRESS", escrow)
+    orchestrator = _resolver_orchestrator({"user-a": "0x" + "aa" * 20})
+    report = {
+        "schema_version": "attribution_report/v1",
+        "candidate_run_id": "run-x",
+        "contributors": [
+            {"account_id": "user-a", "raw_score": 0.6, "submission_ids": ["s1"]},
+            {"account_id": "user-b", "raw_score": 0.4, "submission_ids": []},
+        ],
+    }
+
+    resolved = orchestrator._resolve_contributors(
+        candidate_tags={},
+        candidate_run_id="run-x",
+        spec=None,
+        attribution_report=report,
+    )
+
+    by_id = {c["contributor_id"]: c for c in resolved}
+    assert by_id["user-a"]["wallet_address"] == "0x" + "aa" * 20
+    assert by_id["user-a"]["recipient_kind"] == "wallet"
+    assert by_id["user-b"]["wallet_address"] == escrow
+    assert by_id["user-b"]["recipient_kind"] == "escrow"
+    assert sum(c["weight_bps"] for c in resolved) == 10000
+    assert len(resolved) == 2

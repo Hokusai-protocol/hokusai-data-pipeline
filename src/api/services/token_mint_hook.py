@@ -206,6 +206,16 @@ class TokenMintHook:
         for field_name in TokenMintResult._FLAT_VESTING_FIELDS:
             if field_name in response_body:
                 result_payload[field_name] = response_body.get(field_name)
+        for field_name in (
+            "tx_hash",
+            "token_address",
+            "token_symbol",
+            "recipient_address",
+            "claimed_at",
+            "deployment",
+        ):
+            if field_name in response_body:
+                result_payload[field_name] = response_body.get(field_name)
 
         return TokenMintResult.model_validate(result_payload)
 

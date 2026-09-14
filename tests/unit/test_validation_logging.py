@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 from fastapi import FastAPI
@@ -42,6 +43,14 @@ def _flat_benchmark_payload(value: str = "technical_task_router_row/v1") -> dict
     }
 
 
+def _validation_records(caplog) -> list[logging.LogRecord]:
+    return [
+        record
+        for record in caplog.records
+        if getattr(record, "event_type", None) == "validation_422"
+    ]
+
+
 def test_outer_missing_inputs_emits_validation_422_log(caplog) -> None:
     client = TestClient(_build_app(register_validation_handler=True))
 
@@ -49,9 +58,14 @@ def test_outer_missing_inputs_emits_validation_422_log(caplog) -> None:
         response = client.post("/api/v1/models/30/predict", json={})
 
     assert response.status_code == 422
-    records = [record for record in caplog.records if record.msg == "validation_422"]
+    records = _validation_records(caplog)
     assert len(records) == 1
     record = records[0]
+    message_payload = json.loads(record.getMessage())
+    assert message_payload["event_type"] == "validation_422"
+    assert message_payload["endpoint"] == "/api/v1/models/30/predict"
+    assert message_payload["validation_errors"]
+    assert message_payload["validation_error_summary"]
     assert record.event_type == "validation_422"
     assert record.endpoint == "/api/v1/models/30/predict"
     assert record.validation_errors
@@ -104,7 +118,8 @@ def test_inner_model30_flat_payload_emits_validation_422_log(caplog) -> None:
         response = client.post("/api/v1/models/30/predict", json=_flat_benchmark_payload())
 
     assert response.status_code == 422
-    record = next(record for record in caplog.records if record.msg == "validation_422")
+    record = _validation_records(caplog)[0]
+    message_payload = json.loads(record.getMessage())
     assert record.event_type == "validation_422"
     assert record.endpoint == "/api/v1/models/30/predict"
     assert record.validation_errors
@@ -114,6 +129,8 @@ def test_inner_model30_flat_payload_emits_validation_422_log(caplog) -> None:
         "user_agent": "testclient",
         "client_ip_class": "unknown",
     }
+    assert message_payload["caller_fingerprint"] == record.caller_fingerprint
+    assert message_payload["model_id"] == "30"
 
 
 def test_inner_model30_422_has_x_request_id_header() -> None:

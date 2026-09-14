@@ -50,33 +50,42 @@ def attribute(
         & (joined[f"{OUTCOME_COLUMN}_candidate"] == True)  # noqa: E712
     ]
 
-    wallet_totals: dict[str, dict[str, Any]] = {}
-    skipped_null_wallet_shares = 0.0
+    identity_totals: dict[str, dict[str, Any]] = {}
+    skipped_no_identity_shares = 0.0
 
     for _, row in eligible.iterrows():
-        per_wallet, skipped_share = _row_wallet_shares(
+        per_identity, skipped_share = _row_identity_shares(
             row_id=str(row[ROW_ID_COLUMN]),
             encoded_neighbor_provenance=row[NEIGHBOR_PROVENANCE_COLUMN],
         )
-        skipped_null_wallet_shares += skipped_share
-        for wallet, wallet_share in per_wallet.items():
-            aggregate = wallet_totals.setdefault(
-                wallet,
+        skipped_no_identity_shares += skipped_share
+        for identity, identity_share in per_identity.items():
+            aggregate = identity_totals.setdefault(
+                identity,
                 {
-                    "wallet": wallet,
+                    "account_id": identity_share["account_id"],
+                    "wallet": identity_share["wallet"],
                     "submission_ids": set(),
                     "rows_credited": set(),
                     "raw_score": 0.0,
                 },
             )
-            aggregate["submission_ids"].update(wallet_share["submission_ids"])
+            # Backfill the other identity field if a later slot supplies one the first lacked.
+            if aggregate["wallet"] is None and identity_share["wallet"] is not None:
+                aggregate["wallet"] = identity_share["wallet"]
+            if aggregate["account_id"] is None and identity_share["account_id"] is not None:
+                aggregate["account_id"] = identity_share["account_id"]
+            aggregate["submission_ids"].update(identity_share["submission_ids"])
             aggregate["rows_credited"].add(str(row[ROW_ID_COLUMN]))
-            aggregate["raw_score"] += wallet_share["share"]
+            aggregate["raw_score"] += identity_share["share"]
 
-    if skipped_null_wallet_shares:
-        logger.info("Skipped %.6f null-wallet attribution share(s)", skipped_null_wallet_shares)
+    if skipped_no_identity_shares:
+        logger.info(
+            "Skipped %.6f attribution share(s) with no contributor identity",
+            skipped_no_identity_shares,
+        )
 
-    contributors = _finalize_contributors(wallet_totals)
+    contributors = _finalize_contributors(identity_totals)
     return {
         "schema_version": "attribution_report/v1",
         "model_id": model_id,
@@ -102,7 +111,7 @@ def _require_columns(
         raise ValueError(f"{frame_name} per-row frame missing required columns: {missing}")
 
 
-def _row_wallet_shares(
+def _row_identity_shares(
     *,
     row_id: str,
     encoded_neighbor_provenance: Any,
@@ -118,25 +127,29 @@ def _row_wallet_shares(
     else:
         normalized = [weight / total_weight for weight in weights]
 
-    per_wallet: dict[str, dict[str, Any]] = {}
-    skipped_null_wallet_shares = 0.0
+    per_identity: dict[str, dict[str, Any]] = {}
+    skipped_no_identity_shares = 0.0
     for neighbor, share in zip(neighbors, normalized, strict=True):
         if share <= 0:
             continue
+        account_id = neighbor.get("account_id")
         wallet = neighbor.get("wallet")
-        if wallet is None:
-            skipped_null_wallet_shares += share
+        # Identity is the account (preferred) or the wallet; account-centric provenance may
+        # omit the wallet (resolved at mint). Skip only when neither is present.
+        identity = account_id if account_id is not None else wallet
+        if identity is None:
+            skipped_no_identity_shares += share
             continue
-        wallet_key = str(wallet)
-        aggregate = per_wallet.setdefault(
-            wallet_key,
-            {"submission_ids": set(), "share": 0.0},
+        identity_key = str(identity)
+        aggregate = per_identity.setdefault(
+            identity_key,
+            {"account_id": account_id, "wallet": wallet, "submission_ids": set(), "share": 0.0},
         )
         aggregate["share"] += share
         submission_id = neighbor.get("submission_id")
         if submission_id:
             aggregate["submission_ids"].add(str(submission_id))
-    return per_wallet, skipped_null_wallet_shares
+    return per_identity, skipped_no_identity_shares
 
 
 def _decode_neighbor_provenance(
@@ -158,37 +171,40 @@ def _decode_neighbor_provenance(
     return [dict(item) for item in decoded]
 
 
-def _finalize_contributors(wallet_totals: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    if not wallet_totals:
+def _finalize_contributors(identity_totals: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    if not identity_totals:
         return []
 
-    ordered_wallets = sorted(wallet_totals)
-    total_raw = sum(float(wallet_totals[wallet]["raw_score"]) for wallet in ordered_wallets)
+    ordered = sorted(identity_totals)
+    total_raw = sum(float(identity_totals[i]["raw_score"]) for i in ordered)
     if total_raw <= 0:
         return []
-    exact_bps = {
-        wallet: (float(wallet_totals[wallet]["raw_score"]) / total_raw) * 10000.0
-        for wallet in ordered_wallets
-    }
-    floor_bps = {wallet: math.floor(value) for wallet, value in exact_bps.items()}
+    exact_bps = {i: (float(identity_totals[i]["raw_score"]) / total_raw) * 10000.0 for i in ordered}
+    floor_bps = {i: math.floor(value) for i, value in exact_bps.items()}
     deficit = 10000 - sum(floor_bps.values())
     if deficit > 0:
         remainders = sorted(
-            ordered_wallets,
-            key=lambda wallet: (-(exact_bps[wallet] - floor_bps[wallet]), wallet),
+            ordered,
+            key=lambda i: (-(exact_bps[i] - floor_bps[i]), i),
         )
-        for wallet in remainders[:deficit]:
-            floor_bps[wallet] += 1
+        for i in remainders[:deficit]:
+            floor_bps[i] += 1
 
-    contributors = [
-        {
-            "wallet": wallet,
-            "submission_ids": sorted(wallet_totals[wallet]["submission_ids"]),
-            "rows_credited": len(wallet_totals[wallet]["rows_credited"]),
-            "raw_score": round(float(wallet_totals[wallet]["raw_score"]), 12),
-            "weight_bps": int(floor_bps[wallet]),
+    contributors: list[tuple[str, dict[str, Any]]] = []
+    for i in ordered:
+        totals = identity_totals[i]
+        item: dict[str, Any] = {
+            "submission_ids": sorted(totals["submission_ids"]),
+            "rows_credited": len(totals["rows_credited"]),
+            "raw_score": round(float(totals["raw_score"]), 12),
+            "weight_bps": int(floor_bps[i]),
         }
-        for wallet in ordered_wallets
-    ]
-    contributors.sort(key=lambda item: (-item["weight_bps"], item["wallet"]))
-    return contributors
+        # Preserve only the identity fields present (wallet-only output unchanged).
+        if totals["wallet"] is not None:
+            item["wallet"] = totals["wallet"]
+        if totals["account_id"] is not None:
+            item["account_id"] = totals["account_id"]
+        contributors.append((i, item))
+
+    contributors.sort(key=lambda pair: (-pair[1]["weight_bps"], pair[0]))
+    return [item for _, item in contributors]

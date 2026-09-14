@@ -22,6 +22,7 @@ def _cohort(
     cohort_id: str,
     *,
     wallet: str | None,
+    account_id: str | None = None,
     submission_ids: tuple[str, ...] | None = None,
     row_count: int = 1,
 ) -> Cohort:
@@ -30,6 +31,7 @@ def _cohort(
         wallet=wallet,
         submission_ids=submission_ids or (f"sub-{cohort_id}",),
         row_count=row_count,
+        account_id=account_id,
     )
 
 
@@ -86,6 +88,50 @@ def test_loco_additive_lift_and_bps_normalization() -> None:
     assert contributors[_wallet(2)]["weight_bps"] == 5714
     assert contributors[_wallet(3)]["weight_bps"] == 1429
     assert report["weight_bps_total"] == 10000
+
+
+def test_account_centric_cohorts_emit_account_id_without_wallet() -> None:
+    cohorts = [
+        _cohort("user-a", wallet=None, account_id="user-a"),
+        _cohort("user-b", wallet=None, account_id="user-b"),
+    ]
+
+    def eval_fn(handle: dict[str, object], eval_seed: int) -> float:
+        included_ids = handle["included_ids"]
+        return (
+            0.5
+            + (0.3 if "user-a" in included_ids else 0.0)
+            + (0.1 if "user-b" in included_ids else 0.0)
+            + eval_seed * 0.0
+        )
+
+    report = _run_attribute(cohorts, eval_fn=eval_fn, config=RetrainingConfig())
+
+    contributors = {item["account_id"]: item for item in report["contributors"]}
+    assert contributors["user-a"]["weight_bps"] == 7500
+    assert contributors["user-b"]["weight_bps"] == 2500
+    assert all("wallet" not in item for item in report["contributors"])
+    assert report["weight_bps_total"] == 10000
+    jsonschema.validate(instance=report, schema=_schema())
+
+
+def test_account_centric_cohort_preserves_wallet_when_present() -> None:
+    cohorts = [
+        _cohort("user-a", wallet=_wallet(1), account_id="user-a"),
+        _cohort("user-b", wallet=None, account_id="user-b"),
+    ]
+
+    def eval_fn(handle: dict[str, object], eval_seed: int) -> float:
+        included_ids = handle["included_ids"]
+        return 0.5 + (0.2 if "user-a" in included_ids else 0.0) + eval_seed * 0.0
+
+    report = _run_attribute(cohorts, eval_fn=eval_fn, config=RetrainingConfig())
+    contributors = {item["account_id"]: item for item in report["contributors"]}
+
+    # account_id keys the contributor; wallet is carried through only where the cohort had one.
+    assert contributors["user-a"]["wallet"] == _wallet(1)
+    assert "wallet" not in contributors["user-b"]
+    jsonschema.validate(instance=report, schema=_schema())
 
 
 def test_negative_lift_is_clamped_to_zero_bps() -> None:

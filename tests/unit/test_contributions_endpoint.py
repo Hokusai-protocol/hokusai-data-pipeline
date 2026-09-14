@@ -399,7 +399,7 @@ def test_service_notifies_auth_on_new_submission() -> None:
     assert call["storage_ref"] is None
 
 
-def test_service_does_not_notify_auth_on_idempotent_replay() -> None:
+def test_service_retries_auth_notification_on_idempotent_replay_with_stored_auth() -> None:
     store = InMemoryContributionStore()
     notifier = RecordingNotifier()
     service = ContributionService(store=store, notifier=notifier)
@@ -420,12 +420,18 @@ def test_service_does_not_notify_auth_on_idempotent_replay() -> None:
         model_id="30",
         request=payload,
         idempotency_key=None,
-        auth=VALID_AUTH,
+        auth={
+            "user_id": "99999999-9999-9999-9999-999999999999",
+            "api_key_id": "88888888-8888-8888-8888-888888888888",
+            "service_id": "other-svc",
+        },
     )
 
     assert first.status_code == 201
     assert second.status_code == 200
-    assert len(notifier.calls) == 1
+    assert len(notifier.calls) == 2
+    assert notifier.calls[1]["record"].submission_id == "batch-123"
+    assert notifier.calls[1]["auth"] == VALID_AUTH
 
 
 def test_service_continues_when_notifier_raises(caplog: pytest.LogCaptureFixture) -> None:

@@ -19,6 +19,7 @@ import pytest
 
 from scripts.model_30.clean_router_dataset import clean_router_datasets
 from scripts.model_30.register_technical_task_router import (
+    _attribution_per_row_frame,
     register_model,
     validate_router_dataset_model_ids,
 )
@@ -26,6 +27,7 @@ from src.lineage.weight_commitment import compute_weight_commitment
 from src.models.technical_task_router import (
     ROUTER_DATASET_ARTIFACT,
     TechnicalTaskRouterModel,
+    _normalize_serving_features_with_counts,
 )
 
 FIXTURE = Path(__file__).with_name("technical_task_router_fixture.csv")
@@ -60,6 +62,29 @@ def _feature_frame() -> pd.DataFrame:
             }
         ]
     )
+
+
+def _well_formed_serving_row(**overrides: Any) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "task_descriptor": "{}",
+        "task_description": "Refactor a FastAPI billing webhook with tests",
+        "task_type": "refactor",
+        "language": "python",
+        "domain": "payments",
+        "repo_size_bucket": "large",
+        "files_touched_bucket": "6_15",
+        "description_length_bucket": "medium",
+        "risk_level": "medium",
+        "requires_tests": True,
+        "is_migration": False,
+        "ui_heavy": False,
+        "cross_service": False,
+        "workflow_stages": '["plan","code","review"]',
+        "routing_objective": "highest_reliability",
+        "complexity": "medium",
+    }
+    row.update(overrides)
+    return row
 
 
 def _registration_args(**overrides: Any) -> SimpleNamespace:
@@ -126,6 +151,27 @@ def test_load_context_loads_router_dataset_artifact() -> None:
     assert result.iloc[0]["recommended_strategy"]["objective"] == "highest_reliability"
     assert result.iloc[0]["nearest_neighbors"]["count"] == 2
     assert len(result.iloc[0]["neighbor_provenance"]) == 2
+    assert result.attrs["feature_default_counts"] == {
+        "routing_objective": {"absent": 1},
+        "workflow_stages": {"absent": 1},
+    }
+
+
+def test_serving_feature_defaults_count_unrecognized_complexity_word() -> None:
+    with patch("src.models.technical_task_router._record_feature_default_metric") as metric:
+        normalized = _normalize_serving_features_with_counts(
+            _well_formed_serving_row(complexity="routine")
+        )
+
+    assert normalized.features["complexity"] == 5.0
+    assert normalized.default_counts == {"complexity": {"unrecognized_word": 1}}
+    metric.assert_called_once_with("complexity", "unrecognized_word")
+
+
+def test_serving_feature_defaults_zero_for_well_formed_row() -> None:
+    normalized = _normalize_serving_features_with_counts(_well_formed_serving_row())
+
+    assert normalized.default_counts == {}
 
 
 def test_predict_emits_neighbor_provenance_sorted_by_distance(tmp_path: Path) -> None:
@@ -140,6 +186,36 @@ def test_predict_emits_neighbor_provenance_sorted_by_distance(tmp_path: Path) ->
         key=lambda entry: (entry["distance"], entry["training_row_index"]),
     )
     assert all(entry["weight"] >= 0 for entry in provenance)
+
+
+def test_attribution_per_row_frame_projects_outcomes_and_json_provenance() -> None:
+    report = {
+        "benchmark_rows": [
+            {
+                "row_id": "r0",
+                "completed_successfully": True,
+                "neighbor_provenance": [
+                    {"training_row_index": 0, "weight": 1.0, "account_id": "user-a"}
+                ],
+            },
+            {"row_id": "r1", "completed_successfully": False},
+        ]
+    }
+
+    frame = _attribution_per_row_frame(report)
+
+    assert list(frame.columns) == ["row_id", "completed_successfully", "neighbor_provenance"]
+    assert frame["completed_successfully"].tolist() == [True, False]
+    neighbors = json.loads(frame.iloc[0]["neighbor_provenance"])
+    assert neighbors[0]["account_id"] == "user-a"
+    # Rows with no neighbors serialize to an empty list, not null.
+    assert frame.iloc[1]["neighbor_provenance"] == "[]"
+
+
+def test_attribution_per_row_frame_handles_empty_report() -> None:
+    frame = _attribution_per_row_frame({})
+    assert list(frame.columns) == ["row_id", "completed_successfully", "neighbor_provenance"]
+    assert frame.empty
 
 
 def test_predict_neighbor_provenance_caps_at_dataset_size(tmp_path: Path) -> None:
