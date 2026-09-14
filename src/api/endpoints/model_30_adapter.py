@@ -25,11 +25,14 @@ import numpy as np
 import pandas as pd
 
 from src.api.schemas import (
+    TechnicalTaskRouterDiagnostics,
     TechnicalTaskRouterInputs,
     TechnicalTaskRouterPredictions,
     TechnicalTaskStrategyRecommendation,
 )
 from src.api.utils.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL_30_MLFLOW_URI = "models:/Technical Task Router@production"
 MODEL_30_VERSION = "production"
@@ -602,6 +605,7 @@ def log_model_30_failure(
 
 
 def _normalize_v2_router_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
+    raw_diagnostics = raw_payload.get("diagnostics")
     payload = {
         "recommended_strategy": _public_strategy_payload(raw_payload["recommended_strategy"]),
         "alternatives": [
@@ -616,9 +620,14 @@ def _normalize_v2_router_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
         "nearest_neighbors": _public_nearest_neighbors_payload(raw_payload.get("nearest_neighbors"))
         or {"count": 0},
     }
+    if raw_diagnostics is not None:
+        payload["diagnostics"] = _public_diagnostics_payload(raw_diagnostics)
     parsed = TechnicalTaskRouterPredictions.model_validate(payload)
     result = parsed.model_dump(mode="json")
     _validate_public_model_ids(result)
+    if raw_diagnostics is None:
+        result.pop("diagnostics", None)
+    _log_model_30_routing_diagnostics(result)
     return result
 
 
@@ -651,6 +660,47 @@ def _public_nearest_neighbors_payload(nearest_neighbors: Any) -> Any:
     payload = dict(nearest_neighbors)
     payload["mean_duration_seconds"] = _public_duration_value(payload.get("mean_duration_seconds"))
     return payload
+
+
+def _public_diagnostics_payload(diagnostics: Any) -> Any:
+    if not isinstance(diagnostics, dict):
+        return diagnostics
+    return {
+        key: value
+        for key, value in diagnostics.items()
+        if key in TechnicalTaskRouterDiagnostics.model_fields
+    }
+
+
+def _log_model_30_routing_diagnostics(payload: dict[str, Any]) -> None:
+    diagnostics = payload.get("diagnostics")
+    if not isinstance(diagnostics, dict):
+        return
+    warnings = diagnostics.get("warnings")
+    if not isinstance(warnings, list) or "objective_routes_collapsed" not in warnings:
+        return
+
+    strategy = payload.get("recommended_strategy")
+    route = {}
+    if isinstance(strategy, dict):
+        route = {
+            key: strategy.get(key) for key in ("planner_model", "coder_model", "reviewer_model")
+        }
+    nearest_neighbors = payload.get("nearest_neighbors")
+    neighbor_count = nearest_neighbors.get("count") if isinstance(nearest_neighbors, dict) else None
+    logger.warning(
+        "model_30_objective_routes_collapsed",
+        extra={
+            "event": "model_30_objective_routes_collapsed",
+            "route": route,
+            "degenerate_objectives": diagnostics.get("degenerate_objectives"),
+            "candidate_spread": diagnostics.get("candidate_spread"),
+            "candidate_count": diagnostics.get("candidate_count"),
+            "feasible_candidate_count": diagnostics.get("feasible_candidate_count"),
+            "max_cost_usd": diagnostics.get("max_cost_usd"),
+            "neighbor_count": neighbor_count,
+        },
+    )
 
 
 def _get_or_load_model_30(model_uri: str) -> Any:

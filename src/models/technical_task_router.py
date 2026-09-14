@@ -127,6 +127,14 @@ class StrategyCandidate:
         }
 
 
+@dataclass(frozen=True)
+class _StrategyRanking:
+    """Ranked feasible routes plus diagnostics for the generated candidate set."""
+
+    strategies: dict[str, list[StrategyCandidate]]
+    diagnostics: dict[str, Any]
+
+
 class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
     """Route technical tasks to the historically best Wavemill model set.
 
@@ -235,7 +243,8 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
     ) -> dict[str, Any]:
         features = _normalize_serving_features(raw_row)
         neighbors = self._nearest_neighbors(features)
-        strategies = self._rank_strategies(neighbors, features)
+        ranking = self._rank_strategies_with_diagnostics(neighbors, features)
+        strategies = ranking.strategies
         recommended_strategy = _recommended_strategy(strategies, features["routing_objective"])
         alternatives = _strategy_alternatives(strategies, recommended_strategy)
         tradeoffs = {
@@ -271,6 +280,7 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             "recommended_strategy": recommended_strategy.to_dict(),
             "alternatives": [strategy.to_dict() for strategy in alternatives],
             "tradeoffs": tradeoffs,
+            "diagnostics": ranking.diagnostics,
             "nearest_neighbors": nearest_neighbors,
             "neighbor_provenance": _neighbor_provenance(neighbors),
         }
@@ -280,14 +290,54 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
         neighbors: pd.DataFrame,
         features: dict[str, Any],
     ) -> dict[str, list[StrategyCandidate]]:
+        """Return feasible objective rankings for internal evaluation callers."""
+        return self._rank_strategies_with_diagnostics(neighbors, features).strategies
+
+    def _rank_strategies_with_diagnostics(
+        self: TechnicalTaskRouterModel,
+        neighbors: pd.DataFrame,
+        features: dict[str, Any],
+    ) -> _StrategyRanking:
         candidates = self._strategy_candidates(neighbors, features)
-        return {
+        route_candidates = [
+            candidate for candidate in candidates if candidate.objective == "highest_reliability"
+        ]
+        max_cost = _feature_float(features, "max_cost_usd")
+        feasible_candidates = [
+            candidate
+            for candidate in candidates
+            if max_cost is None or candidate.estimated_cost_usd <= max_cost
+        ]
+        feasible_routes = [
+            candidate
+            for candidate in feasible_candidates
+            if candidate.objective == "highest_reliability"
+        ]
+        if not feasible_routes:
+            if max_cost is None:
+                raise ValueError("No routing strategies could be generated")
+            raise ValueError(f"No routing strategies fit max_cost_usd={max_cost:.6f}")
+
+        strategies = {
             objective: sorted(
-                (candidate for candidate in candidates if candidate.objective == objective),
+                (
+                    candidate
+                    for candidate in feasible_candidates
+                    if candidate.objective == objective
+                ),
                 key=lambda candidate: _strategy_sort_key(candidate, objective),
             )
             for objective in STRATEGY_OBJECTIVES
         }
+        return _StrategyRanking(
+            strategies=strategies,
+            diagnostics=_strategy_diagnostics(
+                route_candidates,
+                feasible_routes,
+                strategies,
+                max_cost=max_cost,
+            ),
+        )
 
     def _strategy_candidates(
         self: TechnicalTaskRouterModel,
@@ -731,14 +781,15 @@ def _estimate_strategy(
     }
     matched = _matching_strategy_rows(neighbors, role_choices)
     support = int(len(matched))
-    evidence = matched if not matched.empty else neighbors
-    success = _estimate_success_under_budget(evidence, role_choices)
-    cost = _estimate_strategy_cost(evidence, role_choices, features)
-    duration = _estimate_strategy_duration(evidence)
+    success = _estimate_success_under_budget(matched, role_choices)
+    cost = _estimate_strategy_cost(matched, role_choices, features)
+    duration = _estimate_strategy_duration(matched)
     confidence = _estimate_strategy_confidence(neighbors, role_choices, support)
+    evidence_kind = "exact-route" if support else "role-level fallback"
     rationale = (
-        f"Estimated {objective} strategy from {support} exact route match(es) "
-        f"across {len(neighbors)} nearest Wavemill router row(s)."
+        f"Estimated {objective} strategy from {evidence_kind} evidence with "
+        f"{support} exact route match(es) across {len(neighbors)} nearest "
+        "Wavemill router row(s)."
     )
     return StrategyCandidate(
         objective=objective,
@@ -867,26 +918,89 @@ def _estimate_strategy_confidence(
     return round(_clamp(confidence, 0.0, 0.99), 6)
 
 
-def _strategy_sort_key(candidate: StrategyCandidate, objective: str) -> tuple[float, ...]:
+def _strategy_sort_key(
+    candidate: StrategyCandidate,
+    objective: str,
+) -> tuple[float | bool | str, ...]:
     duration = candidate.estimated_duration_seconds
     duration_sort = duration if duration is not None else float("inf")
+    route_tie_breaker = _strategy_tie_breaker(candidate)
     if objective == "lowest_cost":
         return (
             candidate.estimated_cost_usd,
             -candidate.estimated_success_under_budget,
             -candidate.confidence,
+            *route_tie_breaker,
         )
     if objective == "fastest_completion":
         return (
+            duration is None,
             duration_sort,
             candidate.estimated_cost_usd,
             -candidate.estimated_success_under_budget,
+            -candidate.confidence,
+            *route_tie_breaker,
         )
     return (
         -candidate.estimated_success_under_budget,
         -candidate.confidence,
         candidate.estimated_cost_usd,
+        *route_tie_breaker,
     )
+
+
+def _strategy_tie_breaker(strategy: StrategyCandidate) -> tuple[str, str, str, str]:
+    """Return a comparable canonical route identity for deterministic ties."""
+    return (
+        strategy.planner_model or "",
+        strategy.coder_model or "",
+        strategy.reviewer_model or "",
+        ",".join(strategy.stages),
+    )
+
+
+def _strategy_diagnostics(
+    candidates: list[StrategyCandidate],
+    feasible_candidates: list[StrategyCandidate],
+    strategies: dict[str, list[StrategyCandidate]],
+    *,
+    max_cost: float | None,
+) -> dict[str, Any]:
+    """Summarize route spread and flag objective winners that share a route."""
+    costs = [candidate.estimated_cost_usd for candidate in candidates]
+    successes = [candidate.estimated_success_under_budget for candidate in candidates]
+    candidate_spread = {
+        "min_cost": round(min(costs), 6),
+        "max_cost": round(max(costs), 6),
+        "min_success": round(min(successes), 6),
+        "max_success": round(max(successes), 6),
+    }
+
+    objectives_by_route: dict[
+        tuple[str | None, str | None, str | None, tuple[str, ...]], list[str]
+    ] = {}
+    for objective in STRATEGY_OBJECTIVES:
+        ranked = strategies.get(objective) or []
+        if ranked:
+            objectives_by_route.setdefault(_public_strategy_key(ranked[0]), []).append(objective)
+
+    collapsed_groups = [
+        objectives for objectives in objectives_by_route.values() if len(objectives) > 1
+    ]
+    degenerate_objectives = max(collapsed_groups, key=len, default=[])
+    warnings = (
+        ["objective_routes_collapsed"]
+        if len(degenerate_objectives) == len(STRATEGY_OBJECTIVES)
+        else []
+    )
+    return {
+        "warnings": warnings,
+        "degenerate_objectives": degenerate_objectives,
+        "candidate_spread": candidate_spread,
+        "candidate_count": len(candidates),
+        "feasible_candidate_count": len(feasible_candidates),
+        "max_cost_usd": max_cost,
+    }
 
 
 def _recommended_strategy(

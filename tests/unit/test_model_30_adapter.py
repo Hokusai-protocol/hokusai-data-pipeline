@@ -6,6 +6,7 @@ shared env such as `MLFLOW_TRACKING_TOKEN`.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -450,6 +451,106 @@ def test_v2_prediction_response_schema_accepts_strategy_tradeoff_payload() -> No
 
     assert parsed.recommended_strategy.objective.value == "highest_reliability"
     assert parsed.nearest_neighbors.count == 40
+
+
+def test_normalize_v2_output_preserves_and_logs_collapse_diagnostics(caplog) -> None:
+    strategy = {
+        "objective": "highest_reliability",
+        "planner_model": "claude-sonnet-4-6",
+        "coder_model": "gpt-5.4",
+        "reviewer_model": "claude-sonnet-4-6",
+        "stages": ["plan", "code", "review"],
+        "estimated_success_under_budget": 0.82,
+        "estimated_cost_usd": 4.8,
+        "estimated_duration_seconds": 1800,
+        "confidence": 0.71,
+    }
+    raw = {
+        "recommended_strategy": strategy,
+        "alternatives": [],
+        "tradeoffs": {
+            "lowest_cost": {**strategy, "objective": "lowest_cost"},
+            "fastest_completion": {**strategy, "objective": "fastest_completion"},
+            "highest_reliability": strategy,
+        },
+        "diagnostics": {
+            "warnings": ["objective_routes_collapsed"],
+            "degenerate_objectives": [
+                "lowest_cost",
+                "fastest_completion",
+                "highest_reliability",
+            ],
+            "candidate_spread": {
+                "min_cost": 1.2,
+                "max_cost": 9.4,
+                "min_success": 0.4,
+                "max_success": 0.82,
+            },
+            "candidate_count": 8,
+            "feasible_candidate_count": 5,
+            "max_cost_usd": 10.0,
+            "internal_detail": "must not leak",
+        },
+        "nearest_neighbors": {"count": 40},
+    }
+
+    with caplog.at_level(logging.WARNING, logger=model_30_adapter.__name__):
+        normalized = model_30_adapter.normalize_model_30_output(
+            raw,
+            model_30_adapter.validate_nested_model_30_inputs(_full_inputs()),
+        )
+
+    assert normalized["diagnostics"] == {
+        "warnings": ["objective_routes_collapsed"],
+        "degenerate_objectives": [
+            "lowest_cost",
+            "fastest_completion",
+            "highest_reliability",
+        ],
+        "candidate_spread": {
+            "min_cost": 1.2,
+            "max_cost": 9.4,
+            "min_success": 0.4,
+            "max_success": 0.82,
+        },
+        "candidate_count": 8,
+        "feasible_candidate_count": 5,
+        "max_cost_usd": 10.0,
+    }
+    records = [
+        record for record in caplog.records if record.msg == "model_30_objective_routes_collapsed"
+    ]
+    assert len(records) == 1
+    assert records[0].event == "model_30_objective_routes_collapsed"
+    assert records[0].candidate_count == 8
+    assert records[0].feasible_candidate_count == 5
+    assert records[0].neighbor_count == 40
+
+
+def test_normalize_v2_output_omits_diagnostics_for_older_artifact() -> None:
+    raw = {
+        "recommended_strategy": {
+            "objective": "highest_reliability",
+            "coder_model": "gpt-5.4",
+            "stages": ["code"],
+            "estimated_success_under_budget": 0.82,
+            "estimated_cost_usd": 4.8,
+            "confidence": 0.71,
+        },
+        "tradeoffs": {
+            "lowest_cost": None,
+            "fastest_completion": None,
+            "highest_reliability": None,
+        },
+        "nearest_neighbors": {"count": 3},
+    }
+
+    normalized = model_30_adapter.normalize_model_30_output(
+        raw,
+        model_30_adapter.validate_nested_model_30_inputs(_minimal_inputs()),
+    )
+
+    assert "diagnostics" not in normalized
 
 
 def test_normalize_v2_output_strips_internal_strategy_support() -> None:
