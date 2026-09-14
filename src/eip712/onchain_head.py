@@ -100,6 +100,33 @@ def read_model_weight_head(
     return genesis
 
 
+def read_model_token_address(
+    rpc_url: str,
+    *,
+    model_registry_address: str,
+    model_id_uint: int,
+    timeout: float = 5.0,
+) -> str | None:
+    """Return the per-model HokusaiToken address from the on-chain ModelRegistry.
+
+    Calls ``ModelRegistry.getTokenAddress(uint256)``. Returns ``None`` if the registry maps the
+    model to the zero address (no token registered). Used to stamp ``token_address`` on the
+    reward ingest so the escrow release (HOK-2271) knows which token to move.
+    """
+    model_registry = _normalize_address(model_registry_address, field="model_registry_address")
+    word = _eth_call_bytes32(
+        rpc_url,
+        to=model_registry,
+        function_signature="getTokenAddress(uint256)",
+        encoded_args=(_encode_uint256(model_id_uint),),
+        timeout=timeout,
+    )
+    address = "0x" + word[-40:]
+    if int(address, 16) == 0:
+        return None
+    return address
+
+
 def read_attester_threshold(
     rpc_url: str,
     *,

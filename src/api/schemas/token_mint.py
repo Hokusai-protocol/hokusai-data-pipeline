@@ -30,9 +30,22 @@ class TokenMintVestingDetails(BaseModel):
     vault_address: str | None = None
     schedule_id: str | None = None
     claimable_amount: str | None = None
+    claimed_amount: str | None = None
+    token_address: str | None = None
+    beneficiary_address: str | None = None
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    duration_seconds: int | None = None
+    cliff_seconds: int | None = None
     vesting_config: dict[str, Any] | None = None
 
-    @field_validator("liquid_amount", "vested_amount", "claimable_amount", mode="before")
+    @field_validator(
+        "liquid_amount",
+        "vested_amount",
+        "claimable_amount",
+        "claimed_amount",
+        mode="before",
+    )
     @classmethod
     def _validate_amount_fields(cls: type[TokenMintVestingDetails], value: Any) -> Any:
         if value is None:
@@ -61,6 +74,13 @@ class TokenMintResult(BaseModel):
         "vault_address",
         "schedule_id",
         "claimable_amount",
+        "claimed_amount",
+        "token_address",
+        "beneficiary_address",
+        "start_at",
+        "end_at",
+        "duration_seconds",
+        "cliff_seconds",
         "vesting_config",
     )
 
@@ -69,6 +89,12 @@ class TokenMintResult(BaseModel):
     timestamp: datetime
     error: str | None = None
     vesting: TokenMintVestingDetails | None = None
+    tx_hash: str | None = None
+    token_address: str | None = None
+    token_symbol: str | None = None
+    recipient_address: str | None = None
+    claimed_at: datetime | None = None
+    deployment: dict[str, Any] | None = None
 
     @model_validator(mode="before")
     @classmethod

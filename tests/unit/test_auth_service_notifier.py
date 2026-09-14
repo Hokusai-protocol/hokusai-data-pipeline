@@ -11,7 +11,7 @@ import pytest
 
 from src.api.schemas.contribution import LifecycleReasonCode, LifecycleUpdatePayload, RowCounts
 from src.api.schemas.token_mint import TokenMintResult
-from src.api.services.auth_service_notifier import AuthServiceNotifier
+from src.api.services.auth_service_notifier import AuthServiceNotifier, WalletResolution
 from src.api.services.contribution_service import StoredContributionRecord
 from src.events.schemas import MintRequest, MintRequestContributor, MintRequestEvaluation
 
@@ -48,6 +48,10 @@ def _mint_request() -> MintRequest:
         dataset_hash="0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
         attestation_hash="0x" + "a" * 64,
         idempotency_key="0x" + "b" * 64,
+        baseline_commitment="0x" + "1a2b3c4d" * 8,
+        candidate_commitment="0x" + "2b3c4d5e" * 8,
+        attester_signatures=["0x" + ("0123456789abcdef" * 8) + "1b"],
+        deadline=4102444800,
         total_samples=3,
         evaluation=MintRequestEvaluation(
             metric_name="accuracy",
@@ -61,13 +65,15 @@ def _mint_request() -> MintRequest:
             MintRequestContributor(
                 wallet_address="0x742d35cc6634c0532925a3b844bc9e7595f62341",
                 weight_bps=7000,
-                submission_id="sub-1",
+                submission_id="33333333-3333-3333-3333-333333333331",
                 contribution_batch_id="batch-1",
+                contributor_id="44444444-4444-4444-4444-444444444441",
             ),
             MintRequestContributor(
                 wallet_address="0x6c3e007f281f6948b37c511a11e43c8026d2f069",
                 weight_bps=3000,
-                submission_id="sub-2",
+                submission_id="33333333-3333-3333-3333-333333333332",
+                contributor_id="44444444-4444-4444-4444-444444444442",
             ),
         ],
     )
@@ -86,6 +92,10 @@ def test_notifier_posts_payload_on_success(monkeypatch: pytest.MonkeyPatch) -> N
     notifier.notify_accepted(record=_record(), auth=_auth(), storage_ref="s3://bucket/key")
 
     assert post_mock.call_count == 1
+    # HOK-2256: must hit the deployed /api/v1 route (bare /internal/... 404s).
+    assert post_mock.call_args.args[0] == (
+        "https://auth.service.local/api/v1/internal/data-submissions/accepted"
+    )
     call_kwargs = post_mock.call_args.kwargs
     assert call_kwargs["headers"]["Authorization"] == "Bearer secret-token"
     assert call_kwargs["headers"]["Idempotency-Key"] == "idem-123"
@@ -203,6 +213,42 @@ def test_notify_lifecycle_update_returns_true_on_success(
     assert delivered is True
     assert error is None
     assert post_mock.call_args.kwargs["headers"]["Idempotency-Key"] == "batch-123:processed:v1"
+    # HOK-2256: the lifecycle callback lands on auth's canonical processing endpoint with the
+    # remapped ProcessedDataSubmissionUpdateRequest body (camelCase, external submission id).
+    assert post_mock.call_args.args[0].endswith("/api/v1/internal/data-submissions/processed")
+    body = post_mock.call_args.kwargs["json"]
+    assert body == {
+        "submissionId": "batch-123",
+        "status": "processed",
+        "acceptedRowCount": 2,
+        "rejectedRowCount": 1,
+        "datasetVersion": "dataset-v1",
+        "trainingRunId": "train-123",
+        "expectedRewardAt": "2026-06-05T12:00:00+00:00",
+        "metadata": {"evaluation_run_id": "eval-123"},
+    }
+
+
+def test_build_processed_body_includes_reason_code_only_for_rejections() -> None:
+    rejected = LifecycleUpdatePayload(
+        submission_id="batch-9",
+        status="rejected",
+        row_counts=RowCounts(accepted=0, rejected=4, total=4),
+        evaluation_run_id=None,
+        reason_code=LifecycleReasonCode.SCHEMA_VALIDATION_FAILED,
+    )
+
+    body = AuthServiceNotifier._build_processed_body(rejected)
+
+    # Optional Nones are omitted (never clobber stored ledger fields), and the rejection
+    # reason rides along in metadata since auth's /processed has no first-class reason field.
+    assert body == {
+        "submissionId": "batch-9",
+        "status": "rejected",
+        "acceptedRowCount": 0,
+        "rejectedRowCount": 4,
+        "metadata": {"reason_code": "SCHEMA_VALIDATION_FAILED"},
+    }
 
 
 def test_notify_lifecycle_update_returns_false_on_retryable_failure(
@@ -243,7 +289,7 @@ def test_notify_lifecycle_update_dry_run_skips_http_call(
     post_mock.assert_not_called()
 
 
-def test_notify_reward_entitlement_posts_payload_on_success(
+def test_notify_reward_entitlement_ingests_one_row_per_contributor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     notifier = AuthServiceNotifier(
@@ -258,19 +304,31 @@ def test_notify_reward_entitlement_posts_payload_on_success(
     delivered, error = notifier.notify_reward_entitlement(
         mint_request=_mint_request(),
         status="pending",
+        recipient_kinds={"0x6c3e007f281f6948b37c511a11e43c8026d2f069": "escrow"},
+        reward_tokens=1000.0,
+        token_address="0x" + "70" * 20,
     )
 
     assert delivered is True
     assert error is None
-    call_kwargs = post_mock.call_args.kwargs
-    assert call_kwargs["headers"]["Authorization"] == "Bearer secret-token"
-    assert (
-        call_kwargs["headers"]["Idempotency-Key"]
-        == f"{_mint_request().idempotency_key}:reward_entitlement:pending"
-    )
-    assert call_kwargs["json"]["contributors"][0]["submissionId"] == "sub-1"
-    assert call_kwargs["json"]["contributors"][0]["weightBps"] == 7000
-    assert call_kwargs["json"]["contributors"][1]["submissionId"] == "sub-2"
+    # One POST per contributor, to the account-centric ingest endpoint (HOK-2270).
+    assert post_mock.call_count == 2
+    first = post_mock.call_args_list[0]
+    assert first.args[0] == "https://auth.service.local/api/v1/internal/rewards/ingest"
+    body0 = first.kwargs["json"]
+    idem = _mint_request().idempotency_key
+    assert body0["reward_id"] == f"{idem}:44444444-4444-4444-4444-444444444441"
+    assert body0["user_id"] == "44444444-4444-4444-4444-444444444441"
+    assert body0["status"] == "pending"
+    assert body0["recipient_kind"] == "wallet"
+    assert body0["token_address"] == "0x" + "70" * 20  # per-model HokusaiToken (HOK-2271)
+    assert body0["amount"] == "700.0"  # 1000 * 7000/10000
+    assert first.kwargs["headers"]["Idempotency-Key"] == body0["reward_id"]
+    # The escrow-routed contributor carries the explicit escrow flag + reference.
+    body1 = post_mock.call_args_list[1].kwargs["json"]
+    assert body1["recipient_kind"] == "escrow"
+    assert body1["metadata"]["escrow_address"] == "0x6c3e007f281f6948b37c511a11e43c8026d2f069"
+    assert body1["amount"] == "300.0"
 
 
 def test_notify_reward_entitlement_dry_run_skips_http_call(
@@ -287,11 +345,40 @@ def test_notify_reward_entitlement_dry_run_skips_http_call(
     delivered, error = notifier.notify_reward_entitlement(
         mint_request=_mint_request(),
         status="pending",
+        reward_tokens=1000.0,
     )
 
     assert delivered is True
     assert error is None
     post_mock.assert_not_called()
+
+
+def test_notify_reward_entitlement_skips_contributor_without_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="secret-token",
+        dry_run=False,
+    )
+    response = Mock(status_code=201, text="")
+    post_mock = Mock(return_value=response)
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.post", post_mock)
+
+    mint_request = _mint_request()
+    # A legacy wallet-only contributor (no account/contributor_id) cannot be ingested
+    # account-centrically and must be skipped, not posted.
+    mint_request.contributors[1].contributor_id = None
+
+    delivered, error = notifier.notify_reward_entitlement(
+        mint_request=mint_request,
+        status="pending",
+        reward_tokens=1000.0,
+    )
+
+    assert delivered is True
+    assert error is None
+    assert post_mock.call_count == 1  # only the account-centric contributor
 
 
 def test_notify_reward_entitlement_retries_and_returns_false(
@@ -307,9 +394,13 @@ def test_notify_reward_entitlement_retries_and_returns_false(
     post_mock = Mock(return_value=response)
     monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.post", post_mock)
 
+    mint_request = _mint_request()
+    del mint_request.contributors[1]  # single contributor -> deterministic retry count
+
     delivered, error = notifier.notify_reward_entitlement(
-        mint_request=_mint_request(),
+        mint_request=mint_request,
         status="pending",
+        reward_tokens=1000.0,
     )
 
     assert delivered is False
@@ -332,6 +423,7 @@ def test_notify_reward_entitlement_includes_claimable_vesting(
     delivered, error = notifier.notify_reward_entitlement(
         mint_request=_mint_request(),
         status="claimable",
+        reward_tokens=1000.0,
         mint_result=TokenMintResult.model_validate(
             {
                 "status": "success",
@@ -347,26 +439,211 @@ def test_notify_reward_entitlement_includes_claimable_vesting(
 
     assert delivered is True
     assert error is None
-    assert post_mock.call_args.kwargs["json"]["vesting"]["claimable_amount"] == "25"
+    assert post_mock.call_args.kwargs["json"]["metadata"]["vesting"]["claimable_amount"] == "25"
 
 
-def test_resolve_wallet_returns_none_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_notify_reward_entitlement_marks_pending_wallet_as_mint_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     notifier = AuthServiceNotifier(
         auth_service_url="https://auth.service.local",
         internal_token="secret-token",
         dry_run=False,
     )
+    post_mock = Mock(return_value=Mock(status_code=201, text=""))
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.post", post_mock)
+
+    delivered, error = notifier.notify_reward_entitlement(
+        mint_request=_mint_request(),
+        status="pending",
+        reward_tokens=1000.0,
+    )
+
+    assert delivered is True
+    assert error is None
+    assert post_mock.call_args_list[0].kwargs["json"]["metadata"]["settlement_status"] == (
+        "mint_pending"
+    )
+
+
+def test_notify_direct_mint_settlement_posts_claimed_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifier = AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="secret-token",
+        dry_run=False,
+    )
+    post_mock = Mock(return_value=Mock(status_code=200, text=""))
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.post", post_mock)
+    mint_request = _mint_request()
+
+    delivered, error = notifier.notify_direct_mint_settlement(
+        mint_request=mint_request,
+        mint_result=TokenMintResult.model_validate(
+            {
+                "status": "success",
+                "audit_ref": "audit-1",
+                "timestamp": datetime(2026, 7, 3, tzinfo=timezone.utc),
+                "tx_hash": "0x" + "9" * 64,
+                "token_address": "0x" + "70" * 20,
+                "token_symbol": "HROUT",
+                "vesting": {
+                    "liquid_amount": "49000",
+                    "vested_amount": "196000",
+                    "vault_address": "0x" + "80" * 20,
+                    "schedule_id": "7",
+                    "token_address": "0x" + "70" * 20,
+                },
+            }
+        ),
+        reward_tokens=245000,
+        token_symbol="HROUT",
+        deployment={"delta_verifier": "0x" + "11" * 20},
+    )
+
+    assert delivered is True
+    assert error is None
+    assert post_mock.call_count == 2
+    first = post_mock.call_args_list[0]
+    assert first.args[0] == (
+        "https://auth.service.local/api/v1/internal/rewards/settlements/direct-mint"
+    )
+    body = first.kwargs["json"]
+    assert body["reward_id"] == (
+        f"{mint_request.idempotency_key}:44444444-4444-4444-4444-444444444441"
+    )
+    assert body["submission_id"] == "33333333-3333-3333-3333-333333333331"
+    assert body["user_id"] == "44444444-4444-4444-4444-444444444441"
+    assert body["token_symbol"] == "HROUT"
+    assert body["claim_tx_hash"] == "0x" + "9" * 64
+    assert body["amount"] == "171500"
+    assert body["immediate_amount"] == "34300"
+    assert body["vested_amount"] == "137200"
+    assert body["vesting_schedule"]["schedule_id"] == "7"
+    assert body["vesting_schedule"]["total_amount"] == "137200"
+    assert body["deployment"]["delta_verifier"] == "0x" + "11" * 20
+
+
+def test_notify_direct_mint_settlement_requires_receipt_hash() -> None:
+    notifier = AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="secret-token",
+        dry_run=True,
+    )
+
+    with pytest.raises(ValueError, match="tx_hash"):
+        notifier.notify_direct_mint_settlement(
+            mint_request=_mint_request(),
+            mint_result=TokenMintResult.model_validate(
+                {
+                    "status": "success",
+                    "audit_ref": "audit-1",
+                    "timestamp": datetime.now(timezone.utc),
+                    "token_address": "0x" + "70" * 20,
+                    "token_symbol": "HROUT",
+                }
+            ),
+            reward_tokens=1000,
+        )
+
+
+def _notifier() -> AuthServiceNotifier:
+    return AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="secret-token",
+        dry_run=False,
+    )
+
+
+def test_resolve_wallet_verified_200(monkeypatch: pytest.MonkeyPatch) -> None:
+    get_mock = Mock(
+        return_value=Mock(
+            status_code=200,
+            json=Mock(
+                return_value={
+                    "wallet_address": "0xABC",
+                    "verified_at": "2026-06-17T00:00:00Z",
+                    "has_verified_wallet": True,
+                }
+            ),
+        )
+    )
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.get", get_mock)
+
+    result = _notifier().resolve_wallet(user_id="11111111-1111-1111-1111-111111111111")
+
+    assert result == WalletResolution(
+        resolved=True, has_verified_wallet=True, wallet_address="0xABC"
+    )
+    # user_id is a PATH param under the required /api/v1 prefix
+    assert get_mock.call_args.args[0] == (
+        "https://auth.service.local/api/v1/internal/users/"
+        "11111111-1111-1111-1111-111111111111/wallet"
+    )
+    assert get_mock.call_args.kwargs["headers"]["Authorization"] == "Bearer secret-token"
+
+
+def test_resolve_wallet_unverified_200_routes_to_escrow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    get_mock = Mock(
+        return_value=Mock(
+            status_code=200,
+            json=Mock(
+                return_value={
+                    "wallet_address": None,
+                    "verified_at": None,
+                    "has_verified_wallet": False,
+                }
+            ),
+        )
+    )
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.get", get_mock)
+
+    result = _notifier().resolve_wallet(user_id="11111111-1111-1111-1111-111111111111")
+
+    # definitive "no verified wallet" -> escrow path (HOK-2246), not an error/drop
+    assert result.resolved is True
+    assert result.has_verified_wallet is False
+    assert result.wallet_address is None
+
+
+def test_resolve_wallet_unresolved_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
     get_mock = Mock(return_value=Mock(status_code=404, text="missing"))
     monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.get", get_mock)
 
-    wallet = notifier.resolve_wallet(
-        user_id="11111111-1111-1111-1111-111111111111",
-        api_key_id="22222222-2222-2222-2222-222222222222",
-        service_id="svc-1",
-    )
+    result = _notifier().resolve_wallet(user_id="11111111-1111-1111-1111-111111111111")
 
-    assert wallet is None
+    assert result == WalletResolution(
+        resolved=False, has_verified_wallet=False, wallet_address=None
+    )
     assert get_mock.call_count == 1
+
+
+def test_resolve_wallet_unresolved_on_403(monkeypatch: pytest.MonkeyPatch) -> None:
+    get_mock = Mock(return_value=Mock(status_code=403, text="forbidden"))
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.get", get_mock)
+
+    result = _notifier().resolve_wallet(user_id="11111111-1111-1111-1111-111111111111")
+
+    assert result.resolved is False
+    assert get_mock.call_count == 1
+
+
+def test_resolve_wallet_dry_run_skips_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    notifier = AuthServiceNotifier(
+        auth_service_url="https://auth.service.local",
+        internal_token="secret-token",
+        dry_run=True,
+    )
+    get_mock = Mock()
+    monkeypatch.setattr("src.api.services.auth_service_notifier.httpx.get", get_mock)
+
+    result = notifier.resolve_wallet(user_id="11111111-1111-1111-1111-111111111111")
+
+    assert result.resolved is False
+    assert get_mock.call_count == 0
 
 
 @pytest.mark.parametrize(

@@ -173,3 +173,72 @@ def test_equal_scores_tie_break_by_wallet() -> None:
 
     assert [item["wallet"] for item in result] == [_wallet("a"), _wallet("b")]
     assert [item["weight_bps"] for item in result] == [5000, 5000]
+
+
+def test_account_only_contributors() -> None:
+    result = derive_contributor_set(
+        _report(
+            [
+                {"account_id": "user-1", "raw_score": 3.0, "submission_ids": ["sub-a"]},
+                {"account_id": "user-2", "raw_score": 1.0, "submission_ids": ["sub-b"]},
+            ]
+        )
+    )
+
+    # account-centric: no wallet in the output (resolved at mint), keyed by account_id
+    assert result == [
+        {"account_id": "user-1", "weight_bps": 7500, "submission_ids": ["sub-a"]},
+        {"account_id": "user-2", "weight_bps": 2500, "submission_ids": ["sub-b"]},
+    ]
+
+
+def test_account_with_wallet_preserves_both() -> None:
+    result = derive_contributor_set(
+        _report(
+            [
+                {
+                    "account_id": "user-1",
+                    "wallet": _wallet("1"),
+                    "raw_score": 1.0,
+                    "submission_ids": [],
+                }
+            ]
+        )
+    )
+
+    assert result == [
+        {
+            "account_id": "user-1",
+            "wallet": _wallet("1"),
+            "weight_bps": 10000,
+            "submission_ids": [],
+        }
+    ]
+
+
+def test_mixed_account_and_wallet_entries_sum_to_10000() -> None:
+    result = derive_contributor_set(
+        _report(
+            [
+                {"account_id": "user-1", "raw_score": 1.0, "submission_ids": []},
+                {"wallet": _wallet("2"), "raw_score": 1.0, "submission_ids": []},
+            ]
+        )
+    )
+
+    assert len(result) == 2
+    assert sum(item["weight_bps"] for item in result) == 10000
+    assert any(item.get("account_id") == "user-1" for item in result)
+    assert any(item.get("wallet") == _wallet("2") for item in result)
+
+
+def test_missing_identity_raises() -> None:
+    with pytest.raises(ContributorDerivationError, match="must have account_id or wallet"):
+        derive_contributor_set(_report([{"raw_score": 1.0, "submission_ids": []}]))
+
+
+def test_invalid_account_id_raises() -> None:
+    with pytest.raises(ContributorDerivationError, match="invalid contributor account_id"):
+        derive_contributor_set(
+            _report([{"account_id": "   ", "raw_score": 1.0, "submission_ids": []}])
+        )

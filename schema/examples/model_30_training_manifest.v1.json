@@ -17,6 +17,26 @@
   "duplicates_dropped": [
     "prefix/contributions/model_id=30/submission-1-duplicate.json"
   ],
+  "feature_health": {
+    "failures": [],
+    "features": {
+      "complexity": {
+        "absent_count": 0,
+        "cardinality": 2,
+        "coercion_counts": {},
+        "constant_value": null,
+        "default_count": 0,
+        "percent_absent": 0.0,
+        "percent_defaulted": 0.0
+      }
+    },
+    "row_count": 2,
+    "thresholds": {
+      "max_default_percent": 90.0,
+      "min_failure_rows": 10
+    },
+    "warnings": []
+  },
   "quarantine_count": 1,
   "row_count": 2,
   "schema_version": "model_30_training_manifest/v1",

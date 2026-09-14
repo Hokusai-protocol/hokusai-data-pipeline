@@ -29,6 +29,14 @@ def test_launch_priority_model_ids_are_unique() -> None:
     assert len(model_ids) == len(set(model_ids))
 
 
+def test_launch_priority_catalog_is_the_serving_allowlist_for_wavemill_models() -> None:
+    config = _load_json(CONFIG_PATH)
+    aliases = {alias for model in config["models"] for alias in model.get("aliases", [])}
+
+    assert len(config["models"]) >= 30
+    assert {"glm-5.2", "gpt-5", "gpt-5-mini", "deepseek-reasoner"} <= aliases
+
+
 def test_launch_priority_model_list_includes_low_cost_challenger_families() -> None:
     config = _load_json(CONFIG_PATH)
     low_cost_families = {

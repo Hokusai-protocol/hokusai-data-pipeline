@@ -116,6 +116,7 @@ Auth-service notification failures are logged but do not roll back the already d
 `DeltaVerifier.sol` is the source of truth for signing, especially `hashMintRequest()`. The producer must build the exact EIP-712 typed data that `DeltaVerifier.hashMintRequest()` verifies:
 
 - Domain: `EIP712("HokusaiDeltaVerifier", "1")` + `chainId` + `verifyingContract`
+  - On mainnet, `chainId` = **1** and `verifyingContract` = the `DeltaVerifier` address. Canonical values live in [`deployments/mainnet.addresses.json`](../deployments/mainnet.addresses.json) and [`docs/mainnet-integration.md`](mainnet-integration.md); the pipeline receives them via `MINT_CHAIN_ID` / `MINT_VERIFYING_CONTRACT`. Sepolia (`chainId` 11155111) remains supported for dev/test.
 - Primary type: `MintRequest(uint256 modelId,MintRequestPayload payload,Contributor[] contributors)`
 - Nested types:
   - `MintRequestPayload(string pipelineRunId,uint256 baselineScoreBps,uint256 candidateScoreBps,uint256 maxCostUsdMicro,uint256 actualCostUsdMicro,uint256 totalSamples,BenchmarkAnchors anchors,bytes32 baselineCommitment,bytes32 candidateCommitment)`

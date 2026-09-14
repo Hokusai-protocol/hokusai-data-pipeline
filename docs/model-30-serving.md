@@ -26,11 +26,15 @@ Response fields include `accepted`, `modelId`, `submissionId`, `jobId`, `jobIds`
 
 Persistence is S3-backed and controlled by `HOKUSAI_CONTRIBUTIONS_BUCKET`, optional `HOKUSAI_CONTRIBUTIONS_PREFIX`, and `CONTRIBUTIONS_MAX_BODY_BYTES`.
 
+Accepted submissions are also posted to auth's data-submission ledger when `CONTRIBUTION_AUTH_CALLBACK_ENABLED=true` and `HOKUSAI_AUTH_INTERNAL_TOKEN` is present. If the flag is missing or false, the API still persists the contribution to S3 but logs `auth_submission_notification_dry_run` instead of creating an auth ledger row.
+
 ## Deploy Contract
 
 `hokusai-infrastructure` provisions the contributions bucket and includes `HOKUSAI_CONTRIBUTIONS_BUCKET` in the Terraform-rendered API task definition. That task definition is only a fallback template: the live ECS API revision is registered by [`deploy.yml`](../.github/workflows/deploy.yml), and the ECS service ignores Terraform `task_definition` drift.
 
-The deploy workflow must therefore inject `HOKUSAI_CONTRIBUTIONS_BUCKET` every time it registers a new API-family revision. If that CI variable is omitted, the next API image deploy can drop the env var from the running task definition and `POST /api/v1/models/{model_id}/contributions` will fail with the missing-persistence `503` path.
+The deploy workflow must therefore inject `HOKUSAI_CONTRIBUTIONS_BUCKET` and `CONTRIBUTION_AUTH_CALLBACK_ENABLED` every time it registers a new API-family revision. If the bucket CI variable is omitted, the next API image deploy can drop the env var from the running task definition and `POST /api/v1/models/{model_id}/contributions` will fail with the missing-persistence `503` path. If the callback flag is omitted or false, submissions are accepted but the auth dashboard ledger remains empty.
+
+Model 30 serving also needs a recoverable platform API key for API-to-MLflow registry access. The locked-down MLflow gateway requires admin MLflow/registry authorization for non-health registry paths, so the API task definition must receive `MLFLOW_TRACKING_TOKEN` from an ECS secret. Set the deploy workflow variable `MLFLOW_TRACKING_TOKEN_SECRET_ARN` to the Secrets Manager secret ARN or SSM SecureString parameter name that contains that token. The workflow fails fast if this variable is missing, and injects the secret into every registered API-family task revision.
 
 ## Public Contract
 
@@ -203,7 +207,7 @@ The current serving path validates the nested request, maps it into a one-row pa
 
 `estimated_duration_seconds` and `nearest_neighbors.mean_duration_seconds` are `null` when no positive duration evidence exists for a strategy. The `fastest_completion` tradeoff sorts null-duration strategies after positive-duration strategies; if all strategies lack duration evidence the tradeoff is still populated with an otherwise-best candidate and a null duration.
 
-The normalizer validates strategy outputs against the public response schema and rejects malformed model identifiers such as `deep-coder-v2`, `fast-coder-v1`, and `<synthetic>`. It keeps a compatibility shim for older smoke artifacts that emit only legacy selected-model fields, but the production Technical Task Router artifact is expected to emit the v2 strategy payload directly.
+The versioned `configs/model_30_launch_priority_models.v1.json` catalog is the serving allowlist. It maps provider IDs and aliases to a single public alias, including the Wavemill/OpenRouter model families. Unknown, disabled, or role-ineligible caller candidates are removed before inference; an artifact output with a stale identifier has only that assignment removed and is logged as `model_30_response_models_filtered`. Neither condition turns an otherwise valid routing response into a 503.
 
 When a candidate route has no exact historical match, its success and cost estimates are derived from the selected roles' evidence. The router does not substitute the undifferentiated neighbor aggregate for every unsupported route. Fallback duration remains `null` unless route-specific duration evidence exists.
 
@@ -224,7 +228,7 @@ For legacy smoke artifacts only, normalization accepts common aliases:
 - `score`, `probability` -> confidence
 - `cost`, `estimated_cost` -> estimated cost
 
-There is no deterministic fallback when MLflow is configured. Load, predict, or normalization failures return `503` with a `Model 30 MLflow inference failed` prefix.
+Artifact load, predict, and structural normalization failures still return `503` with a `Model 30 MLflow inference failed` prefix. Candidate catalog filtering is not an inference failure.
 
 ## Usage Debit Rejection
 

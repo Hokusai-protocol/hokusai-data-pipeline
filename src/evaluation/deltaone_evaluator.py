@@ -46,7 +46,9 @@ CONTRIBUTOR_TAG_KEYS = (
     "hokusai.contributor.training_data_uploader_id",
     "hokusai.contributor.human_labeler_id",
     "hokusai.contributor.roles",
-    "hokusai.contributors",
+    # Role->id inference attribution carried forward as DeltaOne lineage. This is NOT the
+    # mint-contributor list (`hokusai.contributors`, a wallet+weight array); see HOK-2245.
+    "hokusai.contributors_by_role",
 )
 
 

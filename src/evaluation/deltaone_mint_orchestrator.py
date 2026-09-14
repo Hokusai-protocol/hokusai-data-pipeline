@@ -47,6 +47,7 @@ from src.evaluation.tags import (
     ACTUAL_COST_TAG,
     ATTRIBUTION_REPORT_ARTIFACT_URI_TAG,
     EVAL_SPEC_ID_TAG,
+    PER_ROW_ARTIFACT_URI_TAG,
     PROJECTED_COST_TAG,
     WEIGHT_COMMITMENT_BASELINE_TAG,
     WEIGHT_COMMITMENT_CANDIDATE_TAG,
@@ -62,6 +63,7 @@ if TYPE_CHECKING:
 
 DELTAONE_ACHIEVED_EVENT = "deltaone.achieved"
 DELTAONE_MINTED_EVENT = "deltaone.minted"
+DELTAONE_REWARD_INGEST_FAILED_EVENT = "deltaone.reward_ingest_failed"
 _MLFLOW_TAG_VALUE_LIMIT = 5000
 # HOK-2170: attester-signature validity window. The deadline is set to now + this many
 # days at MintRequest assembly and bound into the EIP-712 digest the attester signs;
@@ -238,6 +240,21 @@ class RewardEntitlementNotifierProtocol(Protocol):
         mint_request: MintRequest,
         status: str,
         mint_result: TokenMintResult | None = None,
+        recipient_kinds: dict[str, str] | None = None,
+        reward_tokens: float | None = None,
+        token_address: str | None = None,
+    ) -> tuple[bool, str | None]: ...
+
+    def notify_direct_mint_settlement(
+        self: RewardEntitlementNotifierProtocol,
+        *,
+        mint_request: MintRequest,
+        mint_result: TokenMintResult,
+        reward_tokens: float,
+        token_address: str | None = None,
+        token_symbol: str | None = None,
+        deployment: dict[str, Any] | None = None,
+        recipient_kinds: dict[str, str] | None = None,
     ) -> tuple[bool, str | None]: ...
 
 
@@ -368,7 +385,12 @@ class DeltaOneMintOrchestrator:
             model_id=decision.model_id,
         )
 
-        attribution_report = self._load_attribution_report(candidate_tags, decision.run_id)
+        attribution_report = self._load_attribution_report(
+            candidate_tags,
+            decision.run_id,
+            baseline_run_id=decision.baseline_run_id,
+            model_id=decision.model_id,
+        )
         contributors = self._resolve_contributors(
             candidate_tags=candidate_tags,
             candidate_run_id=decision.run_id,
@@ -534,7 +556,12 @@ class DeltaOneMintOrchestrator:
             model_id=decision.model_id,
         )
 
-        attribution_report = self._load_attribution_report(candidate_tags, decision.run_id)
+        attribution_report = self._load_attribution_report(
+            candidate_tags,
+            decision.run_id,
+            baseline_run_id=decision.baseline_run_id,
+            model_id=decision.model_id,
+        )
         contributors = self._resolve_contributors(
             candidate_tags=candidate_tags,
             candidate_run_id=decision.run_id,
@@ -566,18 +593,104 @@ class DeltaOneMintOrchestrator:
         self: DeltaOneMintOrchestrator,
         candidate_tags: dict[str, str],
         run_id: str,
+        *,
+        baseline_run_id: str | None = None,
+        model_id: str | None = None,
     ) -> dict[str, Any] | None:
         try:
-            return self._attribution_report_loader(candidate_tags)
+            report = self._attribution_report_loader(candidate_tags)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "event=attribution_report_load_failed run_id=%s error=%s",
                 run_id,
                 exc,
             )
+            report = None
+        if report is not None:
+            return report
+        # Fallback (HOK-2245): no pre-built report tag, so assemble the report in-process
+        # from the candidate and baseline per-row artifacts. The orchestrator is the only
+        # stage that holds both run ids, so it is where the account-centric report is built.
+        if not baseline_run_id:
+            return None
+        try:
+            return self._build_attribution_report_from_per_row(
+                candidate_tags=candidate_tags,
+                candidate_run_id=run_id,
+                baseline_run_id=baseline_run_id,
+                model_id=model_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "event=attribution_report_build_failed run_id=%s baseline_run_id=%s error=%s",
+                run_id,
+                baseline_run_id,
+                exc,
+            )
             return None
 
+    def _build_attribution_report_from_per_row(
+        self: DeltaOneMintOrchestrator,
+        *,
+        candidate_tags: dict[str, str],
+        candidate_run_id: str,
+        baseline_run_id: str,
+        model_id: str | None,
+    ) -> dict[str, Any] | None:
+        """Assemble an attribution report from paired candidate/baseline per-row artifacts."""
+        candidate_uri = candidate_tags.get(PER_ROW_ARTIFACT_URI_TAG)
+        if not candidate_uri:
+            return None
+        baseline_run = self._client.get_run(baseline_run_id)
+        baseline_tags = getattr(getattr(baseline_run, "data", None), "tags", None) or {}
+        baseline_uri = baseline_tags.get(PER_ROW_ARTIFACT_URI_TAG)
+        if not baseline_uri:
+            logger.warning(
+                "event=attribution_per_row_missing run_id=%s baseline_run_id=%s",
+                candidate_run_id,
+                baseline_run_id,
+            )
+            return None
+        candidate_per_row = _read_per_row_artifact(candidate_uri)
+        baseline_per_row = _read_per_row_artifact(baseline_uri)
+        if candidate_per_row is None or baseline_per_row is None:
+            return None
+        from src.evaluation.attribution.neighbor_provenance import attribute  # noqa: PLC0415
+
+        report = attribute(
+            baseline_per_row,
+            candidate_per_row,
+            model_id=str(model_id or ""),
+            baseline_run_id=baseline_run_id,
+            candidate_run_id=candidate_run_id,
+            created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        )
+        logger.info(
+            "event=attribution_report_built_from_per_row run_id=%s baseline_run_id=%s "
+            "contributors=%d",
+            candidate_run_id,
+            baseline_run_id,
+            len(report.get("contributors", [])),
+        )
+        return report
+
     def _resolve_contributors(
+        self: DeltaOneMintOrchestrator,
+        *,
+        candidate_tags: dict[str, str],
+        candidate_run_id: str,
+        spec: dict[str, Any] | None,
+        attribution_report: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        base = self._collect_base_contributors(
+            candidate_tags=candidate_tags,
+            candidate_run_id=candidate_run_id,
+            spec=spec,
+            attribution_report=attribution_report,
+        )
+        return self._resolve_contributor_wallets(base, run_id=candidate_run_id)
+
+    def _collect_base_contributors(
         self: DeltaOneMintOrchestrator,
         *,
         candidate_tags: dict[str, str],
@@ -604,6 +717,76 @@ class DeltaOneMintOrchestrator:
                 return contributors
 
         return _extract_contributors_from_tags(candidate_tags)
+
+    def _resolve_contributor_wallets(
+        self: DeltaOneMintOrchestrator,
+        contributors: list[dict[str, Any]],
+        *,
+        run_id: str,
+    ) -> list[dict[str, Any]]:
+        """Resolve each contributor's payout recipient at mint (HOK-2244).
+
+        Contributors that already carry a ``wallet_address`` (legacy lineage reports, specs,
+        run tags) are kept as-is. Account-centric contributors (``account_id``, no wallet) are
+        resolved via the auth internal resolver: a verified wallet becomes the recipient;
+        otherwise the contributor is routed to the pending-claims escrow (HOK-2246), never
+        silently dropped. The account id is preserved as ``contributor_id`` so the escrow
+        releaser can pay the account once it verifies a wallet.
+        """
+        resolved: list[dict[str, Any]] = []
+        escrow_accounts: list[str] = []
+        for contributor in contributors:
+            if contributor.get("wallet_address"):
+                resolved.append(contributor)
+                continue
+            account_id = contributor.get("account_id")
+            if not account_id:
+                raise EventPayloadError(
+                    "contributors",
+                    f"contributor for run {run_id} has neither wallet_address nor account_id",
+                )
+            resolution = self._resolve_account_wallet(str(account_id))
+            if (
+                resolution is not None
+                and resolution.has_verified_wallet
+                and resolution.wallet_address
+            ):
+                resolved.append(
+                    _contributor_with_recipient(
+                        contributor,
+                        wallet_address=resolution.wallet_address,
+                        account_id=account_id,
+                        recipient_kind="wallet",
+                    )
+                )
+            else:
+                resolved.append(
+                    _contributor_with_recipient(
+                        contributor,
+                        wallet_address=_required_escrow_address(),
+                        account_id=account_id,
+                        recipient_kind="escrow",
+                    )
+                )
+                escrow_accounts.append(str(account_id))
+        if escrow_accounts:
+            logger.info(
+                "event=contributors_routed_to_escrow run_id=%s count=%d accounts=%s",
+                run_id,
+                len(escrow_accounts),
+                ",".join(escrow_accounts),
+            )
+        return resolved
+
+    def _resolve_account_wallet(self: DeltaOneMintOrchestrator, account_id: str) -> Any | None:
+        resolver = getattr(self._reward_entitlement_notifier, "resolve_wallet", None)
+        if resolver is None:
+            return None
+        try:
+            return resolver(user_id=account_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("event=wallet_resolution_failed account_id=%s error=%s", account_id, exc)
+            return None
 
     def _execute_mint(
         self: DeltaOneMintOrchestrator,
@@ -662,6 +845,8 @@ class DeltaOneMintOrchestrator:
             acceptance_event=acceptance_event,
             event_context=event_context,
         )
+        if _auth_reward_recording_required(self._reward_entitlement_notifier):
+            _validate_auth_recordable_contributors(mint_request)
         idempotency_key = acceptance_event.idempotency_key
         ceiling_block = self._check_cost_ceiling(
             decision=decision,
@@ -718,9 +903,15 @@ class DeltaOneMintOrchestrator:
             attestation_hash=attestation_hash,
             idempotency_key=idempotency_key,
         )
+        reward_token_address = _resolve_reward_token_address(
+            event_context.model_id_uint if event_context else None
+        )
         self._notify_reward_entitlement(
             mint_request=mint_request,
             status="pending",
+            contributors=event_context.contributors if event_context else None,
+            reward_tokens=reward_result.reward_tokens,
+            token_address=reward_token_address,
         )
         self._advance_canonical_score(decision)
         canonical_score_advanced = True
@@ -731,11 +922,21 @@ class DeltaOneMintOrchestrator:
             attestation_payload=attestation_payload,
             acceptance_event=acceptance_event,
         )
+        self._notify_direct_mint_settlement(
+            mint_request=mint_request,
+            mint_result=mint_result,
+            contributors=event_context.contributors if event_context else None,
+            reward_tokens=reward_result.reward_tokens,
+            token_address=reward_token_address,
+        )
         if mint_result.vesting_payload() is not None:
             self._notify_reward_entitlement(
                 mint_request=mint_request,
                 status="claimable",
                 mint_result=mint_result,
+                contributors=event_context.contributors if event_context else None,
+                reward_tokens=reward_result.reward_tokens,
+                token_address=reward_token_address,
             )
 
         dispatch_deltaone_webhook_event(
@@ -980,6 +1181,12 @@ class DeltaOneMintOrchestrator:
             failure_event = None
             failure_detail = None
         if failure_event is not None:
+            autosigned = _autosign_attestation_signatures(
+                compute_digest(typed_data),
+                run_id=decision.run_id,
+            )
+            if autosigned is not None:
+                return _verify_attestation_state(typed_data, signatures=autosigned)
             if _attester_signature_required():
                 logger.error("event=%s run_id=%s", failure_event, decision.run_id)
                 raise _mint_request_signing_error(
@@ -1006,17 +1213,30 @@ class DeltaOneMintOrchestrator:
         mint_request: MintRequest,
         status: str,
         mint_result: TokenMintResult | None = None,
+        contributors: list[dict[str, Any]] | None = None,
+        reward_tokens: float | None = None,
+        token_address: str | None = None,
     ) -> None:
         notifier = self._reward_entitlement_notifier
         if notifier is None:
             return
+        # Thread the mint-time recipient routing (HOK-2270) so auth records each tranche with an
+        # explicit recipient_kind ("wallet"|"escrow") and never has to match the escrow address.
+        recipient_kinds = {
+            contributor["wallet_address"]: contributor.get("recipient_kind", "wallet")
+            for contributor in (contributors or [])
+            if contributor.get("wallet_address")
+        }
         delivered, error = notifier.notify_reward_entitlement(
             mint_request=mint_request,
             status=status,
             mint_result=mint_result,
+            recipient_kinds=recipient_kinds or None,
+            reward_tokens=reward_tokens,
+            token_address=token_address,
         )
         if not delivered:
-            logger.warning(
+            logger.error(
                 (
                     "event=reward_entitlement_notification_failed "
                     "idempotency_key=%s status=%s error=%s"
@@ -1025,6 +1245,89 @@ class DeltaOneMintOrchestrator:
                 status,
                 error,
             )
+            dispatch_deltaone_webhook_event(
+                event_type=DELTAONE_REWARD_INGEST_FAILED_EVENT,
+                payload={
+                    "idempotency_key": mint_request.idempotency_key,
+                    "status": status,
+                    "error": error or "unknown reward entitlement notification failure",
+                    "contributors": [
+                        {
+                            "contributor_id": contributor.contributor_id,
+                            "submission_id": contributor.submission_id,
+                            "wallet_address": contributor.wallet_address,
+                        }
+                        for contributor in mint_request.contributors
+                    ],
+                },
+            )
+            if _auth_reward_recording_required(notifier):
+                raise EventPayloadError(
+                    "reward_entitlement",
+                    (
+                        "auth reward ingest failed after mint publication; "
+                        f"status={status} error={error}"
+                    ),
+                )
+
+    def _notify_direct_mint_settlement(
+        self: DeltaOneMintOrchestrator,
+        *,
+        mint_request: MintRequest,
+        mint_result: TokenMintResult,
+        contributors: list[dict[str, Any]] | None = None,
+        reward_tokens: float | None = None,
+        token_address: str | None = None,
+    ) -> None:
+        notifier = self._reward_entitlement_notifier
+        if notifier is None or reward_tokens is None:
+            return
+        settlement = getattr(notifier, "notify_direct_mint_settlement", None)
+        if settlement is None:
+            return
+        if mint_result.status != "success" or not mint_result.tx_hash:
+            logger.info(
+                "event=direct_mint_settlement_skipped idempotency_key=%s status=%s has_tx_hash=%s",
+                mint_request.idempotency_key,
+                mint_result.status,
+                bool(mint_result.tx_hash),
+            )
+            return
+
+        recipient_kinds = {
+            contributor["wallet_address"]: contributor.get("recipient_kind", "wallet")
+            for contributor in (contributors or [])
+            if contributor.get("wallet_address")
+        }
+        try:
+            delivered, error = settlement(
+                mint_request=mint_request,
+                mint_result=mint_result,
+                reward_tokens=reward_tokens,
+                token_address=token_address,
+                token_symbol=_resolve_reward_token_symbol(mint_request.model_id),
+                deployment=_mint_deployment_metadata(),
+                recipient_kinds=recipient_kinds or None,
+            )
+        except ValueError as exc:
+            logger.warning(
+                "event=direct_mint_settlement_invalid idempotency_key=%s error=%s",
+                mint_request.idempotency_key,
+                exc,
+            )
+            return
+
+        if not delivered:
+            logger.error(
+                "event=direct_mint_settlement_failed idempotency_key=%s error=%s",
+                mint_request.idempotency_key,
+                error,
+            )
+            if _auth_reward_recording_required(notifier):
+                raise EventPayloadError(
+                    "direct_mint_settlement",
+                    f"auth direct mint settlement failed: {error}",
+                )
 
     def _create_signed_attestation(
         self: DeltaOneMintOrchestrator,
@@ -1447,6 +1750,7 @@ def _build_acceptance_event(
                 submission_id=contributor.get("submission_id"),
                 contribution_batch_id=contributor.get("contribution_batch_id"),
                 contributor_id=contributor.get("contributor_id"),
+                recipient_kind=contributor.get("recipient_kind", "wallet"),
             )
             for contributor in normalized_contributors
         ],
@@ -1474,8 +1778,14 @@ def _extract_contributors_from_spec(spec: dict[str, Any]) -> list[dict[str, Any]
 def _extract_contributors_from_tags(tags: dict[str, str]) -> list[dict[str, Any]]:
     """Extract contributor wallet+weight records from MLflow run tags.
 
-    Checks the 'hokusai.contributors' tag (JSON array) for wallet_address entries.
-    Returns an empty list if the tag is absent or malformed.
+    Secondary fallback to the attribution report: reads the 'hokusai.contributors' tag (a JSON
+    array of {wallet_address, weight_bps} entries). Returns an empty list if the tag is absent
+    or malformed.
+
+    The DSPy role->contributor_id inference attribution lives under a different tag
+    ('hokusai.contributors_by_role', HOK-2245); a JSON object here is legacy data from before
+    that split and cannot produce mint contributors (no wallets/weights), so it is ignored with
+    a warning rather than silently dropped.
     """
     raw_json = tags.get("hokusai.contributors")
     if not raw_json:
@@ -1485,9 +1795,36 @@ def _extract_contributors_from_tags(tags: dict[str, str]) -> list[dict[str, Any]
     except (json.JSONDecodeError, ValueError):
         logger.warning("event=invalid_contributors_tag value=%r; skipping", raw_json[:200])
         return []
+    if isinstance(raw, dict):
+        logger.warning(
+            "event=contributors_tag_role_map_ignored value=%r; this is the deprecated "
+            "role->id shape, not a mint-contributor array; use the attribution report",
+            raw_json[:200],
+        )
+        return []
     if not isinstance(raw, list):
         return []
     return _normalize_contributor_list(raw)
+
+
+def _read_per_row_artifact(uri: str) -> Any | None:
+    """Download and read a per-row eval parquet artifact into a DataFrame."""
+    try:
+        import mlflow  # noqa: PLC0415
+        import pandas as pd  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_path = mlflow.artifacts.download_artifacts(
+                artifact_uri=uri,
+                dst_path=tmpdir,
+            )
+            artifact_path = Path(local_path)
+            if artifact_path.is_dir():
+                artifact_path = artifact_path / "attribution_per_row.parquet"
+            return pd.read_parquet(artifact_path)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("event=per_row_artifact_load_failed uri=%s error=%s", uri, exc)
+        return None
 
 
 def _load_attribution_report_from_artifact(uri: str) -> dict[str, Any] | None:
@@ -1536,15 +1873,110 @@ def _extract_contributors_from_attribution_report(
     derived = derive_contributor_set(report, candidate_run_id=candidate_run_id)
     contributors: list[dict[str, Any]] = []
     for entry in derived:
-        normalized = {
-            "wallet_address": entry["wallet"],
-            "weight_bps": entry["weight_bps"],
-        }
+        normalized: dict[str, Any] = {"weight_bps": entry["weight_bps"]}
+        # Account-centric reports may carry account_id with no wallet (resolved at mint,
+        # HOK-2244); legacy reports carry only wallet. Preserve whichever is present.
+        if entry.get("wallet") is not None:
+            normalized["wallet_address"] = entry["wallet"]
+        if entry.get("account_id") is not None:
+            normalized["account_id"] = entry["account_id"]
         submission_ids = entry.get("submission_ids") or []
         if submission_ids:
             normalized["submission_id"] = submission_ids[0]
         contributors.append(normalized)
     return contributors
+
+
+_ESCROW_ADDRESS_RE = re.compile(r"^0x[0-9a-f]{40}$")
+
+
+def _required_escrow_address() -> str:
+    """Return the configured pending-claims escrow address, or fail (never drop a contributor)."""
+    raw = (os.getenv("PENDING_CLAIMS_ESCROW_ADDRESS") or "").strip().lower()
+    if not raw:
+        raise EventPayloadError(
+            "contributors",
+            "contributor has no verified wallet and PENDING_CLAIMS_ESCROW_ADDRESS is not set; "
+            "cannot route to escrow (HOK-2246) and refusing to drop the contributor",
+        )
+    if not _ESCROW_ADDRESS_RE.match(raw):
+        raise EventPayloadError(
+            "contributors",
+            f"PENDING_CLAIMS_ESCROW_ADDRESS must be a 0x-prefixed 40-hex address, got {raw!r}",
+        )
+    return raw
+
+
+def _resolve_reward_token_address(model_id_uint: Any) -> str | None:
+    """Best-effort: the per-model HokusaiToken address from the on-chain ModelRegistry.
+
+    Stamped onto the reward ingest so the escrow release (HOK-2271) knows which token to move.
+    Non-fatal: returns None when unconfigured or on read failure (auth can fall back to
+    resolving the token from model_id).
+    """
+    rpc_url = (os.getenv("ETH_RPC_URL") or "").strip()
+    registry = (os.getenv("MODEL_REGISTRY_ADDRESS") or "").strip()
+    if not rpc_url or not registry or model_id_uint is None:
+        return None
+    try:
+        from src.eip712.onchain_head import read_model_token_address  # noqa: PLC0415
+
+        return read_model_token_address(
+            rpc_url,
+            model_registry_address=registry,
+            model_id_uint=int(model_id_uint),
+            timeout=5.0,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "event=reward_token_address_resolve_failed model_id_uint=%s error=%s",
+            model_id_uint,
+            exc,
+        )
+        return None
+
+
+def _resolve_reward_token_symbol(model_id: Any) -> str | None:
+    """Return the mint-time reward token symbol without consulting mutable registry state."""
+    env_symbol = (os.getenv("REWARD_TOKEN_SYMBOL") or os.getenv("TOKEN_SYMBOL") or "").strip()
+    if env_symbol:
+        return env_symbol
+    if str(model_id) == "30":
+        return "HROUT"
+    return None
+
+
+def _mint_deployment_metadata() -> dict[str, Any]:
+    """Capture deployment addresses that were active for this mint attempt."""
+    keys = {
+        "network": "CHAIN_NETWORK",
+        "chain_id": "CHAIN_ID",
+        "delta_verifier": "MINT_VERIFYING_CONTRACT",
+        "model_registry": "MODEL_REGISTRY_ADDRESS",
+        "pending_claims_escrow": "PENDING_CLAIMS_ESCROW_ADDRESS",
+        "mint_submitter": "MINT_SUBMITTER_ADDRESS",
+    }
+    metadata: dict[str, Any] = {}
+    for output_key, env_key in keys.items():
+        value = (os.getenv(env_key) or "").strip()
+        if value:
+            metadata[output_key] = value
+    return metadata
+
+
+def _contributor_with_recipient(
+    contributor: dict[str, Any],
+    *,
+    wallet_address: str,
+    account_id: Any,
+    recipient_kind: str,
+) -> dict[str, Any]:
+    """Return a contributor with resolved wallet, account_id as contributor_id, recipient_kind."""
+    resolved = {key: value for key, value in contributor.items() if key != "account_id"}
+    resolved["wallet_address"] = wallet_address
+    resolved["recipient_kind"] = recipient_kind
+    resolved.setdefault("contributor_id", str(account_id))
+    return resolved
 
 
 def _normalize_contributor_list(raw: list[Any]) -> list[dict[str, Any]]:
@@ -1625,6 +2057,7 @@ def _extract_optional_contributor_metadata(entry: dict[str, Any]) -> dict[str, s
         "submission_id": ("submission_id", "submissionId"),
         "contribution_batch_id": ("contribution_batch_id", "contributionBatchId"),
         "contributor_id": ("contributor_id", "contributorId"),
+        "recipient_kind": ("recipient_kind", "recipientKind"),
     }
     for normalized_key, aliases in field_aliases.items():
         value = next((entry.get(alias) for alias in aliases if entry.get(alias) is not None), None)
@@ -1732,6 +2165,7 @@ def _build_mint_request(
             submission_id=contributor.submission_id,
             contribution_batch_id=contributor.contribution_batch_id,
             contributor_id=contributor.contributor_id,
+            recipient_kind=contributor.recipient_kind,
         )
         for contributor in acceptance_event.contributors
     ]
@@ -1773,6 +2207,58 @@ def _build_mint_request(
         evaluation=evaluation,
         contributors=contributor_models,
     )
+
+
+def _auth_reward_recording_required(notifier: Any | None) -> bool:
+    """Return whether mint publication must be recordable in auth's reward ledger."""
+    raw = os.getenv("MINT_REQUIRE_AUTH_REWARD_RECORDING")
+    if raw is not None:
+        return raw.strip().lower() == "true"
+    if notifier is None or bool(getattr(notifier, "dry_run", False)):
+        return False
+    return os.getenv("CONTRIBUTION_AUTH_CALLBACK_ENABLED", "false").strip().lower() == "true"
+
+
+def _validate_auth_recordable_contributors(mint_request: MintRequest) -> None:
+    """Fail before publish when contributors cannot be keyed into auth reward ingest."""
+    invalid: list[dict[str, str | None]] = []
+    for contributor in mint_request.contributors:
+        contributor_id = contributor.contributor_id
+        submission_id = contributor.submission_id
+        if not submission_id or not contributor_id or not _looks_like_account_id(contributor_id):
+            invalid.append(
+                {
+                    "wallet_address": contributor.wallet_address,
+                    "submission_id": submission_id,
+                    "contributor_id": contributor_id,
+                }
+            )
+    if not invalid:
+        return
+
+    logger.error(
+        "event=mint_contributors_unresolvable idempotency_key=%s count=%d details=%s",
+        mint_request.idempotency_key,
+        len(invalid),
+        invalid,
+    )
+    raise EventPayloadError(
+        "contributors",
+        (
+            "MintRequest contains contributors that cannot be recorded by auth reward ingest: "
+            f"{invalid}"
+        ),
+    )
+
+
+def _looks_like_account_id(value: str | None) -> bool:
+    if not value:
+        return False
+    try:
+        uuid.UUID(str(value))
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return True
 
 
 def _coerce_optional_nonnegative_sample_size(value: Any) -> int | None:
@@ -1893,6 +2379,60 @@ def _load_mint_authorization_config() -> MintRequestSigningConfig:
 
 def _attester_signature_required() -> bool:
     return (os.getenv("MINT_REQUIRE_ATTESTER_SIGNATURE") or "").strip().lower() != "false"
+
+
+def _autosign_enabled() -> bool:
+    return (os.getenv("MINT_ATTESTER_AUTOSIGN") or "").strip().lower() == "true"
+
+
+def _autosign_attestation_signatures(
+    digest: bytes,
+    *,
+    run_id: str,
+) -> list[str] | None:
+    """Auto-sign the publish-time digest with the configured custody backend.
+
+    Returns ``None`` when autosign is disabled (the default), so the manual ``attest attach``
+    ceremony remains the path unless ``MINT_ATTESTER_AUTOSIGN=true`` is set explicitly. Autosign is
+    restricted to local/test env-key fixtures; deployed KMS custody is intentionally forbidden so
+    the backend transaction submitter cannot also satisfy the human attester ceremony.
+    """
+    if not _autosign_enabled():
+        return None
+    from src.api.services.signer_custody import (  # noqa: PLC0415
+        SignerCustodyMode,
+        address_for_private_key,
+        resolve_custody_mode,
+        sign_attestation_digest,
+    )
+
+    mode = resolve_custody_mode()
+    environment = (os.getenv("ENVIRONMENT") or "development").strip().lower()
+    if environment not in {"local", "test"}:
+        raise _mint_request_signing_error(
+            "MINT_ATTESTER_AUTOSIGN is only allowed in local/test environments; "
+            "use the Ledger-backed attest build/attach flow"
+        )
+    if mode is SignerCustodyMode.KMS:
+        raise _mint_request_signing_error(
+            "MINT_ATTESTER_AUTOSIGN cannot use KMS custody; attester signatures must be "
+            "created by the human Ledger-backed attester"
+        )
+    if mode is SignerCustodyMode.ENV:
+        private_key = (os.getenv("MINT_ATTESTER_PRIVATE_KEY") or "").strip()
+        if not private_key:
+            raise _mint_request_signing_error(
+                "MINT_ATTESTER_AUTOSIGN=true with env custody requires MINT_ATTESTER_PRIVATE_KEY"
+            )
+        signature = sign_attestation_digest(digest, mode=mode, private_key=private_key)
+        signer = address_for_private_key(private_key)
+    logger.info(
+        "event=mint_authorization_autosigned run_id=%s mode=%s signer=%s",
+        run_id,
+        mode.value,
+        signer,
+    )
+    return [signature]
 
 
 def _mint_request_signing_error(message: str) -> EventPayloadError:

@@ -22,48 +22,82 @@ def derive_contributor_set(
     *,
     candidate_run_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Return deterministic contributor allocations derived from positive attribution lift."""
+    """Return deterministic contributor allocations derived from positive attribution lift.
+
+    Each contributor entry is identified by ``account_id`` (the Hokusai account / user_id)
+    and/or ``wallet``. Account-centric reports may carry ``account_id`` with no wallet (the
+    wallet is resolved at mint, HOK-2244/2245); legacy reports carry only ``wallet``. The
+    output preserves whichever identity fields were present, so wallet-only reports are
+    unchanged.
+    """
     _validate_report_header(report, candidate_run_id=candidate_run_id)
     positive_contributors = _filter_positive_contributors(report)
 
     normalized: list[dict[str, Any]] = []
     raw_scores: dict[str, float] = {}
     for entry in positive_contributors:
-        wallet = entry.get("wallet")
-        if not isinstance(wallet, str) or not _ETH_ADDRESS_RE.match(wallet):
-            raise ContributorDerivationError(f"invalid contributor wallet={wallet!r}")
-        wallet = wallet.lower()
+        account_id, wallet = _contributor_identity(entry)
+        identity = account_id if account_id is not None else wallet
         normalized_submission_ids = _normalize_submission_ids(
-            wallet=wallet,
+            identity=identity,
             submission_ids=entry.get("submission_ids"),
         )
 
         raw_score = max(0.0, float(entry["raw_score"]))
-        raw_scores[wallet] = raw_score
+        raw_scores[identity] = raw_score
         normalized.append(
             {
+                "identity": identity,
+                "account_id": account_id,
                 "wallet": wallet,
                 "submission_ids": normalized_submission_ids,
             }
         )
 
-    weight_bps_by_wallet = _largest_remainder_bps(raw_scores)
-    total_weight_bps = sum(weight_bps_by_wallet.values())
+    weight_bps_by_identity = _largest_remainder_bps(raw_scores)
+    total_weight_bps = sum(weight_bps_by_identity.values())
     if total_weight_bps != 10000:
         raise ContributorDerivationError(
             f"derived contributor weights must sum to 10000; got {total_weight_bps}"
         )
 
-    result = [
-        {
-            "wallet": entry["wallet"],
-            "weight_bps": weight_bps_by_wallet[entry["wallet"]],
+    normalized.sort(key=lambda entry: entry["identity"])
+    result: list[dict[str, Any]] = []
+    for entry in normalized:
+        item: dict[str, Any] = {
+            "weight_bps": weight_bps_by_identity[entry["identity"]],
             "submission_ids": entry["submission_ids"],
         }
-        for entry in normalized
-    ]
-    result.sort(key=lambda item: item["wallet"])
+        # Preserve only the identity fields that were present (wallet-only output unchanged).
+        if entry["wallet"] is not None:
+            item["wallet"] = entry["wallet"]
+        if entry["account_id"] is not None:
+            item["account_id"] = entry["account_id"]
+        result.append(item)
     return result
+
+
+def _contributor_identity(entry: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Return (account_id, wallet) for a contributor entry; at least one must be present.
+
+    Validates the wallet format when present and requires a non-empty account_id when
+    present. Account-centric entries may omit the wallet (resolved at mint).
+    """
+    account_id = entry.get("account_id")
+    if account_id is not None:
+        if not isinstance(account_id, str) or not account_id.strip():
+            raise ContributorDerivationError(f"invalid contributor account_id={account_id!r}")
+        account_id = account_id.strip()
+
+    wallet = entry.get("wallet")
+    if wallet is not None:
+        if not isinstance(wallet, str) or not _ETH_ADDRESS_RE.match(wallet):
+            raise ContributorDerivationError(f"invalid contributor wallet={wallet!r}")
+        wallet = wallet.lower()
+
+    if account_id is None and wallet is None:
+        raise ContributorDerivationError("contributor entry must have account_id or wallet")
+    return account_id, wallet
 
 
 def _validate_report_header(
@@ -117,34 +151,33 @@ def _coerce_raw_contributor_score(entry: Any) -> float:
     try:
         return float(entry.get("raw_score", 0.0))
     except (TypeError, ValueError) as exc:
-        raise ContributorDerivationError(
-            f"invalid raw_score for wallet={entry.get('wallet')!r}"
-        ) from exc
+        identity = entry.get("account_id") or entry.get("wallet")
+        raise ContributorDerivationError(f"invalid raw_score for contributor={identity!r}") from exc
 
 
-def _normalize_submission_ids(*, wallet: str, submission_ids: Any) -> list[str]:
+def _normalize_submission_ids(*, identity: str, submission_ids: Any) -> list[str]:
     if submission_ids is None:
         return []
     if isinstance(submission_ids, list) and all(isinstance(item, str) for item in submission_ids):
         return sorted(submission_ids)
     raise ContributorDerivationError(
-        f"invalid submission_ids for wallet={wallet!r}; expected list[str]"
+        f"invalid submission_ids for contributor={identity!r}; expected list[str]"
     )
 
 
 def _largest_remainder_bps(raw_scores: dict[str, float]) -> dict[str, int]:
-    ordered_wallets = sorted(raw_scores)
+    ordered = sorted(raw_scores)
     total_raw = sum(raw_scores.values())
     if total_raw <= 0:
         raise ContributorDerivationError("no positive-lift contributors")
-    exact_bps = {wallet: (raw_scores[wallet] / total_raw) * 10000.0 for wallet in ordered_wallets}
-    floor_bps = {wallet: math.floor(value) for wallet, value in exact_bps.items()}
+    exact_bps = {key: (raw_scores[key] / total_raw) * 10000.0 for key in ordered}
+    floor_bps = {key: math.floor(value) for key, value in exact_bps.items()}
     deficit = 10000 - sum(floor_bps.values())
     if deficit > 0:
         remainders = sorted(
-            ordered_wallets,
-            key=lambda wallet: (-(exact_bps[wallet] - floor_bps[wallet]), wallet),
+            ordered,
+            key=lambda key: (-(exact_bps[key] - floor_bps[key]), key),
         )
-        for wallet in remainders[:deficit]:
-            floor_bps[wallet] += 1
+        for key in remainders[:deficit]:
+            floor_bps[key] += 1
     return floor_bps
