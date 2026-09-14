@@ -3,7 +3,7 @@
 import json
 import logging
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, Mock, patch
 
 import httpx
 import pytest
@@ -206,10 +206,13 @@ class TestDebitUsage:
                 "/api/v1/models/my-model/predict",
                 0,
                 0,
-                request_id=None,
+                request_id=ANY,
                 account_id="user123",
                 request_state=request.state,
+                idempotency_key=ANY,
             )
+            assert request.state.request_id == mock_debit.call_args.kwargs["request_id"]
+            assert mock_debit.call_args.kwargs["idempotency_key"].startswith("key123-")
             assert call_order == ["debit", "call_next"]
 
     @pytest.mark.asyncio
@@ -295,7 +298,7 @@ class TestDebitUsage:
 
     @pytest.mark.asyncio
     async def test_debit_logs_warning_after_all_retries_fail(self, middleware):
-        """Test that transport failures log once and fail open."""
+        """Test that transport failures emit a structured, non-secret outcome."""
         with (
             patch("httpx.AsyncClient") as mock_client_cls,
             patch("asyncio.sleep", new_callable=AsyncMock),
@@ -307,13 +310,27 @@ class TestDebitUsage:
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_client_cls.return_value = mock_client
 
-            outcome = await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+            outcome = await middleware._debit_usage(
+                "key123", "model-1", "/predict", 100, 200, request_id="req-123"
+            )
 
             assert outcome == "error"
             mock_logger.warning.assert_called_once()
-            warning_msg = mock_logger.warning.call_args[0][0]
-            assert "key_id=key123" in warning_msg
-            assert "1 attempts" in warning_msg
+            payload = json.loads(mock_logger.warning.call_args.args[0])
+            assert payload == {
+                "event": "usage_debit_failure",
+                "outcome": "error",
+                "failure_type": "transport_error",
+                "exception_type": "ConnectError",
+                "status_code": None,
+                "key_id": "key123",
+                "model_id": "model-1",
+                "endpoint": "/predict",
+                "idempotency_key": ANY,
+                "request_id": "req-123",
+                "attempts": 1,
+            }
+            assert payload["idempotency_key"].startswith("key123-")
 
     @pytest.mark.asyncio
     async def test_debit_logs_warning_on_422(self, middleware):
@@ -392,14 +409,21 @@ class TestDebitUsage:
             mock_sleep.assert_not_called()
             assert outcome == "rejected"
             mock_logger.warning.assert_called_once()
-            assert mock_logger.warning.call_args.args[0] == "usage debit rejected"
+            logged_fields = json.loads(mock_logger.warning.call_args.args[0])
             assert mock_logger.warning.call_args.kwargs["extra"] == {
                 "event": "usage.debit.rejected",
+                "outcome": "rejected",
+                "status_code": 402,
                 "account_id": "user-123",
+                "key_id": "key123",
                 "model_id": "model-1",
+                "endpoint": "/predict",
+                "idempotency_key": ANY,
                 "reason_code": "insufficient_balance",
                 "request_id": "req-123",
+                "attempts": 1,
             }
+            assert logged_fields == mock_logger.warning.call_args.kwargs["extra"]
             assert request_state._debit_reject_reason == "Balance too low"
             assert request_state._debit_reject_reason_code == "insufficient_balance"
             mock_sentry.capture_message.assert_called_once_with(
@@ -421,7 +445,7 @@ class TestDebitUsage:
 
     @pytest.mark.asyncio
     async def test_debit_no_failure_log_on_2xx(self, middleware):
-        """Test that successful debit responses are not logged as failures."""
+        """Test that successful debit responses emit a correlated accepted outcome."""
         mock_response = MagicMock()
         mock_response.status_code = 200
 
@@ -439,6 +463,30 @@ class TestDebitUsage:
 
             assert outcome == "accepted"
             mock_logger.warning.assert_not_called()
+            payload = json.loads(mock_logger.info.call_args.args[0])
+            assert payload["event"] == "usage_debit_outcome"
+            assert payload["outcome"] == "accepted"
+            assert payload["status_code"] == 200
+            assert payload["key_id"] == "key123"
+            assert payload["model_id"] == "model-1"
+            assert payload["idempotency_key"].startswith("key123-")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status_code", [199, 300, 404, 409, 500])
+    async def test_only_2xx_confirms_debit(self, middleware, status_code):
+        """Every non-2xx response other than the dedicated 402 is unconfirmed."""
+        mock_response = MagicMock(status_code=status_code, text="debit not confirmed")
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            outcome = await middleware._debit_usage("key123", "model-1", "/predict", 100, 200)
+
+        assert outcome == "error"
 
     @pytest.mark.asyncio
     async def test_debit_response_body_truncated(self, middleware):
@@ -760,7 +808,12 @@ class TestDebitRejected:
                 )
 
         assert outcome == "rejected"
-        record = next(record for record in caplog.records if record.msg == "usage debit rejected")
+        record = next(
+            record
+            for record in caplog.records
+            if getattr(record, "event", None) == "usage.debit.rejected"
+        )
+        assert json.loads(record.msg)["outcome"] == "rejected"
         assert record.event == "usage.debit.rejected"
         assert record.model_id == "model-1"
         assert record.reason_code == "insufficient_settled_balance"
@@ -768,13 +821,12 @@ class TestDebitRejected:
         mock_sentry.capture_message.assert_called_once_with("usage.debit.rejected", level="warning")
 
     @pytest.mark.asyncio
-    async def test_dispatch_fails_open_when_debit_returns_error(
+    async def test_dispatch_fails_closed_when_debit_returns_error(
         self, middleware, mock_request, validation_result
     ):
-        """Transport failures (5xx, ConnectError) must not block the request — dispatch
-        calls downstream and returns its response (REQ-F6 fail-open contract)."""
-        downstream_response = Response(content="OK", status_code=200)
-        call_next = AsyncMock(return_value=downstream_response)
+        """An unconfirmed debit returns retryable 503 without downstream work."""
+        mock_request.headers["X-Request-ID"] = "req-123"
+        call_next = AsyncMock(return_value=Response(content="OK", status_code=200))
 
         with (
             patch.object(middleware, "validate_with_auth_service", return_value=validation_result),
@@ -782,8 +834,33 @@ class TestDebitRejected:
         ):
             response = await middleware.dispatch(mock_request, call_next)
 
-        call_next.assert_awaited_once_with(mock_request)
-        assert response is downstream_response
+        call_next.assert_not_awaited()
+        assert response.status_code == 503
+        assert json.loads(response.body.decode()) == {
+            "error": "usage_debit_unavailable",
+            "detail": "Unable to confirm usage debit. Please retry.",
+        }
+        assert response.headers["Retry-After"] == "1"
+        assert response.headers["X-Request-ID"] == "req-123"
+
+    @pytest.mark.asyncio
+    async def test_billable_prediction_without_key_id_fails_closed(
+        self, middleware, mock_request, validation_result
+    ):
+        """A valid auth response without a debit identity cannot serve inference."""
+        validation_result.key_id = None
+        call_next = AsyncMock(return_value=Response(content="OK", status_code=200))
+
+        with (
+            patch.object(middleware, "validate_with_auth_service", return_value=validation_result),
+            patch.object(middleware, "_debit_usage", new_callable=AsyncMock) as mock_debit,
+        ):
+            response = await middleware.dispatch(mock_request, call_next)
+
+        assert response.status_code == 503
+        assert response.headers["X-Request-ID"] == mock_request.state.request_id
+        mock_debit.assert_not_awaited()
+        call_next.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_usage_debit_rejected_with_missing_reason_fields(
@@ -1025,8 +1102,13 @@ class TestValidateWithAuthService:
             assert warning_payload["error_marker"] == "psycopg2.errors.UndefinedTable"
             assert warning_payload["key_id"] is None
             assert warning_payload["idempotency_key"] is None
+            assert warning_payload["attempts"] is None
             mock_logger.error.assert_called_once_with("Auth service returned 500")
-            assert result == ValidationResult(is_valid=False, error="Authentication service error")
+            assert result == ValidationResult(
+                is_valid=False,
+                error="Authentication service error",
+                error_type="unavailable",
+            )
 
 
 class TestDebitPayloadShape:
@@ -1467,10 +1549,12 @@ class TestContributionDebitBypass:
             "/api/v1/models/30/predict",
             0,
             0,
-            request_id=None,
+            request_id=ANY,
             account_id="user123",
             request_state=request.state,
+            idempotency_key=ANY,
         )
+        assert request.state.request_id == mock_debit.call_args.kwargs["request_id"]
 
     # -------------------------------------------------------------------------
     # 6. Prediction route returns 402 on debit rejection
