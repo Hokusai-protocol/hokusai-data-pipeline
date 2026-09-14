@@ -1,0 +1,14 @@
+{
+  "taskId": "HOK-2758",
+  "title": "Fail closed when auth usage debit cannot be confirmed",
+  "description": "POST /api/v1/models/30/predict is served when the auth-service usage debit returns a 5xx or the transport fails, creating unbilled usage. For billable prediction routes, invoke the downstream handler only after a confirmed 2xx debit. Preserve the structured 402 insufficient-funds response, map 5xx and transport failures to a retryable client-safe 503, fail closed for all other non-2xx debit results, preserve the free contribution-ingestion bypass, and log outcome plus opaque API-key ID, model ID, idempotency key, and request ID without secrets. Tests must cover 5xx, network error, non-402 4xx, successful 2xx, 402, and contribution routes, including route-level proof that Model 30 inference is not invoked on debit failure.",
+  "labels": [],
+  "state": "Backlog",
+  "priority": 1,
+  "projectName": "Hokusai data pipeline",
+  "workflowType": "bugfix",
+  "featureName": "fail-closed-when-auth-usage-debit-cannot-be-confirmed",
+  "contextPath": "bugs/fail-closed-when-auth-usage-debit-cannot-be-confirmed/selected-task.json",
+  "linearUrl": "https://linear.app/hokusai/issue/HOK-2758/fail-closed-when-auth-usage-debit-cannot-be-confirmed",
+  "selectedAt": "2026-09-14T18:28:11Z"
+}

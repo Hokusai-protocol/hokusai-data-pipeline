@@ -59,8 +59,7 @@ async def test_dispatch_does_not_propagate_runtime_error_from_debit_usage(
     middleware, mock_request, validation_result
 ):
     """Debit failures must not crash the request path with a generic 500."""
-    downstream_response = Response(content="OK", status_code=200)
-    call_next = AsyncMock(return_value=downstream_response)
+    call_next = AsyncMock(return_value=Response(content="OK", status_code=200))
 
     with (
         patch.object(middleware, "validate_with_auth_service", return_value=validation_result),
@@ -70,5 +69,7 @@ async def test_dispatch_does_not_propagate_runtime_error_from_debit_usage(
 
         response = await middleware.dispatch(mock_request, call_next)
 
-    call_next.assert_awaited_once_with(mock_request)
-    assert response is downstream_response
+    call_next.assert_not_awaited()
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "1"
+    assert response.headers["X-Request-ID"] == mock_request.state.request_id
