@@ -314,6 +314,14 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             f"reviewer={recommended_strategy.reviewer_model}, estimated_cost_usd="
             f"{estimated_cost:.6f}."
         )
+        if ranking.diagnostics.get("budget_exceeded"):
+            cheapest = strategies["lowest_cost"][0]
+            rationale += (
+                f" No route fits max_cost_usd={ranking.diagnostics['max_cost_usd']:.6f}; "
+                f"returning the best {recommended_strategy.objective} route. The cheapest "
+                f"route (estimated_cost_usd={cheapest.estimated_cost_usd:.6f}) is in "
+                "tradeoffs.lowest_cost."
+            )
 
         return {
             "selected_model": selected_model,
@@ -357,10 +365,15 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             for candidate in feasible_candidates
             if candidate.objective == "highest_reliability"
         ]
+        budget_exceeded = False
         if not feasible_routes:
-            if max_cost is None:
+            if max_cost is None or not route_candidates:
                 raise ValueError("No routing strategies could be generated")
-            raise ValueError(f"No routing strategies fit max_cost_usd={max_cost:.6f}")
+            # Nothing fits the budget: still answer with the best route for each
+            # objective, ranked as usual, and flag it so callers and the
+            # benchmark scorers can treat the recommendation as over budget.
+            budget_exceeded = True
+            feasible_candidates = candidates
 
         strategies = {
             objective: sorted(
@@ -380,6 +393,7 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
                 feasible_routes,
                 strategies,
                 max_cost=max_cost,
+                budget_exceeded=budget_exceeded,
             ),
         )
 
@@ -1073,6 +1087,7 @@ def _strategy_diagnostics(
     strategies: dict[str, list[StrategyCandidate]],
     *,
     max_cost: float | None,
+    budget_exceeded: bool = False,
 ) -> dict[str, Any]:
     """Summarize route spread and flag objective winners that share a route."""
     costs = [candidate.estimated_cost_usd for candidate in candidates]
@@ -1101,13 +1116,17 @@ def _strategy_diagnostics(
         if len(degenerate_objectives) == len(STRATEGY_OBJECTIVES)
         else []
     )
+    if budget_exceeded:
+        warnings.append("max_cost_exceeded")
     return {
         "warnings": warnings,
         "degenerate_objectives": degenerate_objectives,
         "candidate_spread": candidate_spread,
         "candidate_count": len(candidates),
-        "feasible_candidate_count": len(feasible_candidates),
+        "feasible_candidate_count": 0 if budget_exceeded else len(feasible_candidates),
         "max_cost_usd": max_cost,
+        "budget_exceeded": budget_exceeded,
+        "min_route_cost_usd": candidate_spread["min_cost"],
     }
 
 

@@ -309,6 +309,7 @@ def _predict_route_ranking(
     *,
     max_cost_usd: float,
     workflow_stages: list[str] | None = None,
+    routing_objective: str = "highest_reliability",
 ) -> dict[str, Any]:
     csv_path = tmp_path / "route-ranking.csv"
     pd.DataFrame(rows).to_csv(csv_path, index=False)
@@ -326,7 +327,7 @@ def _predict_route_ranking(
                 "available_planner_models": available,
                 "available_coder_models": available,
                 "available_reviewer_models": available,
-                "routing_objective": "highest_reliability",
+                "routing_objective": routing_objective,
                 "max_cost_usd": max_cost_usd,
             }
         ]
@@ -378,6 +379,8 @@ def test_strategy_fallback_uses_route_specific_role_evidence_and_budget(
         "candidate_count": 8,
         "feasible_candidate_count": 4,
         "max_cost_usd": 5.0,
+        "budget_exceeded": False,
+        "min_route_cost_usd": 1.0,
     }
 
 
@@ -397,9 +400,68 @@ def test_strategy_budget_includes_route_exactly_at_cap(tmp_path: Path) -> None:
     assert out["recommended_strategy"]["estimated_cost_usd"] == 5.0
 
 
-def test_strategy_budget_raises_when_no_route_is_feasible(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="No routing strategies fit max_cost_usd=0.500000"):
-        _predict_route_ranking(tmp_path, _route_ranking_rows(), max_cost_usd=0.5)
+def _route_identity(strategy: dict[str, Any]) -> tuple[Any, Any, Any]:
+    return (strategy["planner_model"], strategy["coder_model"], strategy["reviewer_model"])
+
+
+@pytest.mark.parametrize(
+    "routing_objective",
+    ["highest_reliability", "lowest_cost", "fastest_completion"],
+)
+def test_strategy_budget_honors_objective_when_no_route_is_feasible(
+    tmp_path: Path,
+    routing_objective: str,
+) -> None:
+    over_budget = _predict_route_ranking(
+        tmp_path,
+        _route_ranking_rows(),
+        max_cost_usd=0.5,
+        routing_objective=routing_objective,
+    )
+    unbudgeted = _predict_route_ranking(
+        tmp_path,
+        _route_ranking_rows(),
+        max_cost_usd=1000.0,
+        routing_objective=routing_objective,
+    )
+
+    assert _route_identity(over_budget["recommended_strategy"]) == _route_identity(
+        unbudgeted["recommended_strategy"]
+    )
+    diagnostics = over_budget["diagnostics"]
+    assert diagnostics["budget_exceeded"] is True
+    assert "max_cost_exceeded" in diagnostics["warnings"]
+    assert diagnostics["feasible_candidate_count"] == 0
+    assert diagnostics["max_cost_usd"] == 0.5
+    assert (
+        diagnostics["min_route_cost_usd"]
+        == over_budget["tradeoffs"]["lowest_cost"]["estimated_cost_usd"]
+    )
+    assert "No route fits max_cost_usd=0.500000" in over_budget["rationale"]
+    assert unbudgeted["diagnostics"]["budget_exceeded"] is False
+    assert "max_cost_exceeded" not in unbudgeted["diagnostics"]["warnings"]
+
+
+def test_strategy_budget_fallback_keeps_most_reliable_route_not_cheapest(
+    tmp_path: Path,
+) -> None:
+    out = _predict_route_ranking(tmp_path, _route_ranking_rows(), max_cost_usd=0.5)
+
+    assert out["recommended_strategy"]["coder_model"] == "model-a"
+    assert out["tradeoffs"]["lowest_cost"]["coder_model"] == "model-b"
+    assert (
+        out["recommended_strategy"]["estimated_cost_usd"]
+        > out["tradeoffs"]["lowest_cost"]["estimated_cost_usd"]
+    )
+    assert out["diagnostics"]["budget_exceeded"] is True
+
+
+def test_strategy_budget_within_budget_is_not_flagged(tmp_path: Path) -> None:
+    out = _predict_route_ranking(tmp_path, _route_ranking_rows(), max_cost_usd=5.0)
+
+    assert out["diagnostics"]["budget_exceeded"] is False
+    assert "max_cost_exceeded" not in out["diagnostics"]["warnings"]
+    assert out["recommended_strategy"]["estimated_cost_usd"] <= 5.0
 
 
 def test_strategy_diagnostics_warn_when_all_objectives_collapse(tmp_path: Path) -> None:

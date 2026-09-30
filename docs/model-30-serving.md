@@ -221,6 +221,25 @@ Objective ordering is deterministic:
 
 The optional `diagnostics` object is emitted by corrected Model 30 artifacts. `candidate_spread` reports the minimum and maximum cost and success estimates across all generated routes, while the candidate counts show how many remain after budget filtering. `degenerate_objectives` lists objectives whose winners share the same canonical route. When all three objectives collapse, `warnings` contains `objective_routes_collapsed` and the API emits a structured `model_30_objective_routes_collapsed` warning. Older artifacts without `diagnostics` remain supported and their normalized responses omit the field.
 
+### Budget handling (`max_cost_usd`)
+
+`max_cost_usd` is a hard filter while at least one route fits it: routes whose estimated cost exceeds the budget are dropped, and the remaining routes are ranked by the requested objective.
+
+When **no** route fits the budget, the router still answers (HOK-3127). It drops the budget filter and ranks every generated route by the requested objective, using the same ordering as above. A `highest_reliability` request therefore still gets the most reliable route, not simply the cheapest one. The response is a normal `200` and is flagged:
+
+- `diagnostics.budget_exceeded` is `true`, and `diagnostics.warnings` contains `max_cost_exceeded`.
+- `diagnostics.min_route_cost_usd` is the cheapest generated route's estimated cost, which shows how far the budget is from any option. `feasible_candidate_count` is `0`.
+- `tradeoffs.lowest_cost` holds the cheapest route, and `rationale` names the budget and that route's cost.
+- The API logs a `model_30_max_cost_exceeded` WARNING with the route, objective, recommended cost, `max_cost_usd`, and `min_route_cost_usd`. There is no ERROR, traceback, or `model_30_inference_failure` record.
+
+`budget_exceeded` is `false` on every in-budget response. Clients that must respect the budget should check the flag and either raise the budget or choose `tradeoffs.lowest_cost`.
+
+In offline evaluation (`scripts/model_30/evaluate_technical_task_router.py`), each benchmark row records `budget_exceeded`. The task-router scorers treat a flagged row as infeasible even when the historical run fit the budget, so it fails `success_under_budget/v1` and every v2 component. `technical_task_router.over_budget_recommendation_rate/v1` and the report's `over_budget_counts` (per scenario) show how often this happened.
+
+### Candidate-pool filtering logs
+
+Requested model ids that are not active or watchlist entries in the supported-model catalog are dropped before routing. Each drop emits a `model_30_candidate_pool_filtered` WARNING whose message is JSON with `role`, `dropped_model_ids`, and `accepted_count`, so the ids are visible in CloudWatch text. When every requested id for a role is dropped, a `model_30_candidate_pool_emptied` WARNING follows. In that case the router receives an empty pool for the role and treats it as unconstrained.
+
 For legacy smoke artifacts only, normalization accepts common aliases:
 
 - `model`, `selected`, `prediction` -> legacy selected model
@@ -340,7 +359,7 @@ The startup warm timeout is controlled by `MODEL_30_WARM_TIMEOUT_S`.
 
 ## Failure Classes and Observability
 
-Every inference path that surfaces a non-2xx response also emits exactly one structured `model_30_inference_failure` log record so failures can be classified without reading stack traces. The taxonomy isolates which stage failed so on-call can distinguish artifact-load problems from connectivity blips from model output regressions.
+Every inference path that surfaces a 5xx response also emits exactly one structured `model_30_inference_failure` log record so failures can be classified without reading stack traces. The taxonomy isolates which stage failed so on-call can distinguish artifact-load problems from connectivity blips from model output regressions.
 
 ### Failure phases
 
@@ -348,7 +367,7 @@ Every inference path that surfaces a non-2xx response also emits exactly one str
 |--------------------------|-------------------------------------------------------------------------|-------------------------------------------------------------------------------|-------------|
 | `artifact_load`          | `mlflow.pyfunc.load_model(...)` raised, or another loader holds the lock | Registry returned no artifact, deserialization failed, or cold-load contention | 503         |
 | `mlflow_connectivity`    | Loader raised an `OSError`/`ConnectionError` or matched connectivity keywords | Tracking server unreachable, TLS reset, 503 from MLflow, DNS failure          | 503         |
-| `predict_call`           | `model.predict(features)` raised                                          | Feature/schema mismatch, model code bug, model-internal exception              | 503         |
+| `predict_call`           | `model.predict(features)` raised                                          | Feature/schema mismatch, model code bug, model-internal exception. An infeasible `max_cost_usd` is **not** a failure: it returns 200 with `budget_exceeded` (see Budget handling). | 503         |
 | `response_normalization` | `normalize_model_30_output(...)` raised after a successful predict       | Empty MLflow output, unsupported output shape, missing `selected_model`        | 503         |
 | `timeout`                | `asyncio.wait_for(...)` exceeded `MODEL_SERVING_PREDICTION_TIMEOUT_SECONDS` | Slow cold load, slow inference, registry slowdown                              | 504         |
 
