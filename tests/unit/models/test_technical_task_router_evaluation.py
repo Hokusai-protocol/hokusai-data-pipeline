@@ -513,6 +513,81 @@ def test_evaluate_model_v2_default_emits_scenarios_and_component_metrics(
     assert all("per_row_metrics" in row for row in report["benchmark_rows"])
 
 
+class BudgetFlaggingRouterModel(FixedRouterModel):
+    """Router that reports an over-budget recommendation below a cost threshold."""
+
+    def __init__(self, *, model_id: str, min_route_cost_usd: float) -> None:
+        super().__init__(model_id=model_id)
+        self.min_route_cost_usd = min_route_cost_usd
+
+    def predict(self, frame: pd.DataFrame) -> pd.DataFrame:
+        prediction = super().predict(frame).iloc[0].to_dict()
+        max_cost_usd = float(frame.iloc[0]["max_cost_usd"])
+        prediction["diagnostics"] = {
+            "budget_exceeded": max_cost_usd < self.min_route_cost_usd,
+            "max_cost_usd": max_cost_usd,
+            "min_route_cost_usd": self.min_route_cost_usd,
+        }
+        return pd.DataFrame([prediction])
+
+
+def test_evaluate_model_scores_over_budget_recommendations_as_failures(
+    tmp_path: Path,
+) -> None:
+    holdout_path = tmp_path / "holdout.csv"
+    row = _valid_row("success")
+    row["actual_cost_usd"] = "0.2"
+    _write_holdout(holdout_path, [row])
+
+    report = evaluate_model(
+        # The low_budget scenario halves max_cost_usd from 1.0 to 0.5, below 0.75.
+        BudgetFlaggingRouterModel(model_id="claude-sonnet-4-6", min_route_cost_usd=0.75),
+        model_id="candidate",
+        holdout_path=holdout_path,
+        objectives=["highest_reliability"],
+        eval_id="eval-over-budget",
+    )
+
+    rows_by_scenario = {row["scenario"]: row for row in report["benchmark_rows"]}
+    low_budget = rows_by_scenario["low_budget"]
+    # The historical run fit even the halved budget; only the recommendation did not.
+    assert low_budget["actual_cost_usd"] <= low_budget["max_cost_usd"]
+    assert low_budget["budget_exceeded"] is True
+    assert low_budget["per_row_metrics"]["technical_task_router.success_under_budget_v1"] == 0.0
+    assert all(
+        row["budget_exceeded"] is False
+        and row["per_row_metrics"]["technical_task_router.success_under_budget_v1"] == 1.0
+        for scenario, row in rows_by_scenario.items()
+        if scenario != "low_budget"
+    )
+    assert report["over_budget_counts"] == {"low_budget": 1}
+    metrics = report["metrics"]
+    assert metrics["technical_task_router.over_budget_recommendation_rate_v1"] == pytest.approx(0.2)
+    assert metrics["technical_task_router.success_under_budget_v1"] == pytest.approx(0.8)
+    assert metrics["technical_task_router.candidate_pool_robustness_v2"] == pytest.approx(2 / 3)
+
+
+def test_evaluate_model_without_budget_diagnostics_reports_no_over_budget_rows(
+    tmp_path: Path,
+) -> None:
+    holdout_path = tmp_path / "holdout.csv"
+    row = _valid_row("success")
+    row["actual_cost_usd"] = "0.2"
+    _write_holdout(holdout_path, [row])
+
+    report = evaluate_model(
+        FixedRouterModel(model_id="claude-sonnet-4-6"),
+        model_id="candidate",
+        holdout_path=holdout_path,
+        objectives=["lowest_cost"],
+        eval_id="eval-no-diagnostics",
+    )
+
+    assert report["over_budget_counts"] == {}
+    assert all(row["budget_exceeded"] is False for row in report["benchmark_rows"])
+    assert report["metrics"]["technical_task_router.over_budget_recommendation_rate_v1"] == 0.0
+
+
 def test_compare_models_uses_v2_primary_metric_by_default(tmp_path: Path) -> None:
     holdout_path = tmp_path / "holdout.csv"
     row = _valid_row("success")

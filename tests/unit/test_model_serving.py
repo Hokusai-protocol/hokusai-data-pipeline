@@ -624,6 +624,77 @@ def test_model_30_predict_mlflow_failure_returns_503(client: TestClient, caplog)
     assert failure_record.duration_ms >= 0.0
 
 
+def test_model_30_predict_over_budget_route_returns_200_without_error_logs(
+    client: TestClient, caplog
+) -> None:
+    set_model_30_warmup_state(Model30WarmupState.WARMED)
+    reliable = {
+        "objective": "highest_reliability",
+        "planner_model": "claude-sonnet-4-6",
+        "coder_model": "gpt-5.4",
+        "reviewer_model": "claude-sonnet-4-6",
+        "stages": ["plan", "code", "review"],
+        "estimated_success_under_budget": 0.82,
+        "estimated_cost_usd": 40.0,
+        "estimated_duration_seconds": 1800,
+        "confidence": 0.71,
+    }
+    cheapest = {**reliable, "objective": "lowest_cost", "estimated_cost_usd": 30.0}
+    _replace_registry_entry(
+        "30",
+        model_caller=lambda _model_uri, _features, _timings=None: {
+            "recommended_strategy": reliable,
+            "alternatives": [],
+            "tradeoffs": {
+                "lowest_cost": cheapest,
+                "fastest_completion": cheapest,
+                "highest_reliability": reliable,
+            },
+            "diagnostics": {
+                "warnings": ["max_cost_exceeded"],
+                "degenerate_objectives": ["lowest_cost", "fastest_completion"],
+                "candidate_spread": {
+                    "min_cost": 30.0,
+                    "max_cost": 40.0,
+                    "min_success": 0.5,
+                    "max_success": 0.82,
+                },
+                "candidate_count": 6,
+                "feasible_candidate_count": 0,
+                "max_cost_usd": 25.0,
+                "budget_exceeded": True,
+                "min_route_cost_usd": 30.0,
+            },
+            "nearest_neighbors": {"count": 12},
+        },
+    )
+
+    with caplog.at_level(logging.INFO):
+        response = client.post(
+            "/api/v1/models/30/predict",
+            json={
+                "inputs": {
+                    "task": {"description": "Fix routing", "task_type": "bugfix"},
+                    "routing": {"max_cost_usd": 25.0},
+                }
+            },
+        )
+
+    assert response.status_code == 200
+    predictions = response.json()["predictions"]
+    assert predictions["recommended_strategy"]["estimated_cost_usd"] == 40.0
+    assert predictions["tradeoffs"]["lowest_cost"]["estimated_cost_usd"] == 30.0
+    assert predictions["diagnostics"]["budget_exceeded"] is True
+    assert predictions["diagnostics"]["min_route_cost_usd"] == 30.0
+    assert "max_cost_exceeded" in predictions["diagnostics"]["warnings"]
+    assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+    assert not [record for record in caplog.records if record.exc_info]
+    assert not [record for record in caplog.records if record.msg == "model_30_inference_failure"]
+    assert [
+        record for record in caplog.records if "model_30_max_cost_exceeded" in record.getMessage()
+    ]
+
+
 def test_model_30_predict_response_normalization_failure_returns_503_with_phase(
     client: TestClient, caplog
 ) -> None:
