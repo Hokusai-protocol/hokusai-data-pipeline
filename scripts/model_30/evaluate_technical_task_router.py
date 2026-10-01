@@ -36,6 +36,7 @@ V1_SCORER_REFS: tuple[str, ...] = (
     "technical_task_router.success_under_budget/v1",
     "technical_task_router.benchmark_score/v1",
     "technical_task_router.invalid_selection_rate/v1",
+    "technical_task_router.over_budget_recommendation_rate/v1",
     "technical_task_router.cost_mae_usd/v1",
     "technical_task_router.duration_mae_seconds/v1",
     "technical_task_router.reliability_brier_score/v1",
@@ -48,6 +49,7 @@ V2_SCORER_REFS: tuple[str, ...] = (
     "technical_task_router.success_under_budget/v1",
     "technical_task_router.benchmark_score/v1",
     "technical_task_router.invalid_selection_rate/v1",
+    "technical_task_router.over_budget_recommendation_rate/v1",
     "technical_task_router.cost_efficiency/v2",
     "technical_task_router.sparse_cell_generalization/v2",
     "technical_task_router.candidate_pool_robustness/v2",
@@ -236,6 +238,9 @@ def evaluate_model(
     metrics = _score_benchmark_rows(benchmark_rows, benchmark_version=benchmark_version)
     duration_coverage = _duration_coverage(benchmark_rows)
     scenario_counts = _scenario_counts(benchmark_rows)
+    over_budget_counts = _scenario_counts(
+        [row for row in benchmark_rows if row.get("budget_exceeded") is True]
+    )
     support_coverage = _support_coverage(benchmark_rows, benchmark_version=benchmark_version)
     return {
         "model_id": model_id,
@@ -254,6 +259,7 @@ def evaluate_model(
         "quarantine_reasons": holdout.quarantine_reasons,
         "objectives": objectives,
         "scenario_counts": scenario_counts,
+        "over_budget_counts": over_budget_counts,
         "support_coverage": support_coverage,
         "metrics": metrics,
         "duration_coverage": {
@@ -382,6 +388,7 @@ def _build_benchmark_rows(
                     "max_cost_usd": scenario_context["max_cost_usd"],
                     "actual_cost_usd": _required_float(row, "actual_cost_usd"),
                     "completed_successfully": _coerce_bool(row.get("completed_successfully")),
+                    "budget_exceeded": _prediction_budget_exceeded(prediction),
                     "scorer_ref": _row_scorer_ref(benchmark_version),
                     "observed_at": observed_at,
                     "estimated_cost_usd": _prediction_float(
@@ -649,7 +656,14 @@ def _per_row_v2_metrics(row: dict[str, Any]) -> dict[str, float]:
     }
 
 
+def _prediction_budget_exceeded(prediction: dict[str, Any]) -> bool:
+    diagnostics = prediction.get("diagnostics")
+    return isinstance(diagnostics, dict) and diagnostics.get("budget_exceeded") is True
+
+
 def _row_success_under_budget(row: dict[str, Any]) -> bool:
+    if row.get("budget_exceeded") is True:
+        return False
     selected_models = row.get("selected_models")
     allowed_models = row.get("allowed_models")
     if not isinstance(selected_models, list) or not isinstance(allowed_models, list):

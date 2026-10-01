@@ -8,8 +8,11 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies (including awscli for Secrets Manager)
+# SQLAlchemy 2.1 defaults postgresql:// to psycopg (v3); pin 2.0.x (matches
+# requirements-mlflow.txt) so the psycopg2 driver below stays the default.
 RUN pip install --no-cache-dir \
     mlflow==3.9.0 \
+    sqlalchemy==2.0.41 \
     psycopg2-binary \
     httpx \
     boto3 \

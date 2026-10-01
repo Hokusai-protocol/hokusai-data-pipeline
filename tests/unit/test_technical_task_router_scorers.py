@@ -233,3 +233,78 @@ def test_task_router_v2_missing_required_scenario_slice_fails() -> None:
 
     with pytest.raises(ValueError, match="missing scenario rows: sparse_cell"):
         _score("technical_task_router.benchmark_score/v2", rows)
+
+
+def _v2_scenario_rows() -> list[dict]:
+    base = _load_example("technical_task_router_row.success.v1.json")
+    rows = []
+    for scenario in (
+        "production_pool",
+        "challenger_present",
+        "dominant_model_removed",
+        "low_budget",
+        "sparse_cell",
+    ):
+        row = copy.deepcopy(base)
+        row["schema_version"] = "technical_task_router_row/v2"
+        row["row_id"] = f"row-{scenario}"
+        row["scenario"] = scenario
+        rows.append(row)
+    return rows
+
+
+def test_task_router_over_budget_recommendation_is_infeasible_even_if_run_fit_budget() -> None:
+    row = copy.deepcopy(_load_example("technical_task_router_row.success.v1.json"))
+    assert row["actual_cost_usd"] <= row["max_cost_usd"]
+    row["budget_exceeded"] = True
+
+    assert _score("technical_task_router.feasibility/v1", [row]) == 0.0
+    assert _score("technical_task_router.success_under_budget/v1", [row]) == 0.0
+    assert _score("technical_task_router.benchmark_score/v1", [row]) == 0.0
+    assert _score("technical_task_router.cost_efficiency/v2", [row]) == 0.0
+    assert _score("technical_task_router.over_budget_recommendation_rate/v1", [row]) == 1.0
+    assert _score("technical_task_router.invalid_selection_rate/v1", [row]) == 0.0
+
+
+def test_task_router_rows_without_budget_flag_score_as_before() -> None:
+    rows = _valid_fixture_rows()
+    flagged_false = copy.deepcopy(rows)
+    for row in flagged_false:
+        row["budget_exceeded"] = False
+
+    for ref in (
+        "technical_task_router.feasibility/v1",
+        "technical_task_router.success_under_budget/v1",
+        "technical_task_router.benchmark_score/v1",
+    ):
+        assert _score(ref, flagged_false) == pytest.approx(_score(ref, rows))
+    assert _score("technical_task_router.over_budget_recommendation_rate/v1", rows) == 0.0
+
+
+def test_task_router_v2_components_fail_over_budget_low_budget_row() -> None:
+    rows = _v2_scenario_rows()
+    baseline_robustness = _score("technical_task_router.candidate_pool_robustness/v2", rows)
+    baseline_composite = _score("technical_task_router.benchmark_score/v2", rows)
+    next(row for row in rows if row["scenario"] == "low_budget")["budget_exceeded"] = True
+
+    assert baseline_robustness == pytest.approx(1.0)
+    assert _score("technical_task_router.success_under_budget/v1", rows) == pytest.approx(0.8)
+    assert _score("technical_task_router.candidate_pool_robustness/v2", rows) == pytest.approx(
+        2 / 3
+    )
+    assert _score("technical_task_router.benchmark_score/v2", rows) < baseline_composite
+    assert _score(
+        "technical_task_router.over_budget_recommendation_rate/v1", rows
+    ) == pytest.approx(0.2)
+
+
+def test_task_router_row_schema_accepts_budget_flag() -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    row = copy.deepcopy(_load_example("technical_task_router_row.success.v1.json"))
+    row["budget_exceeded"] = True
+    schema = resolve_scorer("technical_task_router.success_under_budget/v1").metadata.input_schema
+
+    jsonschema.validate([row], schema)
+    row["budget_exceeded"] = "yes"
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate([row], schema)

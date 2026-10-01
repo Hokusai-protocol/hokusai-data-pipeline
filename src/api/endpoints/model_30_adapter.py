@@ -361,7 +361,18 @@ def _resolve_supported_model_id(model_id: Any, *, role: str | None = None) -> st
     return str(entry["canonical_id"])
 
 
-def _filter_supported_models(values: list[str] | None, *, role: str) -> list[str]:
+def _log_json_warning(event: str, fields: dict[str, Any]) -> None:
+    """Emit a warning whose fields are visible in CloudWatch text and LogRecord extras."""
+    payload = {"event": event, **fields}
+    logger.warning(json.dumps(payload, default=str, sort_keys=True), extra=payload)
+
+
+def _filter_supported_models(
+    values: list[str] | None,
+    *,
+    role: str,
+    log: bool = True,
+) -> list[str]:
     accepted: list[str] = []
     dropped: list[str] = []
     for value in values or []:
@@ -370,19 +381,25 @@ def _filter_supported_models(values: list[str] | None, *, role: str) -> list[str
             dropped.append(str(value))
         else:
             accepted.append(canonical_id)
-    if dropped:
-        logger.warning(
-            "model_30_candidate_pool_filtered",
-            extra={"role": role, "dropped_model_ids": sorted(set(dropped))},
-        )
+    if dropped and log:
+        fields = {
+            "role": role,
+            "dropped_model_ids": sorted(set(dropped)),
+            "accepted_count": len(set(accepted)),
+        }
+        _log_json_warning("model_30_candidate_pool_filtered", fields)
+        if not accepted:
+            # The router treats an empty role pool as unconstrained, so every
+            # requested model being unsupported silently widens the pool.
+            _log_json_warning("model_30_candidate_pool_emptied", fields)
     return sorted(set(accepted))
 
 
-def _role_available_models(routing: Any, role: str) -> list[str]:
+def _role_available_models(routing: Any, role: str, *, log: bool = True) -> list[str]:
     if routing is None:
         return []
     role_values = getattr(routing, f"available_{role}_models")
-    return _filter_supported_models(role_values or routing.available_models, role=role)
+    return _filter_supported_models(role_values or routing.available_models, role=role, log=log)
 
 
 def summarize_candidate_pool_fidelity(
@@ -391,7 +408,7 @@ def summarize_candidate_pool_fidelity(
     """Return canonical candidate-pool policy metadata for a model 30 request."""
     routing = validated_inputs.routing
     role_pool_sizes = {
-        role: len(_role_available_models(routing, role))
+        role: len(_role_available_models(routing, role, log=False))
         for role in ("planner", "coder", "reviewer")
     }
     constrained_sizes = [size for size in role_pool_sizes.values() if size > 0]
@@ -765,16 +782,32 @@ def _log_model_30_routing_diagnostics(payload: dict[str, Any]) -> None:
     diagnostics = payload.get("diagnostics")
     if not isinstance(diagnostics, dict):
         return
-    warnings = diagnostics.get("warnings")
-    if not isinstance(warnings, list) or "objective_routes_collapsed" not in warnings:
-        return
-
     strategy = payload.get("recommended_strategy")
     route = {}
     if isinstance(strategy, dict):
         route = {
             key: strategy.get(key) for key in ("planner_model", "coder_model", "reviewer_model")
         }
+    if diagnostics.get("budget_exceeded") is True:
+        _log_json_warning(
+            "model_30_max_cost_exceeded",
+            {
+                "route": route,
+                "routing_objective": (
+                    strategy.get("objective") if isinstance(strategy, dict) else None
+                ),
+                "recommended_cost_usd": (
+                    strategy.get("estimated_cost_usd") if isinstance(strategy, dict) else None
+                ),
+                "max_cost_usd": diagnostics.get("max_cost_usd"),
+                "min_route_cost_usd": diagnostics.get("min_route_cost_usd"),
+                "candidate_count": diagnostics.get("candidate_count"),
+            },
+        )
+    warnings = diagnostics.get("warnings")
+    if not isinstance(warnings, list) or "objective_routes_collapsed" not in warnings:
+        return
+
     nearest_neighbors = payload.get("nearest_neighbors")
     neighbor_count = nearest_neighbors.get("count") if isinstance(nearest_neighbors, dict) else None
     logger.warning(
@@ -946,9 +979,9 @@ def _canonicalize_response_model_ids(payload: dict[str, Any]) -> dict[str, Any]:
             else:
                 strategy[key] = canonical_id
     if dropped:
-        logger.warning(
+        _log_json_warning(
             "model_30_response_models_filtered",
-            extra={"dropped_model_ids": sorted(set(dropped))},
+            {"dropped_model_ids": sorted(set(dropped))},
         )
     return payload
 

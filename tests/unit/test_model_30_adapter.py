@@ -6,6 +6,7 @@ shared env such as `MLFLOW_TRACKING_TOKEN`.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -615,7 +616,12 @@ def test_normalize_v2_output_preserves_and_logs_collapse_diagnostics(caplog) -> 
         "candidate_count": 8,
         "feasible_candidate_count": 5,
         "max_cost_usd": 10.0,
+        "budget_exceeded": False,
+        "min_route_cost_usd": None,
     }
+    assert not [
+        record for record in caplog.records if "model_30_max_cost_exceeded" in record.getMessage()
+    ]
     records = [
         record for record in caplog.records if record.msg == "model_30_objective_routes_collapsed"
     ]
@@ -624,6 +630,129 @@ def test_normalize_v2_output_preserves_and_logs_collapse_diagnostics(caplog) -> 
     assert records[0].candidate_count == 8
     assert records[0].feasible_candidate_count == 5
     assert records[0].neighbor_count == 40
+
+
+def _over_budget_raw_payload() -> dict:
+    reliable = {
+        "objective": "highest_reliability",
+        "planner_model": "claude-sonnet-4-6",
+        "coder_model": "gpt-5.4",
+        "reviewer_model": "claude-sonnet-4-6",
+        "stages": ["plan", "code", "review"],
+        "estimated_success_under_budget": 0.82,
+        "estimated_cost_usd": 4.8,
+        "estimated_duration_seconds": 1800,
+        "confidence": 0.71,
+    }
+    cheapest = {
+        **reliable,
+        "objective": "lowest_cost",
+        "coder_model": "claude-sonnet-4-6",
+        "estimated_success_under_budget": 0.4,
+        "estimated_cost_usd": 1.2,
+    }
+    return {
+        "recommended_strategy": reliable,
+        "alternatives": [],
+        "tradeoffs": {
+            "lowest_cost": cheapest,
+            "fastest_completion": cheapest,
+            "highest_reliability": reliable,
+        },
+        "diagnostics": {
+            "warnings": ["max_cost_exceeded"],
+            "degenerate_objectives": ["lowest_cost", "fastest_completion"],
+            "candidate_spread": {
+                "min_cost": 1.2,
+                "max_cost": 4.8,
+                "min_success": 0.4,
+                "max_success": 0.82,
+            },
+            "candidate_count": 4,
+            "feasible_candidate_count": 0,
+            "max_cost_usd": 0.5,
+            "budget_exceeded": True,
+            "min_route_cost_usd": 1.2,
+        },
+        "nearest_neighbors": {"count": 40},
+    }
+
+
+def test_normalize_v2_output_passes_through_over_budget_diagnostics_and_warns(caplog) -> None:
+    with caplog.at_level(logging.DEBUG, logger=model_30_adapter.__name__):
+        normalized = model_30_adapter.normalize_model_30_output(
+            _over_budget_raw_payload(),
+            model_30_adapter.validate_nested_model_30_inputs(_full_inputs()),
+        )
+
+    TechnicalTaskRouterPredictions.model_validate(normalized)
+    assert normalized["diagnostics"]["budget_exceeded"] is True
+    assert normalized["diagnostics"]["min_route_cost_usd"] == 1.2
+    assert normalized["diagnostics"]["warnings"] == ["max_cost_exceeded"]
+    assert normalized["recommended_strategy"]["coder_model"] == "gpt-5.4"
+
+    records = [
+        record for record in caplog.records if "model_30_max_cost_exceeded" in record.getMessage()
+    ]
+    assert len(records) == 1
+    record = records[0]
+    assert record.levelno == logging.WARNING
+    assert record.exc_info is None
+    message = json.loads(record.getMessage())
+    assert message["event"] == "model_30_max_cost_exceeded"
+    assert message["max_cost_usd"] == 0.5
+    assert message["min_route_cost_usd"] == 1.2
+    assert message["recommended_cost_usd"] == 4.8
+    assert message["routing_objective"] == "highest_reliability"
+    assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+
+
+def test_candidate_pool_filtered_log_names_dropped_ids_in_message(caplog) -> None:
+    with caplog.at_level(logging.WARNING, logger=model_30_adapter.__name__):
+        accepted = model_30_adapter._filter_supported_models(
+            ["gpt-5.4", "not-a-real-model"],
+            role="coder",
+        )
+
+    assert accepted == ["gpt-5.4"]
+    messages = [json.loads(record.getMessage()) for record in caplog.records]
+    assert messages == [
+        {
+            "event": "model_30_candidate_pool_filtered",
+            "role": "coder",
+            "dropped_model_ids": ["not-a-real-model"],
+            "accepted_count": 1,
+        }
+    ]
+
+
+def test_candidate_pool_emptied_warns_when_every_requested_model_is_dropped(caplog) -> None:
+    with caplog.at_level(logging.WARNING, logger=model_30_adapter.__name__):
+        accepted = model_30_adapter._filter_supported_models(
+            ["not-a-real-model", "also-fake"],
+            role="planner",
+        )
+
+    assert accepted == []
+    events = [json.loads(record.getMessage())["event"] for record in caplog.records]
+    assert events == ["model_30_candidate_pool_filtered", "model_30_candidate_pool_emptied"]
+    emptied = json.loads(caplog.records[1].getMessage())
+    assert emptied["dropped_model_ids"] == ["also-fake", "not-a-real-model"]
+
+
+def test_candidate_pool_fidelity_summary_does_not_repeat_filter_logs(caplog) -> None:
+    inputs = _full_inputs()
+    inputs["routing"]["available_models"] = ["gpt-5.4", "not-a-real-model"]
+    validated = model_30_adapter.validate_nested_model_30_inputs(inputs)
+
+    with caplog.at_level(logging.WARNING, logger=model_30_adapter.__name__):
+        model_30_adapter.summarize_candidate_pool_fidelity(validated)
+
+    assert not [
+        record
+        for record in caplog.records
+        if "model_30_candidate_pool_filtered" in record.getMessage()
+    ]
 
 
 def test_normalize_v2_output_omits_diagnostics_for_older_artifact() -> None:

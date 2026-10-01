@@ -78,6 +78,7 @@ _TASK_ROUTER_ROW_SCHEMA: dict = {
                 "enum": ["lowest_cost", "fastest_completion", "highest_reliability"],
             },
             "completed_successfully": {"type": "boolean"},
+            "budget_exceeded": {"type": "boolean"},
         },
         "required": [
             "schema_version",
@@ -242,6 +243,10 @@ def _sales_unsubscribe_rate(rows: list[dict]) -> float:
 
 
 def _task_router_row_is_feasible(row: dict) -> bool:
+    # The router still answers when no route fits max_cost_usd, but that
+    # recommendation is over budget and must never count as feasible.
+    if row.get("budget_exceeded") is True:
+        return False
     selected_models_raw = row.get("selected_models")
     allowed_models_raw = row.get("allowed_models")
     if not isinstance(selected_models_raw, list) or not isinstance(allowed_models_raw, list):
@@ -362,6 +367,13 @@ def _task_router_invalid_selection_rate(rows: list[dict]) -> float:
         if not set(selected_models_raw).issubset(set(allowed_models_raw)):
             invalid_count += 1
     return invalid_count / len(rows)
+
+
+def _task_router_over_budget_recommendation_rate(rows: list[dict]) -> float:
+    """Fraction of rows where the router had to recommend a route over max_cost_usd."""
+    if not rows:
+        return 0.0
+    return sum(1 for row in rows if row.get("budget_exceeded") is True) / len(rows)
 
 
 def _task_router_cost_mae_usd(rows: list[dict]) -> float:
@@ -541,8 +553,9 @@ _TASK_ROUTER_SCORERS = [
         "technical_task_router.feasibility/v1",
         _task_router_feasibility,
         (
-            "Fraction of technical task router rows where every selected model is allowed "
-            "and actual_cost_usd is less than or equal to max_cost_usd."
+            "Fraction of technical task router rows where every selected model is allowed, "
+            "the recommended route did not exceed max_cost_usd (budget_exceeded is not "
+            "true), and actual_cost_usd is less than or equal to max_cost_usd."
         ),
         Aggregation.PASS_RATE,
         MetricFamily.OUTCOME,
@@ -576,6 +589,17 @@ _TASK_ROUTER_SCORERS = [
         (
             "Diagnostic fraction of technical task router rows where selected_models is not "
             "a subset of allowed_models. Expected value is 0.0 for valid production routes."
+        ),
+        Aggregation.PASS_RATE,
+        MetricFamily.OUTCOME,
+    ),
+    (
+        "technical_task_router.over_budget_recommendation_rate/v1",
+        _task_router_over_budget_recommendation_rate,
+        (
+            "Diagnostic fraction of technical task router rows where no route fit "
+            "max_cost_usd and the router recommended an over-budget route "
+            "(budget_exceeded is true). Those rows score as infeasible."
         ),
         Aggregation.PASS_RATE,
         MetricFamily.OUTCOME,
