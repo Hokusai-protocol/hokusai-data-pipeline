@@ -15,6 +15,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.api.models import InferenceLog
 from src.api.schemas.inference_log import InferenceLogCreate
+from src.api.services.routing_join import (
+    InferenceRecord,
+    inference_record_from_log,
+    resolve_routing_joins,
+    routing_outcome_from_fields,
+)
 from src.api.utils.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -143,8 +149,14 @@ class ContributorLogger:
         api_token_id: str,
         outcome_score: float,
         outcome_type: str,
-    ) -> None:
-        """Patch deferred outcome fields on an existing inference log row."""
+        selected_models: dict[str, str] | None = None,
+        overrides: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Patch deferred outcome fields on an existing inference log row.
+
+        Returns the routing join (HOK-3365), which is also stored under
+        ``trace_metadata.outcome_routing_join``.
+        """
         with self._session_scope() as session:
             inference_log = session.query(InferenceLog).filter_by(id=inference_log_id).first()
             if inference_log is None:
@@ -153,7 +165,41 @@ class ContributorLogger:
             if inference_log.api_token_id != api_token_id:
                 raise InferenceLogOwnershipError(str(inference_log_id))
 
+            record = inference_record_from_log(
+                api_token_id=inference_log.api_token_id,
+                output_payload=inference_log.output_payload,
+            )
+            (join,) = resolve_routing_joins(
+                [
+                    routing_outcome_from_fields(
+                        inference_log_id=str(inference_log_id),
+                        selected_models=selected_models,
+                        overrides=overrides,
+                    )
+                ],
+                api_token_id=api_token_id,
+                lookup=_SingleRecordLookup(str(inference_log_id), record),
+            )
+            routing_join = join.to_dict()
+
             inference_log.outcome_score = outcome_score
             inference_log.outcome_type = outcome_type
             inference_log.outcome_recorded_at = datetime.now(timezone.utc)
+            # Reassign (not mutate) so SQLAlchemy sees the JSONB change.
+            inference_log.trace_metadata = {
+                **(inference_log.trace_metadata or {}),
+                "outcome_routing_join": routing_join,
+            }
             session.commit()
+            return routing_join
+
+
+class _SingleRecordLookup:
+    """Lookup over the one log ``record_outcome`` already loaded."""
+
+    def __init__(self, inference_log_id: str, record: InferenceRecord) -> None:
+        self._inference_log_id = inference_log_id
+        self._record = record
+
+    def fetch(self, ids: Any) -> dict[str, InferenceRecord]:
+        return {self._inference_log_id: self._record} if self._inference_log_id in ids else {}

@@ -36,11 +36,38 @@ class InferenceLogCreate(BaseModel):
 
 
 class OutcomeSubmission(BaseModel):
-    """Request payload for recording a deferred outcome."""
+    """Request payload for recording a deferred outcome.
+
+    ``selected_models`` (executed models by role) and ``overrides`` are the
+    HOK-3364 routing-outcome block. Without them the outcome joins to its
+    inference but cannot grade the recommendation: Hokusai cannot tell whether
+    the recommended models ran.
+    """
 
     inference_log_id: UUID
     outcome_score: float = Field(..., ge=-1_000_000.0, le=1_000_000.0)
     outcome_type: str = Field(..., min_length=1, max_length=128)
+    selected_models: dict[str, str] | None = None
+    overrides: list[dict[str, Any]] | None = None
+
+    @validator("overrides", always=True)
+    def validate_routing_outcome(
+        cls, value: list[dict[str, Any]] | None, values: dict[str, Any]
+    ) -> list[dict[str, Any]] | None:
+        from src.api.services.routing_join import routing_outcome_errors
+
+        if value is None:
+            return value
+        errors = routing_outcome_errors(
+            {
+                "inference_log_id": str(values.get("inference_log_id") or "routed"),
+                "selected_models": values.get("selected_models") or {},
+                "overrides": value,
+            }
+        )
+        if errors:
+            raise ValueError(f"Invalid routing outcome: {'; '.join(errors)}")
+        return value
 
     @validator("outcome_score")
     def validate_outcome_score(cls, value: float) -> float:

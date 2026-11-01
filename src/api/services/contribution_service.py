@@ -31,9 +31,17 @@ from src.api.schemas.contribution import (
     LifecycleReasonCode,
     LifecycleUpdatePayload,
     RejectedRow,
+    RoutingSummary,
     RowCounts,
 )
 from src.api.services.contribution_fidelity import BatchClassification, classify_batch
+from src.api.services.routing_join import (
+    DatabaseInferenceLogLookup,
+    InferenceLogLookup,
+    resolve_routing_joins,
+    routing_outcome_from_row,
+    summarize_routing_joins,
+)
 from src.api.utils.config import get_settings
 
 if TYPE_CHECKING:
@@ -148,6 +156,11 @@ _NOTIFIABLE_LIFECYCLE_STATES = {
 # ``_METADATA_ROW_FIDELITY_TIERS_KEY`` to exclude ``partial`` rows.
 _METADATA_ROW_FIDELITY_TIERS_KEY = "row_fidelity_tiers"
 _METADATA_FIDELITY_SUMMARY_KEY = "fidelity_summary"
+# Per accepted row, aligned like ``row_fidelity_tiers``: the routing join
+# (HOK-3365) that says whether the row is evidence about Model 30's own
+# recommendation, an override, or only the executed models.
+_METADATA_ROW_ROUTING_JOINS_KEY = "row_routing_joins"
+_METADATA_ROUTING_SUMMARY_KEY = "routing_summary"
 # Lowercase cause understood by ``AuthServiceNotifier._map_reason_code`` and
 # mapped to ``LifecycleReasonCode.EXCLUDED_FROM_TRAINING``.
 _EXCLUDED_FROM_TRAINING_REASON = LifecycleReasonCode.EXCLUDED_FROM_TRAINING.value.lower()
@@ -280,7 +293,9 @@ class ContributionService:
         notifier: AuthServiceNotifier | None = None,
         lifecycle_session_factory: SessionFactory | None = None,
         database_url: str | None = None,
+        inference_log_lookup: InferenceLogLookup | None = None,
     ) -> None:
+        self._inference_log_lookup = inference_log_lookup
         self.max_body_bytes = int(os.getenv("CONTRIBUTIONS_MAX_BODY_BYTES", str(1024 * 1024)))
         self._store: ContributionStore | None = store
         self._notifier = notifier
@@ -361,6 +376,16 @@ class ContributionService:
                 }
             )
 
+        routing_joins = [
+            join.to_dict()
+            for join in resolve_routing_joins(
+                [routing_outcome_from_row(row) for row in classification.accepted_rows],
+                api_token_id=str(auth["api_key_id"]) if auth.get("api_key_id") else None,
+                lookup=self._get_inference_log_lookup(),
+            )
+        ]
+        routing_summary = summarize_routing_joins(routing_joins)
+
         response = ContributionAcceptedResponse(
             accepted=True,
             modelId=model_id,
@@ -391,6 +416,7 @@ class ContributionService:
                 )
                 for entry in classification.descriptor_warnings
             ],
+            routingSummary=RoutingSummary.model_validate(routing_summary),
         )
         metadata = {
             **request.metadata.model_dump(exclude_none=True),
@@ -408,6 +434,8 @@ class ContributionService:
                 "invalid": classification.rejected_count,
                 "rejected": classification.rejected,
             },
+            _METADATA_ROW_ROUTING_JOINS_KEY: routing_joins,
+            _METADATA_ROUTING_SUMMARY_KEY: routing_summary,
         }
         record = StoredContributionRecord(
             submission_id=submission_id,
@@ -638,6 +666,15 @@ class ContributionService:
         except Exception as exc:
             logger.info("Contribution lifecycle could not resolve database URL: %s", exc)
             return None
+
+    def _get_inference_log_lookup(self: ContributionService) -> InferenceLogLookup | None:
+        """Return the inference-log reader, or None so joins record ``unresolved``."""
+        if self._inference_log_lookup is not None:
+            return self._inference_log_lookup
+        session_factory = self._get_lifecycle_session_factory()
+        if session_factory is None:
+            return None
+        return DatabaseInferenceLogLookup(session_factory)
 
     def _get_lifecycle_session_factory(self: ContributionService) -> SessionFactory | None:
         if self._lifecycle_session_factory:
