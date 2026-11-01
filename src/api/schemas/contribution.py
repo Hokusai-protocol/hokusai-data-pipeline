@@ -53,6 +53,22 @@ class FidelitySummary(BaseModel):
     invalid: int = 0
 
 
+class RoutingSummary(BaseModel):
+    """How a batch's rows joined to Model 30's inference log (HOK-3365).
+
+    ``evidence.recommendation`` counts rows that can grade Model 30's own
+    recommendation; ``linked_share`` is the coverage of the feedback loop.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    total: int = 0
+    links: dict[str, int] = Field(default_factory=dict)
+    evidence: dict[str, int] = Field(default_factory=dict)
+    overrides_by_source: dict[str, int] = Field(default_factory=dict)
+    linked_share: float = 0.0
+
+
 class RejectedRow(BaseModel):
     """A row rejected as invalid, with its position in the submitted batch."""
 
@@ -96,6 +112,8 @@ class ContributionAcceptedResponse(BaseModel):
         default_factory=list,
         alias="descriptorWarnings",
     )
+    # ``None`` when replaying a record persisted before the routing join existed.
+    routing_summary: RoutingSummary | None = Field(default=None, alias="routingSummary")
 
 
 class ContributionLifecycleResponse(BaseModel):

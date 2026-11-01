@@ -207,10 +207,18 @@ def test_compare_models_reports_primary_delta(tmp_path: Path) -> None:
     assert comparison["baseline_model_id"] == "baseline"
     assert comparison["candidate_model_id"] == "candidate"
     assert comparison["primary_metric"] == "technical_task_router.benchmark_score_v1"
-    assert comparison["primary_delta"] == 0.0
-    assert comparison["deltas"][
-        "technical_task_router.reliability_brier_score_v1"
-    ] == pytest.approx(-0.24)
+    # HOK-3365: the holdout ran gpt-5.4. The candidate's claude-sonnet-4-6
+    # route never ran, so it is not credited with gpt-5.4's success.
+    assert comparison["primary_delta"] == -1.0
+    assert baseline["metrics"]["technical_task_router.reliability_brier_score_v1"] == (
+        pytest.approx(0.25)
+    )
+    # No candidate row has a label for its route: calibration is unmeasured,
+    # not perfect.
+    assert candidate["metrics"]["technical_task_router.reliability_brier_score_v1"] is None
+    assert comparison["deltas"]["technical_task_router.reliability_brier_score_v1"] is None
+    assert candidate["label_evidence"]["evidence_rows"] == 0
+    assert baseline["label_evidence"]["evidence_share"] == 1.0
 
 
 def test_cli_comparison_applies_training_manifest_to_candidate_only(
@@ -541,7 +549,8 @@ def test_evaluate_model_scores_over_budget_recommendations_as_failures(
 
     report = evaluate_model(
         # The low_budget scenario halves max_cost_usd from 1.0 to 0.5, below 0.75.
-        BudgetFlaggingRouterModel(model_id="claude-sonnet-4-6", min_route_cost_usd=0.75),
+        # Recommends the holdout's own route so every label is evidence about it.
+        BudgetFlaggingRouterModel(model_id="gpt-5.4", min_route_cost_usd=0.75),
         model_id="candidate",
         holdout_path=holdout_path,
         objectives=["highest_reliability"],
@@ -554,17 +563,25 @@ def test_evaluate_model_scores_over_budget_recommendations_as_failures(
     assert low_budget["actual_cost_usd"] <= low_budget["max_cost_usd"]
     assert low_budget["budget_exceeded"] is True
     assert low_budget["per_row_metrics"]["technical_task_router.success_under_budget_v1"] == 0.0
+    # dominant_model_removed drops gpt-5.4 from the pool, so this fixed
+    # recommendation is an invalid selection there, not an over-budget one.
+    dominant_removed = rows_by_scenario["dominant_model_removed"]
+    assert dominant_removed["budget_exceeded"] is False
+    assert "gpt-5.4" not in dominant_removed["allowed_models"]
+    assert (
+        dominant_removed["per_row_metrics"]["technical_task_router.success_under_budget_v1"] == 0.0
+    )
     assert all(
         row["budget_exceeded"] is False
         and row["per_row_metrics"]["technical_task_router.success_under_budget_v1"] == 1.0
         for scenario, row in rows_by_scenario.items()
-        if scenario != "low_budget"
+        if scenario not in {"low_budget", "dominant_model_removed"}
     )
     assert report["over_budget_counts"] == {"low_budget": 1}
     metrics = report["metrics"]
     assert metrics["technical_task_router.over_budget_recommendation_rate_v1"] == pytest.approx(0.2)
-    assert metrics["technical_task_router.success_under_budget_v1"] == pytest.approx(0.8)
-    assert metrics["technical_task_router.candidate_pool_robustness_v2"] == pytest.approx(2 / 3)
+    assert metrics["technical_task_router.success_under_budget_v1"] == pytest.approx(0.6)
+    assert metrics["technical_task_router.candidate_pool_robustness_v2"] == pytest.approx(1 / 3)
 
 
 def test_evaluate_model_without_budget_diagnostics_reports_no_over_budget_rows(
@@ -594,15 +611,17 @@ def test_compare_models_uses_v2_primary_metric_by_default(tmp_path: Path) -> Non
     row["actual_cost_usd"] = "0.2"
     _write_holdout(holdout_path, [row])
 
+    # The holdout ran gpt-5.4 and succeeded. Only a model that recommends
+    # that route can be credited with the success (HOK-3365).
     baseline = evaluate_model(
-        FixedRouterModel(model_id="gpt-5.4"),
+        FixedRouterModel(model_id="claude-sonnet-4-6"),
         model_id="baseline",
         holdout_path=holdout_path,
         objectives=["highest_reliability"],
         eval_id="eval-1",
     )
     candidate = evaluate_model(
-        FixedRouterModel(model_id="claude-sonnet-4-6"),
+        FixedRouterModel(model_id="gpt-5.4"),
         model_id="candidate",
         holdout_path=holdout_path,
         objectives=["highest_reliability"],
@@ -625,14 +644,14 @@ def test_compare_models_can_report_negative_v2_delta(tmp_path: Path) -> None:
     _write_holdout(holdout_path, [row])
 
     baseline = evaluate_model(
-        FixedRouterModel(model_id="claude-sonnet-4-6"),
+        FixedRouterModel(model_id="gpt-5.4"),
         model_id="baseline",
         holdout_path=holdout_path,
         objectives=["highest_reliability"],
         eval_id="eval-1",
     )
     candidate = evaluate_model(
-        FixedRouterModel(model_id="gpt-5.4"),
+        FixedRouterModel(model_id="claude-sonnet-4-6"),
         model_id="candidate",
         holdout_path=holdout_path,
         objectives=["highest_reliability"],
@@ -679,3 +698,32 @@ def test_neighbor_resolver_raises_for_out_of_range_index(tmp_path: Path) -> None
 
     with pytest.raises(ValueError, match="training_row_index 4"):
         resolver.resolve(4)
+
+
+def test_prediction_that_differs_from_the_executed_route_gets_no_label_credit(
+    tmp_path: Path,
+) -> None:
+    """HOK-3365: a holdout label is evidence only about the route that ran."""
+    holdout_path = tmp_path / "holdout.csv"
+    failed = _valid_row("failed", completed=False)
+    _write_holdout(holdout_path, [_valid_row("success"), failed])
+
+    report = evaluate_model(
+        FixedRouterModel(model_id="claude-sonnet-4-6"),
+        model_id="candidate",
+        holdout_path=holdout_path,
+        objectives=["highest_reliability"],
+        benchmark_version="v1",
+        eval_id="eval-counterfactual",
+    )
+
+    joins = [row["metadata"]["routing_join"] for row in report["benchmark_rows"]]
+    assert {join["evidence"] for join in joins} == {"counterfactual"}
+    assert joins[0]["recommended"]["coder"] == "claude-sonnet-4-6"
+    assert joins[0]["executed"]["coder"] == "gpt-5.4"
+    assert report["label_evidence"]["evidence_rows"] == 0
+    # Neither the success nor the failure of gpt-5.4 is attributed to sonnet.
+    assert report["metrics"]["technical_task_router.success_under_budget_v1"] == 0.0
+    assert report["metrics"]["technical_task_router.reliability_brier_score_v1"] is None
+    # Selection validity needs no label, so every row still counts.
+    assert report["metrics"]["technical_task_router.invalid_selection_rate_v1"] == 0.0

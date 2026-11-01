@@ -41,6 +41,8 @@ async def submit_outcome(
             api_token_id=str(api_token_id),
             outcome_score=submission.outcome_score,
             outcome_type=submission.outcome_type,
+            selected_models=submission.selected_models,
+            overrides=submission.overrides,
         )
     except InferenceLogNotFoundError as exc:
         raise HTTPException(

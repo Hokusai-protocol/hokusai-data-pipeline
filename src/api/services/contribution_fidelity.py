@@ -46,13 +46,29 @@ from typing import Any
 
 import jsonschema
 
+from src.api.services.routing_join import (
+    ROUTE_ROLES,
+    find_recommendation_copy,
+    routing_outcome_errors,
+)
+
 # Canonical rich benchmark row schema versions. These are already validated by
 # the assembler against the JSON schema and must not be weakened here.
 TECHNICAL_TASK_ROUTER_ROW_V1 = "technical_task_router_row/v1"
 TECHNICAL_TASK_ROUTER_ROW_V2 = "technical_task_router_row/v2"
+# The SDK's router row versions share these names with the server's canonical
+# benchmark rows but not their shape: SDK rows key ``selected_models`` by role
+# and carry ``budget_usd`` instead of ``row_id`` / ``eval_id`` / ``max_cost_usd``.
+# ``technical_task_router_row/v3`` exists only in the SDK shape (HOK-3364).
+TECHNICAL_TASK_ROUTER_ROW_V3 = "technical_task_router_row/v3"
 
 # Lighter harness outcome row emitted by SDK plugin integrations.
 HARNESS_OUTCOME_ROW_V1 = "harness_outcome_row/v1"
+# Harness row plus the routing-outcome block (HOK-3364).
+HARNESS_OUTCOME_ROW_V2 = "harness_outcome_row/v2"
+_HARNESS_ROW_VERSIONS = frozenset({HARNESS_OUTCOME_ROW_V1, HARNESS_OUTCOME_ROW_V2})
+# Rows that must carry a valid routing-outcome block.
+_ROUTING_OUTCOME_ROW_VERSIONS = frozenset({HARNESS_OUTCOME_ROW_V2, TECHNICAL_TASK_ROUTER_ROW_V3})
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _TASK_DESCRIPTOR_SCHEMA = _REPO_ROOT / "schema" / "hokusai_task_descriptor.v1.json"
 
@@ -162,7 +178,7 @@ def _descriptor_path(error: jsonschema.ValidationError) -> str:
 
 
 def _validate_harness_task_descriptor(row: dict[str, Any]) -> list[dict[str, str]]:
-    if row.get("schema_version") != HARNESS_OUTCOME_ROW_V1:
+    if row.get("schema_version") not in _HARNESS_ROW_VERSIONS:
         return []
     descriptor = row.get("task_descriptor")
     if not isinstance(descriptor, dict):
@@ -234,13 +250,43 @@ def _looks_like_router_outcome_row(row: dict[str, Any]) -> bool:
     their long-standing acceptance and assembler treatment are unchanged.
     """
     schema_version = row.get("schema_version")
-    if schema_version == HARNESS_OUTCOME_ROW_V1:
+    if schema_version in _HARNESS_ROW_VERSIONS or schema_version == TECHNICAL_TASK_ROUTER_ROW_V3:
         return True
     return (
         isinstance(row.get("selected_models"), dict)
         or "allowed_models" in row
         or "completion_result" in row
     )
+
+
+def _is_canonical_benchmark_row(row: dict[str, Any]) -> bool:
+    """Return True for the server's canonical benchmark row shape.
+
+    Matching ``schema_version`` alone is not enough: the SDK emits rows with
+    the same v1/v2 names whose ``selected_models`` is a role map. Those are
+    classified and normalized like harness rows.
+    """
+    return row.get("schema_version") in (
+        TECHNICAL_TASK_ROUTER_ROW_V1,
+        TECHNICAL_TASK_ROUTER_ROW_V2,
+    ) and isinstance(row.get("selected_models"), list)
+
+
+def _routing_outcome_block(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the routing-outcome block to keep through normalization, if any."""
+    selected = row.get("selected_models")
+    if "inference_log_id" not in row and "overrides" not in row:
+        return None
+    block: dict[str, Any] = {}
+    if row.get("inference_log_id") is not None:
+        block["inference_log_id"] = str(row["inference_log_id"])
+    if isinstance(row.get("overrides"), list):
+        block["overrides"] = row["overrides"]
+    if isinstance(selected, dict):
+        block["selected_models"] = {
+            role: selected[role] for role in ROUTE_ROLES if isinstance(selected.get(role), str)
+        }
+    return block
 
 
 def _contains_forbidden_field(value: Any) -> str | None:
@@ -298,13 +344,21 @@ def normalize_harness_row_to_canonical(
         budget = _coerce_number(row.get("max_cost_usd"))
     actual_cost = _coerce_number(row.get("actual_cost_usd"))
     row_id = _canonical_row_id(row)
-    eval_id = row.get("inference_log_id") or row.get("task_id") or row_id
+    # ``eval_id`` is an identifier only. It is never an inference link: the
+    # link comes from ``metadata.routing_outcome.inference_log_id`` via the
+    # routing join (HOK-3365).
+    eval_id = row_id
     observed_at = row.get("observed_at")
     if not isinstance(observed_at, str) or not observed_at:
         observed_at = datetime.now(timezone.utc).isoformat()
 
     harness_metadata = row.get("harness_metadata")
-    metadata: dict[str, Any] = {"source_schema_version": HARNESS_OUTCOME_ROW_V1}
+    metadata: dict[str, Any] = {
+        "source_schema_version": str(row.get("schema_version") or HARNESS_OUTCOME_ROW_V1)
+    }
+    routing_outcome = _routing_outcome_block(row)
+    if routing_outcome is not None:
+        metadata["routing_outcome"] = routing_outcome
     if isinstance(harness_metadata, dict):
         metadata["harness_metadata"] = harness_metadata
     if isinstance(row.get("harness"), str):
@@ -332,7 +386,7 @@ def normalize_harness_row_to_canonical(
     return canonical
 
 
-def _classify_router_outcome_row(
+def _classify_router_outcome_row(  # noqa: C901
     row: dict[str, Any],
     *,
     benchmark_spec_id: str | None,
@@ -340,10 +394,7 @@ def _classify_router_outcome_row(
 ) -> RowClassification:
     descriptor_warnings = _validate_harness_task_descriptor(row)
     # Canonical rich rows keep their existing, stricter contract untouched.
-    if row.get("schema_version") in (
-        TECHNICAL_TASK_ROUTER_ROW_V1,
-        TECHNICAL_TASK_ROUTER_ROW_V2,
-    ):
+    if _is_canonical_benchmark_row(row):
         allowed_models = _extract_allowed_models(row)
         if allowed_models and not _has_ranking_candidate_pool(allowed_models):
             return RowClassification(tier=FidelityTier.NON_RANKING, row=row)
@@ -357,6 +408,26 @@ def _classify_router_outcome_row(
             reason=f"forbidden_field:{forbidden_path}",
             descriptor_warnings=descriptor_warnings,
         )
+
+    if row.get("schema_version") in _ROUTING_OUTCOME_ROW_VERSIONS:
+        # Hokusai joins the recommendation from the inference log; a row that
+        # stores its own copy could disagree with it.
+        copy_path = find_recommendation_copy(row)
+        if copy_path is not None:
+            return RowClassification(
+                tier=FidelityTier.INVALID,
+                row=None,
+                reason=f"recommendation_copy:{copy_path}",
+                descriptor_warnings=descriptor_warnings,
+            )
+        routing_errors = routing_outcome_errors(row)
+        if routing_errors:
+            return RowClassification(
+                tier=FidelityTier.INVALID,
+                row=None,
+                reason=f"invalid_routing_outcome:{routing_errors[0]}",
+                descriptor_warnings=descriptor_warnings,
+            )
 
     allowed_models = _extract_allowed_models(row)
     selected_models, has_roles = _extract_selected_models(row)

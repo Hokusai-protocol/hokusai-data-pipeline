@@ -40,6 +40,7 @@ from src.api.services.contribution_service import (  # noqa: E402
     S3ContributionStore,
     StoredContributionRecord,
 )
+from src.api.services.routing_join import summarize_routing_joins  # noqa: E402
 from src.models.technical_task_router import (  # noqa: E402
     FEATURE_DEFAULTS,
     _normalize_serving_features_with_counts,
@@ -92,6 +93,28 @@ def validate_row(row: dict[str, Any], validator: jsonschema.protocols.Validator)
     error = errors[0]
     path = ".".join(str(part) for part in error.absolute_path) or "<root>"
     return f"{path}: {error.message}"
+
+
+def attach_routing_join(
+    row: dict[str, Any],
+    routing_join: dict[str, Any] | None,
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    """Carry the intake routing join into a canonical row's ``metadata``.
+
+    Scorers read the joined record, never ``selected_models`` alone. Router CSV
+    rows have fixed columns and are returned unchanged.
+    """
+    if row.get("schema_version") not in {
+        "technical_task_router_row/v1",
+        "technical_task_router_row/v2",
+    }:
+        return row
+    if not isinstance(routing_join, dict):
+        report["rows_without_routing_join"] += 1
+        return row
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    return {**row, "metadata": {**metadata, "routing_join": routing_join}}
 
 
 def normalize_row_for_format(
@@ -441,6 +464,10 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
         "quarantined_rows": 0,
         "excluded_partial_rows": 0,
         "excluded_non_ranking_rows": 0,
+        # Rows from records persisted before the routing join (HOK-3365) have
+        # no join and are counted here rather than guessed.
+        "rows_without_routing_join": 0,
+        "routing_join_summary": {},
         "excluded_no_wallet": [],
         "wallet_resolution": {
             "requests": 0,
@@ -490,6 +517,9 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
         row_fidelity_tiers = (
             record.metadata.get("row_fidelity_tiers") if isinstance(record.metadata, dict) else None
         )
+        row_routing_joins = (
+            record.metadata.get("row_routing_joins") if isinstance(record.metadata, dict) else None
+        )
         for row_index, row in enumerate(record.rows):
             # Honor the authoritative intake fidelity tier: rows classified
             # ``partial`` or ``non_ranking`` are persisted for telemetry only
@@ -510,7 +540,12 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
                 validator=validator,
             )
             if reason is None:
-                valid_rows.append(normalized_row or row)
+                routing_join = (
+                    row_routing_joins[row_index]
+                    if isinstance(row_routing_joins, list) and row_index < len(row_routing_joins)
+                    else None
+                )
+                valid_rows.append(attach_routing_join(normalized_row or row, routing_join, report))
                 continue
             invalid_row_count += 1
             quarantines.append(
@@ -550,6 +585,15 @@ def assemble(args: argparse.Namespace) -> dict[str, Any]:  # noqa: C901
         )
 
     processed_submissions.sort(key=lambda item: item.submission_id)
+    report["routing_join_summary"] = summarize_routing_joins(
+        [
+            row["metadata"]["routing_join"]
+            for submission in processed_submissions
+            for row in submission.rows
+            if isinstance(row.get("metadata"), dict)
+            and isinstance(row["metadata"].get("routing_join"), dict)
+        ]
+    )
     report["excluded_no_wallet"] = sorted(report["excluded_no_wallet"])
     training_rows = [row for submission in processed_submissions for row in submission.rows]
     feature_health = build_feature_health(

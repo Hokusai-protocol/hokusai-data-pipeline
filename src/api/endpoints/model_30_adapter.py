@@ -350,6 +350,17 @@ def _model_30_catalog() -> dict[str, dict[str, Any]]:
     return catalog
 
 
+def canonical_model_id(model_id: str) -> str:
+    """Return the catalog's public id for any spelling, regardless of serving status.
+
+    Unknown ids fall back to a case-folded spelling, so two spellings of the
+    same model compare equal while an unlisted model still compares by name.
+    """
+    key = model_id.strip().casefold()
+    entry = _model_30_catalog().get(key)
+    return str(entry["canonical_id"]) if entry is not None else key
+
+
 def _resolve_supported_model_id(model_id: Any, *, role: str | None = None) -> str | None:
     if not isinstance(model_id, str) or not model_id.strip():
         return None

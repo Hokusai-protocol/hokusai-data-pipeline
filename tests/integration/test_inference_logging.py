@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
@@ -52,7 +53,9 @@ class InMemoryContributorLogger:
         api_token_id: str,
         outcome_score: float,
         outcome_type: str,
-    ) -> None:
+        selected_models: dict[str, str] | None = None,
+        overrides: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         if inference_log_id not in self.rows:
             from src.api.services.contributor_logger import InferenceLogNotFoundError
 
