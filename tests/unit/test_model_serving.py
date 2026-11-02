@@ -555,6 +555,38 @@ def test_model_30_predict_old_flat_payload_returns_422_and_skips_mlflow(client: 
     assert "Extra inputs are not permitted" in response.text
 
 
+def test_model_30_predict_unsupported_role_pool_returns_422_and_skips_mlflow(
+    client: TestClient,
+) -> None:
+    called = False
+
+    def model_caller(_model_uri: str, _features: object, _timings=None) -> object:
+        nonlocal called
+        called = True
+        return {}
+
+    _replace_registry_entry("30", model_caller=model_caller)
+    response = client.post(
+        "/api/v1/models/30/predict",
+        json={
+            "inputs": {
+                **_minimal_model_30_inputs(),
+                "routing": {
+                    "availableModels": ["gpt-5.4", "claude-sonnet-4-6"],
+                    "availableCoderModels": ["not-a-real-model"],
+                },
+            }
+        },
+    )
+
+    assert response.status_code == 422
+    assert called is False
+    (error,) = response.json()["detail"]
+    assert error["type"] == "unsupported_candidate_pool"
+    assert error["loc"] == ["routing", "availableCoderModels"]
+    assert error["ctx"]["unsupported_model_ids"] == ["not-a-real-model"]
+
+
 def test_model_30_predict_rejects_mixed_nested_and_flat_payload(client: TestClient) -> None:
     called = False
 

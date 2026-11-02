@@ -171,6 +171,8 @@ class TechnicalTaskRouterDiagnostics(TechnicalTaskRouterBaseModel):
     max_cost_usd: float | None = Field(default=None, gt=0)
     budget_exceeded: bool = False
     min_route_cost_usd: float | None = Field(default=None, ge=0)
+    # role -> {requested retired id -> catalog successors used in its place}
+    candidate_pool_substitutions: dict[str, dict[str, list[str]]] | None = None
 
 
 class TechnicalTaskRouterPredictions(TechnicalTaskRouterBaseModel):
