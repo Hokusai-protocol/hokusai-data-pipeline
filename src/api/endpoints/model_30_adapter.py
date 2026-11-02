@@ -18,12 +18,14 @@ from datetime import datetime, timezone
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import mlflow
 import mlflow.pyfunc
 import numpy as np
 import pandas as pd
+from pydantic import ValidationError
+from pydantic_core import InitErrorDetails, PydanticCustomError
 
 from src.api.schemas import (
     TechnicalTaskRouterDiagnostics,
@@ -40,6 +42,11 @@ MODEL_30_CANDIDATE_POOL_CONTRACT = "model_30_candidate_pool/v1"
 MODEL_30_SUPPORTED_MODELS_PATH = (
     Path(__file__).resolve().parents[3] / "configs" / "model_30_launch_priority_models.v1.json"
 )
+MODEL_30_LINEAGE_PATH = (
+    Path(__file__).resolve().parents[3] / "configs" / "model_30_model_lineage.v1.json"
+)
+MODEL_30_ROLES: tuple[str, ...] = ("planner", "coder", "reviewer")
+_ROLE_STAGE: dict[str, str] = {"planner": "plan", "coder": "code", "reviewer": "review"}
 logger = logging.getLogger(__name__)
 ROUTER_FEATURE_COLUMNS: tuple[str, ...] = (
     "task_type",
@@ -208,8 +215,16 @@ def get_model_30_warmup_state() -> dict[str, Any]:
 
 
 def validate_nested_model_30_inputs(raw_inputs: dict[str, Any]) -> TechnicalTaskRouterInputs:
-    """Validate the public nested input contract for model 30."""
-    return TechnicalTaskRouterInputs.model_validate(raw_inputs)
+    """Validate the public nested input contract for model 30.
+
+    Beyond the schema, every requested role pool must keep at least one
+    servable model after catalog filtering and retired-model substitution.  The
+    router treats an empty pool as unconstrained, so letting one through would
+    rank models the caller never allowed.
+    """
+    validated = TechnicalTaskRouterInputs.model_validate(raw_inputs)
+    _reject_unresolvable_role_pools(validated)
+    return validated
 
 
 def map_nested_to_router_features(validated: TechnicalTaskRouterInputs) -> dict[str, Any]:
@@ -350,6 +365,17 @@ def _model_30_catalog() -> dict[str, dict[str, Any]]:
     return catalog
 
 
+def canonical_model_id(model_id: str) -> str:
+    """Return the catalog's public id for any spelling, regardless of serving status.
+
+    Unknown ids fall back to a case-folded spelling, so two spellings of the
+    same model compare equal while an unlisted model still compares by name.
+    """
+    key = model_id.strip().casefold()
+    entry = _model_30_catalog().get(key)
+    return str(entry["canonical_id"]) if entry is not None else key
+
+
 def _resolve_supported_model_id(model_id: Any, *, role: str | None = None) -> str | None:
     if not isinstance(model_id, str) or not model_id.strip():
         return None
@@ -367,39 +393,174 @@ def _log_json_warning(event: str, fields: dict[str, Any]) -> None:
     logger.warning(json.dumps(payload, default=str, sort_keys=True), extra=payload)
 
 
+@lru_cache(maxsize=1)
+def _model_30_successor_map() -> dict[str, tuple[str, ...]]:
+    """Return retired model ids (normalized spelling) mapped to their successors."""
+    payload = json.loads(MODEL_30_LINEAGE_PATH.read_text(encoding="utf-8"))
+    if payload.get("schema_version") != "model_30_model_lineage/v1":
+        raise ValueError("Model 30 model lineage config has an unsupported schema version")
+    return {
+        str(mapping["deprecated_model_id"]).strip().casefold(): tuple(
+            str(successor) for successor in mapping.get("successor_model_ids", [])
+        )
+        for mapping in payload.get("mappings", [])
+    }
+
+
+def _unsupported_reason(model_id: Any, *, role: str) -> str:
+    if not isinstance(model_id, str) or not model_id.strip():
+        return "invalid_id"
+    entry = _model_30_catalog().get(model_id.strip().casefold())
+    if entry is None:
+        return "not_in_catalog"
+    if entry["status"] not in {"active", "watchlist"}:
+        return "not_serving"
+    return "not_eligible_for_role"
+
+
+class RolePoolResolution(NamedTuple):
+    """How one role's requested candidate ids resolved against the catalog."""
+
+    accepted: list[str]
+    substitutions: dict[str, list[str]]
+    rejected: dict[str, str]
+
+
+def _resolve_role_pool(values: list[str] | None, *, role: str) -> RolePoolResolution:
+    """Resolve requested ids: catalog first, then retired-model successors, else reject."""
+    accepted: set[str] = set()
+    substitutions: dict[str, list[str]] = {}
+    rejected: dict[str, str] = {}
+    for value in values or []:
+        canonical_id = _resolve_supported_model_id(value, role=role)
+        if canonical_id is not None:
+            accepted.add(canonical_id)
+            continue
+        key = value.strip().casefold() if isinstance(value, str) else ""
+        successors = sorted(
+            {
+                successor_id
+                for successor in _model_30_successor_map().get(key, ())
+                if (successor_id := _resolve_supported_model_id(successor, role=role))
+            }
+        )
+        if successors:
+            substitutions[str(value)] = successors
+            accepted.update(successors)
+        else:
+            rejected[str(value)] = _unsupported_reason(value, role=role)
+    return RolePoolResolution(sorted(accepted), substitutions, rejected)
+
+
 def _filter_supported_models(
     values: list[str] | None,
     *,
     role: str,
     log: bool = True,
 ) -> list[str]:
-    accepted: list[str] = []
-    dropped: list[str] = []
-    for value in values or []:
-        canonical_id = _resolve_supported_model_id(value, role=role)
-        if canonical_id is None:
-            dropped.append(str(value))
-        else:
-            accepted.append(canonical_id)
-    if dropped and log:
-        fields = {
-            "role": role,
-            "dropped_model_ids": sorted(set(dropped)),
-            "accepted_count": len(set(accepted)),
-        }
-        _log_json_warning("model_30_candidate_pool_filtered", fields)
-        if not accepted:
-            # The router treats an empty role pool as unconstrained, so every
-            # requested model being unsupported silently widens the pool.
-            _log_json_warning("model_30_candidate_pool_emptied", fields)
-    return sorted(set(accepted))
+    resolution = _resolve_role_pool(values, role=role)
+    if log and resolution.substitutions:
+        _log_json_warning(
+            "model_30_candidate_pool_substituted",
+            {"role": role, "substitutions": resolution.substitutions},
+        )
+    if log and resolution.rejected:
+        _log_json_warning(
+            "model_30_candidate_pool_filtered",
+            {
+                "role": role,
+                "dropped_model_ids": sorted(resolution.rejected),
+                "accepted_count": len(resolution.accepted),
+            },
+        )
+    return resolution.accepted
+
+
+def _requested_role_pool(routing: Any, role: str) -> tuple[str, list[str] | None]:
+    """Return the request field that supplies a role's pool and its raw values."""
+    role_field = f"available_{role}_models"
+    role_values = getattr(routing, role_field)
+    if role_values:
+        return role_field, role_values
+    return "available_models", routing.available_models
 
 
 def _role_available_models(routing: Any, role: str, *, log: bool = True) -> list[str]:
     if routing is None:
         return []
-    role_values = getattr(routing, f"available_{role}_models")
-    return _filter_supported_models(role_values or routing.available_models, role=role, log=log)
+    _, values = _requested_role_pool(routing, role)
+    return _filter_supported_models(values, role=role, log=log)
+
+
+def _reject_unresolvable_role_pools(validated: TechnicalTaskRouterInputs) -> None:
+    """Raise a 422-shaped ValidationError naming each role whose pool resolves to nothing."""
+    routing = validated.routing
+    if routing is None:
+        return
+    workflow = validated.workflow
+    # The router routes every stage when none are requested; roles outside the
+    # requested stages are never assigned, so their pools cannot widen a route.
+    requested_stages = (
+        {stage.value for stage in workflow.stages}
+        if workflow is not None and workflow.stages
+        else set(_ROLE_STAGE.values())
+    )
+    errors: list[InitErrorDetails] = []
+    rejected_by_role: dict[str, dict[str, str]] = {}
+    for role in MODEL_30_ROLES:
+        if _ROLE_STAGE[role] not in requested_stages:
+            continue
+        field_name, values = _requested_role_pool(routing, role)
+        if not values:
+            continue
+        resolution = _resolve_role_pool(values, role=role)
+        if resolution.accepted:
+            continue
+        rejected_by_role[role] = resolution.rejected
+        errors.append(
+            InitErrorDetails(
+                type=PydanticCustomError(
+                    "unsupported_candidate_pool",
+                    "No requested {role} model is supported by Model 30: {unsupported}. "
+                    "Use ids from the supported-model catalog or omit the field for "
+                    "unconstrained routing.",
+                    {
+                        "role": role,
+                        "unsupported": ", ".join(
+                            f"{model_id} ({reason})"
+                            for model_id, reason in sorted(resolution.rejected.items())
+                        ),
+                        "unsupported_model_ids": sorted(resolution.rejected),
+                    },
+                ),
+                loc=("routing", _to_camel(field_name)),
+                input=list(values),
+            )
+        )
+    if errors:
+        _log_json_warning("model_30_candidate_pool_rejected", {"rejected": rejected_by_role})
+        raise ValidationError.from_exception_data(TechnicalTaskRouterInputs.__name__, errors)
+
+
+def _to_camel(field_name: str) -> str:
+    first, *rest = field_name.split("_")
+    return first + "".join(part[:1].upper() + part[1:] for part in rest)
+
+
+def candidate_pool_substitutions(
+    validated_inputs: TechnicalTaskRouterInputs,
+) -> dict[str, dict[str, list[str]]]:
+    """Return per-role retired-id substitutions applied to the request's pools."""
+    routing = validated_inputs.routing
+    if routing is None:
+        return {}
+    substitutions: dict[str, dict[str, list[str]]] = {}
+    for role in MODEL_30_ROLES:
+        _, values = _requested_role_pool(routing, role)
+        role_substitutions = _resolve_role_pool(values, role=role).substitutions
+        if role_substitutions:
+            substitutions[role] = role_substitutions
+    return substitutions
 
 
 def summarize_candidate_pool_fidelity(
@@ -408,8 +569,7 @@ def summarize_candidate_pool_fidelity(
     """Return canonical candidate-pool policy metadata for a model 30 request."""
     routing = validated_inputs.routing
     role_pool_sizes = {
-        role: len(_role_available_models(routing, role, log=False))
-        for role in ("planner", "coder", "reviewer")
+        role: len(_role_available_models(routing, role, log=False)) for role in MODEL_30_ROLES
     }
     constrained_sizes = [size for size in role_pool_sizes.values() if size > 0]
     if not constrained_sizes:
@@ -593,7 +753,10 @@ def normalize_model_30_output(
     try:
         normalized = _coerce_model_output(raw_model_output)
         if "recommended_strategy" in normalized:
-            return _normalize_v2_router_payload(normalized)
+            return _normalize_v2_router_payload(
+                normalized,
+                substitutions=candidate_pool_substitutions(validated_inputs),
+            )
 
         return _legacy_output_to_v2_router_payload(normalized, validated_inputs)
     except Exception as exc:
@@ -711,7 +874,11 @@ def log_model_30_failure(
     )
 
 
-def _normalize_v2_router_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
+def _normalize_v2_router_payload(
+    raw_payload: dict[str, Any],
+    *,
+    substitutions: dict[str, dict[str, list[str]]] | None = None,
+) -> dict[str, Any]:
     raw_diagnostics = raw_payload.get("diagnostics")
     payload = {
         "recommended_strategy": _public_strategy_payload(raw_payload["recommended_strategy"]),
@@ -729,10 +896,14 @@ def _normalize_v2_router_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
     }
     if raw_diagnostics is not None:
         payload["diagnostics"] = _public_diagnostics_payload(raw_diagnostics)
+        if substitutions and isinstance(payload["diagnostics"], dict):
+            payload["diagnostics"]["candidate_pool_substitutions"] = substitutions
     parsed = TechnicalTaskRouterPredictions.model_validate(payload)
     result = _canonicalize_response_model_ids(parsed.model_dump(mode="json"))
     if raw_diagnostics is None:
         result.pop("diagnostics", None)
+    elif isinstance(result.get("diagnostics"), dict) and not substitutions:
+        result["diagnostics"].pop("candidate_pool_substitutions", None)
     _log_model_30_routing_diagnostics(result)
     return result
 

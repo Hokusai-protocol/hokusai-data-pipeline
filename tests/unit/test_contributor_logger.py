@@ -171,6 +171,8 @@ def test_record_outcome_ownership_check_raises() -> None:
 def test_record_outcome_updates_row() -> None:
     class ExistingRow:
         api_token_id = "key-123"
+        output_payload = None
+        trace_metadata = None
         outcome_score = None
         outcome_type = None
         outcome_recorded_at = None

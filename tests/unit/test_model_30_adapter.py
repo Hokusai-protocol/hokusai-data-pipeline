@@ -18,6 +18,7 @@ import mlflow
 import numpy as np
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 from src.api.endpoints import model_30_adapter
 from src.api.schemas.technical_task_router_inputs import TechnicalTaskRouterPredictions
@@ -726,18 +727,181 @@ def test_candidate_pool_filtered_log_names_dropped_ids_in_message(caplog) -> Non
     ]
 
 
-def test_candidate_pool_emptied_warns_when_every_requested_model_is_dropped(caplog) -> None:
+@pytest.mark.parametrize(
+    ("role", "field"),
+    [
+        ("planner", "availablePlannerModels"),
+        ("coder", "availableCoderModels"),
+        ("reviewer", "availableReviewerModels"),
+    ],
+)
+def test_validate_rejects_role_pool_with_no_supported_models(role: str, field: str, caplog) -> None:
+    payload = {
+        **_minimal_inputs(),
+        "routing": {"availableModels": ["gpt-5.4", "claude-sonnet-4-6"]},
+    }
+    payload["routing"][field] = ["not-a-real-model", "also-fake"]
+
     with caplog.at_level(logging.WARNING, logger=model_30_adapter.__name__):
-        accepted = model_30_adapter._filter_supported_models(
-            ["not-a-real-model", "also-fake"],
-            role="planner",
+        with pytest.raises(ValidationError) as excinfo:
+            model_30_adapter.validate_nested_model_30_inputs(payload)
+
+    errors = excinfo.value.errors()
+    assert len(errors) == 1
+    assert errors[0]["type"] == "unsupported_candidate_pool"
+    assert errors[0]["loc"] == ("routing", field)
+    assert errors[0]["ctx"]["role"] == role
+    assert errors[0]["ctx"]["unsupported_model_ids"] == ["also-fake", "not-a-real-model"]
+    assert "not-a-real-model (not_in_catalog)" in errors[0]["msg"]
+    rejected = json.loads(caplog.records[-1].getMessage())
+    assert rejected["event"] == "model_30_candidate_pool_rejected"
+    assert set(rejected["rejected"]) == {role}
+
+
+def test_validate_rejects_every_role_when_shared_pool_is_unsupported() -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        model_30_adapter.validate_nested_model_30_inputs(
+            {**_minimal_inputs(), "routing": {"availableModels": ["gpt-4-legacy"]}}
         )
 
-    assert accepted == []
-    events = [json.loads(record.getMessage())["event"] for record in caplog.records]
-    assert events == ["model_30_candidate_pool_filtered", "model_30_candidate_pool_emptied"]
-    emptied = json.loads(caplog.records[1].getMessage())
-    assert emptied["dropped_model_ids"] == ["also-fake", "not-a-real-model"]
+    errors = excinfo.value.errors()
+    assert [error["ctx"]["role"] for error in errors] == ["planner", "coder", "reviewer"]
+    assert {error["loc"] for error in errors} == {("routing", "availableModels")}
+
+
+def test_validate_names_role_ineligible_models() -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        model_30_adapter.validate_nested_model_30_inputs(
+            {**_minimal_inputs(), "routing": {"availablePlannerModels": ["gpt-5-mini"]}}
+        )
+
+    (error,) = excinfo.value.errors()
+    assert error["ctx"]["role"] == "planner"
+    assert "gpt-5-mini (not_eligible_for_role)" in error["msg"]
+
+
+def test_validate_ignores_unsupported_pool_for_unrequested_stage() -> None:
+    validated = model_30_adapter.validate_nested_model_30_inputs(
+        {
+            **_minimal_inputs(),
+            "routing": {"availableModels": ["gpt-5-mini"]},
+            "workflow": {"stages": ["code", "review"]},
+        }
+    )
+
+    row = model_30_adapter.model_30_inputs_to_features(validated).iloc[0]
+    assert row["available_coder_models"] == ["gpt-5-mini"]
+    assert row["available_planner_models"] == []
+
+
+def test_validate_maps_retired_model_to_successor_instead_of_rejecting(caplog) -> None:
+    payload = {
+        **_minimal_inputs(),
+        "routing": {
+            "availableModels": ["gpt-5.4", "claude-sonnet-4-6"],
+            "availableReviewerModels": ["claude-sonnet-4-5-20250929"],
+        },
+    }
+
+    validated = model_30_adapter.validate_nested_model_30_inputs(payload)
+    with caplog.at_level(logging.WARNING, logger=model_30_adapter.__name__):
+        row = model_30_adapter.model_30_inputs_to_features(validated).iloc[0]
+
+    assert row["available_reviewer_models"] == ["claude-sonnet-4-6"]
+    assert model_30_adapter.candidate_pool_substitutions(validated) == {
+        "reviewer": {"claude-sonnet-4-5-20250929": ["claude-sonnet-4-6"]}
+    }
+    substituted = [
+        json.loads(record.getMessage())
+        for record in caplog.records
+        if "model_30_candidate_pool_substituted" in record.getMessage()
+    ]
+    assert substituted == [
+        {
+            "event": "model_30_candidate_pool_substituted",
+            "role": "reviewer",
+            "substitutions": {"claude-sonnet-4-5-20250929": ["claude-sonnet-4-6"]},
+        }
+    ]
+
+
+def test_successor_mapping_keeps_only_servable_successors() -> None:
+    # gpt-5.3-codex lists gpt-5.4 and gpt-5.2-codex; only gpt-5.4 is in the catalog.
+    accepted = model_30_adapter._filter_supported_models(["GPT-5.3-Codex"], role="coder")
+
+    assert accepted == ["gpt-5.4"]
+
+
+def test_validate_still_accepts_partially_supported_pool() -> None:
+    validated = model_30_adapter.validate_nested_model_30_inputs(
+        {**_minimal_inputs(), "routing": {"availableModels": ["gpt-5.4", "not-a-real-model"]}}
+    )
+
+    row = model_30_adapter.model_30_inputs_to_features(validated).iloc[0]
+    assert row["available_coder_models"] == ["gpt-5.4"]
+
+
+def _v2_raw_with_diagnostics() -> dict:
+    strategy = {
+        "objective": "highest_reliability",
+        "planner_model": "claude-sonnet-4-6",
+        "coder_model": "gpt-5.4",
+        "reviewer_model": "claude-sonnet-4-6",
+        "stages": ["plan", "code", "review"],
+        "estimated_success_under_budget": 0.8,
+        "estimated_cost_usd": 0.2,
+        "estimated_duration_seconds": 60.0,
+        "confidence": 0.7,
+        "rationale": "test",
+    }
+    return {
+        "recommended_strategy": strategy,
+        "alternatives": [],
+        "tradeoffs": {
+            "lowest_cost": None,
+            "fastest_completion": None,
+            "highest_reliability": strategy,
+        },
+        "nearest_neighbors": {"count": 0},
+        "diagnostics": {
+            "warnings": [],
+            "degenerate_objectives": [],
+            "candidate_spread": {
+                "min_cost": 0.2,
+                "max_cost": 0.2,
+                "min_success": 0.8,
+                "max_success": 0.8,
+            },
+            "candidate_count": 1,
+            "feasible_candidate_count": 1,
+        },
+    }
+
+
+def test_normalize_output_discloses_candidate_pool_substitutions() -> None:
+    validated = model_30_adapter.validate_nested_model_30_inputs(
+        {
+            **_minimal_inputs(),
+            "routing": {
+                "availableModels": ["gpt-5.4", "claude-sonnet-4-6"],
+                "availableReviewerModels": ["claude-sonnet-4.5"],
+            },
+        }
+    )
+
+    normalized = model_30_adapter.normalize_model_30_output(_v2_raw_with_diagnostics(), validated)
+
+    assert normalized["diagnostics"]["candidate_pool_substitutions"] == {
+        "reviewer": {"claude-sonnet-4.5": ["claude-sonnet-4-6"]}
+    }
+
+
+def test_normalize_output_omits_substitutions_when_none_applied() -> None:
+    validated = model_30_adapter.validate_nested_model_30_inputs(_full_inputs())
+
+    normalized = model_30_adapter.normalize_model_30_output(_v2_raw_with_diagnostics(), validated)
+
+    assert "candidate_pool_substitutions" not in normalized["diagnostics"]
 
 
 def test_candidate_pool_fidelity_summary_does_not_repeat_filter_logs(caplog) -> None:

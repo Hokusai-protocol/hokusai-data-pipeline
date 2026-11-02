@@ -28,7 +28,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from src.api.endpoints.model_30_adapter import canonical_model_id  # noqa: E402
 from src.evaluation.scorers import resolve_scorer  # noqa: E402
+from src.evaluation.scorers.builtin import (  # noqa: E402
+    COUNTERFACTUAL_EVIDENCE,
+    _label_rows,
+    _task_router_row_is_success_under_budget,
+)
 from src.utils.metric_naming import derive_mlflow_name  # noqa: E402
 
 V1_SCORER_REFS: tuple[str, ...] = (
@@ -242,6 +248,7 @@ def evaluate_model(
         [row for row in benchmark_rows if row.get("budget_exceeded") is True]
     )
     support_coverage = _support_coverage(benchmark_rows, benchmark_version=benchmark_version)
+    label_evidence = _label_evidence_coverage(benchmark_rows)
     return {
         "model_id": model_id,
         "holdout_dataset": str(holdout_path),
@@ -261,6 +268,7 @@ def evaluate_model(
         "scenario_counts": scenario_counts,
         "over_budget_counts": over_budget_counts,
         "support_coverage": support_coverage,
+        "label_evidence": label_evidence,
         "metrics": metrics,
         "duration_coverage": {
             "evaluated_rows": duration_coverage.evaluated_rows,
@@ -376,6 +384,9 @@ def _build_benchmark_rows(
                 prediction = _predict_one(model, features)
                 strategy = prediction.get("recommended_strategy") or {}
                 selected_models = _prediction_selected_models(prediction, strategy)
+                routing_join = _benchmark_routing_join(
+                    _selected_strategy(strategy, prediction, objective), row
+                )
                 benchmark_row = {
                     "schema_version": _row_schema_version(benchmark_version),
                     "row_id": _row_id(row, row_index, objective, scenario),
@@ -406,6 +417,7 @@ def _build_benchmark_rows(
                         "source_run_id_hash": row.get("run_id_hash"),
                         "source_task_id_hash": row.get("task_id_hash"),
                         "historical_selected_models": _historical_selected_models(row),
+                        "routing_join": routing_join,
                     },
                 }
                 if benchmark_version == "v2":
@@ -446,7 +458,11 @@ def _score_benchmark_rows(
     benchmark_version: str = "v2",
 ) -> dict[str, float | None]:
     scorer_refs = V2_SCORER_REFS if benchmark_version == "v2" else V1_SCORER_REFS
-    metrics = {_metric_key(ref): float(resolve_scorer(ref).callable_(rows)) for ref in scorer_refs}
+    metrics: dict[str, float | None] = {}
+    for ref in scorer_refs:
+        value = float(resolve_scorer(ref).callable_(rows))
+        # NaN means no row's label describes the predicted route: unmeasured.
+        metrics[_metric_key(ref)] = None if value != value else value
     metrics["technical_task_router.duration_mae_seconds_v1"] = _duration_mae(rows)
     return metrics
 
@@ -470,7 +486,7 @@ def _duration_coverage(rows: list[dict[str, Any]]) -> DurationCoverage:
 
 def _duration_mae(rows: list[dict[str, Any]]) -> float | None:
     errors: list[float] = []
-    for row in rows:
+    for row in _label_rows(rows):
         actual_duration = _positive_float(row.get("actual_time_seconds"))
         estimated_duration = _finite_float(row.get("estimated_duration_seconds"))
         if actual_duration is None or estimated_duration is None:
@@ -636,8 +652,67 @@ def _selected_strategy(
     }
 
 
-def _per_row_v2_metrics(row: dict[str, Any]) -> dict[str, float]:
-    success = float(_row_success_under_budget(row))
+def _benchmark_routing_join(
+    predicted_strategy: dict[str, Any],
+    row: dict[str, str],
+) -> dict[str, Any]:
+    """Pair a prediction with the holdout route whose outcome the row records.
+
+    The holdout label (success, cost, time) describes the models that ran.
+    It is evidence about the prediction only when the prediction chose those
+    same models for every role both name; otherwise the row is
+    ``counterfactual`` and label-dependent scorers skip it (HOK-3365).
+    """
+    recommended = {
+        role: str(predicted_strategy.get(f"{role}_model") or "").strip()
+        for role in ROLE_SELECTED_COLUMNS
+    }
+    recommended = {role: model for role, model in recommended.items() if model}
+    executed = {
+        role: str(row.get(column) or "").strip() for role, column in ROLE_SELECTED_COLUMNS.items()
+    }
+    executed = {role: model for role, model in executed.items() if model}
+    shared_roles = sorted(recommended.keys() & executed.keys())
+    matches = bool(shared_roles) and all(
+        canonical_model_id(recommended[role]) == canonical_model_id(executed[role])
+        for role in shared_roles
+    )
+    return {
+        "join_version": "benchmark_label_join/v1",
+        "evidence": "recommendation" if matches else COUNTERFACTUAL_EVIDENCE,
+        "recommended": recommended,
+        "executed": executed,
+    }
+
+
+def _label_evidence_coverage(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """How many benchmark rows have labels that describe the predicted route."""
+    evidence_rows = _label_rows(rows)
+    by_scenario: dict[str, dict[str, int]] = {}
+    for row in rows:
+        scenario = str(row.get("scenario", "production_pool"))
+        bucket = by_scenario.setdefault(scenario, {"rows": 0, "evidence_rows": 0})
+        bucket["rows"] += 1
+    for row in evidence_rows:
+        by_scenario[str(row.get("scenario", "production_pool"))]["evidence_rows"] += 1
+    return {
+        "benchmark_rows": len(rows),
+        "evidence_rows": len(evidence_rows),
+        "evidence_share": (len(evidence_rows) / len(rows)) if rows else 0.0,
+        "by_scenario": dict(sorted(by_scenario.items())),
+    }
+
+
+def _per_row_v2_metrics(row: dict[str, Any]) -> dict[str, float | None]:
+    if not _label_rows([row]):
+        # The label describes a different route: no per-row outcome exists.
+        return {
+            "technical_task_router.success_under_budget_v1": None,
+            "technical_task_router.cost_efficiency_v2": None,
+            "technical_task_router.sparse_cell_generalization_v2": None,
+            "technical_task_router.candidate_pool_robustness_v2": None,
+        }
+    success = float(_task_router_row_is_success_under_budget(row))
     cost_efficiency = success * (
         1.0 - min(max(float(row["actual_cost_usd"]) / float(row["max_cost_usd"]), 0.0), 1.0)
     )
@@ -659,20 +734,6 @@ def _per_row_v2_metrics(row: dict[str, Any]) -> dict[str, float]:
 def _prediction_budget_exceeded(prediction: dict[str, Any]) -> bool:
     diagnostics = prediction.get("diagnostics")
     return isinstance(diagnostics, dict) and diagnostics.get("budget_exceeded") is True
-
-
-def _row_success_under_budget(row: dict[str, Any]) -> bool:
-    if row.get("budget_exceeded") is True:
-        return False
-    selected_models = row.get("selected_models")
-    allowed_models = row.get("allowed_models")
-    if not isinstance(selected_models, list) or not isinstance(allowed_models, list):
-        return False
-    if not set(selected_models).issubset(set(allowed_models)):
-        return False
-    return row.get("completed_successfully") is True and (
-        float(row["actual_cost_usd"]) <= float(row["max_cost_usd"])
-    )
 
 
 def _features_from_holdout_row(

@@ -239,7 +239,59 @@ def _sales_unsubscribe_rate(rows: list[dict]) -> float:
 
 # ---------------------------------------------------------------------------
 # Technical task router scorers — operate on technical_task_router_row/v1 rows
+#
+# HOK-3365: scorers read a row's route only through ``_joined_route``, which
+# pairs ``selected_models`` with the row's routing join
+# (``metadata.routing_join``). A row's outcome label (``completed_successfully``
+# and ``actual_cost_usd``) describes the models that actually ran. When the
+# scored route is not that route (a benchmark prediction that differs from the
+# historical run, evidence ``counterfactual``), the label is not evidence about
+# it, and every label-dependent scorer skips the row. Rows without a join
+# predate it and keep their historical meaning (label describes the listed
+# route). ``tests/unit/test_router_scorer_joined_route.py`` fails if any other
+# function here reads ``selected_models``.
 # ---------------------------------------------------------------------------
+
+# Evidence class an evaluator assigns when the scored (predicted) route differs
+# from the route whose outcome the row's label records.
+COUNTERFACTUAL_EVIDENCE = "counterfactual"
+
+
+def _joined_route(row: dict) -> tuple[list | None, bool]:
+    """Return ``(scored route, whether the row's label is evidence about it)``."""
+    selected_models = row.get("selected_models")
+    route = selected_models if isinstance(selected_models, list) else None
+    metadata = row.get("metadata")
+    routing_join = metadata.get("routing_join") if isinstance(metadata, dict) else None
+    if not isinstance(routing_join, dict):
+        return route, True
+    return route, routing_join.get("evidence") != COUNTERFACTUAL_EVIDENCE
+
+
+def _label_rows(rows: list[dict]) -> list[dict]:
+    """Rows whose outcome label is evidence about the scored route."""
+    return [row for row in rows if _joined_route(row)[1]]
+
+
+def _label_error_mean(rows: list[dict], errors: list[float]) -> float:
+    """Mean of an error metric; NaN when rows exist but none has a usable label.
+
+    An error metric over zero rows is not perfect, it is unmeasured. Returning
+    0.0 would rank a route that never ran as the best-calibrated one.
+    """
+    if rows and not _label_rows(rows):
+        return float("nan")
+    return _mean(errors)
+
+
+def _task_router_row_selection_is_valid(row: dict) -> bool:
+    route, _ = _joined_route(row)
+    allowed_models_raw = row.get("allowed_models")
+    if route is None or not isinstance(allowed_models_raw, list):
+        return False
+    if not all(isinstance(model, str) for model in route + allowed_models_raw):
+        return False
+    return set(route).issubset(set(allowed_models_raw))
 
 
 def _task_router_row_is_feasible(row: dict) -> bool:
@@ -247,11 +299,7 @@ def _task_router_row_is_feasible(row: dict) -> bool:
     # recommendation is over budget and must never count as feasible.
     if row.get("budget_exceeded") is True:
         return False
-    selected_models_raw = row.get("selected_models")
-    allowed_models_raw = row.get("allowed_models")
-    if not isinstance(selected_models_raw, list) or not isinstance(allowed_models_raw, list):
-        return False
-    if not all(isinstance(model, str) for model in selected_models_raw + allowed_models_raw):
+    if not _task_router_row_selection_is_valid(row):
         return False
 
     try:
@@ -263,13 +311,12 @@ def _task_router_row_is_feasible(row: dict) -> bool:
     if actual_cost_usd < 0 or max_cost_usd <= 0:
         return False
 
-    return set(selected_models_raw).issubset(set(allowed_models_raw)) and (
-        actual_cost_usd <= max_cost_usd
-    )
+    return actual_cost_usd <= max_cost_usd
 
 
 def _task_router_feasibility(rows: list[dict]) -> float:
-    """Fraction of rows where selected models are allowed and observed cost is within budget."""
+    """Fraction of label-evidence rows where selected models are allowed and cost is in budget."""
+    rows = _label_rows(rows)
     if not rows:
         return 0.0
     feasible_count = sum(1 for row in rows if _task_router_row_is_feasible(row))
@@ -277,14 +324,11 @@ def _task_router_feasibility(rows: list[dict]) -> float:
 
 
 def _task_router_success_under_budget(rows: list[dict]) -> float:
-    """Fraction of rows that are feasible and completed successfully."""
+    """Fraction of label-evidence rows that are feasible and completed successfully."""
+    rows = _label_rows(rows)
     if not rows:
         return 0.0
-    successful_count = sum(
-        1
-        for row in rows
-        if _task_router_row_is_feasible(row) and row.get("completed_successfully") is True
-    )
+    successful_count = sum(1 for row in rows if _task_router_row_is_success_under_budget(row))
     return successful_count / len(rows)
 
 
@@ -295,31 +339,45 @@ def _task_router_benchmark_score(rows: list[dict]) -> float:
 
 def _task_router_cost_efficiency_v2(rows: list[dict]) -> float:
     """Mean successful budget headroom for the v2 composite benchmark."""
-    return _bounded_score(_mean([_task_router_row_cost_efficiency_v2(row) for row in rows]))
+    return _bounded_score(
+        _mean([_task_router_row_cost_efficiency_v2(row) for row in _label_rows(rows)])
+    )
+
+
+_SPARSE_CELL_SCENARIOS = frozenset({"sparse_cell"})
+_CANDIDATE_POOL_SCENARIOS = frozenset(
+    {"challenger_present", "dominant_model_removed", "low_budget"}
+)
 
 
 def _task_router_sparse_cell_generalization_v2(rows: list[dict]) -> float:
     """Success-under-budget rate for rows in the sparse-cell scenario slice."""
-    return _task_router_required_scenario_success_rate(rows, {"sparse_cell"})
+    return _task_router_required_scenario_success_rate(rows, _SPARSE_CELL_SCENARIOS) or 0.0
 
 
 def _task_router_candidate_pool_robustness_v2(rows: list[dict]) -> float:
     """Success-under-budget rate for challenger, no-dominant, and low-budget slices."""
-    return _task_router_required_scenario_success_rate(
-        rows,
-        {"challenger_present", "dominant_model_removed", "low_budget"},
-    )
+    return _task_router_required_scenario_success_rate(rows, _CANDIDATE_POOL_SCENARIOS) or 0.0
 
 
 def _task_router_benchmark_score_v2(rows: list[dict]) -> float:
-    """Bounded composite Model 30 reward benchmark score."""
-    success = _task_router_success_under_budget(rows)
-    cost_efficiency = _task_router_cost_efficiency_v2(rows)
-    sparse_cell = _task_router_sparse_cell_generalization_v2(rows)
-    candidate_pool = _task_router_candidate_pool_robustness_v2(rows)
-    return _bounded_score(
-        (0.70 * success) + (0.15 * cost_efficiency) + (0.10 * sparse_cell) + (0.05 * candidate_pool)
-    )
+    """Bounded composite Model 30 reward benchmark score.
+
+    A scenario slice with no label-evidence rows has no measurable success
+    rate. Its weight is dropped and the remaining weights renormalized, rather
+    than scoring an unmeasured slice as zero.
+    """
+    components: list[tuple[float, float | None]] = [
+        (0.70, _task_router_success_under_budget(rows) if _label_rows(rows) else None),
+        (0.15, _task_router_cost_efficiency_v2(rows) if _label_rows(rows) else None),
+        (0.10, _task_router_required_scenario_success_rate(rows, _SPARSE_CELL_SCENARIOS)),
+        (0.05, _task_router_required_scenario_success_rate(rows, _CANDIDATE_POOL_SCENARIOS)),
+    ]
+    measured = [(weight, value) for weight, value in components if value is not None]
+    total_weight = sum(weight for weight, _ in measured)
+    if total_weight == 0:
+        return 0.0
+    return _bounded_score(sum(weight * value for weight, value in measured) / total_weight)
 
 
 def _task_router_row_is_success_under_budget(row: dict) -> bool:
@@ -339,33 +397,34 @@ def _task_router_row_cost_efficiency_v2(row: dict) -> float:
     return _bounded_score(1.0 - _clamp(actual_cost_usd / max_cost_usd, 0.0, 1.0))
 
 
-def _task_router_required_scenario_success_rate(rows: list[dict], scenarios: set[str]) -> float:
+def _task_router_required_scenario_success_rate(
+    rows: list[dict], scenarios: frozenset[str]
+) -> float | None:
+    """Success rate over a scenario slice's label-evidence rows.
+
+    Raises when the slice is absent (a benchmark-construction error). Returns
+    ``None`` when the slice exists but none of its labels describe the scored
+    route.
+    """
     scenario_rows = [row for row in rows if row.get("scenario") in scenarios]
     if not scenario_rows:
         joined = ", ".join(sorted(scenarios))
         raise ValueError(
             f"technical_task_router.benchmark_score/v2 missing scenario rows: {joined}"
         )
+    if not _label_rows(scenario_rows):
+        return None
     return _task_router_success_under_budget(scenario_rows)
 
 
 def _task_router_invalid_selection_rate(rows: list[dict]) -> float:
-    """Fraction of rows where one or more selected models are outside the allowed set."""
+    """Fraction of rows where one or more selected models are outside the allowed set.
+
+    A property of the scored route alone, so every row counts, label or not.
+    """
     if not rows:
         return 0.0
-
-    invalid_count = 0
-    for row in rows:
-        selected_models_raw = row.get("selected_models")
-        allowed_models_raw = row.get("allowed_models")
-        if not isinstance(selected_models_raw, list) or not isinstance(allowed_models_raw, list):
-            invalid_count += 1
-            continue
-        if not all(isinstance(model, str) for model in selected_models_raw + allowed_models_raw):
-            invalid_count += 1
-            continue
-        if not set(selected_models_raw).issubset(set(allowed_models_raw)):
-            invalid_count += 1
+    invalid_count = sum(1 for row in rows if not _task_router_row_selection_is_valid(row))
     return invalid_count / len(rows)
 
 
@@ -380,21 +439,21 @@ def _task_router_cost_mae_usd(rows: list[dict]) -> float:
     """Mean absolute error between estimated_cost_usd and actual_cost_usd."""
     errors = [
         abs(float(row["estimated_cost_usd"]) - float(row["actual_cost_usd"]))
-        for row in rows
+        for row in _label_rows(rows)
         if _has_number(row, "estimated_cost_usd") and _has_number(row, "actual_cost_usd")
     ]
-    return _mean(errors)
+    return _label_error_mean(rows, errors)
 
 
 def _task_router_duration_mae_seconds(rows: list[dict]) -> float:
     """Mean absolute error between estimated_duration_seconds and actual_time_seconds."""
     errors = [
         abs(float(row["estimated_duration_seconds"]) - float(row["actual_time_seconds"]))
-        for row in rows
+        for row in _label_rows(rows)
         if _has_number(row, "estimated_duration_seconds")
         and _has_number(row, "actual_time_seconds")
     ]
-    return _mean(errors)
+    return _label_error_mean(rows, errors)
 
 
 def _task_router_reliability_brier_score(rows: list[dict]) -> float:
@@ -405,10 +464,10 @@ def _task_router_reliability_brier_score(rows: list[dict]) -> float:
             - float(_task_router_row_is_success_under_budget(row))
         )
         ** 2
-        for row in rows
+        for row in _label_rows(rows)
         if _has_number(row, "estimated_success_under_budget")
     ]
-    return _mean(errors)
+    return _label_error_mean(rows, errors)
 
 
 def _task_router_objective_success_under_budget(rows: list[dict], objective: str) -> float:
