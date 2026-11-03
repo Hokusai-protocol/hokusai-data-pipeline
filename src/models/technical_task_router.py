@@ -29,7 +29,7 @@ EXPLORATION_SUCCESS_PRIOR = 0.62
 CHEAP_CANDIDATES_PER_ROLE = 2
 # Routes with fewer exact historical matches than this use the token x price cost.
 PRICE_COST_MIN_EXACT_SUPPORT = 3
-# Token profiles and the typical aux cost need this many rows before a
+# Token profiles need this many rows before a
 # neighborhood is trusted over the dataset-wide median.
 MIN_TOKEN_PROFILE_ROWS = 3
 ROLE_TOKEN_COLUMNS = ("input_tokens", "cache_tokens", "output_tokens")
@@ -200,7 +200,6 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
         self._prices: dict[str, dict[str, float | None]] = {}
         self._dataset_role_profiles: dict[str, tuple[float, float, float] | None] = {}
         self._profile_cache: tuple[pd.DataFrame, dict[str, Any]] | None = None
-        self._dataset_aux_cost: float | None = None
         self._global_defaults: dict[str, RoleChoice] = {}
 
     def __getstate__(self: TechnicalTaskRouterModel) -> dict[str, Any]:
@@ -239,7 +238,6 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
         self._prices = dict(state.get("prices_state") or {})
         self._dataset_role_profiles = {}
         self._profile_cache = None
-        self._dataset_aux_cost = None
 
         if "dataset_state" in state:
             dataset_state = state["dataset_state"]
@@ -281,7 +279,6 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             role: _token_profile(self._dataset, role) for role in ROLE_COLUMNS
         }
         self._profile_cache = None
-        self._dataset_aux_cost = _aux_cost(self._dataset) or 0.0
         self._global_defaults = {
             role: self._rank_role(role, self._dataset, {}, [])[0] for role in ROLE_COLUMNS
         }
@@ -580,7 +577,7 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
         )
 
     def _neighbor_cache(self: TechnicalTaskRouterModel, neighbors: pd.DataFrame) -> dict[str, Any]:
-        """Per-request memo for token profiles and aux cost, keyed on the neighbors object.
+        """Per-request memo for token profiles, keyed on the neighbors object.
 
         Holds a reference to *neighbors* and compares by identity: keying on
         ``id(neighbors)`` alone let a later request reuse a freed frame's id and
@@ -610,24 +607,6 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
                 profile = self._dataset_role_profiles.get(role)
             memo[role] = profile
         return memo[role]
-
-    def _typical_aux_cost(self: TechnicalTaskRouterModel, neighbors: pd.DataFrame) -> float:
-        """Median auxiliary (non-route) cost on similar tasks, with the same fallback as tokens.
-
-        Most rows carry no aux cost and a few carry large ones, so a median over
-        one or two neighbor values let a single outlier add ~$20 to every
-        token-priced route. Require MIN_TOKEN_PROFILE_ROWS values, else use the
-        dataset-wide median.
-        """
-        memo = self._neighbor_cache(neighbors)
-        if "aux" not in memo:
-            aux = _aux_cost(neighbors)
-            if aux is None:
-                if getattr(self, "_dataset_aux_cost", None) is None and self._dataset is not None:
-                    self._dataset_aux_cost = _aux_cost(self._dataset) or 0.0
-                aux = getattr(self, "_dataset_aux_cost", None) or 0.0
-            memo["aux"] = aux
-        return memo["aux"]
 
     def _price_role_cost(
         self: TechnicalTaskRouterModel,
@@ -659,7 +638,14 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
         role_choices: dict[str, RoleChoice | None],
         neighbors: pd.DataFrame,
     ) -> float | None:
-        """Sum of per-role token costs plus typical auxiliary cost; None if any role is unpriced."""
+        """Sum of per-role token costs; None if any role is unpriced.
+
+        Auxiliary (non-route) spend is deliberately excluded. In the data it is
+        the other arm of a challenge pair or frontier sub-agents inside a
+        Claude/Codex session (e.g. $21.83 of gpt-5.5 on a gpt-5.4 route), none of
+        which a token-priced cheap route would incur. Adding its median put ~$22
+        on every priced route and pushed routes against the budget cap.
+        """
         if not self._prices:
             return None
         total = 0.0
@@ -670,7 +656,6 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             if cost is None:
                 return None
             total += cost
-        total += self._typical_aux_cost(neighbors)
         return round(total, 6)
 
     def _fallback_role_choice(
@@ -1876,13 +1861,3 @@ def _token_profile(rows: pd.DataFrame | None, role: str) -> tuple[float, float, 
         return None
     medians = values.median()
     return (float(medians[columns[0]]), float(medians[columns[1]]), float(medians[columns[2]]))
-
-
-def _aux_cost(rows: pd.DataFrame | None) -> float | None:
-    """Median aux_cost_usd across *rows*; None if fewer than MIN_TOKEN_PROFILE_ROWS values."""
-    if rows is None or rows.empty or "aux_cost_usd" not in rows.columns:
-        return None
-    values = pd.to_numeric(rows["aux_cost_usd"], errors="coerce").dropna()
-    if len(values) < MIN_TOKEN_PROFILE_ROWS:
-        return None
-    return float(values.median())
