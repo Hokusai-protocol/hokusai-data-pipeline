@@ -27,14 +27,29 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.model_30.model_identity import (  # noqa: E402
+    is_supported_model_id,
+    normalize_model_id,
+)
+
 # Mirrors wavemill shared/lib/eval-success-policy.ts DEFAULT_SUCCESS_THRESHOLD.
 DEFAULT_SUCCESS_THRESHOLD = 0.8
 ROLE_COLUMNS = ("planner_model", "coder_model", "reviewer_model")
+AVAILABLE_COLUMNS = (
+    "available_planner_models",
+    "available_coder_models",
+    "available_reviewer_models",
+)
 
 
 def relabel_success_from_score(
@@ -53,6 +68,28 @@ def relabel_success_from_score(
     changed = int((fixed != original).sum())
     out["completed_successfully"] = fixed
     return out, changed
+
+
+def _normalize_model_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Rewrite role and available-model IDs to the serving catalog's public spelling."""
+    out = frame.copy()
+    for column in ROLE_COLUMNS:
+        out[column] = out[column].map(lambda value: normalize_model_id(value) or value)
+    for column in AVAILABLE_COLUMNS:
+        if column in out.columns:
+            out[column] = out[column].map(_normalize_model_list)
+    return out
+
+
+def _normalize_model_list(value: str) -> str:
+    try:
+        models = json.loads(value) if value else []
+    except json.JSONDecodeError:
+        return value
+    if not isinstance(models, list):
+        return value
+    normalized = sorted({normalize_model_id(m) or m for m in models if is_supported_model_id(m)})
+    return json.dumps(normalized, separators=(",", ":"))
 
 
 def _dedupe_key(frame: pd.DataFrame) -> pd.Series:
@@ -76,9 +113,16 @@ def merge_router_exports(
     The returned frame has a ``provenance_source`` column; drop it before
     writing a training CSV.
     """
-    if list(legacy.columns) != list(derived.columns):
-        missing = sorted(set(legacy.columns) ^ set(derived.columns))
-        raise ValueError(f"legacy and derived exports have different columns: {missing}")
+    legacy_only = sorted(set(legacy.columns) - set(derived.columns))
+    if legacy_only:
+        raise ValueError(f"legacy and derived exports have different columns: {legacy_only}")
+    # HOK-3401: derived rows may carry newer columns (executed-route provenance,
+    # per-role token economics). Legacy rows predate them, so leave them blank.
+    for column in derived.columns:
+        if column not in legacy.columns:
+            legacy[column] = ""
+    legacy = legacy[list(derived.columns)]
+    legacy = _normalize_model_columns(legacy)
 
     legacy, relabelled = relabel_success_from_score(legacy, threshold=threshold)
     duplicate = _dedupe_key(legacy).isin(set(_dedupe_key(derived)))

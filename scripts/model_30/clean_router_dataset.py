@@ -21,8 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.model_30.model_identity import is_supported_model_id  # noqa: E402
 from scripts.model_30.register_technical_task_router import (  # noqa: E402
-    MODEL_ID_PATTERN,
     SELECTED_MODEL_ID_COLUMNS,
     _parse_model_values,
     validate_router_dataset_model_ids,
@@ -154,7 +154,7 @@ def _clean_row(
         if len(values) != 1:
             return f"{column}:empty_or_list"
         model_id = values[0]
-        if not MODEL_ID_PATTERN.match(model_id):
+        if not is_supported_model_id(model_id):
             return f"{column}:invalid:{model_id}"
         selected_models[column] = model_id
 
@@ -166,7 +166,7 @@ def _clean_row(
 
         valid_values = []
         for model_id in values:
-            if MODEL_ID_PATTERN.match(model_id):
+            if is_supported_model_id(model_id):
                 valid_values.append(model_id)
             else:
                 removed_available_model_ids[model_id] += 1

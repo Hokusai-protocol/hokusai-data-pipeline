@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,7 +27,8 @@ if str(REPO_ROOT) not in sys.path:
 from scripts.model_30.register_technical_task_router import MODEL_NAME, register_model  # noqa: E402
 
 OBJECTIVES: tuple[str, ...] = ("lowest_cost", "fastest_completion", "highest_reliability")
-PUBLIC_MODEL_ID_PATTERN = re.compile(r"^(claude-|gpt-|deepseek-)")
+from scripts.model_30.model_identity import is_supported_model_id  # noqa: E402
+
 FORBIDDEN_MODEL_IDS = ("deep-coder-v2", "fast-coder-v1", "<synthetic>")
 
 
@@ -99,6 +99,7 @@ def _register_or_resolve_model(
     return register_model(
         SimpleNamespace(
             router_dataset=args.router_dataset,
+            router_prices=getattr(args, "router_prices", None),
             holdout_dataset=args.holdout_dataset,
             evaluation_objectives=args.evaluation_objectives,
             benchmark_version=args.benchmark_version,
@@ -264,9 +265,7 @@ def _assert_strategy_payload(payload: dict[str, Any], *, source: str) -> None:
     if not model_ids:
         raise ValueError(f"{source} response did not include any routed model IDs")
     forbidden = sorted(set(model_ids) & set(FORBIDDEN_MODEL_IDS))
-    malformed = sorted(
-        {model_id for model_id in model_ids if not PUBLIC_MODEL_ID_PATTERN.match(model_id)}
-    )
+    malformed = sorted({model_id for model_id in model_ids if not is_supported_model_id(model_id)})
     if forbidden or malformed:
         raise ValueError(
             f"{source} response contained invalid model IDs "
@@ -371,6 +370,7 @@ def parse_args() -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--router-dataset")
+    parser.add_argument("--router-prices")
     parser.add_argument("--holdout-dataset")
     parser.add_argument("--evaluation-objectives", default="all")
     parser.add_argument("--benchmark-version", choices=("v1", "v2"), default="v2")
