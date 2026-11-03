@@ -21,6 +21,13 @@ Cost is recomputed per model from ``workflowTokenUsage`` × price (see
 ``model_identity.resolve_price``). Wavemill recorded $0 for models it had no
 price for; those are re-priced here, and a model that still has no price makes
 the route cost *unknown*, not zero.
+
+Spend by models outside the executed route ("aux") is split (HOK-3404):
+
+- challenge-partner spend: the other arm of a challenge pair, identified from the
+  challenge record and ``challengeIntent``. It is excluded from the route cost.
+- sub-agent spend: everything else (e.g. Opus/Fable sub-agents inside a Claude
+  Code session, judge calls). It is harness overhead and stays in the route cost.
 """
 
 from __future__ import annotations
@@ -60,7 +67,10 @@ class RouteEconomics:
     role_cache_tokens: dict[str, float | None] = field(default_factory=dict)
     role_output_tokens: dict[str, float | None] = field(default_factory=dict)
     role_cost_usd: dict[str, float | None] = field(default_factory=dict)
+    # aux = challenge partner + sub-agents (all spend by models outside the route).
     aux_cost_usd: float | None = None
+    challenge_partner_cost_usd: float | None = None
+    subagent_cost_usd: float | None = None
     repriced_models: list[str] = field(default_factory=list)
     unpriced_models: list[str] = field(default_factory=list)
 
@@ -229,8 +239,37 @@ def _challenge_role(record: dict[str, Any]) -> str:
     return _STAGE_TO_ROLE.get(str(stage), "coder")
 
 
-def route_economics(record: dict[str, Any], route: dict[str, str]) -> RouteEconomics:
-    """Recompute route cost per model from token usage; attribute cost to roles."""
+def challenge_partner_models(
+    record: dict[str, Any],
+    route: dict[str, str],
+    challenge_records: dict[str, dict[str, Any]] | None = None,
+) -> set[str]:
+    """Models from the *other* arm of this record's challenge pair (never in *route*)."""
+    pair_id = record.get("challengePairId")
+    if not pair_id:
+        return set()
+    models: set[str] = set()
+    pair = (challenge_records or {}).get(str(pair_id)) or {}
+    for key in ("primaryModel", "challengerModel"):
+        models.add(normalize_model_id(pair.get(key)))
+    intent = _dict(record.get("challengeIntent"))
+    for side in ("primary", "challenger"):
+        expected = _route_from_mapping(_dict(intent.get(side)).get("expectedRoute"))
+        if expected:
+            models.update(expected.values())
+    return {model for model in models if model} - set(route.values())
+
+
+def route_economics(
+    record: dict[str, Any],
+    route: dict[str, str],
+    partner_models: set[str] | None = None,
+) -> RouteEconomics:
+    """Recompute route cost per model from token usage; attribute cost to roles.
+
+    *partner_models* (see ``challenge_partner_models``) are the other challenge
+    arm; their spend is reported separately and excluded from the route total.
+    """
     usage = record.get("workflowTokenUsage")
     if not isinstance(usage, dict) or not usage:
         return RouteEconomics(total_cost_usd=None, cost_status="no_token_usage")
@@ -238,13 +277,14 @@ def route_economics(record: dict[str, Any], route: dict[str, str]) -> RouteEcono
     if untrusted is not None:
         return RouteEconomics(total_cost_usd=None, cost_status=f"untrusted:{untrusted}")
     per_model, repriced, unpriced = _aggregate_usage(usage, _dict(record.get("pricingSnapshot")))
-    economics = _attribute_roles(per_model, route)
+    partners = set(partner_models or ()) - set(route.values())
+    economics = _attribute_roles(per_model, route, partners)
     economics.repriced_models = sorted(set(repriced))
     if unpriced:
         economics.cost_status = "unpriced_model"
         economics.unpriced_models = sorted(set(unpriced))
         return economics
-    economics.total_cost_usd = sum(b["cost"] for b in per_model.values())
+    economics.total_cost_usd = sum(b["cost"] for m, b in per_model.items() if m not in partners)
     economics.cost_status = "repriced" if repriced else "recorded"
     return economics
 
@@ -285,7 +325,9 @@ def _aggregate_usage(
 
 
 def _attribute_roles(
-    per_model: dict[str, dict[str, float]], route: dict[str, str]
+    per_model: dict[str, dict[str, float]],
+    route: dict[str, str],
+    partners: set[str] | None = None,
 ) -> RouteEconomics:
     """Assign each role its model's tokens and cost; models used by 2+ roles stay unattributed."""
     role_models = {role: route.get(role, "") for role in ROLES}
@@ -300,9 +342,21 @@ def _attribute_roles(
         economics.role_cost_usd[role] = (
             None if not attributable or bucket["unknown"] else bucket["cost"]
         )
-    aux = [b for m, b in per_model.items() if m not in set(used)]
-    economics.aux_cost_usd = None if any(b["unknown"] for b in aux) else sum(b["cost"] for b in aux)
+    partners = partners or set()
+    outside = {m: b for m, b in per_model.items() if m not in set(used)}
+    partner = [b for m, b in outside.items() if m in partners]
+    subagent = [b for m, b in outside.items() if m not in partners]
+    economics.challenge_partner_cost_usd = _bucket_cost(partner)
+    economics.subagent_cost_usd = _bucket_cost(subagent)
+    economics.aux_cost_usd = _bucket_cost(partner + subagent)
     return economics
+
+
+def _bucket_cost(buckets: list[dict[str, float]]) -> float | None:
+    """Return the summed cost of *buckets*, or None if any bucket cost is unknown."""
+    if any(b["unknown"] for b in buckets):
+        return None
+    return sum(b["cost"] for b in buckets)
 
 
 def _dict(value: Any) -> dict[str, Any]:
