@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts.model_30.model_identity import (
+    exclusive_cache_usage,
     is_junk_model_id,
     normalize_model_id,
     priced_usage_cost,
@@ -264,28 +265,47 @@ def route_economics(
     record: dict[str, Any],
     route: dict[str, str],
     partner_models: set[str] | None = None,
+    recovered: dict[str, Any] | None = None,
+    fallback_snapshot: dict[str, Any] | None = None,
 ) -> RouteEconomics:
     """Recompute route cost per model from token usage; attribute cost to roles.
 
     *partner_models* (see ``challenge_partner_models``) are the other challenge
     arm; their spend is reported separately and excluded from the route total.
+
+    *recovered* (``recover_session_usage`` entry) replaces the record's own usage
+    when that is missing or untrusted; the status becomes ``recovered:<sources>``.
+    *fallback_snapshot* prices models the record's own ``pricingSnapshot`` lacks.
     """
     usage = record.get("workflowTokenUsage")
-    if not isinstance(usage, dict) or not usage:
+    untrusted = (
+        _untrusted_usage_reason(usage, route)
+        if isinstance(usage, dict) and usage
+        else "no_token_usage"
+    )
+    recovered_status = None
+    if untrusted is not None and recovered and isinstance(recovered.get("usage"), dict):
+        if _untrusted_usage_reason(recovered["usage"], route) is None:
+            usage, untrusted = recovered["usage"], None
+            recovered_status = "recovered:" + "+".join(recovered.get("sources") or ["sessions"])
+    if untrusted == "no_token_usage":
         return RouteEconomics(total_cost_usd=None, cost_status="no_token_usage")
-    untrusted = _untrusted_usage_reason(usage, route)
     if untrusted is not None:
         return RouteEconomics(total_cost_usd=None, cost_status=f"untrusted:{untrusted}")
-    per_model, repriced, unpriced = _aggregate_usage(usage, _dict(record.get("pricingSnapshot")))
+    snapshot = {**(fallback_snapshot or {}), **_dict(record.get("pricingSnapshot"))}
+    per_model, repriced, unpriced = _aggregate_usage(usage, snapshot)
     partners = set(partner_models or ()) - set(route.values())
     economics = _attribute_roles(per_model, route, partners)
     economics.repriced_models = sorted(set(repriced))
+    if unpriced and recovered_status:
+        # The record's own usage was untrusted anyway: keep the row, cost unknown.
+        return RouteEconomics(total_cost_usd=None, cost_status="untrusted:recovered_unpriced_model")
     if unpriced:
         economics.cost_status = "unpriced_model"
         economics.unpriced_models = sorted(set(unpriced))
         return economics
     economics.total_cost_usd = sum(b["cost"] for m, b in per_model.items() if m not in partners)
-    economics.cost_status = "repriced" if repriced else "recorded"
+    economics.cost_status = recovered_status or ("repriced" if repriced else "recorded")
     return economics
 
 
@@ -303,9 +323,12 @@ def _aggregate_usage(
         if not isinstance(model_usage, dict) or is_junk_model_id(raw_model):
             continue
         model = normalize_model_id(raw_model)
+        model_usage, inclusive = exclusive_cache_usage(raw_model, model_usage)
         cost: float | None = _number(model_usage.get("costUsd")) or 0.0
         tokens = sum(_number(model_usage.get(key)) or 0.0 for key in _TOKEN_KEYS)
-        if cost <= 0 and tokens > 0:
+        if (cost <= 0 or inclusive) and tokens > 0:
+            # Re-price $0 usage, and OpenAI usage Wavemill priced with cached
+            # tokens double-counted (see exclusive_cache_usage).
             price = resolve_price(raw_model, snapshot)
             cost = None if price is None else priced_usage_cost(model_usage, price)
             (unpriced if price is None else repriced).append(model)

@@ -209,11 +209,42 @@ def _per_mtok(value: Any) -> float | None:
     return None if number is None else number / 1_000_000
 
 
+def exclusive_cache_usage(model_id: Any, usage: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Return *usage* with ``inputTokens`` excluding cached reads, and whether it changed.
+
+    OpenAI reports ``input_tokens`` *including* cached tokens; Anthropic and most
+    OpenRouter providers report them separately. Wavemill priced OpenAI usage as
+    if exclusive, charging cached tokens at the full input price on top of the
+    cache price (~5x real cost for Codex, HOK-3402). Only OpenAI-family usage
+    whose input covers its cache reads is treated as inclusive.
+    """
+    if usage.get("cacheSemantics") == "exclusive" or model_family(model_id) != "openai":
+        return usage, False
+    cache_read = _float(usage.get("cacheReadTokens")) or 0.0
+    input_tokens = _float(usage.get("inputTokens")) or 0.0
+    if cache_read <= 0 or input_tokens < cache_read:
+        return usage, False
+    return {**usage, "inputTokens": input_tokens - cache_read}, True
+
+
+# Cache reads are billed at a discount by every provider we price (10% of input
+# for OpenAI, Anthropic and Google; 10-50% elsewhere). When a price has no cache
+# read rate, use this share of the input price, matching the router's estimate.
+DEFAULT_CACHE_READ_SHARE = 0.1
+
+
 def priced_usage_cost(usage: dict[str, Any], price: ModelPrice) -> float:
-    """Cost of one model's token usage. Unpriced cache dimensions fall back to input price."""
+    """Cost of one model's token usage.
+
+    A missing cache-read rate defaults to DEFAULT_CACHE_READ_SHARE x input (full
+    input price overstated Codex cost ~10x: tasks are mostly cache reads). A
+    missing cache-write rate falls back to the input price.
+    """
     input_price = price.input_per_token or 0.0
     cache_read = (
-        price.cache_read_per_token if price.cache_read_per_token is not None else input_price
+        price.cache_read_per_token
+        if price.cache_read_per_token is not None
+        else DEFAULT_CACHE_READ_SHARE * input_price
     )
     cache_write = (
         price.cache_write_per_token if price.cache_write_per_token is not None else input_price
@@ -249,6 +280,28 @@ def build_price_table(
         if price is not None:
             table[normalize_model_id(model)] = _price_dict(price)
     return dict(sorted(table.items()))
+
+
+def latest_snapshot(snapshots: list[tuple[str, dict[str, Any]]]) -> dict[str, Any]:
+    """Merge ``pricingSnapshot`` dicts, keeping each model's most recent raw row.
+
+    Used as a fallback snapshot: records whose real usage was recovered from
+    sessions often carry a snapshot that priced only the leaked fixture models.
+    """
+    merged: dict[str, Any] = {}
+    seen_at: dict[str, str] = {}
+    for timestamp, snapshot in snapshots:
+        if not isinstance(snapshot, dict):
+            continue
+        for raw_model, row in snapshot.items():
+            if not isinstance(row, dict) or is_junk_model_id(raw_model):
+                continue
+            model = normalize_model_id(raw_model)
+            if seen_at.get(model, "") > timestamp:
+                continue
+            seen_at[model] = timestamp
+            merged[model] = row
+    return merged
 
 
 def _latest_snapshot_prices(

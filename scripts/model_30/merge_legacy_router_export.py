@@ -39,6 +39,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts.model_30.model_identity import (  # noqa: E402
     is_supported_model_id,
+    model_family,
     normalize_model_id,
 )
 
@@ -99,6 +100,30 @@ def _dedupe_key(frame: pd.DataFrame) -> pd.Series:
     return key
 
 
+LEGACY_OPENAI_COST_STATUS = "untrusted:openai_cached_input_double_counted"
+_COST_LABEL_COLUMNS = ("actual_cost_usd", "under_budget", "budget_violation")
+
+
+def quarantine_openai_legacy_costs(legacy: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """Blank cost labels on legacy rows whose route includes an OpenAI model.
+
+    Wavemill priced OpenAI usage with cached input counted twice (full input
+    price plus cache price, ~5x real cost for Codex). Legacy rows carry only the
+    recorded total, not tokens, so they cannot be re-priced; their cost becomes
+    unknown, as for contaminated rows. Success labels are kept.
+    """
+    affected = pd.Series(False, index=legacy.index)
+    for column in ROLE_COLUMNS:
+        affected |= legacy[column].map(lambda m: model_family(m) == "openai")
+    out = legacy.copy()
+    for column in _COST_LABEL_COLUMNS:
+        if column in out.columns:
+            out.loc[affected, column] = ""
+    if "cost_status" in out.columns:
+        out.loc[affected, "cost_status"] = LEGACY_OPENAI_COST_STATUS
+    return out, int(affected.sum())
+
+
 def merge_router_exports(
     legacy: pd.DataFrame,
     derived: pd.DataFrame,
@@ -125,6 +150,7 @@ def merge_router_exports(
     legacy = _normalize_model_columns(legacy)
 
     legacy, relabelled = relabel_success_from_score(legacy, threshold=threshold)
+    legacy, openai_cost_quarantined = quarantine_openai_legacy_costs(legacy)
     duplicate = _dedupe_key(legacy).isin(set(_dedupe_key(derived)))
     legacy = legacy[~duplicate].assign(provenance_source=legacy_source)
     derived = derived.assign(provenance_source=derived_source)
@@ -138,6 +164,7 @@ def merge_router_exports(
         "legacy_rows_in": int(len(legacy) + duplicate.sum()),
         "derived_rows_in": int(len(derived)),
         "legacy_success_relabelled": relabelled,
+        "legacy_openai_costs_quarantined": openai_cost_quarantined,
         "legacy_duplicates_dropped": int(duplicate.sum()),
         "success_threshold": threshold,
         "before": before,
