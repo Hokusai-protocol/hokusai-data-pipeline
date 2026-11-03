@@ -160,3 +160,36 @@ def test_price_state_survives_pickling(tmp_path: Path) -> None:
     model = _model(tmp_path, prices=True)
     restored = cloudpickle.loads(cloudpickle.dumps(model))
     assert restored._prices == model._prices
+
+
+def test_single_aux_outlier_does_not_inflate_token_priced_routes(tmp_path: Path) -> None:
+    """One neighbor with a large aux cost must not add it to every priced route."""
+    model = _model(tmp_path, prices=True)
+    features = ttr._normalize_serving_features_with_counts(
+        _features("lowest_cost").iloc[0].to_dict()
+    ).features
+    neighbors = model._nearest_neighbors(features).copy()
+    neighbors["aux_cost_usd"] = [21.8] + [None] * (len(neighbors) - 1)
+    # Fewer than MIN_TOKEN_PROFILE_ROWS aux values: fall back to the dataset median ($1).
+    assert model._typical_aux_cost(neighbors) == pytest.approx(1.0)
+    choices = {
+        role: model._evidence_or_prior_choice(role, CHEAP, neighbors, features)
+        for role in ("planner", "coder", "reviewer")
+    }
+    route_cost = model._price_route_cost(choices, neighbors)
+    token_cost = sum(model._price_role_cost(r, CHEAP, neighbors) for r in choices)
+    assert route_cost == pytest.approx(token_cost + 1.0, abs=1e-6)
+
+
+def test_token_profile_memo_is_per_neighbors_object(tmp_path: Path) -> None:
+    """The memo must not serve one request's profile to another (id() reuse)."""
+    model = _model(tmp_path, prices=True)
+    features = ttr._normalize_serving_features_with_counts(
+        _features("lowest_cost").iloc[0].to_dict()
+    ).features
+    first = model._nearest_neighbors(features).copy()
+    assert model._role_token_profile("coder", first)[0] == pytest.approx(200_000)
+    del first
+    second = model._nearest_neighbors(features).copy()
+    second["coder_input_tokens"] = 50_000
+    assert model._role_token_profile("coder", second)[0] == pytest.approx(50_000)
