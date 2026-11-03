@@ -18,6 +18,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts.model_30.clean_router_dataset import clean_router_datasets  # noqa: E402
 from scripts.model_30.executed_route import (  # noqa: E402
+    challenge_partner_models,
     load_challenge_records,
     resolve_executed_route,
     route_economics,
@@ -111,6 +112,9 @@ FIELDNAMES = [
     "reviewer_output_tokens",
     "reviewer_cost_usd",
     "aux_cost_usd",
+    # HOK-3404: aux split; partner spend is excluded from actual_cost_usd.
+    "challenge_partner_cost_usd",
+    "subagent_cost_usd",
 ]
 
 
@@ -382,7 +386,11 @@ def eval_record_to_router_row(
         record.get("estimatedCost"),
         route_prediction.get("expectedCostUsd"),
     )
-    economics = route_economics(record, resolution.route)
+    economics = route_economics(
+        record,
+        resolution.route,
+        challenge_partner_models(record, resolution.route, challenge_records),
+    )
     if economics.cost_status == "unpriced_model":
         return None, "unpriced_model_cost"
     actual_cost = _route_actual_cost(economics, actual_cost)
@@ -511,6 +519,8 @@ def eval_record_to_router_row(
             )
         },
         "aux_cost_usd": _format_optional_number(economics.aux_cost_usd),
+        "challenge_partner_cost_usd": _format_optional_number(economics.challenge_partner_cost_usd),
+        "subagent_cost_usd": _format_optional_number(economics.subagent_cost_usd),
     }
     return row, None
 
