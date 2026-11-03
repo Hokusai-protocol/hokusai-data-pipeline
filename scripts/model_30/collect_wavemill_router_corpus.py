@@ -23,6 +23,7 @@ from scripts.model_30.executed_route import (  # noqa: E402
     route_economics,
 )
 from scripts.model_30.model_identity import (  # noqa: E402
+    build_price_table,
     is_supported_model_id,
     normalize_model_id,
 )
@@ -98,12 +99,15 @@ FIELDNAMES = [
     "executed_route_source",
     "cost_status",
     "planner_input_tokens",
+    "planner_cache_tokens",
     "planner_output_tokens",
     "planner_cost_usd",
     "coder_input_tokens",
+    "coder_cache_tokens",
     "coder_output_tokens",
     "coder_cost_usd",
     "reviewer_input_tokens",
+    "reviewer_cache_tokens",
     "reviewer_output_tokens",
     "reviewer_cost_usd",
     "aux_cost_usd",
@@ -194,9 +198,10 @@ def collect_router_corpus(args: argparse.Namespace) -> dict[str, Any]:
     for eval_file in eval_files:
         challenge_records.update(load_challenge_records(eval_file.parent))
     eval_report["challenge_records_loaded"] = len(challenge_records)
+    price_snapshots: list[tuple[str, dict[str, Any]]] = []
     for eval_file in eval_files:
         file_report = _derive_rows_from_eval_file(
-            eval_file, derived_rows, skip_reasons, challenge_records
+            eval_file, derived_rows, skip_reasons, challenge_records, price_snapshots
         )
         eval_report["source_files"].append(file_report)
         eval_report["records_read"] += file_report["records_read"]
@@ -222,6 +227,27 @@ def collect_router_corpus(args: argparse.Namespace) -> dict[str, Any]:
         else output_path.with_name(f"{output_path.stem}.clean-report.json")
     )
     clean_report = clean_router_datasets(input_paths, output_path, clean_report_path)
+    # HOK-3401: price table shipped with the router artifact (token-based cost).
+    route_models = sorted(
+        {
+            row[column]
+            for row in derived_rows
+            for column in ("planner_model", "coder_model", "reviewer_model")
+        }
+    )
+    prices_path = output_path.with_name(f"{output_path.stem}.model-prices.json")
+    prices_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "model_30_router_model_prices/v1",
+                "prices": build_price_table(price_snapshots, route_models),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     report = {
         "schema_version": "model_30_wavemill_router_corpus/v1",
         "search_roots": [str(path) for path in search_roots],
@@ -230,6 +256,7 @@ def collect_router_corpus(args: argparse.Namespace) -> dict[str, Any]:
         "raw_output": str(raw_output_path) if derived_rows else None,
         "output": str(output_path),
         "clean_report": clean_report,
+        "model_prices": str(prices_path),
     }
 
     if args.report:
@@ -247,6 +274,7 @@ def _derive_rows_from_eval_file(
     output_rows: list[dict[str, str]],
     skip_reasons: Counter[str],
     challenge_records: dict[str, dict[str, Any]] | None = None,
+    price_snapshots: list[tuple[str, dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     source_repo = _source_repo_name(eval_file)
     file_report = {
@@ -271,6 +299,10 @@ def _derive_rows_from_eval_file(
                 _record_skip("malformed_json", skip_reasons, file_skip_reasons)
                 continue
 
+            if price_snapshots is not None and isinstance(record.get("pricingSnapshot"), dict):
+                price_snapshots.append(
+                    (str(record.get("timestamp") or ""), record["pricingSnapshot"])
+                )
             row, reason = eval_record_to_router_row(
                 record, source_repo=source_repo, challenge_records=challenge_records
             )
@@ -320,30 +352,23 @@ def eval_record_to_router_row(
     if not planner_model or not coder_model or not reviewer_model:
         return None, "missing_stage_model"
 
-    resolution = resolve_executed_route(
+    resolution, reason = _executed_route(
         record,
         {"planner": planner_model, "coder": coder_model, "reviewer": reviewer_model},
         challenge_records,
     )
-    if resolution.exclusion_reason is not None:
-        return None, resolution.exclusion_reason
+    if resolution is None:
+        return None, reason
     planner_model = resolution.route["planner"]
     coder_model = resolution.route["coder"]
     reviewer_model = resolution.route["reviewer"]
-    if not all(is_supported_model_id(m) for m in (planner_model, coder_model, reviewer_model)):
-        return None, "unsupported_executed_model"
 
     available_models = _string_list(
         constraints.get("models_available") or constraints.get("allowed_models")
     )
     if not available_models:
         return None, "missing_available_models"
-    available_models = sorted(
-        {normalize_model_id(m) for m in available_models if is_supported_model_id(m)}
-        | {planner_model, coder_model, reviewer_model}
-    )
-    if not available_models:
-        return None, "missing_available_models"
+    available_models = _normalized_pool(available_models, resolution.route)
 
     max_cost = _number(constraints.get("max_cost_usd") or record.get("maxCostUsd"))
     if max_cost is None:
@@ -360,10 +385,7 @@ def eval_record_to_router_row(
     economics = route_economics(record, resolution.route)
     if economics.cost_status == "unpriced_model":
         return None, "unpriced_model_cost"
-    if economics.total_cost_usd is not None:
-        actual_cost = economics.total_cost_usd
-    if actual_cost is None:
-        actual_cost = 0.0
+    actual_cost = _route_actual_cost(economics, actual_cost)
 
     score = _first_number(
         record.get("score"),
@@ -445,12 +467,12 @@ def eval_record_to_router_row(
         "completed_successfully": _bool_string(_completed_successfully(record, outcomes)),
         "score": _format_number(score),
         "score_band": _first_string(record.get("scoreBand"), ""),
-        "under_budget": _bool_string(actual_cost <= max_cost),
-        "actual_cost_usd": _format_number(actual_cost),
+        "under_budget": "" if actual_cost is None else _bool_string(actual_cost <= max_cost),
+        "actual_cost_usd": "" if actual_cost is None else _format_number(actual_cost),
         "actual_time_seconds": _format_optional_number(_duration_seconds(record, outcome)),
         "intervention_count": _format_optional_number(record.get("interventionCount")),
         "workflow_cost_status": _first_string(record.get("workflowCostStatus"), ""),
-        "budget_violation": _bool_string(actual_cost > max_cost),
+        "budget_violation": "" if actual_cost is None else _bool_string(actual_cost > max_cost),
         "rubric_version": _first_string(rubric.get("rubric_version"), ""),
         "rubric_criterion_count": _format_optional_number(
             rubric.get("criterion_count") or len(rubric_criteria)
@@ -483,6 +505,7 @@ def eval_record_to_router_row(
             for role in ("planner", "coder", "reviewer")
             for kind, values in (
                 ("input_tokens", economics.role_input_tokens),
+                ("cache_tokens", economics.role_cache_tokens),
                 ("output_tokens", economics.role_output_tokens),
                 ("cost_usd", economics.role_cost_usd),
             )
@@ -490,6 +513,36 @@ def eval_record_to_router_row(
         "aux_cost_usd": _format_optional_number(economics.aux_cost_usd),
     }
     return row, None
+
+
+def _executed_route(
+    record: dict[str, Any],
+    stage_route: dict[str, str],
+    challenge_records: dict[str, dict[str, Any]] | None,
+) -> tuple[Any, str | None]:
+    """Resolve the executed route; return (resolution, None) or (None, skip reason)."""
+    resolution = resolve_executed_route(record, stage_route, challenge_records)
+    if resolution.exclusion_reason is not None:
+        return None, resolution.exclusion_reason
+    if not all(is_supported_model_id(m) for m in resolution.route.values()):
+        return None, "unsupported_executed_model"
+    return resolution, None
+
+
+def _normalized_pool(models: list[str], route: dict[str, str]) -> list[str]:
+    """Catalog-spelled available models, always including the executed route."""
+    return sorted(
+        {normalize_model_id(m) for m in models if is_supported_model_id(m)} | set(route.values())
+    )
+
+
+def _route_actual_cost(economics: Any, recorded_cost: float | None) -> float | None:
+    """Repriced cost when known; None when token data is contaminated (HOK-3402)."""
+    if economics.cost_status.startswith("untrusted:"):
+        return None
+    if economics.total_cost_usd is not None:
+        return economics.total_cost_usd
+    return 0.0 if recorded_cost is None else recorded_cost
 
 
 def _write_router_csv(path: Path, rows: list[dict[str, str]]) -> None:

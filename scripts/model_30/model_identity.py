@@ -173,7 +173,9 @@ def is_supported_model_id(model_id: Any) -> bool:
     return model_family(model_id) is not None
 
 
-def resolve_price(model_id: str, pricing_snapshot: dict[str, Any] | None = None) -> ModelPrice | None:
+def resolve_price(
+    model_id: str, pricing_snapshot: dict[str, Any] | None = None
+) -> ModelPrice | None:
     """Return the price for *model_id*: record snapshot, catalog, then pinned OpenRouter."""
     snapshot = pricing_snapshot or {}
     keys = {k.casefold(): v for k, v in snapshot.items() if isinstance(v, dict)}
@@ -210,14 +212,69 @@ def _per_mtok(value: Any) -> float | None:
 def priced_usage_cost(usage: dict[str, Any], price: ModelPrice) -> float:
     """Cost of one model's token usage. Unpriced cache dimensions fall back to input price."""
     input_price = price.input_per_token or 0.0
-    cache_read = price.cache_read_per_token if price.cache_read_per_token is not None else input_price
+    cache_read = (
+        price.cache_read_per_token if price.cache_read_per_token is not None else input_price
+    )
     cache_write = (
         price.cache_write_per_token if price.cache_write_per_token is not None else input_price
     )
     return (
-        _float(usage.get("inputTokens")) or 0.0
-    ) * input_price + (_float(usage.get("outputTokens")) or 0.0) * (
-        price.output_per_token or 0.0
-    ) + (_float(usage.get("cacheReadTokens")) or 0.0) * cache_read + (
-        _float(usage.get("cacheCreationTokens")) or 0.0
-    ) * cache_write
+        (_float(usage.get("inputTokens")) or 0.0) * input_price
+        + (_float(usage.get("outputTokens")) or 0.0) * (price.output_per_token or 0.0)
+        + (_float(usage.get("cacheReadTokens")) or 0.0) * cache_read
+        + (_float(usage.get("cacheCreationTokens")) or 0.0) * cache_write
+    )
+
+
+def build_price_table(
+    snapshots: list[tuple[str, dict[str, Any]]],
+    extra_model_ids: list[str] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Return ``{public_model_id: price}`` for the router artifact.
+
+    *snapshots* are ``(timestamp, pricingSnapshot)`` pairs from eval records; the
+    most recent snapshot that prices a model wins. Models without a snapshot
+    price fall back to the serving catalog, then the pinned OpenRouter table.
+    """
+    table = _latest_snapshot_prices(snapshots)
+    candidates = set(extra_model_ids or [])
+    for entry in _catalog().values():
+        candidates.add(str(entry["canonical_id"]))
+    for provider_id in _openrouter_prices():
+        candidates.add(normalize_model_id(provider_id))
+    for model in sorted(candidates):
+        if not model or model in table or is_junk_model_id(model):
+            continue
+        price = resolve_price(model)
+        if price is not None:
+            table[normalize_model_id(model)] = _price_dict(price)
+    return dict(sorted(table.items()))
+
+
+def _latest_snapshot_prices(
+    snapshots: list[tuple[str, dict[str, Any]]],
+) -> dict[str, dict[str, Any]]:
+    """Most recent record-snapshot price per public model id."""
+    table: dict[str, dict[str, Any]] = {}
+    seen_at: dict[str, str] = {}
+    for timestamp, snapshot in snapshots:
+        for raw_model in snapshot if isinstance(snapshot, dict) else {}:
+            model = normalize_model_id(raw_model)
+            price = None if is_junk_model_id(raw_model) else resolve_price(raw_model, snapshot)
+            if price is None or price.source != "record_pricing_snapshot":
+                continue
+            if seen_at.get(model, "") > timestamp:
+                continue
+            seen_at[model] = timestamp
+            table[model] = _price_dict(price)
+    return table
+
+
+def _price_dict(price: ModelPrice) -> dict[str, Any]:
+    return {
+        "input_per_token": price.input_per_token,
+        "output_per_token": price.output_per_token,
+        "cache_read_per_token": price.cache_read_per_token,
+        "cache_write_per_token": price.cache_write_per_token,
+        "source": price.source,
+    }

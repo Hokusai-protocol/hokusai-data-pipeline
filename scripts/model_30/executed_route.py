@@ -57,6 +57,7 @@ class RouteEconomics:
     total_cost_usd: float | None
     cost_status: str
     role_input_tokens: dict[str, float | None] = field(default_factory=dict)
+    role_cache_tokens: dict[str, float | None] = field(default_factory=dict)
     role_output_tokens: dict[str, float | None] = field(default_factory=dict)
     role_cost_usd: dict[str, float | None] = field(default_factory=dict)
     aux_cost_usd: float | None = None
@@ -102,39 +103,49 @@ def resolve_executed_route(
     stage_route = {role: normalize_model_id(stage_route.get(role)) for role in ROLES}
     if record.get("invalidChallenge") is True:
         return RouteResolution(stage_route, "stages", "invalid_challenge")
-
-    evidence = record.get("challengeExecutionEvidence")
-    if isinstance(evidence, dict) and evidence.get("validity") == "valid":
-        route = _route_from_mapping(evidence.get("effectiveRoute"))
-        if route:
-            return RouteResolution(route, "challenge_execution_evidence")
-
-    identity = record.get("modelIdentityAttribution")
-    if isinstance(identity, dict):
-        roles = identity.get("roles") if isinstance(identity.get("roles"), dict) else {}
-        verified = {
-            role: normalize_model_id(roles[role].get("providerId") or roles[role].get("alias"))
-            for role in ROLES
-            if isinstance(roles.get(role), dict) and roles[role].get("identityStatus") == "verified"
-        }
-        if verified:
-            route = {**stage_route, **{role: model for role, model in verified.items() if model}}
-            return RouteResolution(route, "model_identity_attribution")
-
+    resolved = _resolve_from_metadata(record, stage_route)
+    if resolved is not None:
+        return resolved
     pair_id = record.get("challengePairId")
     if not pair_id:
         return RouteResolution(stage_route, "stages")
-
-    side = record.get("challengeSide")
-    intent = record.get("challengeIntent")
-    if side in {"primary", "challenger"} and isinstance(intent, dict):
-        route = _route_from_mapping(_dict(intent.get(side)).get("expectedRoute"))
-        if route:
-            return RouteResolution(route, "challenge_intent")
-
     pair = (challenge_records or {}).get(str(pair_id))
     if pair is None:
         return RouteResolution(stage_route, "stages_unverified_challenge")
+    return _resolve_from_challenge_record(record, stage_route, pair)
+
+
+def _resolve_from_metadata(
+    record: dict[str, Any], stage_route: dict[str, str]
+) -> RouteResolution | None:
+    """Resolve from execution evidence, verified identity, then declared intent."""
+    evidence = _dict(record.get("challengeExecutionEvidence"))
+    if evidence.get("validity") == "valid":
+        route = _route_from_mapping(evidence.get("effectiveRoute"))
+        if route:
+            return RouteResolution(route, "challenge_execution_evidence")
+    roles = _dict(_dict(record.get("modelIdentityAttribution")).get("roles"))
+    verified = {
+        role: normalize_model_id(roles[role].get("providerId") or roles[role].get("alias"))
+        for role in ROLES
+        if _dict(roles.get(role)).get("identityStatus") == "verified"
+    }
+    verified = {role: model for role, model in verified.items() if model}
+    if verified:
+        return RouteResolution({**stage_route, **verified}, "model_identity_attribution")
+    side = record.get("challengeSide")
+    if record.get("challengePairId") and side in {"primary", "challenger"}:
+        intent = _dict(record.get("challengeIntent"))
+        route = _route_from_mapping(_dict(intent.get(side)).get("expectedRoute"))
+        if route:
+            return RouteResolution(route, "challenge_intent")
+    return None
+
+
+def _resolve_from_challenge_record(
+    record: dict[str, Any], stage_route: dict[str, str], pair: dict[str, Any]
+) -> RouteResolution:
+    """Older challenge evals: join the pair record and infer which side ran."""
     primary = normalize_model_id(pair.get("primaryModel"))
     challenger = normalize_model_id(pair.get("challengerModel"))
     if not primary or not challenger or primary == challenger:
@@ -145,15 +156,16 @@ def resolve_executed_route(
         if _foreign_token_models(record, stage_route):
             return RouteResolution(stage_route, "stages", "ambiguous_challenge_route")
         return RouteResolution(stage_route, "stages_same_model_challenge")
-
-    inferred = side if side in {"primary", "challenger"} else _infer_side(record, primary, challenger)
+    side = record.get("challengeSide")
+    inferred = (
+        side if side in {"primary", "challenger"} else _infer_side(record, primary, challenger)
+    )
     if inferred is None:
         return RouteResolution(stage_route, "stages", "ambiguous_challenge_route")
     executed = challenger if inferred == "challenger" else primary
     if executed in stage_route.values():
         return RouteResolution(stage_route, f"challenge_record_{inferred}")
-    stage = _challenge_role(record)
-    route = {**stage_route, stage: executed}
+    route = {**stage_route, _challenge_role(record): executed}
     return RouteResolution(route, f"challenge_record_{inferred}_corrected")
 
 
@@ -222,8 +234,28 @@ def route_economics(record: dict[str, Any], route: dict[str, str]) -> RouteEcono
     usage = record.get("workflowTokenUsage")
     if not isinstance(usage, dict) or not usage:
         return RouteEconomics(total_cost_usd=None, cost_status="no_token_usage")
-    snapshot = record.get("pricingSnapshot") if isinstance(record.get("pricingSnapshot"), dict) else {}
+    untrusted = _untrusted_usage_reason(usage, route)
+    if untrusted is not None:
+        return RouteEconomics(total_cost_usd=None, cost_status=f"untrusted:{untrusted}")
+    per_model, repriced, unpriced = _aggregate_usage(usage, _dict(record.get("pricingSnapshot")))
+    economics = _attribute_roles(per_model, route)
+    economics.repriced_models = sorted(set(repriced))
+    if unpriced:
+        economics.cost_status = "unpriced_model"
+        economics.unpriced_models = sorted(set(unpriced))
+        return economics
+    economics.total_cost_usd = sum(b["cost"] for b in per_model.values())
+    economics.cost_status = "repriced" if repriced else "recorded"
+    return economics
 
+
+_TOKEN_KEYS = ("inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens")
+
+
+def _aggregate_usage(
+    usage: dict[str, Any], snapshot: dict[str, Any]
+) -> tuple[dict[str, dict[str, float]], list[str], list[str]]:
+    """Per-model token and cost buckets; models Wavemill recorded at $0 are re-priced."""
     per_model: dict[str, dict[str, float]] = {}
     repriced: list[str] = []
     unpriced: list[str] = []
@@ -231,68 +263,46 @@ def route_economics(record: dict[str, Any], route: dict[str, str]) -> RouteEcono
         if not isinstance(model_usage, dict) or is_junk_model_id(raw_model):
             continue
         model = normalize_model_id(raw_model)
-        recorded = _number(model_usage.get("costUsd")) or 0.0
-        tokens = sum(
-            _number(model_usage.get(key)) or 0.0
-            for key in ("inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens")
-        )
-        cost: float | None = recorded
-        if recorded <= 0 and tokens > 0:
+        cost: float | None = _number(model_usage.get("costUsd")) or 0.0
+        tokens = sum(_number(model_usage.get(key)) or 0.0 for key in _TOKEN_KEYS)
+        if cost <= 0 and tokens > 0:
             price = resolve_price(raw_model, snapshot)
-            if price is None:
-                cost = None
-                unpriced.append(model)
-            else:
-                cost = priced_usage_cost(model_usage, price)
-                repriced.append(model)
-        bucket = per_model.setdefault(model, {"input": 0.0, "output": 0.0, "cost": 0.0, "unknown": 0.0})
-        bucket["input"] += (_number(model_usage.get("inputTokens")) or 0.0) + (
-            _number(model_usage.get("cacheReadTokens")) or 0.0
-        ) + (_number(model_usage.get("cacheCreationTokens")) or 0.0)
+            cost = None if price is None else priced_usage_cost(model_usage, price)
+            (unpriced if price is None else repriced).append(model)
+        bucket = per_model.setdefault(
+            model, {"input": 0.0, "cache": 0.0, "output": 0.0, "cost": 0.0, "unknown": 0.0}
+        )
+        bucket["input"] += _number(model_usage.get("inputTokens")) or 0.0
+        bucket["cache"] += (_number(model_usage.get("cacheReadTokens")) or 0.0) + (
+            _number(model_usage.get("cacheCreationTokens")) or 0.0
+        )
         bucket["output"] += _number(model_usage.get("outputTokens")) or 0.0
         if cost is None:
             bucket["unknown"] = 1.0
         else:
             bucket["cost"] += cost
+    return per_model, repriced, unpriced
 
+
+def _attribute_roles(
+    per_model: dict[str, dict[str, float]], route: dict[str, str]
+) -> RouteEconomics:
+    """Assign each role its model's tokens and cost; models used by 2+ roles stay unattributed."""
     role_models = {role: route.get(role, "") for role in ROLES}
-    shared = {m for m in role_models.values() if list(role_models.values()).count(m) > 1}
-    role_in: dict[str, float | None] = {}
-    role_out: dict[str, float | None] = {}
-    role_cost: dict[str, float | None] = {}
+    used = list(role_models.values())
+    economics = RouteEconomics(total_cost_usd=None, cost_status="")
     for role, model in role_models.items():
         bucket = per_model.get(model)
-        if bucket is None or model in shared:
-            role_in[role] = role_out[role] = role_cost[role] = None
-            continue
-        role_in[role] = bucket["input"]
-        role_out[role] = bucket["output"]
-        role_cost[role] = None if bucket["unknown"] else bucket["cost"]
-    role_set = set(role_models.values())
-    aux = [b for m, b in per_model.items() if m not in role_set]
-    aux_cost = None if any(b["unknown"] for b in aux) else sum(b["cost"] for b in aux)
-
-    if unpriced:
-        return RouteEconomics(
-            total_cost_usd=None,
-            cost_status="unpriced_model",
-            role_input_tokens=role_in,
-            role_output_tokens=role_out,
-            role_cost_usd=role_cost,
-            aux_cost_usd=aux_cost,
-            repriced_models=sorted(set(repriced)),
-            unpriced_models=sorted(set(unpriced)),
+        attributable = bucket is not None and used.count(model) == 1
+        economics.role_input_tokens[role] = bucket["input"] if attributable else None
+        economics.role_cache_tokens[role] = bucket["cache"] if attributable else None
+        economics.role_output_tokens[role] = bucket["output"] if attributable else None
+        economics.role_cost_usd[role] = (
+            None if not attributable or bucket["unknown"] else bucket["cost"]
         )
-    total = sum(b["cost"] for b in per_model.values())
-    return RouteEconomics(
-        total_cost_usd=total,
-        cost_status="repriced" if repriced else "recorded",
-        role_input_tokens=role_in,
-        role_output_tokens=role_out,
-        role_cost_usd=role_cost,
-        aux_cost_usd=aux_cost,
-        repriced_models=sorted(set(repriced)),
-    )
+    aux = [b for m, b in per_model.items() if m not in set(used)]
+    economics.aux_cost_usd = None if any(b["unknown"] for b in aux) else sum(b["cost"] for b in aux)
+    return economics
 
 
 def _dict(value: Any) -> dict[str, Any]:
@@ -305,3 +315,23 @@ def _number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if number == number and number not in (float("inf"), float("-inf")) else None
+
+
+def _untrusted_usage_reason(usage: dict[str, Any], route: dict[str, str]) -> str | None:
+    """Why this record's token usage (and so its cost) can't be trusted, or None.
+
+    From 2026-06-24 to ~2026-10-26 Wavemill's cost meter read native transcripts
+    first, picking up leaked test fixtures (provider ``scripted``) and dropping
+    the real Codex/Claude sessions. Those records show tokens for models that
+    never ran the task and none for the coder that did (HOK-3402 forensics).
+    """
+    models = {
+        normalize_model_id(raw): values for raw, values in usage.items() if isinstance(values, dict)
+    }
+    if any(str(raw).strip().casefold().startswith("scripted:") for raw in usage):
+        return "scripted_fixture_tokens"
+    coder = route.get("coder")
+    coder_usage = models.get(coder or "")
+    if not coder_usage or not (_number(coder_usage.get("outputTokens")) or 0.0) > 0:
+        return "coder_tokens_missing"
+    return None

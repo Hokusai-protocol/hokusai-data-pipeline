@@ -15,7 +15,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import sys
 import tempfile
 from collections import Counter
@@ -39,6 +38,10 @@ from scripts.model_30.evaluate_technical_task_router import (  # noqa: E402
     evaluate_model,
     parse_objectives,
 )
+
+# HOK-3401: the former vendor allow-list ^(claude-|gpt-|deepseek-) dropped every
+# Kimi/Qwen/GLM outcome. Model IDs are now accepted by catalog or known family.
+from scripts.model_30.model_identity import is_supported_model_id  # noqa: E402
 from src.eip712 import read_model_weight_head  # noqa: E402
 from src.evaluation.tags import (  # noqa: E402
     BENCHMARK_SPEC_ID_TAG,
@@ -53,12 +56,10 @@ from src.lineage.weight_commitment import compute_weight_commitment  # noqa: E40
 from src.models.technical_task_router import (  # noqa: E402
     MODEL_NAME,
     ROUTER_DATASET_ARTIFACT,
+    ROUTER_PRICES_ARTIFACT,
     TechnicalTaskRouterModel,
 )
 
-# HOK-3401: the former vendor allow-list ^(claude-|gpt-|deepseek-) dropped every
-# Kimi/Qwen/GLM outcome. Model IDs are now accepted by catalog or known family.
-from scripts.model_30.model_identity import is_supported_model_id  # noqa: E402
 MODEL_ID_COLUMNS = (
     "available_planner_models",
     "available_coder_models",
@@ -741,6 +742,13 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
     dataset_path = Path(args.router_dataset).expanduser().resolve()
     if not dataset_path.exists():
         raise FileNotFoundError(f"Router dataset not found: {dataset_path}")
+    router_artifacts = {ROUTER_DATASET_ARTIFACT: str(dataset_path)}
+    router_prices = getattr(args, "router_prices", None)
+    if router_prices:
+        prices_path = Path(router_prices).expanduser().resolve()
+        if not prices_path.exists():
+            raise FileNotFoundError(f"Router price table not found: {prices_path}")
+        router_artifacts[ROUTER_PRICES_ARTIFACT] = str(prices_path)
     launch_priority_models_path = _resolve_launch_priority_models_path(args)
     launch_priority_models = _load_launch_priority_models(launch_priority_models_path)
     dataset_summary = validate_router_dataset_model_ids(
@@ -799,7 +807,7 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
         type(
             "Context",
             (),
-            {"artifacts": {ROUTER_DATASET_ARTIFACT: str(dataset_path)}},
+            {"artifacts": router_artifacts},
         )()
     )
     local_model.predict(None, sample_features)
@@ -874,7 +882,7 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
         model_info = mlflow.pyfunc.log_model(
             artifact_path="model",
             python_model=TechnicalTaskRouterModel(k_neighbors=args.k_neighbors),
-            artifacts={ROUTER_DATASET_ARTIFACT: str(dataset_path)},
+            artifacts=router_artifacts,
             registered_model_name=MODEL_NAME,
             pip_requirements=[
                 "mlflow==3.9.0",
@@ -1040,6 +1048,13 @@ def parse_args() -> argparse.Namespace:
         "--router-dataset",
         required=True,
         help="Path to the Wavemill hokusai-router-dataset.csv artifact.",
+    )
+    parser.add_argument(
+        "--router-prices",
+        help=(
+            "Optional model price table (collector *.model-prices.json). Enables "
+            "token x price cost estimates and cheap lowest_cost candidates (HOK-3401)."
+        ),
     )
     parser.add_argument("--tracking-uri", default=os.getenv("MLFLOW_TRACKING_URI"))
     parser.add_argument("--experiment-name")

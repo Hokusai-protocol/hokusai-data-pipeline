@@ -45,6 +45,7 @@ def log_local_candidate(
     dataset_path: Path,
     k_neighbors: int = 40,
     experiment_name: str = "model30-local-candidates",
+    prices_path: Path | None = None,
 ) -> dict[str, Any]:
     """Validate a router dataset and log it as a local, unregistered pyfunc."""
     if tracking_uri.startswith(("http://", "https://")):
@@ -67,6 +68,9 @@ def log_local_candidate(
     )
     launch = reg._enforce_launch_priority_gate(summary, mode="warn")
 
+    artifacts = {reg.ROUTER_DATASET_ARTIFACT: str(dataset_path)}
+    if prices_path is not None:
+        artifacts[reg.ROUTER_PRICES_ARTIFACT] = str(Path(prices_path).resolve())
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment_name)
     with mlflow.start_run(run_name=run_name) as run:
@@ -82,7 +86,7 @@ def log_local_candidate(
         mlflow.pyfunc.log_model(
             artifact_path="model",
             python_model=TechnicalTaskRouterModel(k_neighbors=k_neighbors),
-            artifacts={reg.ROUTER_DATASET_ARTIFACT: str(dataset_path)},
+            artifacts=artifacts,
         )
     return {
         "name": run_name,
@@ -102,6 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-name", required=True)
     parser.add_argument("--router-dataset", required=True)
     parser.add_argument("--k-neighbors", type=int, default=40)
+    parser.add_argument("--router-prices", help="Optional *.model-prices.json artifact.")
     parser.add_argument("--experiment-name", default="model30-local-candidates")
     return parser
 
@@ -115,6 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         dataset_path=Path(args.router_dataset),
         k_neighbors=args.k_neighbors,
         experiment_name=args.experiment_name,
+        prices_path=Path(args.router_prices) if args.router_prices else None,
     )
     print(json.dumps(result, sort_keys=True))  # noqa: T201
     return 0
