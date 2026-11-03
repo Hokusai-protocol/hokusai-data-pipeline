@@ -103,13 +103,15 @@ def test_ordering_canonical_not_filesystem(tmp_path: Path) -> None:
     assert compute_weight_commitment(forward).root == compute_weight_commitment(reverse).root
 
 
-def test_single_file_root_equals_leaf(tmp_path: Path) -> None:
+def test_single_file_root_is_path_bound_leaf(tmp_path: Path) -> None:
     payload = b"payload"
     _write_files(tmp_path, {"weights.bin": payload})
 
     commitment = compute_weight_commitment(tmp_path)
 
-    assert commitment.root == sha256(payload).hexdigest()
+    expected = sha256(b"weights.bin" + b"\x00" + sha256(payload).digest()).hexdigest()
+    assert commitment.root == expected
+    assert commitment.root != sha256(payload).hexdigest()
 
 
 def test_nested_subdirectory_included(tmp_path: Path) -> None:
@@ -120,6 +122,30 @@ def test_nested_subdirectory_included(tmp_path: Path) -> None:
     assert commitment.files == (
         ("sub/weights.bin", sha256(b"payload").hexdigest(), len(b"payload")),
     )
+
+
+def test_rename_with_same_order_changes_root(tmp_path: Path) -> None:
+    """Path binding: a rename that keeps sort order must still change the root."""
+    _write_files(tmp_path, {"a.bin": b"alpha", "m.bin": b"beta"})
+    first = compute_weight_commitment(tmp_path).root
+
+    (tmp_path / "a.bin").rename(tmp_path / "b.bin")
+    second = compute_weight_commitment(tmp_path).root
+
+    assert first != second
+
+
+def test_odd_leaf_count_pairs_last_node_with_itself(tmp_path: Path) -> None:
+    files = {"a": b"1", "b": b"2", "c": b"3"}
+    _write_files(tmp_path, files)
+
+    def leaf(path: str, data: bytes) -> bytes:
+        return sha256(path.encode() + b"\x00" + sha256(data).digest()).digest()
+
+    a, b, c = (leaf(p, d) for p, d in files.items())
+    expected = sha256(sha256(a + b).digest() + sha256(c + c).digest()).hexdigest()
+
+    assert compute_weight_commitment(tmp_path).root == expected
 
 
 def test_mlmodel_excluded(tmp_path: Path) -> None:

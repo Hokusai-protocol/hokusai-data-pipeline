@@ -17,6 +17,19 @@ import mlflow.pyfunc
 import pandas as pd
 
 ROUTER_DATASET_ARTIFACT = "router_dataset"
+# HOK-3401: optional per-model price table (USD per token) shipped with the artifact.
+ROUTER_PRICES_ARTIFACT = "router_model_prices"
+# lowest_cost recommends the cheapest route whose estimated success clears this
+# floor (decided 2026-11-02). Below it, cost is no longer the primary sort key.
+LOWEST_COST_SUCCESS_FLOOR = 0.60
+# Catalog models with fewer than this many direct outcomes are exploratory: their
+# success estimate is shrunk toward EXPLORATION_SUCCESS_PRIOR and flagged.
+EXPLORATION_MIN_DIRECT_SUPPORT = 3
+EXPLORATION_SUCCESS_PRIOR = 0.62
+CHEAP_CANDIDATES_PER_ROLE = 2
+# Routes with fewer exact historical matches than this use the token x price cost.
+PRICE_COST_MIN_EXACT_SUPPORT = 3
+ROLE_TOKEN_COLUMNS = ("input_tokens", "cache_tokens", "output_tokens")
 MODEL_NAME = "Technical Task Router"
 BORROWED_EVIDENCE_WEIGHT = 0.75
 
@@ -121,6 +134,7 @@ class RoleChoice:
     direct_support: int = 0
     borrowed_support: int = 0
     borrowed_from: dict[str, int] | None = None
+    exploratory: bool = False
 
 
 @dataclass(frozen=True)
@@ -180,6 +194,9 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
     def __init__(self: TechnicalTaskRouterModel, *, k_neighbors: int = 40) -> None:
         self.k_neighbors = k_neighbors
         self._dataset: pd.DataFrame | None = None
+        self._prices: dict[str, dict[str, float | None]] = {}
+        self._dataset_role_profiles: dict[str, tuple[float, float, float] | None] = {}
+        self._profile_cache: tuple[int, dict[str, tuple[float, float, float] | None]] | None = None
         self._global_defaults: dict[str, RoleChoice] = {}
 
     def __getstate__(self: TechnicalTaskRouterModel) -> dict[str, Any]:
@@ -209,11 +226,15 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             "k_neighbors": self.k_neighbors,
             "dataset_state": dataset_state,
             "global_defaults_state": defaults_state,
+            "prices_state": dict(sorted(getattr(self, "_prices", {}).items())),
         }
 
     def __setstate__(self: TechnicalTaskRouterModel, state: dict[str, Any]) -> None:
         """Restore the deterministic serializer state from cloudpickle."""
         self.k_neighbors = int(state.get("k_neighbors", 40))
+        self._prices = dict(state.get("prices_state") or {})
+        self._dataset_role_profiles = {}
+        self._profile_cache = None
 
         if "dataset_state" in state:
             dataset_state = state["dataset_state"]
@@ -249,6 +270,11 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
 
         dataset = pd.read_csv(dataset_path)
         self._dataset = _prepare_dataset(dataset)
+        prices_path = context.artifacts.get(ROUTER_PRICES_ARTIFACT)
+        self._prices = _load_prices(prices_path) if prices_path else {}
+        self._dataset_role_profiles = {
+            role: _token_profile(self._dataset, role) for role in ROLE_COLUMNS
+        }
         self._global_defaults = {
             role: self._rank_role(role, self._dataset, {}, [])[0] for role in ROLE_COLUMNS
         }
@@ -318,7 +344,7 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             cheapest = strategies["lowest_cost"][0]
             rationale += (
                 f" No route fits max_cost_usd={ranking.diagnostics['max_cost_usd']:.6f}; "
-                f"returning the best {recommended_strategy.objective} route. The cheapest "
+                f"returning the best {recommended_strategy.objective} route. The lowest-cost "
                 f"route (estimated_cost_usd={cheapest.estimated_cost_usd:.6f}) is in "
                 "tradeoffs.lowest_cost."
             )
@@ -431,6 +457,10 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             if key in seen:
                 continue
             seen.add(key)
+            price_cost = self._price_route_cost(
+                {"planner": planner_choice, "coder": coder_choice, "reviewer": reviewer_choice},
+                neighbors,
+            )
             for objective in STRATEGY_OBJECTIVES:
                 candidates.append(
                     _estimate_strategy(
@@ -441,9 +471,174 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
                         planner_choice,
                         coder_choice,
                         reviewer_choice,
+                        price_cost=price_cost,
                     )
                 )
+        candidates.extend(self._cheap_strategy_candidates(neighbors, features, role_options, seen))
         return candidates
+
+    def _cheap_strategy_candidates(
+        self: TechnicalTaskRouterModel,
+        neighbors: pd.DataFrame,
+        features: dict[str, Any],
+        role_options: dict[str, list[RoleChoice | None]],
+        seen: set[tuple[str | None, str | None, str | None]],
+    ) -> list[StrategyCandidate]:
+        """lowest_cost candidates built from the cheapest priced models per role (HOK-3401).
+
+        The quality shortlist alone never surfaces cheap models, even when the
+        caller allows them. For each role this adds the CHEAP_CANDIDATES_PER_ROLE
+        lowest token-cost models from the allowed pool, combined with the top
+        quality choice, and scores those routes for lowest_cost only.
+        """
+        if not self._prices:
+            return []
+        stages = features["workflow_stages"]
+        options: dict[str, list[RoleChoice | None]] = {}
+        for role in ROLE_COLUMNS:
+            quality = role_options.get(role) or [None]
+            if quality == [None]:
+                options[role] = [None]
+                continue
+            allowed = _role_allowed_models(role, features)
+            already = {choice.model_id for choice in quality if choice is not None}
+            priced = []
+            for model_id in allowed:
+                if model_id in already:
+                    continue
+                cost = self._price_role_cost(role, model_id, neighbors)
+                if cost is not None:
+                    priced.append((cost, model_id))
+            cheap = [
+                self._evidence_or_prior_choice(role, model_id, neighbors, features)
+                for _, model_id in sorted(priced)[:CHEAP_CANDIDATES_PER_ROLE]
+            ]
+            options[role] = [quality[0], *cheap]
+        candidates: list[StrategyCandidate] = []
+        for planner_choice, coder_choice, reviewer_choice in product(
+            options["planner"], options["coder"], options["reviewer"]
+        ):
+            key = _strategy_key(planner_choice, coder_choice, reviewer_choice)
+            if key in seen:
+                continue
+            seen.add(key)
+            choices = {
+                "planner": planner_choice,
+                "coder": coder_choice,
+                "reviewer": reviewer_choice,
+            }
+            candidates.append(
+                _estimate_strategy(
+                    "lowest_cost",
+                    stages,
+                    neighbors,
+                    features,
+                    planner_choice,
+                    coder_choice,
+                    reviewer_choice,
+                    price_cost=self._price_route_cost(choices, neighbors),
+                )
+            )
+        return candidates
+
+    def _evidence_or_prior_choice(
+        self: TechnicalTaskRouterModel,
+        role: str,
+        model_id: str,
+        neighbors: pd.DataFrame,
+        features: dict[str, Any],
+    ) -> RoleChoice:
+        """Role choice for *model_id*, shrunk toward the exploration prior when evidence is thin."""
+        ranked = self._rank_role(role, neighbors, features, [model_id]) or self._rank_role(
+            role, self._dataset, features, [model_id]
+        )
+        cost = self._price_role_cost(role, model_id, neighbors)
+        if ranked and ranked[0].direct_support >= EXPLORATION_MIN_DIRECT_SUPPORT:
+            return ranked[0]
+        observed = ranked[0] if ranked else None
+        n = float(observed.direct_support) if observed else 0.0
+        k = float(EXPLORATION_MIN_DIRECT_SUPPORT)
+        observed_success = observed.expected_success if observed else EXPLORATION_SUCCESS_PRIOR
+        success = (n * observed_success + k * EXPLORATION_SUCCESS_PRIOR) / (n + k)
+        return RoleChoice(
+            model_id=model_id,
+            score=round(0.5 * success, 6),
+            support=observed.support if observed else 0,
+            expected_success=round(_clamp(success, 0.0, 1.0), 6),
+            estimated_cost_usd=cost,
+            direct_support=observed.direct_support if observed else 0,
+            borrowed_support=observed.borrowed_support if observed else 0,
+            borrowed_from=(observed.borrowed_from if observed else {}) or {},
+            exploratory=True,
+        )
+
+    def _role_token_profile(
+        self: TechnicalTaskRouterModel,
+        role: str,
+        neighbors: pd.DataFrame,
+    ) -> tuple[float, float, float] | None:
+        """Median (input, cache, output) tokens for *role* on similar tasks, model-agnostic."""
+        cache = getattr(self, "_profile_cache", None)
+        if cache is None or cache[0] != id(neighbors):
+            cache = (id(neighbors), {})
+            self._profile_cache = cache
+        if role not in cache[1]:
+            profile = _token_profile(neighbors, role)
+            if profile is None:
+                if not getattr(self, "_dataset_role_profiles", None) and self._dataset is not None:
+                    self._dataset_role_profiles = {
+                        r: _token_profile(self._dataset, r) for r in ROLE_COLUMNS
+                    }
+                profile = self._dataset_role_profiles.get(role)
+            cache[1][role] = profile
+        return cache[1][role]
+
+    def _price_role_cost(
+        self: TechnicalTaskRouterModel,
+        role: str,
+        model_id: str | None,
+        neighbors: pd.DataFrame,
+    ) -> float | None:
+        """Typical role tokens for this task x the model's price; None when unpriced."""
+        if not model_id:
+            return 0.0
+        price = self._prices.get(model_id)
+        profile = self._role_token_profile(role, neighbors)
+        if not price or profile is None:
+            return None
+        input_price = price.get("input_per_token")
+        output_price = price.get("output_per_token")
+        if input_price is None or output_price is None:
+            return None
+        cache_price = price.get("cache_read_per_token")
+        if cache_price is None:
+            cache_price = 0.1 * input_price
+        input_tokens, cache_tokens, output_tokens = profile
+        return (
+            input_tokens * input_price + cache_tokens * cache_price + output_tokens * output_price
+        )
+
+    def _price_route_cost(
+        self: TechnicalTaskRouterModel,
+        role_choices: dict[str, RoleChoice | None],
+        neighbors: pd.DataFrame,
+    ) -> float | None:
+        """Sum of per-role token costs plus typical auxiliary cost; None if any role is unpriced."""
+        if not self._prices:
+            return None
+        total = 0.0
+        for role, choice in role_choices.items():
+            if choice is None:
+                continue
+            cost = self._price_role_cost(role, choice.model_id, neighbors)
+            if cost is None:
+                return None
+            total += cost
+        if "aux_cost_usd" in neighbors.columns:
+            aux = pd.to_numeric(neighbors["aux_cost_usd"], errors="coerce").dropna()
+            if len(aux):
+                total += float(aux.median())
+        return round(total, 6)
 
     def _fallback_role_choice(
         self: TechnicalTaskRouterModel,
@@ -895,6 +1090,8 @@ def _estimate_strategy(
     planner_choice: RoleChoice | None,
     coder_choice: RoleChoice | None,
     reviewer_choice: RoleChoice | None,
+    *,
+    price_cost: float | None = None,
 ) -> StrategyCandidate:
     role_choices = {
         "planner": planner_choice,
@@ -905,6 +1102,10 @@ def _estimate_strategy(
     support = int(len(matched))
     success = _estimate_success_under_budget(matched, role_choices)
     cost = _estimate_strategy_cost(matched, role_choices, features)
+    cost_basis = "observed"
+    if price_cost is not None and support < PRICE_COST_MIN_EXACT_SUPPORT:
+        cost = price_cost
+        cost_basis = "token-price"
     duration = _estimate_strategy_duration(matched)
     confidence = _estimate_strategy_confidence(neighbors, role_choices, support)
     evidence_kind = "exact-route" if support else "role-level fallback"
@@ -913,6 +1114,18 @@ def _estimate_strategy(
         f"{support} exact route match(es) across {len(neighbors)} nearest "
         "Wavemill router row(s)."
     )
+    if cost_basis == "token-price":
+        rationale += " Cost estimated from typical role token usage x model price."
+    exploratory = sorted(
+        choice.model_id
+        for choice in role_choices.values()
+        if choice is not None and choice.exploratory
+    )
+    if exploratory:
+        rationale += (
+            " Exploratory: little or no observed outcome data for "
+            f"{', '.join(exploratory)}; its success estimate is a prior."
+        )
     return StrategyCandidate(
         objective=objective,
         planner_model=planner_choice.model_id if planner_choice else None,
@@ -962,6 +1175,7 @@ def _strategy_role_evidence(
             "direct_support": choice.direct_support,
             "borrowed_support": choice.borrowed_support,
             "borrowed_from": choice.borrowed_from or {},
+            "exploratory": choice.exploratory,
         }
     return evidence
 
@@ -980,7 +1194,10 @@ def _estimate_success_under_budget(
     if not rows.empty:
         success_values = rows["completed_successfully"].map(_coerce_bool)
         if "under_budget" in rows.columns:
-            budget_values = rows["under_budget"].map(_coerce_bool)
+            # Unknown budget outcome (cost not trustworthy) must not count as a miss.
+            budget_values = rows["under_budget"].map(
+                lambda value: True if _is_absent_value(value) else _coerce_bool(value)
+            )
             success_values = success_values & budget_values
         success = float(success_values.mean()) if len(success_values) else 0.5
         quality = _mean_number(rows["score"], default=success)
@@ -1049,6 +1266,7 @@ def _strategy_sort_key(
     route_tie_breaker = _strategy_tie_breaker(candidate)
     if objective == "lowest_cost":
         return (
+            candidate.estimated_success_under_budget < LOWEST_COST_SUCCESS_FLOOR,
             candidate.estimated_cost_usd,
             -candidate.estimated_success_under_budget,
             -candidate.confidence,
@@ -1171,8 +1389,10 @@ def _public_strategy_key(
 def _nearest_neighbors_summary(neighbors: pd.DataFrame) -> dict[str, Any]:
     success_rate = _mean_bool(neighbors["completed_successfully"], default=0.0)
     if "under_budget" in neighbors.columns:
-        budget_rate = _mean_bool(neighbors["under_budget"], default=0.0)
-        success_rate = (success_rate + budget_rate) / 2.0
+        known_budget = [v for v in neighbors["under_budget"] if not _is_absent_value(v)]
+        if known_budget:
+            budget_rate = _mean_bool(known_budget, default=0.0)
+            success_rate = (success_rate + budget_rate) / 2.0
     mean_cost = _mean_number(neighbors["actual_cost_usd"], default=0.0)
     if "actual_time_seconds" in neighbors.columns:
         duration_positives = _positive_duration_values(neighbors["actual_time_seconds"])
@@ -1593,3 +1813,33 @@ def _unique_ordered(values: Iterable[str]) -> list[str]:
 
 def _clamp(value: float, minimum: float, maximum: float) -> float:
     return max(minimum, min(maximum, value))
+
+
+def _load_prices(path: str) -> dict[str, dict[str, float | None]]:
+    """Load the router price table artifact (HOK-3401)."""
+    with open(path, encoding="utf-8") as handle:
+        payload = json.load(handle)
+    prices = payload.get("prices", payload)
+    if not isinstance(prices, dict):
+        raise ValueError("Router price artifact must map model ids to prices")
+    return {
+        str(model_id): {
+            key: (float(value) if isinstance(value, (int, float)) else None)
+            for key, value in price.items()
+            if key.endswith("_per_token")
+        }
+        for model_id, price in prices.items()
+        if isinstance(price, dict)
+    }
+
+
+def _token_profile(rows: pd.DataFrame | None, role: str) -> tuple[float, float, float] | None:
+    """Median (input, cache, output) tokens for *role* across *rows*; None if < 3 rows."""
+    columns = [f"{role}_{suffix}" for suffix in ROLE_TOKEN_COLUMNS]
+    if rows is None or rows.empty or not set(columns) <= set(rows.columns):
+        return None
+    values = rows[columns].apply(pd.to_numeric, errors="coerce").dropna()
+    if len(values) < 3:
+        return None
+    medians = values.median()
+    return (float(medians[columns[0]]), float(medians[columns[1]]), float(medians[columns[2]]))

@@ -148,6 +148,8 @@ Expected validation behavior:
 
 - `Field required` on `task`
 
+A role pool in which no requested id is supported (after retired-model substitution) is rejected with `unsupported_candidate_pool`; see [Candidate-pool resolution](#candidate-pool-resolution).
+
 ## MLflow Configuration
 
 Training data validation and provenance requirements are documented in [Model 30 Training Data](model-30-training-data.md).
@@ -207,7 +209,7 @@ The current serving path validates the nested request, maps it into a one-row pa
 
 `estimated_duration_seconds` and `nearest_neighbors.mean_duration_seconds` are `null` when no positive duration evidence exists for a strategy. The `fastest_completion` tradeoff sorts null-duration strategies after positive-duration strategies; if all strategies lack duration evidence the tradeoff is still populated with an otherwise-best candidate and a null duration.
 
-The versioned `configs/model_30_launch_priority_models.v1.json` catalog is the serving allowlist. It maps provider IDs and aliases to a single public alias, including the Wavemill/OpenRouter model families. Unknown, disabled, or role-ineligible caller candidates are removed before inference; an artifact output with a stale identifier has only that assignment removed and is logged as `model_30_response_models_filtered`. Neither condition turns an otherwise valid routing response into a 503.
+The versioned `configs/model_30_launch_priority_models.v1.json` catalog is the serving allowlist. It maps provider IDs and aliases to a single public alias, including the Wavemill/OpenRouter model families. Unknown, disabled, or role-ineligible caller candidates are removed before inference (retired ids are first mapped to successors, and a role left with no candidates is rejected with `422`; see [Candidate-pool resolution](#candidate-pool-resolution)); an artifact output with a stale identifier has only that assignment removed and is logged as `model_30_response_models_filtered`. Neither condition turns an otherwise valid routing response into a 503.
 
 When a candidate route has no exact historical match, its success and cost estimates are derived from the selected roles' evidence. The router does not substitute the undifferentiated neighbor aggregate for every unsupported route. Fallback duration remains `null` unless route-specific duration evidence exists.
 
@@ -236,9 +238,33 @@ When **no** route fits the budget, the router still answers (HOK-3127). It drops
 
 In offline evaluation (`scripts/model_30/evaluate_technical_task_router.py`), each benchmark row records `budget_exceeded`. The task-router scorers treat a flagged row as infeasible even when the historical run fit the budget, so it fails `success_under_budget/v1` and every v2 component. `technical_task_router.over_budget_recommendation_rate/v1` and the report's `over_budget_counts` (per scenario) show how often this happened.
 
-### Candidate-pool filtering logs
+### Candidate-pool resolution
 
-Requested model ids that are not active or watchlist entries in the supported-model catalog are dropped before routing. Each drop emits a `model_30_candidate_pool_filtered` WARNING whose message is JSON with `role`, `dropped_model_ids`, and `accepted_count`, so the ids are visible in CloudWatch text. When every requested id for a role is dropped, a `model_30_candidate_pool_emptied` WARNING follows. In that case the router receives an empty pool for the role and treats it as unconstrained.
+Each role's pool comes from its role-specific list, or from `routing.available_models` when that list is absent. Every requested id is resolved in this order:
+
+1. **Catalog match.** Active or watchlist entries in `configs/model_30_launch_priority_models.v1.json` that are eligible for the role are kept under their public alias.
+2. **Retired-model successor.** Ids listed as `deprecated_model_id` in `configs/model_30_model_lineage.v1.json` are replaced by their successors that are servable for the role. For example, `claude-sonnet-4-5-20250929` becomes `claude-sonnet-4-6`. Each substitution emits a `model_30_candidate_pool_substituted` WARNING. The response reports it in `diagnostics.candidate_pool_substitutions` as `{role: {requested_id: [successor_ids]}}`. Artifacts that emit no `diagnostics` object still log the substitution but cannot report it in the response.
+3. **Dropped.** All other ids are removed. Each drop emits a `model_30_candidate_pool_filtered` WARNING whose message is JSON with `role`, `dropped_model_ids`, and `accepted_count`, so the ids are visible in CloudWatch text.
+
+If **every** requested id for a role is dropped, the request is rejected with `422` before inference. This only applies to roles whose stage is in `workflow.stages`, or to all roles when `workflow.stages` is omitted. The router treats an empty pool as unconstrained, so continuing would rank models the caller never allowed. The API never silently widens a pool. Each affected role gets one error entry:
+
+```json
+{
+  "detail": [
+    {
+      "type": "unsupported_candidate_pool",
+      "loc": ["routing", "availableCoderModels"],
+      "msg": "No requested coder model is supported by Model 30: not-a-real-model (not_in_catalog). Use ids from the supported-model catalog or omit the field for unconstrained routing.",
+      "input": ["not-a-real-model"],
+      "ctx": {"role": "coder", "unsupported": "not-a-real-model (not_in_catalog)", "unsupported_model_ids": ["not-a-real-model"]}
+    }
+  ]
+}
+```
+
+The reason for each id is `not_in_catalog`, `not_serving` (in the catalog but not active or watchlist), `not_eligible_for_role`, or `invalid_id`. The API also logs a `model_30_candidate_pool_rejected` WARNING with the rejected ids per role. As with other request-validation `422`s, the usage debit has already been taken by the auth middleware when this response is returned.
+
+Pools where only some ids are unsupported are still accepted; the unsupported ids are dropped and the route stays within the remaining ids.
 
 For legacy smoke artifacts only, normalization accepts common aliases:
 

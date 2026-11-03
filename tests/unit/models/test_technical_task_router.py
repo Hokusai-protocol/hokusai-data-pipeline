@@ -17,6 +17,7 @@ import mlflow.pyfunc
 import pandas as pd
 import pytest
 
+import src.models.technical_task_router as technical_task_router_module
 from scripts.model_30.clean_router_dataset import clean_router_datasets
 from scripts.model_30.register_technical_task_router import (
     _attribution_per_row_frame,
@@ -411,7 +412,10 @@ def _route_identity(strategy: dict[str, Any]) -> tuple[Any, Any, Any]:
 def test_strategy_budget_honors_objective_when_no_route_is_feasible(
     tmp_path: Path,
     routing_objective: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Budget-fallback mechanics, independent of the HOK-3401 lowest_cost floor.
+    monkeypatch.setattr(technical_task_router_module, "LOWEST_COST_SUCCESS_FLOOR", 0.0)
     over_budget = _predict_route_ranking(
         tmp_path,
         _route_ranking_rows(),
@@ -444,7 +448,9 @@ def test_strategy_budget_honors_objective_when_no_route_is_feasible(
 
 def test_strategy_budget_fallback_keeps_most_reliable_route_not_cheapest(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(technical_task_router_module, "LOWEST_COST_SUCCESS_FLOOR", 0.0)
     out = _predict_route_ranking(tmp_path, _route_ranking_rows(), max_cost_usd=0.5)
 
     assert out["recommended_strategy"]["coder_model"] == "model-a"
