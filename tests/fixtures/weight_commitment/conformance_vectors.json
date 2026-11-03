@@ -1,0 +1,89 @@
+{
+  "description": "Cross-repo weight commitment conformance vectors (HOK-3394). Expected roots are produced by hokusai-token scripts/lib/weight-commitment.js, which set the on-chain weightGenesis values. Keep in sync with hokusai-token.",
+  "algorithm": "sha256-merkle-v1",
+  "vectors": [
+    {
+      "name": "sepolia-rehearsal-model-30",
+      "source": "hokusai-token test/fixtures/sepolia-rehearsal-model-30.json; expected root = scripts/configs/sepolia-launch-posture.json model 30 expectedWeightGenesis",
+      "files": [
+        {
+          "path": "config.json",
+          "hex": "0x6f14f08f37befd8320131df52d6f16f9c65bd4d4b9f9cb9372edd47d4508f906"
+        },
+        {
+          "path": "weights/layer-0.bin",
+          "hex": "0x22dc92e6c6d7b600453f12eff3878018b7c536d4a6e82f26490d9f8ceca72af0"
+        },
+        {
+          "path": "weights/layer-1.bin",
+          "hex": "0x381cdca3d37d851a2d7ebcc63f2db469c0c5f386825612eea7c0cd6ab7af4df9"
+        }
+      ],
+      "expectedRoot": "0x2d1813cb95d8ed3c6423e230860521b10d37e3c47b9cab577cb1fc29250fa323"
+    },
+    {
+      "name": "mainnet-genesis-model-30-mlflow-v5",
+      "source": "hokusai-token scripts/configs/mainnet-weight-genesis-sources.json modelId 30 (Technical Task Router v5); expected root = on-chain ModelRegistry.weightGenesis(30) on mainnet",
+      "files": [
+        {
+          "path": "artifacts/hokusai-router-dataset.cross-repo.repaired-canonical-train.csv",
+          "sha256": "d4852ee5f988ddc18b260061c498b3bd92bf43e4013c0df53ed478369f421ec7",
+          "byteLength": 639997
+        },
+        {
+          "path": "conda.yaml",
+          "sha256": "ae8faae29c173d7eda3037d033667b0bfa2cf9a474cbecf74063f9471e0b6635",
+          "byteLength": 121
+        },
+        {
+          "path": "python_env.yaml",
+          "sha256": "3d1d027d901bc7a3a0bcdc39396f12c273bd90dadd9b3f625628bab830df9e35",
+          "byteLength": 122
+        },
+        {
+          "path": "python_model.pkl",
+          "sha256": "2bed52ce3f25625b32cb9b46abb7aed7c038eb4fef3debca01a99d4dbb7f6e31",
+          "byteLength": 143
+        },
+        {
+          "path": "requirements.txt",
+          "sha256": "9ef9eccd271c608064cb25c4ae9057fcff015495746cd9f9ad67914c2127f38a",
+          "byteLength": 20
+        }
+      ],
+      "expectedRoot": "0xce7fc97f349f86a534d929e49738ba61e0043bed9afbc4dc7ad03754f106554c"
+    },
+    {
+      "name": "model-30-mlflow-v8",
+      "source": "MLflow Technical Task Router v8 artifact m-f53c99cd27f647a99f06327eb1f4418b (MLmodel excluded); expected root computed with hokusai-token scripts/lib/weight-commitment.js on 2026-11-02",
+      "files": [
+        {
+          "path": "artifacts/router-dataset.union.clean.csv",
+          "sha256": "24bb1f1e9d70c0c5b1cb07224bfc77d40561784a1cefaf307b18981c40ccc24a",
+          "byteLength": 1715726
+        },
+        {
+          "path": "conda.yaml",
+          "sha256": "4685e3e6b5bf475ead206b30b81c343e442da04d703c19b75d3786ba18c8496b",
+          "byteLength": 119
+        },
+        {
+          "path": "python_env.yaml",
+          "sha256": "6e8e3441890174ee036df7c3f2aa98578c3ee94bf1a416209b43b61c77c43e2b",
+          "byteLength": 120
+        },
+        {
+          "path": "python_model.pkl",
+          "sha256": "2bed52ce3f25625b32cb9b46abb7aed7c038eb4fef3debca01a99d4dbb7f6e31",
+          "byteLength": 143
+        },
+        {
+          "path": "requirements.txt",
+          "sha256": "9ef9eccd271c608064cb25c4ae9057fcff015495746cd9f9ad67914c2127f38a",
+          "byteLength": 20
+        }
+      ],
+      "expectedRoot": "0x96006880e0e7ecefcce82dc913a78934db4836ce5b85ff5c6eba59e49aaa5d93"
+    }
+  ]
+}
