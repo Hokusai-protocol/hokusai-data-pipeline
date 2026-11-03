@@ -56,7 +56,9 @@ from src.models.technical_task_router import (  # noqa: E402
     TechnicalTaskRouterModel,
 )
 
-MODEL_ID_PATTERN = re.compile(r"^(claude-|gpt-|deepseek-)")
+# HOK-3401: the former vendor allow-list ^(claude-|gpt-|deepseek-) dropped every
+# Kimi/Qwen/GLM outcome. Model IDs are now accepted by catalog or known family.
+from scripts.model_30.model_identity import is_supported_model_id  # noqa: E402
 MODEL_ID_COLUMNS = (
     "available_planner_models",
     "available_coder_models",
@@ -190,7 +192,7 @@ def _validate_model_row(
             invalid.append(f"row {row_number} {column}=<empty>")
 
         for model_id in model_ids:
-            if not MODEL_ID_PATTERN.match(model_id):
+            if not is_supported_model_id(model_id):
                 invalid.append(f"row {row_number} {column}={model_id!r}")
             elif column in SELECTED_MODEL_ID_COLUMNS:
                 selected_distribution[column][model_id] += 1

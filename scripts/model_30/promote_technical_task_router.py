@@ -28,7 +28,7 @@ if str(REPO_ROOT) not in sys.path:
 from scripts.model_30.register_technical_task_router import MODEL_NAME, register_model  # noqa: E402
 
 OBJECTIVES: tuple[str, ...] = ("lowest_cost", "fastest_completion", "highest_reliability")
-PUBLIC_MODEL_ID_PATTERN = re.compile(r"^(claude-|gpt-|deepseek-)")
+from scripts.model_30.model_identity import is_supported_model_id  # noqa: E402
 FORBIDDEN_MODEL_IDS = ("deep-coder-v2", "fast-coder-v1", "<synthetic>")
 
 
@@ -265,7 +265,7 @@ def _assert_strategy_payload(payload: dict[str, Any], *, source: str) -> None:
         raise ValueError(f"{source} response did not include any routed model IDs")
     forbidden = sorted(set(model_ids) & set(FORBIDDEN_MODEL_IDS))
     malformed = sorted(
-        {model_id for model_id in model_ids if not PUBLIC_MODEL_ID_PATTERN.match(model_id)}
+        {model_id for model_id in model_ids if not is_supported_model_id(model_id)}
     )
     if forbidden or malformed:
         raise ValueError(
