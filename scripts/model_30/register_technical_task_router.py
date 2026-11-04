@@ -54,6 +54,8 @@ from src.evaluation.tags import (  # noqa: E402
 )
 from src.lineage.weight_commitment import compute_weight_commitment  # noqa: E402
 from src.models.technical_task_router import (  # noqa: E402
+    ESTIMATOR_LEGACY,
+    ESTIMATORS,
     MODEL_NAME,
     ROUTER_DATASET_ARTIFACT,
     ROUTER_PRICES_ARTIFACT,
@@ -802,7 +804,8 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
     mlflow.set_experiment(experiment_name)
 
     sample_features = _sample_features()
-    local_model = TechnicalTaskRouterModel(k_neighbors=args.k_neighbors)
+    estimator = getattr(args, "estimator", ESTIMATOR_LEGACY)
+    local_model = TechnicalTaskRouterModel(k_neighbors=args.k_neighbors, estimator=estimator)
     local_model.load_context(
         type(
             "Context",
@@ -850,6 +853,7 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
             str(launch_priority_models_path) if launch_priority_models_path else "",
         )
         mlflow.log_param("k_neighbors", args.k_neighbors)
+        mlflow.log_param("estimator", estimator)
         mlflow.set_tag("hokusai.dataset.id", "wavemill-hokusai-router-dataset-v1")
         mlflow.set_tag("hokusai.dataset.hash", f"sha256:{dataset_summary.sha256}")
         mlflow.set_tag("hokusai.dataset.num_samples", str(dataset_summary.row_count))
@@ -881,7 +885,9 @@ def register_model(args: argparse.Namespace) -> dict[str, Any]:
         # optional columns, and the router normalizes them inside predict().
         model_info = mlflow.pyfunc.log_model(
             artifact_path="model",
-            python_model=TechnicalTaskRouterModel(k_neighbors=args.k_neighbors),
+            python_model=TechnicalTaskRouterModel(
+                k_neighbors=args.k_neighbors, estimator=estimator
+            ),
             artifacts=router_artifacts,
             registered_model_name=MODEL_NAME,
             pip_requirements=[
@@ -1060,6 +1066,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--experiment-name")
     parser.add_argument("--run-name", default="technical-task-router-callable")
     parser.add_argument("--k-neighbors", type=int, default=40)
+    parser.add_argument(
+        "--estimator",
+        choices=ESTIMATORS,
+        default=ESTIMATOR_LEGACY,
+        help=(
+            "Route success estimator stored with the model (HOK-3400). 'shrunk' puts "
+            "exact-route and role-level estimates on one scale."
+        ),
+    )
     parser.add_argument(
         "--holdout-dataset",
         help=(
