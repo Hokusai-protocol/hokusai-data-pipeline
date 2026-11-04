@@ -69,6 +69,22 @@ class RoutingSummary(BaseModel):
     linked_share: float = 0.0
 
 
+class CostSummary(BaseModel):
+    """Per-``cost_status`` counts of a batch's role-keyed router rows (HOK-3413).
+
+    Only ``priced`` rows train cost. The server reprices from token facts and
+    never uses the contributor-reported ``actual_cost_usd``.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    priced: int = 0
+    unpriced_model: int = 0
+    no_token_evidence: int = 0
+    coverage_partial: int = 0
+    price_table_version: str | None = None
+
+
 class RejectedRow(BaseModel):
     """A row rejected as invalid, with its position in the submitted batch."""
 
@@ -114,6 +130,11 @@ class ContributionAcceptedResponse(BaseModel):
     )
     # ``None`` when replaying a record persisted before the routing join existed.
     routing_summary: RoutingSummary | None = Field(default=None, alias="routingSummary")
+    # Aligned to the accepted rows: why each row is or isn't cost-eligible
+    # (``None`` for rows that are not role-keyed router rows). Both stay ``None``
+    # when replaying a record persisted before HOK-3413.
+    row_cost_status: list[str | None] | None = Field(default=None, alias="rowCostStatus")
+    cost_summary: CostSummary | None = Field(default=None, alias="costSummary")
 
 
 class ContributionLifecycleResponse(BaseModel):

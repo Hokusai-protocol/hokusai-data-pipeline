@@ -1,0 +1,1307 @@
+{
+  "source": "hokusai-sdk packages/core/src/fixtures/contribution-v4.ts (HOK-3412, PR #126, merge 77796d6)",
+  "fixtures": {
+    "singleHarness": {
+      "schema_version": "technical_task_router_row/v4",
+      "task_descriptor": {
+        "task_type": "bugfix",
+        "language": "typescript",
+        "domain": "backend",
+        "complexity": 3,
+        "repo_size_bucket": "large",
+        "files_touched_bucket": "2_5",
+        "description_length_bucket": "medium",
+        "is_greenfield": false,
+        "is_migration": false,
+        "requires_tests": true,
+        "cross_service": false,
+        "ui_heavy": false,
+        "risk_level": "medium"
+      },
+      "allowed_models": [
+        "claude-haiku-4-5",
+        "claude-sonnet-5",
+        "claude-opus-4-8",
+        "gpt-5-codex"
+      ],
+      "available_models": {
+        "planner_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ],
+        "coder_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ],
+        "reviewer_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ]
+      },
+      "budget_usd": 5,
+      "wall_clock_seconds": 1840,
+      "success_under_budget": true,
+      "completion_result": "success",
+      "candidate_pool": {
+        "scenario_id": "wavemill-default",
+        "scenario_kind": "production",
+        "pool_size": 4
+      },
+      "sparse_cell": {
+        "cell_id": "bugfix-typescript",
+        "descriptor_signature": "bugfix|typescript|backend",
+        "observed_count": 41,
+        "is_sparse": false
+      },
+      "observed_at": "2026-11-04T18:00:00.000Z",
+      "task_id": "task-0001",
+      "harness": "wavemill",
+      "inference_log_id": "0f8e2c1a-5b3d-4e7f-9a1b-2c3d4e5f6a80",
+      "overrides": [],
+      "selected_models": {
+        "planner": "claude-sonnet-5",
+        "coder": "claude-sonnet-5",
+        "reviewer": "claude-opus-4-8"
+      },
+      "stage_executions": [
+        {
+          "stage": "planning",
+          "executed_model": "claude-sonnet-5",
+          "model_evidence": "session_telemetry",
+          "harness": "claude-code",
+          "task_cost": {
+            "schema_version": "task_cost_summary/v1",
+            "task_id": "task-0001",
+            "session_ids": [
+              "session-0001"
+            ],
+            "harness": "claude-code",
+            "harness_version": "2.1.0",
+            "provider_contract_version": "claude-code/1",
+            "models": [
+              "claude-sonnet-5"
+            ],
+            "model_segments": [
+              {
+                "model": "claude-sonnet-5",
+                "turn_count": 3,
+                "usage": {
+                  "input_tokens": 4500,
+                  "output_tokens": 2300,
+                  "cache_read_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "reasoning_tokens": 0
+                },
+                "actual_cost_usd": 0.0489,
+                "estimated_cost_usd": 0.048,
+                "cost_source": "provider_reported"
+              }
+            ],
+            "turn_count": 3,
+            "turns_truncated": false,
+            "usage": {
+              "input_tokens": 4500,
+              "output_tokens": 2300,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "reasoning_tokens": 0
+            },
+            "actual_cost_usd": 0.0489,
+            "estimated_cost_usd": 0.048,
+            "total_cost_usd": 0.0489,
+            "cost_source": "provider_reported",
+            "cost_basis": "per_token_api",
+            "coverage": "complete",
+            "field_availability": {
+              "usage": "available",
+              "actual_cost": "available",
+              "estimated_cost": "available",
+              "pricing": "available"
+            },
+            "pricing_revision": "2026-07-15",
+            "pricing_timestamp": "2026-01-01T00:03:00Z",
+            "pricing_source": "local_estimate",
+            "join_confidence": "unattributed",
+            "collected_at": "2026-01-01T00:03:00Z",
+            "event_count": 3,
+            "event_ids": [
+              "01900000-0000-7000-8000-000000000001",
+              "01900000-0000-7000-8000-000000000002",
+              "01900000-0000-7000-8000-000000000003"
+            ],
+            "diagnostics": [
+              "provider_reported_cost"
+            ]
+          }
+        },
+        {
+          "stage": "coding",
+          "executed_model": "claude-sonnet-5",
+          "model_evidence": "session_telemetry",
+          "harness": "claude-code",
+          "task_cost": {
+            "schema_version": "task_cost_summary/v1",
+            "task_id": "task-0001",
+            "session_ids": [
+              "session-0001"
+            ],
+            "harness": "claude-code",
+            "harness_version": "2.1.0",
+            "provider_contract_version": "claude-code/1",
+            "models": [
+              "claude-opus-4-8",
+              "claude-sonnet-5"
+            ],
+            "model_segments": [
+              {
+                "model": "claude-opus-4-8",
+                "turn_count": 2,
+                "usage": {
+                  "input_tokens": 5000,
+                  "output_tokens": 2000,
+                  "cache_read_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "reasoning_tokens": 0
+                },
+                "actual_cost_usd": null,
+                "estimated_cost_usd": 0.075,
+                "cost_source": "local_estimate"
+              },
+              {
+                "model": "claude-sonnet-5",
+                "turn_count": 2,
+                "usage": {
+                  "input_tokens": 5000,
+                  "output_tokens": 1900,
+                  "cache_read_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "reasoning_tokens": 0
+                },
+                "actual_cost_usd": null,
+                "estimated_cost_usd": 0.0435,
+                "cost_source": "local_estimate"
+              }
+            ],
+            "turn_count": 4,
+            "turns_truncated": false,
+            "usage": {
+              "input_tokens": 10000,
+              "output_tokens": 3900,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "reasoning_tokens": 0
+            },
+            "actual_cost_usd": null,
+            "estimated_cost_usd": 0.1185,
+            "total_cost_usd": 0.1185,
+            "cost_source": "local_estimate",
+            "cost_basis": "per_token_api",
+            "coverage": "complete",
+            "field_availability": {
+              "usage": "available",
+              "actual_cost": "unavailable",
+              "estimated_cost": "available",
+              "pricing": "available"
+            },
+            "pricing_revision": "2026-07-15",
+            "pricing_timestamp": "2026-01-01T00:04:00Z",
+            "pricing_source": "local_estimate",
+            "join_confidence": "unattributed",
+            "collected_at": "2026-01-01T00:04:00Z",
+            "event_count": 4,
+            "event_ids": [
+              "01900000-0000-7000-8000-000000000001",
+              "01900000-0000-7000-8000-000000000002",
+              "01900000-0000-7000-8000-000000000003",
+              "01900000-0000-7000-8000-000000000004"
+            ],
+            "diagnostics": []
+          }
+        },
+        {
+          "stage": "review",
+          "executed_model": "claude-opus-4-8",
+          "model_evidence": "session_telemetry",
+          "harness": "claude-code",
+          "task_cost": {
+            "schema_version": "task_cost_summary/v1",
+            "task_id": "task-0001",
+            "session_ids": [
+              "session-0001"
+            ],
+            "harness": "claude-code",
+            "harness_version": "2.1.0",
+            "provider_contract_version": "claude-code/1",
+            "models": [
+              "claude-opus-4-8"
+            ],
+            "model_segments": [
+              {
+                "model": "claude-opus-4-8",
+                "turn_count": 3,
+                "usage": {
+                  "input_tokens": 1500,
+                  "output_tokens": 1500,
+                  "cache_read_tokens": 16000,
+                  "cache_write_tokens": 9000,
+                  "reasoning_tokens": 0
+                },
+                "actual_cost_usd": null,
+                "estimated_cost_usd": 0.10925,
+                "cost_source": "local_estimate"
+              }
+            ],
+            "turn_count": 3,
+            "turns_truncated": false,
+            "usage": {
+              "input_tokens": 1500,
+              "output_tokens": 1500,
+              "cache_read_tokens": 16000,
+              "cache_write_tokens": 9000,
+              "reasoning_tokens": 0
+            },
+            "actual_cost_usd": null,
+            "estimated_cost_usd": 0.10925,
+            "total_cost_usd": 0.10925,
+            "cost_source": "local_estimate",
+            "cost_basis": "per_token_api",
+            "coverage": "complete",
+            "field_availability": {
+              "usage": "available",
+              "actual_cost": "unavailable",
+              "estimated_cost": "available",
+              "pricing": "available"
+            },
+            "pricing_revision": "2026-07-15",
+            "pricing_timestamp": "2026-01-01T00:03:00Z",
+            "pricing_source": "local_estimate",
+            "join_confidence": "unattributed",
+            "collected_at": "2026-01-01T00:03:00Z",
+            "event_count": 3,
+            "event_ids": [
+              "01900000-0000-7000-8000-000000000001",
+              "01900000-0000-7000-8000-000000000002",
+              "01900000-0000-7000-8000-000000000003"
+            ],
+            "diagnostics": []
+          }
+        }
+      ],
+      "actual_cost_usd": 0.27665,
+      "outcome_labels": {
+        "budget_label": "under_budget",
+        "cost_label": "low",
+        "time_label": "slow",
+        "success_label": "success"
+      }
+    },
+    "mixedHarness": {
+      "schema_version": "technical_task_router_row/v4",
+      "task_descriptor": {
+        "task_type": "bugfix",
+        "language": "typescript",
+        "domain": "backend",
+        "complexity": 3,
+        "repo_size_bucket": "large",
+        "files_touched_bucket": "2_5",
+        "description_length_bucket": "medium",
+        "is_greenfield": false,
+        "is_migration": false,
+        "requires_tests": true,
+        "cross_service": false,
+        "ui_heavy": false,
+        "risk_level": "medium"
+      },
+      "allowed_models": [
+        "claude-haiku-4-5",
+        "claude-sonnet-5",
+        "claude-opus-4-8",
+        "gpt-5-codex"
+      ],
+      "available_models": {
+        "planner_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ],
+        "coder_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ],
+        "reviewer_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ]
+      },
+      "budget_usd": 5,
+      "wall_clock_seconds": 1840,
+      "success_under_budget": true,
+      "completion_result": "success",
+      "candidate_pool": {
+        "scenario_id": "wavemill-default",
+        "scenario_kind": "production",
+        "pool_size": 4
+      },
+      "sparse_cell": {
+        "cell_id": "bugfix-typescript",
+        "descriptor_signature": "bugfix|typescript|backend",
+        "observed_count": 41,
+        "is_sparse": false
+      },
+      "observed_at": "2026-11-04T18:00:00.000Z",
+      "task_id": "task-0001",
+      "harness": "wavemill",
+      "inference_log_id": "0f8e2c1a-5b3d-4e7f-9a1b-2c3d4e5f6a80",
+      "overrides": [],
+      "selected_models": {
+        "planner": "claude-sonnet-5",
+        "coder": "claude-haiku-4-5",
+        "reviewer": "claude-sonnet-5"
+      },
+      "stage_executions": [
+        {
+          "stage": "planning",
+          "executed_model": "claude-sonnet-5",
+          "model_evidence": "session_telemetry",
+          "harness": "claude-code",
+          "task_cost": {
+            "schema_version": "task_cost_summary/v1",
+            "task_id": "task-0001",
+            "session_ids": [
+              "session-0001"
+            ],
+            "harness": "claude-code",
+            "harness_version": "2.1.0",
+            "provider_contract_version": "claude-code/1",
+            "models": [
+              "claude-sonnet-5"
+            ],
+            "model_segments": [
+              {
+                "model": "claude-sonnet-5",
+                "turn_count": 3,
+                "usage": {
+                  "input_tokens": 4500,
+                  "output_tokens": 2300,
+                  "cache_read_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "reasoning_tokens": 0
+                },
+                "actual_cost_usd": 0.0489,
+                "estimated_cost_usd": 0.048,
+                "cost_source": "provider_reported"
+              }
+            ],
+            "turn_count": 3,
+            "turns_truncated": false,
+            "usage": {
+              "input_tokens": 4500,
+              "output_tokens": 2300,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "reasoning_tokens": 0
+            },
+            "actual_cost_usd": 0.0489,
+            "estimated_cost_usd": 0.048,
+            "total_cost_usd": 0.0489,
+            "cost_source": "provider_reported",
+            "cost_basis": "per_token_api",
+            "coverage": "complete",
+            "field_availability": {
+              "usage": "available",
+              "actual_cost": "available",
+              "estimated_cost": "available",
+              "pricing": "available"
+            },
+            "pricing_revision": "2026-07-15",
+            "pricing_timestamp": "2026-01-01T00:03:00Z",
+            "pricing_source": "local_estimate",
+            "join_confidence": "unattributed",
+            "collected_at": "2026-01-01T00:03:00Z",
+            "event_count": 3,
+            "event_ids": [
+              "01900000-0000-7000-8000-000000000001",
+              "01900000-0000-7000-8000-000000000002",
+              "01900000-0000-7000-8000-000000000003"
+            ],
+            "diagnostics": [
+              "provider_reported_cost"
+            ]
+          }
+        },
+        {
+          "stage": "coding",
+          "executed_model": "claude-haiku-4-5",
+          "model_evidence": "provider_response",
+          "harness": "native",
+          "task_cost": {
+            "schema_version": "task_cost_summary/v1",
+            "task_id": "task-0001",
+            "session_ids": [
+              "session-0001"
+            ],
+            "harness": "native",
+            "harness_version": "1.0.0",
+            "provider_contract_version": "native/1",
+            "models": [
+              "claude-haiku-4-5"
+            ],
+            "model_segments": [
+              {
+                "model": "claude-haiku-4-5",
+                "turn_count": 2,
+                "usage": {
+                  "input_tokens": 1200,
+                  "output_tokens": 300,
+                  "cache_read_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "reasoning_tokens": 0
+                },
+                "actual_cost_usd": null,
+                "estimated_cost_usd": 0.0027,
+                "cost_source": "local_estimate"
+              }
+            ],
+            "turn_count": 2,
+            "turns_truncated": false,
+            "usage": {
+              "input_tokens": 1200,
+              "output_tokens": 300,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "reasoning_tokens": 0
+            },
+            "actual_cost_usd": null,
+            "estimated_cost_usd": 0.0027,
+            "total_cost_usd": 0.0027,
+            "cost_source": "local_estimate",
+            "cost_basis": "per_token_api",
+            "coverage": "complete",
+            "field_availability": {
+              "usage": "available",
+              "actual_cost": "unavailable",
+              "estimated_cost": "available",
+              "pricing": "available"
+            },
+            "pricing_revision": "2026-07-15",
+            "pricing_timestamp": "2026-01-01T00:02:00Z",
+            "pricing_source": "local_estimate",
+            "join_confidence": "unattributed",
+            "collected_at": "2026-01-01T00:02:00Z",
+            "event_count": 2,
+            "event_ids": [
+              "01900000-0000-7000-8000-000000000001",
+              "01900000-0000-7000-8000-000000000002"
+            ],
+            "diagnostics": []
+          }
+        },
+        {
+          "stage": "review",
+          "executed_model": "claude-sonnet-5",
+          "model_evidence": "session_telemetry",
+          "harness": "claude-code",
+          "task_cost": {
+            "schema_version": "task_cost_summary/v1",
+            "task_id": "task-0001",
+            "session_ids": [
+              "session-0001"
+            ],
+            "harness": "claude-code",
+            "harness_version": "2.1.0",
+            "provider_contract_version": "claude-code/1",
+            "models": [
+              "claude-sonnet-5"
+            ],
+            "model_segments": [
+              {
+                "model": "claude-sonnet-5",
+                "turn_count": 3,
+                "usage": {
+                  "input_tokens": 3800,
+                  "output_tokens": 1900,
+                  "cache_read_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "reasoning_tokens": 0
+                },
+                "actual_cost_usd": null,
+                "estimated_cost_usd": 0.0399,
+                "cost_source": "local_estimate"
+              }
+            ],
+            "turn_count": 3,
+            "turns_truncated": false,
+            "usage": {
+              "input_tokens": 3800,
+              "output_tokens": 1900,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "reasoning_tokens": 0
+            },
+            "actual_cost_usd": null,
+            "estimated_cost_usd": 0.0399,
+            "total_cost_usd": 0.0399,
+            "cost_source": "local_estimate",
+            "cost_basis": "per_token_api",
+            "coverage": "complete",
+            "field_availability": {
+              "usage": "available",
+              "actual_cost": "unavailable",
+              "estimated_cost": "available",
+              "pricing": "available"
+            },
+            "pricing_revision": "2026-07-15",
+            "pricing_timestamp": "2026-01-01T00:04:00Z",
+            "pricing_source": "local_estimate",
+            "join_confidence": "unattributed",
+            "collected_at": "2026-01-01T00:04:00Z",
+            "event_count": 3,
+            "event_ids": [
+              "01900000-0000-7000-8000-000000000001",
+              "01900000-0000-7000-8000-000000000003",
+              "01900000-0000-7000-8000-000000000004"
+            ],
+            "diagnostics": []
+          }
+        }
+      ],
+      "actual_cost_usd": 0.0915,
+      "outcome_labels": {
+        "budget_label": "under_budget",
+        "cost_label": "low",
+        "time_label": "slow",
+        "success_label": "success"
+      }
+    },
+    "challengePrimary": {
+      "schema_version": "technical_task_router_row/v4",
+      "task_descriptor": {
+        "task_type": "bugfix",
+        "language": "typescript",
+        "domain": "backend",
+        "complexity": 3,
+        "repo_size_bucket": "large",
+        "files_touched_bucket": "2_5",
+        "description_length_bucket": "medium",
+        "is_greenfield": false,
+        "is_migration": false,
+        "requires_tests": true,
+        "cross_service": false,
+        "ui_heavy": false,
+        "risk_level": "medium"
+      },
+      "allowed_models": [
+        "claude-haiku-4-5",
+        "claude-sonnet-5",
+        "claude-opus-4-8",
+        "gpt-5-codex"
+      ],
+      "available_models": {
+        "planner_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ],
+        "coder_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ],
+        "reviewer_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ]
+      },
+      "budget_usd": 5,
+      "wall_clock_seconds": 1840,
+      "success_under_budget": true,
+      "completion_result": "success",
+      "candidate_pool": {
+        "scenario_id": "wavemill-default",
+        "scenario_kind": "production",
+        "pool_size": 4
+      },
+      "sparse_cell": {
+        "cell_id": "bugfix-typescript",
+        "descriptor_signature": "bugfix|typescript|backend",
+        "observed_count": 41,
+        "is_sparse": false
+      },
+      "observed_at": "2026-11-04T18:00:00.000Z",
+      "task_id": "task-0001",
+      "harness": "wavemill",
+      "inference_log_id": "0f8e2c1a-5b3d-4e7f-9a1b-2c3d4e5f6a80",
+      "overrides": [],
+      "comparison_group": {
+        "id": "01a1a6d0-0000-7000-8000-000000000001",
+        "role_varied": "coder"
+      },
+      "selected_models": {
+        "coder": "claude-sonnet-5",
+        "reviewer": "claude-opus-4-8"
+      },
+      "stage_executions": [
+        {
+          "stage": "coding",
+          "executed_model": "claude-sonnet-5",
+          "model_evidence": "session_telemetry",
+          "harness": "claude-code",
+          "task_cost": {
+            "schema_version": "task_cost_summary/v1",
+            "task_id": "task-0001",
+            "session_ids": [
+              "session-0001"
+            ],
+            "harness": "claude-code",
+            "harness_version": "2.1.0",
+            "provider_contract_version": "claude-code/1",
+            "models": [
+              "claude-sonnet-5"
+            ],
+            "model_segments": [
+              {
+                "model": "claude-sonnet-5",
+                "turn_count": 3,
+                "usage": {
+                  "input_tokens": 4500,
+                  "output_tokens": 2300,
+                  "cache_read_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "reasoning_tokens": 0
+                },
+                "actual_cost_usd": 0.0489,
+                "estimated_cost_usd": 0.048,
+                "cost_source": "provider_reported"
+              }
+            ],
+            "turn_count": 3,
+            "turns_truncated": false,
+            "usage": {
+              "input_tokens": 4500,
+              "output_tokens": 2300,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "reasoning_tokens": 0
+            },
+            "actual_cost_usd": 0.0489,
+            "estimated_cost_usd": 0.048,
+            "total_cost_usd": 0.0489,
+            "cost_source": "provider_reported",
+            "cost_basis": "per_token_api",
+            "coverage": "complete",
+            "field_availability": {
+              "usage": "available",
+              "actual_cost": "available",
+              "estimated_cost": "available",
+              "pricing": "available"
+            },
+            "pricing_revision": "2026-07-15",
+            "pricing_timestamp": "2026-01-01T00:03:00Z",
+            "pricing_source": "local_estimate",
+            "join_confidence": "unattributed",
+            "collected_at": "2026-01-01T00:03:00Z",
+            "event_count": 3,
+            "event_ids": [
+              "01900000-0000-7000-8000-000000000001",
+              "01900000-0000-7000-8000-000000000002",
+              "01900000-0000-7000-8000-000000000003"
+            ],
+            "diagnostics": [
+              "provider_reported_cost"
+            ]
+          }
+        },
+        {
+          "stage": "review",
+          "executed_model": "claude-opus-4-8",
+          "model_evidence": "session_telemetry",
+          "harness": "claude-code",
+          "task_cost": {
+            "schema_version": "task_cost_summary/v1",
+            "task_id": "task-0001",
+            "session_ids": [
+              "session-0001"
+            ],
+            "harness": "claude-code",
+            "harness_version": "2.1.0",
+            "provider_contract_version": "claude-code/1",
+            "models": [
+              "claude-opus-4-8"
+            ],
+            "model_segments": [
+              {
+                "model": "claude-opus-4-8",
+                "turn_count": 3,
+                "usage": {
+                  "input_tokens": 1500,
+                  "output_tokens": 1500,
+                  "cache_read_tokens": 16000,
+                  "cache_write_tokens": 9000,
+                  "reasoning_tokens": 0
+                },
+                "actual_cost_usd": null,
+                "estimated_cost_usd": 0.10925,
+                "cost_source": "local_estimate"
+              }
+            ],
+            "turn_count": 3,
+            "turns_truncated": false,
+            "usage": {
+              "input_tokens": 1500,
+              "output_tokens": 1500,
+              "cache_read_tokens": 16000,
+              "cache_write_tokens": 9000,
+              "reasoning_tokens": 0
+            },
+            "actual_cost_usd": null,
+            "estimated_cost_usd": 0.10925,
+            "total_cost_usd": 0.10925,
+            "cost_source": "local_estimate",
+            "cost_basis": "per_token_api",
+            "coverage": "complete",
+            "field_availability": {
+              "usage": "available",
+              "actual_cost": "unavailable",
+              "estimated_cost": "available",
+              "pricing": "available"
+            },
+            "pricing_revision": "2026-07-15",
+            "pricing_timestamp": "2026-01-01T00:03:00Z",
+            "pricing_source": "local_estimate",
+            "join_confidence": "unattributed",
+            "collected_at": "2026-01-01T00:03:00Z",
+            "event_count": 3,
+            "event_ids": [
+              "01900000-0000-7000-8000-000000000001",
+              "01900000-0000-7000-8000-000000000002",
+              "01900000-0000-7000-8000-000000000003"
+            ],
+            "diagnostics": []
+          }
+        }
+      ],
+      "actual_cost_usd": 0.15815,
+      "outcome_labels": {
+        "budget_label": "under_budget",
+        "cost_label": "low",
+        "time_label": "slow",
+        "success_label": "success"
+      }
+    },
+    "challengeChallenger": {
+      "schema_version": "technical_task_router_row/v4",
+      "task_descriptor": {
+        "task_type": "bugfix",
+        "language": "typescript",
+        "domain": "backend",
+        "complexity": 3,
+        "repo_size_bucket": "large",
+        "files_touched_bucket": "2_5",
+        "description_length_bucket": "medium",
+        "is_greenfield": false,
+        "is_migration": false,
+        "requires_tests": true,
+        "cross_service": false,
+        "ui_heavy": false,
+        "risk_level": "medium"
+      },
+      "allowed_models": [
+        "claude-haiku-4-5",
+        "claude-sonnet-5",
+        "claude-opus-4-8",
+        "gpt-5-codex"
+      ],
+      "available_models": {
+        "planner_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ],
+        "coder_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ],
+        "reviewer_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ]
+      },
+      "budget_usd": 5,
+      "wall_clock_seconds": 1840,
+      "success_under_budget": true,
+      "completion_result": "success",
+      "candidate_pool": {
+        "scenario_id": "wavemill-default",
+        "scenario_kind": "production",
+        "pool_size": 4
+      },
+      "sparse_cell": {
+        "cell_id": "bugfix-typescript",
+        "descriptor_signature": "bugfix|typescript|backend",
+        "observed_count": 41,
+        "is_sparse": false
+      },
+      "observed_at": "2026-11-04T18:00:00.000Z",
+      "task_id": "task-0001",
+      "harness": "wavemill",
+      "inference_log_id": "0f8e2c1a-5b3d-4e7f-9a1b-2c3d4e5f6a80",
+      "overrides": [
+        {
+          "role": "coder",
+          "source": "challenge",
+          "from": "claude-sonnet-5",
+          "to": "gpt-5-codex",
+          "reason": "challenge_arm"
+        }
+      ],
+      "comparison_group": {
+        "id": "01a1a6d0-0000-7000-8000-000000000001",
+        "role_varied": "coder"
+      },
+      "selected_models": {
+        "coder": "gpt-5-codex",
+        "reviewer": "claude-opus-4-8"
+      },
+      "stage_executions": [
+        {
+          "stage": "coding",
+          "executed_model": "gpt-5-codex",
+          "model_evidence": "session_telemetry",
+          "harness": "codex",
+          "task_cost": {
+            "schema_version": "task_cost_summary/v1",
+            "task_id": "task-0001",
+            "session_ids": [
+              "session-0001"
+            ],
+            "harness": "codex",
+            "harness_version": "0.50.0",
+            "provider_contract_version": "codex/2",
+            "models": [
+              "gpt-5-codex"
+            ],
+            "model_segments": [
+              {
+                "model": "gpt-5-codex",
+                "turn_count": 2,
+                "usage": {
+                  "input_tokens": 5000,
+                  "output_tokens": 1500,
+                  "cache_read_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "reasoning_tokens": 450
+                },
+                "actual_cost_usd": null,
+                "estimated_cost_usd": 0.02125,
+                "cost_source": "local_estimate"
+              }
+            ],
+            "turn_count": 2,
+            "turns_truncated": false,
+            "usage": {
+              "input_tokens": 5000,
+              "output_tokens": 1500,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "reasoning_tokens": 450
+            },
+            "actual_cost_usd": null,
+            "estimated_cost_usd": 0.02125,
+            "total_cost_usd": 0.02125,
+            "cost_source": "local_estimate",
+            "cost_basis": "per_token_api",
+            "coverage": "complete",
+            "field_availability": {
+              "usage": "available",
+              "actual_cost": "unavailable",
+              "estimated_cost": "available",
+              "pricing": "available"
+            },
+            "pricing_revision": "2026-07-15",
+            "pricing_timestamp": "2026-01-01T00:02:00Z",
+            "pricing_source": "local_estimate",
+            "join_confidence": "unattributed",
+            "collected_at": "2026-01-01T00:02:00Z",
+            "event_count": 2,
+            "event_ids": [
+              "01900000-0000-7000-8000-000000000001",
+              "01900000-0000-7000-8000-000000000002"
+            ],
+            "diagnostics": []
+          }
+        },
+        {
+          "stage": "review",
+          "executed_model": "claude-opus-4-8",
+          "model_evidence": "session_telemetry",
+          "harness": "claude-code",
+          "task_cost": {
+            "schema_version": "task_cost_summary/v1",
+            "task_id": "task-0001",
+            "session_ids": [
+              "session-0001"
+            ],
+            "harness": "claude-code",
+            "harness_version": "2.1.0",
+            "provider_contract_version": "claude-code/1",
+            "models": [
+              "claude-opus-4-8"
+            ],
+            "model_segments": [
+              {
+                "model": "claude-opus-4-8",
+                "turn_count": 3,
+                "usage": {
+                  "input_tokens": 1500,
+                  "output_tokens": 1500,
+                  "cache_read_tokens": 16000,
+                  "cache_write_tokens": 9000,
+                  "reasoning_tokens": 0
+                },
+                "actual_cost_usd": null,
+                "estimated_cost_usd": 0.10925,
+                "cost_source": "local_estimate"
+              }
+            ],
+            "turn_count": 3,
+            "turns_truncated": false,
+            "usage": {
+              "input_tokens": 1500,
+              "output_tokens": 1500,
+              "cache_read_tokens": 16000,
+              "cache_write_tokens": 9000,
+              "reasoning_tokens": 0
+            },
+            "actual_cost_usd": null,
+            "estimated_cost_usd": 0.10925,
+            "total_cost_usd": 0.10925,
+            "cost_source": "local_estimate",
+            "cost_basis": "per_token_api",
+            "coverage": "complete",
+            "field_availability": {
+              "usage": "available",
+              "actual_cost": "unavailable",
+              "estimated_cost": "available",
+              "pricing": "available"
+            },
+            "pricing_revision": "2026-07-15",
+            "pricing_timestamp": "2026-01-01T00:03:00Z",
+            "pricing_source": "local_estimate",
+            "join_confidence": "unattributed",
+            "collected_at": "2026-01-01T00:03:00Z",
+            "event_count": 3,
+            "event_ids": [
+              "01900000-0000-7000-8000-000000000001",
+              "01900000-0000-7000-8000-000000000002",
+              "01900000-0000-7000-8000-000000000003"
+            ],
+            "diagnostics": []
+          }
+        }
+      ],
+      "actual_cost_usd": 0.1305,
+      "outcome_labels": {
+        "budget_label": "under_budget",
+        "cost_label": "low",
+        "time_label": "slow",
+        "success_label": "success"
+      }
+    },
+    "ciFixRepair": {
+      "schema_version": "technical_task_router_row/v4",
+      "task_descriptor": {
+        "task_type": "bugfix",
+        "language": "typescript",
+        "domain": "backend",
+        "complexity": 3,
+        "repo_size_bucket": "large",
+        "files_touched_bucket": "2_5",
+        "description_length_bucket": "medium",
+        "is_greenfield": false,
+        "is_migration": false,
+        "requires_tests": true,
+        "cross_service": false,
+        "ui_heavy": false,
+        "risk_level": "medium"
+      },
+      "allowed_models": [
+        "claude-haiku-4-5",
+        "claude-sonnet-5",
+        "claude-opus-4-8",
+        "gpt-5-codex"
+      ],
+      "available_models": {
+        "planner_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ],
+        "coder_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ],
+        "reviewer_models": [
+          "claude-haiku-4-5",
+          "claude-sonnet-5",
+          "claude-opus-4-8",
+          "gpt-5-codex"
+        ]
+      },
+      "budget_usd": 5,
+      "wall_clock_seconds": 1840,
+      "success_under_budget": true,
+      "completion_result": "success",
+      "candidate_pool": {
+        "scenario_id": "wavemill-default",
+        "scenario_kind": "production",
+        "pool_size": 4
+      },
+      "sparse_cell": {
+        "cell_id": "bugfix-typescript",
+        "descriptor_signature": "bugfix|typescript|backend",
+        "observed_count": 41,
+        "is_sparse": false
+      },
+      "observed_at": "2026-11-04T18:00:00.000Z",
+      "task_id": "task-0001",
+      "harness": "wavemill",
+      "selected_models": {
+        "coder": "gpt-5-codex",
+        "reviewer": "claude-opus-4-8"
+      },
+      "stage_executions": [
+        {
+          "stage": "coding",
+          "executed_model": "gpt-5-codex",
+          "model_evidence": "session_telemetry",
+          "harness": "codex",
+          "task_cost": {
+            "schema_version": "task_cost_summary/v1",
+            "task_id": "task-0001",
+            "session_ids": [
+              "session-0001"
+            ],
+            "harness": "codex",
+            "harness_version": "0.50.0",
+            "provider_contract_version": "codex/2",
+            "models": [
+              "gpt-5-codex"
+            ],
+            "model_segments": [
+              {
+                "model": "gpt-5-codex",
+                "turn_count": 2,
+                "usage": {
+                  "input_tokens": 5000,
+                  "output_tokens": 1500,
+                  "cache_read_tokens": 0,
+                  "cache_write_tokens": 0,
+                  "reasoning_tokens": 450
+                },
+                "actual_cost_usd": null,
+                "estimated_cost_usd": 0.02125,
+                "cost_source": "local_estimate"
+              }
+            ],
+            "turn_count": 2,
+            "turns_truncated": false,
+            "usage": {
+              "input_tokens": 5000,
+              "output_tokens": 1500,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "reasoning_tokens": 450
+            },
+            "actual_cost_usd": null,
+            "estimated_cost_usd": 0.02125,
+            "total_cost_usd": 0.02125,
+            "cost_source": "local_estimate",
+            "cost_basis": "per_token_api",
+            "coverage": "complete",
+            "field_availability": {
+              "usage": "available",
+              "actual_cost": "unavailable",
+              "estimated_cost": "available",
+              "pricing": "available"
+            },
+            "pricing_revision": "2026-07-15",
+            "pricing_timestamp": "2026-01-01T00:02:00Z",
+            "pricing_source": "local_estimate",
+            "join_confidence": "unattributed",
+            "collected_at": "2026-01-01T00:02:00Z",
+            "event_count": 2,
+            "event_ids": [
+              "01900000-0000-7000-8000-000000000001",
+              "01900000-0000-7000-8000-000000000002"
+            ],
+            "diagnostics": []
+          }
+        },
+        {
+          "stage": "review",
+          "executed_model": "claude-opus-4-8",
+          "model_evidence": "session_telemetry",
+          "harness": "claude-code",
+          "task_cost": {
+            "schema_version": "task_cost_summary/v1",
+            "task_id": "task-0001",
+            "session_ids": [
+              "session-0001"
+            ],
+            "harness": "claude-code",
+            "harness_version": "2.1.0",
+            "provider_contract_version": "claude-code/1",
+            "models": [
+              "claude-opus-4-8"
+            ],
+            "model_segments": [
+              {
+                "model": "claude-opus-4-8",
+                "turn_count": 3,
+                "usage": {
+                  "input_tokens": 1500,
+                  "output_tokens": 1500,
+                  "cache_read_tokens": 16000,
+                  "cache_write_tokens": 9000,
+                  "reasoning_tokens": 0
+                },
+                "actual_cost_usd": null,
+                "estimated_cost_usd": 0.10925,
+                "cost_source": "local_estimate"
+              }
+            ],
+            "turn_count": 3,
+            "turns_truncated": false,
+            "usage": {
+              "input_tokens": 1500,
+              "output_tokens": 1500,
+              "cache_read_tokens": 16000,
+              "cache_write_tokens": 9000,
+              "reasoning_tokens": 0
+            },
+            "actual_cost_usd": null,
+            "estimated_cost_usd": 0.10925,
+            "total_cost_usd": 0.10925,
+            "cost_source": "local_estimate",
+            "cost_basis": "per_token_api",
+            "coverage": "complete",
+            "field_availability": {
+              "usage": "available",
+              "actual_cost": "unavailable",
+              "estimated_cost": "available",
+              "pricing": "available"
+            },
+            "pricing_revision": "2026-07-15",
+            "pricing_timestamp": "2026-01-01T00:03:00Z",
+            "pricing_source": "local_estimate",
+            "join_confidence": "unattributed",
+            "collected_at": "2026-01-01T00:03:00Z",
+            "event_count": 3,
+            "event_ids": [
+              "01900000-0000-7000-8000-000000000001",
+              "01900000-0000-7000-8000-000000000002",
+              "01900000-0000-7000-8000-000000000003"
+            ],
+            "diagnostics": []
+          }
+        },
+        {
+          "stage": "ci-fix",
+          "executed_model": "gpt-5-codex",
+          "model_evidence": "session_telemetry",
+          "harness": "codex",
+          "task_cost": {
+            "schema_version": "task_cost_summary/v1",
+            "task_id": "task-0001",
+            "session_ids": [
+              "session-0001"
+            ],
+            "harness": "codex",
+            "harness_version": "0.50.0",
+            "provider_contract_version": "codex/2",
+            "models": [
+              "gpt-5-codex"
+            ],
+            "model_segments": [
+              {
+                "model": "gpt-5-codex",
+                "turn_count": 1,
+                "usage": {
+                  "input_tokens": 133579,
+                  "output_tokens": 8343,
+                  "cache_read_tokens": 2844672,
+                  "cache_write_tokens": 0,
+                  "reasoning_tokens": 545
+                },
+                "actual_cost_usd": null,
+                "estimated_cost_usd": 0.605988,
+                "cost_source": "local_estimate"
+              }
+            ],
+            "turn_count": 1,
+            "turns_truncated": false,
+            "usage": {
+              "input_tokens": 133579,
+              "output_tokens": 8343,
+              "cache_read_tokens": 2844672,
+              "cache_write_tokens": 0,
+              "reasoning_tokens": 545
+            },
+            "actual_cost_usd": null,
+            "estimated_cost_usd": 0.605988,
+            "total_cost_usd": 0.605988,
+            "cost_source": "local_estimate",
+            "cost_basis": "per_token_api",
+            "coverage": "complete",
+            "field_availability": {
+              "usage": "available",
+              "actual_cost": "unavailable",
+              "estimated_cost": "available",
+              "pricing": "available"
+            },
+            "pricing_revision": "2026-07-15",
+            "pricing_timestamp": "2026-01-01T00:01:00Z",
+            "pricing_source": "local_estimate",
+            "join_confidence": "unattributed",
+            "collected_at": "2026-01-01T00:01:00Z",
+            "event_count": 1,
+            "event_ids": [
+              "01900000-0000-7000-8000-000000000001"
+            ],
+            "diagnostics": []
+          }
+        }
+      ],
+      "actual_cost_usd": 0.736488,
+      "outcome_labels": {
+        "budget_label": "under_budget",
+        "cost_label": "low",
+        "time_label": "slow",
+        "success_label": "success"
+      }
+    }
+  }
+}

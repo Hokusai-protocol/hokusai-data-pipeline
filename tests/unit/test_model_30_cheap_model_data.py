@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from scripts.model_30.executed_route import resolve_executed_route, route_economics
-from scripts.model_30.model_identity import (
+from src.model_30.model_identity import (
     is_junk_model_id,
     is_supported_model_id,
     model_family,
@@ -156,3 +156,58 @@ def test_same_model_challenge_without_foreign_tokens_keeps_stage_route() -> None
     res = resolve_executed_route(record, stages, records)
     assert res.exclusion_reason is None
     assert res.route["coder"] == "gpt-5.5"
+
+
+def test_challenge_partner_spend_is_split_out_of_route_cost() -> None:
+    """HOK-3404: the other challenge arm is not this route's cost; sub-agents are."""
+    from scripts.model_30.executed_route import challenge_partner_models
+
+    route = {"planner": "claude-opus-4-7", "coder": "gpt-5.4", "reviewer": "claude-sonnet-4-6"}
+    record = {
+        "challengePairId": "HOK-5",
+        "workflowTokenUsage": {
+            "claude-opus-4-7": {"inputTokens": 10, "outputTokens": 10, "costUsd": 1.0},
+            "gpt-5.4": {"inputTokens": 10, "outputTokens": 20875, "costUsd": 13.75},
+            "claude-sonnet-4-6": {"inputTokens": 10, "outputTokens": 10, "costUsd": 0.5},
+            "gpt-5.5": {"inputTokens": 10, "outputTokens": 13017, "costUsd": 21.83},
+            "claude-fable-5": {"inputTokens": 10, "outputTokens": 10, "costUsd": 2.0},
+        },
+    }
+    pairs = {"HOK-5": {"primaryModel": "gpt-5.4", "challengerModel": "gpt-5.5"}}
+    partners = challenge_partner_models(record, route, pairs)
+    assert partners == {"gpt-5.5"}
+    econ = route_economics(record, route, partners)
+    assert econ.challenge_partner_cost_usd == pytest.approx(21.83)
+    assert econ.subagent_cost_usd == pytest.approx(2.0)
+    assert econ.aux_cost_usd == pytest.approx(23.83)
+    assert econ.total_cost_usd == pytest.approx(1.0 + 13.75 + 0.5 + 2.0)
+
+
+def test_partner_from_challenge_intent_and_never_a_route_model() -> None:
+    from scripts.model_30.executed_route import challenge_partner_models
+
+    route = {"planner": "claude-opus-4-7", "coder": "glm-5.3", "reviewer": "claude-opus-4-7"}
+    record = {
+        "challengePairId": "HOK-6",
+        "challengeIntent": {
+            "primary": {"expectedRoute": {**route, "coder": "gpt-5.5"}},
+            "challenger": {"expectedRoute": route},
+        },
+    }
+    assert challenge_partner_models(record, route) == {"gpt-5.5"}
+    assert challenge_partner_models({"workflowTokenUsage": {}}, route) == set()
+
+
+def test_non_challenge_aux_is_all_subagent() -> None:
+    haiku = normalize_model_id("claude-haiku-4-5")
+    route = {"planner": "claude-opus-4-7", "coder": haiku, "reviewer": "gpt-5.4"}
+    record = {
+        "workflowTokenUsage": {
+            "claude-haiku-4-5": {"inputTokens": 10, "outputTokens": 408, "costUsd": 0.02},
+            "claude-opus-4-6": {"inputTokens": 10, "outputTokens": 10, "costUsd": 9.26},
+        }
+    }
+    econ = route_economics(record, route)
+    assert econ.challenge_partner_cost_usd == 0.0
+    assert econ.subagent_cost_usd == pytest.approx(9.26)
+    assert econ.total_cost_usd == pytest.approx(9.28)

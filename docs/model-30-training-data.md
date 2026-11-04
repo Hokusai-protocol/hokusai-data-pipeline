@@ -1,8 +1,42 @@
 # Model 30 Training Data
 
-Model 30 must be trained from the privacy-safe Wavemill router export, not from synthetic seed rows.
+Model 30 is trained from canonical rows (`model_30_canonical_row/v1`), not from synthetic seed rows
+and not from local Wavemill files.
 
-## Source
+## Source: canonical rows (HOK-3414)
+
+Every training source is stored as canonical rows in the contributions bucket:
+
+| Source | Location | Written by |
+|---|---|---|
+| v4 contributions | `model_30/canonical/v1/<submission-id>.jsonl` | the contributions endpoint (HOK-3413), repriced from tokens |
+| Frozen Wavemill history | `model_30/canonical/v1/legacy/<freeze-id>/rows.jsonl` + `manifest.json` | `scripts/model_30/convert_legacy_to_canonical.py`, once per freeze |
+
+One builder turns them into the router CSV the trainer reads:
+
+```sh
+python scripts/model_30/build_router_corpus.py \
+  --canonical s3://<bucket>/<prefix>/model_30/canonical/v1/ \
+  --output union.clean.csv --prices-output model-prices.json --report corpus-report.json
+# filters: --start/--end (observed_at), --source legacy_freeze|contribution, --contributor <id>
+# cost trust: --trusted-cost-status (default priced + recorded_total, as v10)
+```
+
+Pass `--prices-output` to `register_technical_task_router.py --router-prices`. The price table comes
+from Hokusai's own rates (`configs/model_30_token_prices.v1.json`, the catalog, pinned OpenRouter).
+
+`cost_status` decides whether a row trains cost: `priced` (repriced from tokens), `recorded_total`
+(frozen pre-May 2026 history: harness-recorded total, no tokens), `unpriced_model`, `coverage_partial`,
+`no_token_evidence`. Rows outside the trusted set keep their success label and lose their cost labels.
+
+**Freezing history.** The converter is the only reader of Wavemill eval records. It derives rows from
+an eval snapshot plus recovered session usage (HOK-3402), merges the Feb–May router export
+(success relabelled from score, OpenAI costs quarantined), and writes canonical rows with a manifest of
+input hashes. Frozen rows keep exact token counts and costs. `scripts/model_30/compare_router_corpora.py`
+checks a build against a reference CSV; the 2026-11-04 freeze reproduces `v10-final/union.clean.csv`
+row for row (the old CSV rounded numbers to 6 significant figures).
+
+## Historical source (before HOK-3414)
 
 Generate or refresh the Wavemill exports in the adjacent repository, then clean
 them in this repository. The current checked-in regeneration used the artifacts:
