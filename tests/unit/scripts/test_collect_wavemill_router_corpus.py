@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import csv
 import json
-from argparse import Namespace
 from pathlib import Path
 
 from scripts.model_30.collect_wavemill_router_corpus import (
     FIELDNAMES,
-    collect_router_corpus,
+    derive_router_rows,
     discover_wavemill_eval_files,
     eval_record_to_router_row,
 )
@@ -135,80 +134,33 @@ def test_eval_record_to_router_row_maps_wavemill_task_descriptor() -> None:
     assert row["rubric_code_quality"] == "0.94"
 
 
-def test_collect_router_corpus_derives_and_merges_cross_repo_sources(tmp_path: Path) -> None:
-    repo_a_eval = tmp_path / "repo-a" / ".wavemill" / "evals" / "evals.jsonl"
-    repo_b_csv = tmp_path / "repo-b" / ".wavemill" / "evals" / "hokusai-router-dataset.csv"
-    output_path = tmp_path / "out" / "router.csv"
-    report_path = tmp_path / "out" / "report.json"
-    raw_path = tmp_path / "out" / "raw.csv"
-    _write_eval(repo_a_eval, _eval_record())
-    csv_row, reason = eval_record_to_router_row(
-        _eval_record(id="eval-2", score=0.8),
-        source_repo="repo-b",
-    )
-    assert reason is None
-    assert csv_row is not None
-    csv_row["run_id_hash"] = "prebuilt-run"
-    _write_router_csv(repo_b_csv, csv_row)
-
-    report = collect_router_corpus(
-        Namespace(
-            search_root=[str(tmp_path)],
-            output=str(output_path),
-            raw_output=str(raw_path),
-            clean_report=None,
-            report=str(report_path),
-            include_eval_jsonl=True,
-            include_router_csv=True,
-            derive_when_router_csv_present=False,
-            include_worktrees=False,
-        )
-    )
-    rows = list(csv.DictReader(output_path.open(newline="", encoding="utf-8")))
-    written_report = json.loads(report_path.read_text(encoding="utf-8"))
-
-    assert report == written_report
-    assert report["eval_jsonl"]["rows_derived"] == 1
-    assert report["router_csv_exports"] == [str(repo_b_csv.resolve())]
-    assert report["clean_report"]["input_rows"] == 2
-    assert report["clean_report"]["output_rows"] == 2
-    assert len(rows) == 2
-    assert len({row["source_repo_hash"] for row in rows}) == 2
-
-
-def test_collect_router_corpus_skips_eval_derivation_when_same_dir_has_router_csv(
+def test_derive_router_rows_reads_every_repo_and_ignores_prebuilt_router_csvs(
     tmp_path: Path,
 ) -> None:
-    eval_path = tmp_path / "repo-a" / ".wavemill" / "evals" / "evals.jsonl"
-    csv_path = tmp_path / "repo-a" / ".wavemill" / "evals" / "hokusai-router-dataset.csv"
-    output_path = tmp_path / "out" / "router.csv"
-    _write_eval(eval_path, _eval_record(id="eval-from-jsonl"))
-    csv_row, reason = eval_record_to_router_row(
-        _eval_record(id="eval-from-csv"),
+    """HOK-3391/3414: a router CSV next to evals.jsonl never replaces derivation."""
+    repo_a_eval = tmp_path / "repo-a" / ".wavemill" / "evals" / "evals.jsonl"
+    repo_b_eval = tmp_path / "repo-b" / ".wavemill" / "evals" / "evals.jsonl"
+    stale_csv = tmp_path / "repo-a" / ".wavemill" / "evals" / "hokusai-router-dataset.csv"
+    _write_eval(repo_a_eval, _eval_record())
+    _write_eval(repo_b_eval, _eval_record(id="eval-2", score=0.8))
+    stale_row, reason = eval_record_to_router_row(_eval_record(id="stale"), source_repo="repo-a")
+    assert reason is None and stale_row is not None
+    stale_row["run_id_hash"] = "prebuilt-run"
+    _write_router_csv(stale_csv, stale_row)
+
+    rows, report, snapshots = derive_router_rows([tmp_path])
+
+    assert report["rows_derived"] == 2
+    assert len(rows) == 2
+    assert "prebuilt-run" not in {row["run_id_hash"] for row in rows}
+    assert len({row["source_repo_hash"] for row in rows}) == 2
+    assert snapshots == []
+
+
+def test_derived_numbers_are_exact_not_six_significant_figures() -> None:
+    row, reason = eval_record_to_router_row(
+        _eval_record(workflowCost=17.316243, timeSeconds=4040.6812),
         source_repo="repo-a",
     )
-    assert reason is None
-    assert csv_row is not None
-    csv_row["run_id_hash"] = "prebuilt-run"
-    _write_router_csv(csv_path, csv_row)
-
-    report = collect_router_corpus(
-        Namespace(
-            search_root=[str(tmp_path)],
-            output=str(output_path),
-            raw_output=None,
-            clean_report=None,
-            report=None,
-            include_eval_jsonl=True,
-            include_router_csv=True,
-            derive_when_router_csv_present=False,
-            include_worktrees=False,
-        )
-    )
-    rows = list(csv.DictReader(output_path.open(newline="", encoding="utf-8")))
-
-    assert report["eval_jsonl"]["rows_derived"] == 0
-    assert report["eval_jsonl"]["files_skipped_existing_router_csv"] == [str(eval_path.resolve())]
-    assert report["clean_report"]["input_files"] == [str(csv_path.resolve())]
-    assert len(rows) == 1
-    assert rows[0]["run_id_hash"] == "prebuilt-run"
+    assert reason is None and row is not None
+    assert row["actual_time_seconds"] == "4040.6812"

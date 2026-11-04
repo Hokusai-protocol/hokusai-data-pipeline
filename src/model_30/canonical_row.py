@@ -19,7 +19,10 @@ same record here:
 * ``no_token_evidence`` -- v1-v3 rows, or a stage whose ``task_cost`` has no
   usage (``coverage: unavailable``);
 * ``coverage_partial`` -- usage is a lower bound (``coverage: partial`` or a
-  counter not reported).
+  counter not reported);
+* ``recorded_total`` -- frozen pre-May 2026 Wavemill history only (HOK-3414):
+  the harness-recorded total, with no tokens to reprice. Never assigned to a
+  contribution.
 
 Only ``priced`` costs train cost; every row with a valid outcome trains success.
 A stage whose model evidence is ``requested_only`` never counts as execution of
@@ -50,8 +53,15 @@ COST_PRICED = "priced"
 COST_UNPRICED_MODEL = "unpriced_model"
 COST_NO_TOKEN_EVIDENCE = "no_token_evidence"
 COST_COVERAGE_PARTIAL = "coverage_partial"
+COST_RECORDED_TOTAL = "recorded_total"
 # Worst first: a row reports the first status any of its stages has.
-COST_STATUSES = (COST_NO_TOKEN_EVIDENCE, COST_UNPRICED_MODEL, COST_COVERAGE_PARTIAL, COST_PRICED)
+COST_STATUSES = (
+    COST_NO_TOKEN_EVIDENCE,
+    COST_UNPRICED_MODEL,
+    COST_COVERAGE_PARTIAL,
+    COST_RECORDED_TOTAL,
+    COST_PRICED,
+)
 
 STAGE_TO_ROLE = {"planning": "planner", "coding": "coder", "review": "reviewer"}
 ROUTE_ROLES = ("planner", "coder", "reviewer")
@@ -209,6 +219,19 @@ def _success(row: Mapping[str, Any]) -> bool | None:
     return None
 
 
+def _available_models(row: Mapping[str, Any]) -> dict[str, list[str]] | None:
+    """Per-role pools from the SDK's ``available_models`` block, catalog-spelled."""
+    block = row.get("available_models")
+    if not isinstance(block, Mapping):
+        return None
+    pools = {}
+    for role in ROUTE_ROLES:
+        models = block.get(f"{role}_models")
+        if isinstance(models, list):
+            pools[role] = [normalize_model_id(m) for m in models if isinstance(m, str) and m]
+    return pools or None
+
+
 def build_canonical_row(
     row: Mapping[str, Any],
     *,
@@ -248,11 +271,18 @@ def build_canonical_row(
             for model in row.get("allowed_models") or []
             if isinstance(model, str) and model
         ],
+        "available_models": _available_models(row),
         "budget_usd": finite_number(row.get("budget_usd", row.get("max_cost_usd"))),
         "success": _success(row),
         "completion_result": (
             row.get("completion_result") if isinstance(row.get("completion_result"), str) else None
         ),
+        # Contributions carry no quality score; the corpus builder derives it from success.
+        "quality": None,
+        "duration_seconds": finite_number(row.get("wall_clock_seconds")),
+        # Derived from the repriced cost and the budget when the corpus is built.
+        "under_budget": None,
+        "budget_violation": None,
         "roles": roles,
         "repair_stages": [
             {
@@ -269,12 +299,18 @@ def build_canonical_row(
         ],
         "cost_usd": cost.cost_usd,
         "cost_status": cost.cost_status,
+        "cost_detail": None,
+        "cost_breakdown": None,
         "unpriced_models": sorted({m for stage in cost.stages for m in stage.unpriced_models}),
         "price_table_version": price_table_version(),
         "comparison_group": dict(group) if isinstance(group, Mapping) else None,
         "routing_join": dict(routing_join) if routing_join is not None else None,
+        "routing_context": None,
+        # Pseudonymous router-CSV ids are derived from the ids above at build time.
+        "router_ids": None,
         "contributor_id": contributor_id,
         "source": {
+            "kind": "contribution",
             "harness": row.get("harness") if isinstance(row.get("harness"), str) else None,
             "sdk_version": (
                 row.get("sdk_version") if isinstance(row.get("sdk_version"), str) else None

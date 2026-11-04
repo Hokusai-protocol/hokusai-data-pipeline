@@ -146,7 +146,7 @@ def test_comparison_group_and_source_are_carried() -> None:
         "id": "01a1a6d0-0000-7000-8000-000000000001",
         "role_varied": "coder",
     }
-    assert record["source"] == {"harness": "wavemill", "sdk_version": None}
+    assert record["source"] == {"kind": "contribution", "harness": "wavemill", "sdk_version": None}
 
 
 def test_haiku_is_priced_server_side_at_its_v10_training_rate() -> None:

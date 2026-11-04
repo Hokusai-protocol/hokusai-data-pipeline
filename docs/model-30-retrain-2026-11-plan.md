@@ -53,6 +53,12 @@ Working directory for artifacts: `data/model_30/retrain-2026-11/` (CSVs are giti
 All steps are deterministic. Re-running them against the snapshot reproduces
 the v8 dataset (`sha256:24bb1f1e…c24a`) and the identical train/holdout split.
 
+> **Since HOK-3414** steps 1–2 are one converter plus one builder:
+> `convert_legacy_to_canonical.py` freezes the snapshot, recovered usage and the
+> May export as canonical rows, and `build_router_corpus.py` builds the CSV from
+> them. `merge_legacy_router_export.py` (and its `--before` cutoff) and the
+> collector's CLI were removed. See `docs/model-30-training-data.md`.
+
 ```sh
 W=data/model_30/retrain-2026-11
 # 1. derive rows from raw evals only (stale router CSVs ignored)
