@@ -37,7 +37,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.model_30.model_identity import (  # noqa: E402
+from src.model_30.model_identity import (  # noqa: E402
     is_supported_model_id,
     model_family,
     normalize_model_id,

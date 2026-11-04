@@ -23,13 +23,13 @@ from scripts.model_30.executed_route import (  # noqa: E402
     resolve_executed_route,
     route_economics,
 )
-from scripts.model_30.model_identity import (  # noqa: E402
+from scripts.model_30.recover_session_usage import record_key  # noqa: E402
+from src.model_30.model_identity import (  # noqa: E402
     build_price_table,
     is_supported_model_id,
     latest_snapshot,
     normalize_model_id,
 )
-from scripts.model_30.recover_session_usage import record_key  # noqa: E402
 
 ROUTER_DATASET_SCHEMA_VERSION = "wavemill-hokusai-router-dataset-v1"
 EVAL_FILENAME = "evals.jsonl"

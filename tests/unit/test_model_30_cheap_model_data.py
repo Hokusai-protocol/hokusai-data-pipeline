@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from scripts.model_30.executed_route import resolve_executed_route, route_economics
-from scripts.model_30.model_identity import (
+from src.model_30.model_identity import (
     is_junk_model_id,
     is_supported_model_id,
     model_family,
