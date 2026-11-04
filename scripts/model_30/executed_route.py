@@ -18,9 +18,16 @@ Resolution order (first that applies):
 Records flagged ``invalidChallenge`` are excluded.
 
 Cost is recomputed per model from ``workflowTokenUsage`` × price (see
-``model_identity.resolve_price``). Wavemill recorded $0 for models it had no
+``src.model_30.usage_cost.price_usage_by_model``). Wavemill recorded $0 for models it had no
 price for; those are re-priced here, and a model that still has no price makes
 the route cost *unknown*, not zero.
+
+Spend by models outside the executed route ("aux") is split (HOK-3404):
+
+- challenge-partner spend: the other arm of a challenge pair, identified from the
+  challenge record and ``challengeIntent``. It is excluded from the route cost.
+- sub-agent spend: everything else (e.g. Opus/Fable sub-agents inside a Claude
+  Code session, judge calls). It is harness overhead and stays in the route cost.
 """
 
 from __future__ import annotations
@@ -30,12 +37,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from scripts.model_30.model_identity import (
-    is_junk_model_id,
-    normalize_model_id,
-    priced_usage_cost,
-    resolve_price,
-)
+from src.model_30.model_identity import is_junk_model_id, normalize_model_id
+from src.model_30.usage_cost import finite_number, price_usage_by_model
 
 ROLES = ("planner", "coder", "reviewer")
 CHALLENGE_RECORDS_FILENAME = "challenge-records.jsonl"
@@ -60,7 +63,10 @@ class RouteEconomics:
     role_cache_tokens: dict[str, float | None] = field(default_factory=dict)
     role_output_tokens: dict[str, float | None] = field(default_factory=dict)
     role_cost_usd: dict[str, float | None] = field(default_factory=dict)
+    # aux = challenge partner + sub-agents (all spend by models outside the route).
     aux_cost_usd: float | None = None
+    challenge_partner_cost_usd: float | None = None
+    subagent_cost_usd: float | None = None
     repriced_models: list[str] = field(default_factory=list)
     unpriced_models: list[str] = field(default_factory=list)
 
@@ -229,63 +235,80 @@ def _challenge_role(record: dict[str, Any]) -> str:
     return _STAGE_TO_ROLE.get(str(stage), "coder")
 
 
-def route_economics(record: dict[str, Any], route: dict[str, str]) -> RouteEconomics:
-    """Recompute route cost per model from token usage; attribute cost to roles."""
+def challenge_partner_models(
+    record: dict[str, Any],
+    route: dict[str, str],
+    challenge_records: dict[str, dict[str, Any]] | None = None,
+) -> set[str]:
+    """Models from the *other* arm of this record's challenge pair (never in *route*)."""
+    pair_id = record.get("challengePairId")
+    if not pair_id:
+        return set()
+    models: set[str] = set()
+    pair = (challenge_records or {}).get(str(pair_id)) or {}
+    for key in ("primaryModel", "challengerModel"):
+        models.add(normalize_model_id(pair.get(key)))
+    intent = _dict(record.get("challengeIntent"))
+    for side in ("primary", "challenger"):
+        expected = _route_from_mapping(_dict(intent.get(side)).get("expectedRoute"))
+        if expected:
+            models.update(expected.values())
+    return {model for model in models if model} - set(route.values())
+
+
+def route_economics(
+    record: dict[str, Any],
+    route: dict[str, str],
+    partner_models: set[str] | None = None,
+    recovered: dict[str, Any] | None = None,
+    fallback_snapshot: dict[str, Any] | None = None,
+) -> RouteEconomics:
+    """Recompute route cost per model from token usage; attribute cost to roles.
+
+    *partner_models* (see ``challenge_partner_models``) are the other challenge
+    arm; their spend is reported separately and excluded from the route total.
+
+    *recovered* (``recover_session_usage`` entry) replaces the record's own usage
+    when that is missing or untrusted; the status becomes ``recovered:<sources>``.
+    *fallback_snapshot* prices models the record's own ``pricingSnapshot`` lacks.
+    """
     usage = record.get("workflowTokenUsage")
-    if not isinstance(usage, dict) or not usage:
+    untrusted = (
+        _untrusted_usage_reason(usage, route)
+        if isinstance(usage, dict) and usage
+        else "no_token_usage"
+    )
+    recovered_status = None
+    if untrusted is not None and recovered and isinstance(recovered.get("usage"), dict):
+        if _untrusted_usage_reason(recovered["usage"], route) is None:
+            usage, untrusted = recovered["usage"], None
+            recovered_status = "recovered:" + "+".join(recovered.get("sources") or ["sessions"])
+    if untrusted == "no_token_usage":
         return RouteEconomics(total_cost_usd=None, cost_status="no_token_usage")
-    untrusted = _untrusted_usage_reason(usage, route)
     if untrusted is not None:
         return RouteEconomics(total_cost_usd=None, cost_status=f"untrusted:{untrusted}")
-    per_model, repriced, unpriced = _aggregate_usage(usage, _dict(record.get("pricingSnapshot")))
-    economics = _attribute_roles(per_model, route)
+    snapshot = {**(fallback_snapshot or {}), **_dict(record.get("pricingSnapshot"))}
+    priced = price_usage_by_model(usage, snapshot)
+    per_model, repriced, unpriced = priced.per_model, priced.repriced, priced.unpriced
+    partners = set(partner_models or ()) - set(route.values())
+    economics = _attribute_roles(per_model, route, partners)
     economics.repriced_models = sorted(set(repriced))
+    if unpriced and recovered_status:
+        # The record's own usage was untrusted anyway: keep the row, cost unknown.
+        return RouteEconomics(total_cost_usd=None, cost_status="untrusted:recovered_unpriced_model")
     if unpriced:
         economics.cost_status = "unpriced_model"
         economics.unpriced_models = sorted(set(unpriced))
         return economics
-    economics.total_cost_usd = sum(b["cost"] for b in per_model.values())
-    economics.cost_status = "repriced" if repriced else "recorded"
+    economics.total_cost_usd = sum(b["cost"] for m, b in per_model.items() if m not in partners)
+    economics.cost_status = recovered_status or ("repriced" if repriced else "recorded")
     return economics
 
 
-_TOKEN_KEYS = ("inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens")
-
-
-def _aggregate_usage(
-    usage: dict[str, Any], snapshot: dict[str, Any]
-) -> tuple[dict[str, dict[str, float]], list[str], list[str]]:
-    """Per-model token and cost buckets; models Wavemill recorded at $0 are re-priced."""
-    per_model: dict[str, dict[str, float]] = {}
-    repriced: list[str] = []
-    unpriced: list[str] = []
-    for raw_model, model_usage in usage.items():
-        if not isinstance(model_usage, dict) or is_junk_model_id(raw_model):
-            continue
-        model = normalize_model_id(raw_model)
-        cost: float | None = _number(model_usage.get("costUsd")) or 0.0
-        tokens = sum(_number(model_usage.get(key)) or 0.0 for key in _TOKEN_KEYS)
-        if cost <= 0 and tokens > 0:
-            price = resolve_price(raw_model, snapshot)
-            cost = None if price is None else priced_usage_cost(model_usage, price)
-            (unpriced if price is None else repriced).append(model)
-        bucket = per_model.setdefault(
-            model, {"input": 0.0, "cache": 0.0, "output": 0.0, "cost": 0.0, "unknown": 0.0}
-        )
-        bucket["input"] += _number(model_usage.get("inputTokens")) or 0.0
-        bucket["cache"] += (_number(model_usage.get("cacheReadTokens")) or 0.0) + (
-            _number(model_usage.get("cacheCreationTokens")) or 0.0
-        )
-        bucket["output"] += _number(model_usage.get("outputTokens")) or 0.0
-        if cost is None:
-            bucket["unknown"] = 1.0
-        else:
-            bucket["cost"] += cost
-    return per_model, repriced, unpriced
-
-
 def _attribute_roles(
-    per_model: dict[str, dict[str, float]], route: dict[str, str]
+    per_model: dict[str, dict[str, float]],
+    route: dict[str, str],
+    partners: set[str] | None = None,
 ) -> RouteEconomics:
     """Assign each role its model's tokens and cost; models used by 2+ roles stay unattributed."""
     role_models = {role: route.get(role, "") for role in ROLES}
@@ -300,21 +323,28 @@ def _attribute_roles(
         economics.role_cost_usd[role] = (
             None if not attributable or bucket["unknown"] else bucket["cost"]
         )
-    aux = [b for m, b in per_model.items() if m not in set(used)]
-    economics.aux_cost_usd = None if any(b["unknown"] for b in aux) else sum(b["cost"] for b in aux)
+    partners = partners or set()
+    outside = {m: b for m, b in per_model.items() if m not in set(used)}
+    partner = [b for m, b in outside.items() if m in partners]
+    subagent = [b for m, b in outside.items() if m not in partners]
+    economics.challenge_partner_cost_usd = _bucket_cost(partner)
+    economics.subagent_cost_usd = _bucket_cost(subagent)
+    economics.aux_cost_usd = _bucket_cost(partner + subagent)
     return economics
+
+
+def _bucket_cost(buckets: list[dict[str, float]]) -> float | None:
+    """Return the summed cost of *buckets*, or None if any bucket cost is unknown."""
+    if any(b["unknown"] for b in buckets):
+        return None
+    return sum(b["cost"] for b in buckets)
 
 
 def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _number(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if number == number and number not in (float("inf"), float("-inf")) else None
+_number = finite_number
 
 
 def _untrusted_usage_reason(usage: dict[str, Any], route: dict[str, str]) -> str | None:

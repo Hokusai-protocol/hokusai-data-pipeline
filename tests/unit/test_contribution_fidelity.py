@@ -48,6 +48,10 @@ class InMemoryContributionStore:
         self.records[(record.model_id, record.submission_id)] = record
         return record
 
+    def put_canonical_rows(self, *, submission_id: str, rows: list[dict]) -> str:
+        self.canonical_rows = {**getattr(self, "canonical_rows", {}), submission_id: rows}
+        return f"memory://model_30/canonical/v1/{submission_id}.jsonl"
+
 
 def _harness_row(**overrides: Any) -> dict[str, Any]:
     row: dict[str, Any] = {

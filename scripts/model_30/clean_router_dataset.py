@@ -21,12 +21,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.model_30.model_identity import is_supported_model_id  # noqa: E402
 from scripts.model_30.register_technical_task_router import (  # noqa: E402
     SELECTED_MODEL_ID_COLUMNS,
     _parse_model_values,
     validate_router_dataset_model_ids,
 )
+from src.model_30.model_identity import is_supported_model_id  # noqa: E402
 
 AVAILABLE_MODEL_ID_COLUMNS = (
     "available_planner_models",

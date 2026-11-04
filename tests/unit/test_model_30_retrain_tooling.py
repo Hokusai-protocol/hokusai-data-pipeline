@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from scripts.model_30.merge_legacy_router_export import (
+from scripts.model_30.convert_legacy_to_canonical import (
     merge_router_exports,
     relabel_success_from_score,
 )
@@ -41,7 +41,7 @@ def test_relabel_success_uses_score_threshold() -> None:
     assert changed == 3
 
 
-def test_merge_drops_legacy_duplicates_and_applies_cutoff() -> None:
+def test_merge_drops_legacy_duplicates_and_keeps_every_derived_row() -> None:
     legacy = _frame(
         [
             ("L1", "2026-05-10T10:00:00.123Z", "p", "c", "r", "0.9", "true"),
@@ -51,13 +51,14 @@ def test_merge_drops_legacy_duplicates_and_applies_cutoff() -> None:
     derived = _frame(
         [
             ("D1", "2026-05-12T10:00:00.999Z", "p", "c", "r", "0.9", "true"),
-            ("D2", "2026-11-02T00:00:00Z", "p", "c", "r", "0.9", "true"),  # after cutoff
+            # HOK-3414: no --before cutoff; it used to drop rows like this one.
+            ("D2", "2026-11-02T00:00:00Z", "p", "c", "r", "0.9", "true"),
         ]
     )
-    merged, report = merge_router_exports(legacy, derived, before="2026-11-01")
-    assert list(merged["run_id_hash"]) == ["L1", "D1"]
+    merged, report = merge_router_exports(legacy, derived)
+    assert list(merged["run_id_hash"]) == ["L1", "D1", "D2"]
     assert report["legacy_duplicates_dropped"] == 1
-    assert report["merged_rows"] == 2
+    assert report["merged_rows"] == 3
     assert set(merged["provenance_source"]) == {"legacy_router_csv", "derived_evals_jsonl"}
 
 
