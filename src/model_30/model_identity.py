@@ -20,6 +20,7 @@ then the serving catalog, then the pinned OpenRouter table
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -30,6 +31,8 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CATALOG_PATH = REPO_ROOT / "configs" / "model_30_launch_priority_models.v1.json"
 OPENROUTER_PRICES_PATH = REPO_ROOT / "configs" / "model_30_openrouter_prices.v1.json"
+# Hokusai's own rates for server-side repricing (HOK-3413), in pricingSnapshot form.
+TOKEN_PRICES_PATH = REPO_ROOT / "configs" / "model_30_token_prices.v1.json"
 
 # Families whose models may appear in training data. A family prefix match is
 # required for IDs that are not in the serving catalog.
@@ -116,6 +119,33 @@ def _openrouter_prices() -> dict[str, ModelPrice]:
         prices[provider_id.casefold()] = price
         prices.setdefault(_strip_routing_prefixes(provider_id).casefold(), price)
     return prices
+
+
+@lru_cache(maxsize=1)
+def hokusai_price_snapshot() -> dict[str, dict[str, Any]]:
+    """Hokusai's server-side price rows, keyed by model id (``pricingSnapshot`` form).
+
+    Pass as the *snapshot* of ``resolve_price`` so it takes precedence over the
+    serving catalog and the pinned OpenRouter table. Contributor-supplied price
+    snapshots are never used server-side.
+    """
+    payload = json.loads(TOKEN_PRICES_PATH.read_text(encoding="utf-8"))
+    return {str(model): dict(row) for model, row in payload.get("models", {}).items()}
+
+
+@lru_cache(maxsize=1)
+def price_table_version() -> str:
+    """Identify every price input server repricing reads, for stamping on rows.
+
+    ``<token price version>+sha256:<digest of the token, catalog and OpenRouter
+    price files>``: any rate change in any of the three changes the stamp.
+    """
+    digest = hashlib.sha256()
+    for path in (TOKEN_PRICES_PATH, CATALOG_PATH, OPENROUTER_PRICES_PATH):
+        digest.update(path.name.encode("utf-8"))
+        digest.update(path.read_bytes())
+    version = json.loads(TOKEN_PRICES_PATH.read_text(encoding="utf-8")).get("version", "unknown")
+    return f"model_30_token_prices/{version}+sha256:{digest.hexdigest()[:16]}"
 
 
 def _float(value: Any) -> float | None:

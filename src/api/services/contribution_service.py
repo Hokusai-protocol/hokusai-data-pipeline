@@ -26,6 +26,7 @@ from src.api.models.contribution_lifecycle import (
 from src.api.schemas.contribution import (
     ContributionAcceptedResponse,
     ContributionRequest,
+    CostSummary,
     DescriptorWarning,
     FidelitySummary,
     LifecycleReasonCode,
@@ -43,6 +44,12 @@ from src.api.services.routing_join import (
     summarize_routing_joins,
 )
 from src.api.utils.config import get_settings
+from src.model_30.canonical_row import (
+    COST_STATUSES,
+    build_canonical_row,
+    has_route_roles,
+)
+from src.model_30.model_identity import price_table_version
 
 if TYPE_CHECKING:
     from src.api.services.auth_service_notifier import AuthServiceNotifier
@@ -161,6 +168,12 @@ _METADATA_FIDELITY_SUMMARY_KEY = "fidelity_summary"
 # recommendation, an override, or only the executed models.
 _METADATA_ROW_ROUTING_JOINS_KEY = "row_routing_joins"
 _METADATA_ROUTING_SUMMARY_KEY = "routing_summary"
+# Per accepted row, aligned like ``row_fidelity_tiers``: the server's cost status
+# (HOK-3413), and where the batch's canonical rows were stored.
+_METADATA_ROW_COST_STATUS_KEY = "row_cost_status"
+_METADATA_CANONICAL_ROWS_KEY = "canonical_rows"
+# Model 30 (technical task router) is the model canonical rows are built for.
+_CANONICAL_ROW_MODEL_ID = "30"
 # Lowercase cause understood by ``AuthServiceNotifier._map_reason_code`` and
 # mapped to ``LifecycleReasonCode.EXCLUDED_FROM_TRAINING``.
 _EXCLUDED_FROM_TRAINING_REASON = LifecycleReasonCode.EXCLUDED_FROM_TRAINING.value.lower()
@@ -179,6 +192,11 @@ class ContributionStore(Protocol):
     ) -> StoredContributionRecord:
         """Persist a new submission record."""
 
+    def put_canonical_rows(
+        self: ContributionStore, *, submission_id: str, rows: list[dict[str, Any]]
+    ) -> str:
+        """Persist a submission's canonical Model 30 rows; return where they went."""
+
 
 class S3ContributionStore:
     """S3-backed contribution persistence."""
@@ -193,6 +211,35 @@ class S3ContributionStore:
         if self.prefix:
             return f"{self.prefix}/{base}"
         return base
+
+    def _canonical_key_for(self: S3ContributionStore, submission_id: str) -> str:
+        base = f"model_30/canonical/v1/{submission_id}.jsonl"
+        if self.prefix:
+            return f"{self.prefix}/{base}"
+        return base
+
+    def put_canonical_rows(
+        self: S3ContributionStore, *, submission_id: str, rows: list[dict[str, Any]]
+    ) -> str:
+        """Write canonical rows as JSONL next to the raw submission (HOK-3413)."""
+        key = self._canonical_key_for(submission_id)
+        body = "".join(
+            json.dumps(row, separators=(",", ":"), sort_keys=True) + "\n" for row in rows
+        )
+        try:
+            self._client.put_object(
+                Bucket=self.bucket,
+                Key=key,
+                Body=body.encode("utf-8"),
+                ContentType="application/x-ndjson",
+                ServerSideEncryption="aws:kms",
+                Metadata={"submission_id": submission_id},
+            )
+        except Exception as exc:
+            raise ContributionPersistenceUnavailableError(
+                f"Failed to persist canonical rows for {submission_id}"
+            ) from exc
+        return f"s3://{self.bucket}/{key}"
 
     def get(
         self: S3ContributionStore, *, model_id: str, submission_id: str
@@ -385,6 +432,13 @@ class ContributionService:
             )
         ]
         routing_summary = summarize_routing_joins(routing_joins)
+        row_cost_status = [
+            cost.cost_status if cost is not None else None for cost in classification.accepted_costs
+        ]
+        cost_summary = CostSummary(price_table_version=price_table_version())
+        for status in row_cost_status:
+            if status in COST_STATUSES:
+                setattr(cost_summary, status, getattr(cost_summary, status) + 1)
 
         response = ContributionAcceptedResponse(
             accepted=True,
@@ -417,6 +471,8 @@ class ContributionService:
                 for entry in classification.descriptor_warnings
             ],
             routingSummary=RoutingSummary.model_validate(routing_summary),
+            rowCostStatus=row_cost_status,
+            costSummary=cost_summary,
         )
         metadata = {
             **request.metadata.model_dump(exclude_none=True),
@@ -436,7 +492,25 @@ class ContributionService:
             },
             _METADATA_ROW_ROUTING_JOINS_KEY: routing_joins,
             _METADATA_ROUTING_SUMMARY_KEY: routing_summary,
+            _METADATA_ROW_COST_STATUS_KEY: row_cost_status,
         }
+        canonical_rows = self._canonical_rows(
+            model_id=model_id,
+            submission_id=submission_id,
+            submitted_rows=request.rows,
+            classification=classification,
+            routing_joins=routing_joins,
+            auth=auth,
+        )
+        if canonical_rows:
+            # Written before the raw record: the raw record is the idempotency
+            # commit point, so a failure here leaves nothing and the client retries.
+            metadata[_METADATA_CANONICAL_ROWS_KEY] = {
+                "location": self.store.put_canonical_rows(
+                    submission_id=submission_id, rows=canonical_rows
+                ),
+                "count": len(canonical_rows),
+            }
         record = StoredContributionRecord(
             submission_id=submission_id,
             model_id=model_id,
@@ -462,6 +536,38 @@ class ContributionService:
             )
         self._notify_auth_accepted(record=record, auth=auth)
         return ContributionAcceptance(response=response, status_code=201)
+
+    @staticmethod
+    def _canonical_rows(
+        *,
+        model_id: str,
+        submission_id: str,
+        submitted_rows: list[dict[str, Any]],
+        classification: BatchClassification,
+        routing_joins: list[dict[str, Any]],
+        auth: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Build one canonical Model 30 row per accepted role-keyed router row."""
+        if model_id != _CANONICAL_ROW_MODEL_ID:
+            return []
+        contributor = auth.get("user_id") or auth.get("service_id")
+        rows: list[dict[str, Any]] = []
+        for position, index in enumerate(classification.accepted_indices):
+            submitted = submitted_rows[index]
+            if not has_route_roles(submitted):
+                continue
+            rows.append(
+                build_canonical_row(
+                    submitted,
+                    submission_id=submission_id,
+                    row_index=index,
+                    fidelity_tier=classification.accepted_tiers[position],
+                    routing_join=routing_joins[position],
+                    contributor_id=str(contributor) if contributor else None,
+                    row_cost=classification.accepted_costs[position],
+                )
+            )
+        return rows
 
     def create_lifecycle_record(
         self: ContributionService,
