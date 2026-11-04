@@ -38,10 +38,6 @@ from scripts.model_30.evaluate_technical_task_router import (  # noqa: E402
     evaluate_model,
     parse_objectives,
 )
-
-# HOK-3401: the former vendor allow-list ^(claude-|gpt-|deepseek-) dropped every
-# Kimi/Qwen/GLM outcome. Model IDs are now accepted by catalog or known family.
-from scripts.model_30.model_identity import is_supported_model_id  # noqa: E402
 from src.eip712 import read_model_weight_head  # noqa: E402
 from src.evaluation.tags import (  # noqa: E402
     BENCHMARK_SPEC_ID_TAG,
@@ -53,6 +49,10 @@ from src.evaluation.tags import (  # noqa: E402
     WEIGHT_COMMITMENT_CANDIDATE_TAG,
 )
 from src.lineage.weight_commitment import compute_weight_commitment  # noqa: E402
+
+# HOK-3401: the former vendor allow-list ^(claude-|gpt-|deepseek-) dropped every
+# Kimi/Qwen/GLM outcome. Model IDs are now accepted by catalog or known family.
+from src.model_30.model_identity import is_supported_model_id  # noqa: E402
 from src.models.technical_task_router import (  # noqa: E402
     ESTIMATOR_LEGACY,
     ESTIMATORS,

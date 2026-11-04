@@ -27,7 +27,7 @@ if str(REPO_ROOT) not in sys.path:
 from scripts.model_30.register_technical_task_router import MODEL_NAME, register_model  # noqa: E402
 
 OBJECTIVES: tuple[str, ...] = ("lowest_cost", "fastest_completion", "highest_reliability")
-from scripts.model_30.model_identity import is_supported_model_id  # noqa: E402
+from src.model_30.model_identity import is_supported_model_id  # noqa: E402
 
 FORBIDDEN_MODEL_IDS = ("deep-coder-v2", "fast-coder-v1", "<synthetic>")
 

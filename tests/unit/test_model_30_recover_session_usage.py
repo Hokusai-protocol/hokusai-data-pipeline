@@ -9,11 +9,6 @@ from pathlib import Path
 import pytest
 
 from scripts.model_30.executed_route import route_economics
-from scripts.model_30.model_identity import (
-    ModelPrice,
-    exclusive_cache_usage,
-    priced_usage_cost,
-)
 from scripts.model_30.recover_session_usage import (
     execution_economics_usage,
     load_openrouter_calls,
@@ -23,6 +18,11 @@ from scripts.model_30.recover_session_usage import (
     record_key,
     recover_record,
     sessions_for,
+)
+from src.model_30.model_identity import (
+    ModelPrice,
+    exclusive_cache_usage,
+    priced_usage_cost,
 )
 
 

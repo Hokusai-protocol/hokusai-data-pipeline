@@ -18,7 +18,7 @@ Resolution order (first that applies):
 Records flagged ``invalidChallenge`` are excluded.
 
 Cost is recomputed per model from ``workflowTokenUsage`` × price (see
-``model_identity.resolve_price``). Wavemill recorded $0 for models it had no
+``src.model_30.usage_cost.price_usage_by_model``). Wavemill recorded $0 for models it had no
 price for; those are re-priced here, and a model that still has no price makes
 the route cost *unknown*, not zero.
 
@@ -37,13 +37,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from scripts.model_30.model_identity import (
-    exclusive_cache_usage,
-    is_junk_model_id,
-    normalize_model_id,
-    priced_usage_cost,
-    resolve_price,
-)
+from src.model_30.model_identity import is_junk_model_id, normalize_model_id
+from src.model_30.usage_cost import finite_number, price_usage_by_model
 
 ROLES = ("planner", "coder", "reviewer")
 CHALLENGE_RECORDS_FILENAME = "challenge-records.jsonl"
@@ -293,7 +288,8 @@ def route_economics(
     if untrusted is not None:
         return RouteEconomics(total_cost_usd=None, cost_status=f"untrusted:{untrusted}")
     snapshot = {**(fallback_snapshot or {}), **_dict(record.get("pricingSnapshot"))}
-    per_model, repriced, unpriced = _aggregate_usage(usage, snapshot)
+    priced = price_usage_by_model(usage, snapshot)
+    per_model, repriced, unpriced = priced.per_model, priced.repriced, priced.unpriced
     partners = set(partner_models or ()) - set(route.values())
     economics = _attribute_roles(per_model, route, partners)
     economics.repriced_models = sorted(set(repriced))
@@ -307,44 +303,6 @@ def route_economics(
     economics.total_cost_usd = sum(b["cost"] for m, b in per_model.items() if m not in partners)
     economics.cost_status = recovered_status or ("repriced" if repriced else "recorded")
     return economics
-
-
-_TOKEN_KEYS = ("inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens")
-
-
-def _aggregate_usage(
-    usage: dict[str, Any], snapshot: dict[str, Any]
-) -> tuple[dict[str, dict[str, float]], list[str], list[str]]:
-    """Per-model token and cost buckets; models Wavemill recorded at $0 are re-priced."""
-    per_model: dict[str, dict[str, float]] = {}
-    repriced: list[str] = []
-    unpriced: list[str] = []
-    for raw_model, model_usage in usage.items():
-        if not isinstance(model_usage, dict) or is_junk_model_id(raw_model):
-            continue
-        model = normalize_model_id(raw_model)
-        model_usage, inclusive = exclusive_cache_usage(raw_model, model_usage)
-        cost: float | None = _number(model_usage.get("costUsd")) or 0.0
-        tokens = sum(_number(model_usage.get(key)) or 0.0 for key in _TOKEN_KEYS)
-        if (cost <= 0 or inclusive) and tokens > 0:
-            # Re-price $0 usage, and OpenAI usage Wavemill priced with cached
-            # tokens double-counted (see exclusive_cache_usage).
-            price = resolve_price(raw_model, snapshot)
-            cost = None if price is None else priced_usage_cost(model_usage, price)
-            (unpriced if price is None else repriced).append(model)
-        bucket = per_model.setdefault(
-            model, {"input": 0.0, "cache": 0.0, "output": 0.0, "cost": 0.0, "unknown": 0.0}
-        )
-        bucket["input"] += _number(model_usage.get("inputTokens")) or 0.0
-        bucket["cache"] += (_number(model_usage.get("cacheReadTokens")) or 0.0) + (
-            _number(model_usage.get("cacheCreationTokens")) or 0.0
-        )
-        bucket["output"] += _number(model_usage.get("outputTokens")) or 0.0
-        if cost is None:
-            bucket["unknown"] = 1.0
-        else:
-            bucket["cost"] += cost
-    return per_model, repriced, unpriced
 
 
 def _attribute_roles(
@@ -386,12 +344,7 @@ def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _number(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if number == number and number not in (float("inf"), float("-inf")) else None
+_number = finite_number
 
 
 def _untrusted_usage_reason(usage: dict[str, Any], route: dict[str, str]) -> str | None:

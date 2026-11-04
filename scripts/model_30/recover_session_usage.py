@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from scripts.model_30.model_identity import normalize_model_id  # noqa: E402
+from src.model_30.model_identity import normalize_model_id  # noqa: E402
 
 SCHEMA_VERSION = "model_30_recovered_session_usage/v1"
 WINDOW_BEFORE = timedelta(hours=24)
