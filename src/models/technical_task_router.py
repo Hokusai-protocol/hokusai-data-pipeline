@@ -35,6 +35,21 @@ MIN_TOKEN_PROFILE_ROWS = 3
 ROLE_TOKEN_COLUMNS = ("input_tokens", "cache_tokens", "output_tokens")
 MODEL_NAME = "Technical Task Router"
 BORROWED_EVIDENCE_WEIGHT = 0.75
+# HOK-3400: how a route's success estimate is formed. Stored with each model version;
+# artifacts without the setting keep the original estimator.
+#   legacy: exact-route rate when any exact match exists, else a role-level average
+#           on a different success definition (two scales for one comparison).
+#   shrunk: one estimator for every route. The exact-route rate is shrunk toward the
+#           role-level prior by its support; the prior uses the same success definition.
+ESTIMATOR_LEGACY = "legacy"
+ESTIMATOR_SHRUNK = "shrunk"
+ESTIMATORS = (ESTIMATOR_LEGACY, ESTIMATOR_SHRUNK)
+# Pseudo-count for the role-level prior; the same evidence threshold as exploration.
+ROUTE_PRIOR_STRENGTH = float(EXPLORATION_MIN_DIRECT_SUPPORT)
+# Exact-route success blends outcome and quality score with these weights; the shrunk
+# estimator's role-level prior uses the same blend so both sides share one scale.
+ROUTE_SUCCESS_WEIGHT = 0.7
+ROUTE_QUALITY_WEIGHT = 0.3
 
 ROLE_COLUMNS = {
     "planner": "planner_model",
@@ -138,6 +153,9 @@ class RoleChoice:
     borrowed_support: int = 0
     borrowed_from: dict[str, int] | None = None
     exploratory: bool = False
+    # HOK-3400: role-level success on the exact-route definition (success under
+    # budget blended with quality). None for choices built without outcome rows.
+    route_success: float | None = None
 
 
 @dataclass(frozen=True)
@@ -194,8 +212,16 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
     exposed through the public Model 30 adapter response.
     """
 
-    def __init__(self: TechnicalTaskRouterModel, *, k_neighbors: int = 40) -> None:
+    def __init__(
+        self: TechnicalTaskRouterModel,
+        *,
+        k_neighbors: int = 40,
+        estimator: str = ESTIMATOR_LEGACY,
+    ) -> None:
+        if estimator not in ESTIMATORS:
+            raise ValueError(f"Unknown estimator {estimator!r}; expected one of {ESTIMATORS}")
         self.k_neighbors = k_neighbors
+        self.estimator = estimator
         self._dataset: pd.DataFrame | None = None
         self._prices: dict[str, dict[str, float | None]] = {}
         self._dataset_role_profiles: dict[str, tuple[float, float, float] | None] = {}
@@ -225,16 +251,25 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             for role, choice in self._global_defaults.items()
         }
 
-        return {
+        state = {
             "k_neighbors": self.k_neighbors,
             "dataset_state": dataset_state,
             "global_defaults_state": defaults_state,
             "prices_state": dict(sorted(getattr(self, "_prices", {}).items())),
         }
+        # Written only when not legacy, so legacy artifacts keep byte-identical state
+        # (and therefore their commitment).
+        estimator = getattr(self, "estimator", ESTIMATOR_LEGACY)
+        if estimator != ESTIMATOR_LEGACY:
+            state["estimator"] = estimator
+        return state
 
     def __setstate__(self: TechnicalTaskRouterModel, state: dict[str, Any]) -> None:
         """Restore the deterministic serializer state from cloudpickle."""
         self.k_neighbors = int(state.get("k_neighbors", 40))
+        self.estimator = str(state.get("estimator", ESTIMATOR_LEGACY))
+        if self.estimator not in ESTIMATORS:
+            raise ValueError(f"Unknown estimator {self.estimator!r} in model state")
         self._prices = dict(state.get("prices_state") or {})
         self._dataset_role_profiles = {}
         self._profile_cache = None
@@ -476,6 +511,7 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
                         coder_choice,
                         reviewer_choice,
                         price_cost=price_cost,
+                        estimator=self.estimator,
                     )
                 )
         candidates.extend(self._cheap_strategy_candidates(neighbors, features, role_options, seen))
@@ -541,6 +577,7 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
                     coder_choice,
                     reviewer_choice,
                     price_cost=self._price_route_cost(choices, neighbors),
+                    estimator=self.estimator,
                 )
             )
         return candidates
@@ -564,6 +601,12 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
         k = float(EXPLORATION_MIN_DIRECT_SUPPORT)
         observed_success = observed.expected_success if observed else EXPLORATION_SUCCESS_PRIOR
         success = (n * observed_success + k * EXPLORATION_SUCCESS_PRIOR) / (n + k)
+        observed_route = (
+            observed.route_success
+            if observed and observed.route_success is not None
+            else observed_success
+        )
+        route_success = (n * observed_route + k * EXPLORATION_SUCCESS_PRIOR) / (n + k)
         return RoleChoice(
             model_id=model_id,
             score=round(0.5 * success, 6),
@@ -574,6 +617,7 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             borrowed_support=observed.borrowed_support if observed else 0,
             borrowed_from=(observed.borrowed_from if observed else {}) or {},
             exploratory=True,
+            route_success=round(_clamp(route_success, 0.0, 1.0), 6),
         )
 
     def _neighbor_cache(self: TechnicalTaskRouterModel, neighbors: pd.DataFrame) -> dict[str, Any]:
@@ -776,6 +820,16 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
             weights = group["_evidence_weight"]
             success = _weighted_mean_bool(group["completed_successfully"], weights, default=0.5)
             quality = _weighted_mean_number(group["score"], weights, default=success)
+            success_under_budget = _weighted_mean_bool(
+                _success_under_budget_values(group), weights, default=0.5
+            )
+            route_success = _clamp(
+                ROUTE_SUCCESS_WEIGHT * success_under_budget
+                + ROUTE_QUALITY_WEIGHT
+                * _weighted_mean_number(group["score"], weights, default=success_under_budget),
+                0.0,
+                1.0,
+            )
             cost = _median_number(group["actual_cost_usd"])
             if cost is None:
                 cost = _median_number(group["expected_cost_usd"])
@@ -805,6 +859,7 @@ class TechnicalTaskRouterModel(mlflow.pyfunc.PythonModel):
                     direct_support=direct_support,
                     borrowed_support=borrowed_support,
                     borrowed_from=borrowed_from,
+                    route_success=round(route_success, 6),
                 )
             )
 
@@ -1110,6 +1165,7 @@ def _estimate_strategy(
     reviewer_choice: RoleChoice | None,
     *,
     price_cost: float | None = None,
+    estimator: str = ESTIMATOR_LEGACY,
 ) -> StrategyCandidate:
     role_choices = {
         "planner": planner_choice,
@@ -1118,7 +1174,7 @@ def _estimate_strategy(
     }
     matched = _matching_strategy_rows(neighbors, role_choices)
     support = int(len(matched))
-    success = _estimate_success_under_budget(matched, role_choices)
+    success = _estimate_success_under_budget(matched, role_choices, estimator=estimator)
     cost = _estimate_strategy_cost(matched, role_choices, features)
     cost_basis = "observed"
     if price_cost is not None and support < PRICE_COST_MIN_EXACT_SUPPORT:
@@ -1126,9 +1182,12 @@ def _estimate_strategy(
         cost_basis = "token-price"
     duration = _estimate_strategy_duration(matched)
     confidence = _estimate_strategy_confidence(neighbors, role_choices, support)
-    evidence_kind = "exact-route" if support else "role-level fallback"
+    if estimator == ESTIMATOR_SHRUNK:
+        evidence_kind = "exact-route evidence shrunk toward the role-level prior"
+    else:
+        evidence_kind = "exact-route evidence" if support else "role-level fallback evidence"
     rationale = (
-        f"Estimated {objective} strategy from {evidence_kind} evidence with "
+        f"Estimated {objective} strategy from {evidence_kind} with "
         f"{support} exact route match(es) across {len(neighbors)} nearest "
         "Wavemill router row(s)."
     )
@@ -1205,27 +1264,64 @@ def _role_row_matches_choice(value: Any, selected_model_id: str) -> bool:
     return selected_model_id in _successor_candidates(source_model_id)
 
 
+def _success_under_budget_values(rows: pd.DataFrame) -> pd.Series:
+    """Per-row success under budget; an unknown budget outcome is not a miss."""
+    success_values = rows["completed_successfully"].map(_coerce_bool)
+    if "under_budget" in rows.columns:
+        # Unknown budget outcome (cost not trustworthy) must not count as a miss.
+        budget_values = rows["under_budget"].map(
+            lambda value: True if _is_absent_value(value) else _coerce_bool(value)
+        )
+        success_values = success_values & budget_values
+    return success_values
+
+
+def _exact_route_success(rows: pd.DataFrame) -> float:
+    success_values = _success_under_budget_values(rows)
+    success = float(success_values.mean()) if len(success_values) else 0.5
+    quality = _mean_number(rows["score"], default=success)
+    return _clamp(ROUTE_SUCCESS_WEIGHT * success + ROUTE_QUALITY_WEIGHT * quality, 0.0, 1.0)
+
+
 def _estimate_success_under_budget(
     rows: pd.DataFrame,
     role_choices: dict[str, RoleChoice | None],
+    *,
+    estimator: str = ESTIMATOR_LEGACY,
 ) -> float:
-    if not rows.empty:
-        success_values = rows["completed_successfully"].map(_coerce_bool)
-        if "under_budget" in rows.columns:
-            # Unknown budget outcome (cost not trustworthy) must not count as a miss.
-            budget_values = rows["under_budget"].map(
-                lambda value: True if _is_absent_value(value) else _coerce_bool(value)
-            )
-            success_values = success_values & budget_values
-        success = float(success_values.mean()) if len(success_values) else 0.5
-        quality = _mean_number(rows["score"], default=success)
-        return round(_clamp(0.7 * success + 0.3 * quality, 0.0, 1.0), 6)
-
     choices = [choice for choice in role_choices.values() if choice is not None]
+    if estimator == ESTIMATOR_SHRUNK:
+        return _shrunk_route_success(rows, choices)
+
+    if not rows.empty:
+        return round(_exact_route_success(rows), 6)
     if not choices:
         return 0.35
     success = sum(choice.expected_success for choice in choices) / len(choices)
     return round(_clamp(success, 0.0, 1.0), 6)
+
+
+def _shrunk_route_success(rows: pd.DataFrame, choices: list[RoleChoice]) -> float:
+    """One estimator for every route (HOK-3400).
+
+    The role-level prior is the mean of the roles' success on the exact-route
+    definition. Exact-route evidence moves the estimate away from the prior in
+    proportion to its support: (n * exact + k * prior) / (n + k). With no exact
+    match the estimate is the prior, on the same scale as a matched route.
+    """
+    if choices:
+        prior = sum(
+            choice.route_success if choice.route_success is not None else choice.expected_success
+            for choice in choices
+        ) / len(choices)
+    else:
+        prior = 0.35
+    n = float(len(rows))
+    if n == 0:
+        return round(_clamp(prior, 0.0, 1.0), 6)
+    exact = _exact_route_success(rows)
+    k = ROUTE_PRIOR_STRENGTH
+    return round(_clamp((n * exact + k * prior) / (n + k), 0.0, 1.0), 6)
 
 
 def _estimate_strategy_cost(
