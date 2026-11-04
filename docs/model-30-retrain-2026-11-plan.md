@@ -279,6 +279,52 @@ aws ecs update-service --cluster hokusai-development \
   --service hokusai-api-development --force-new-deployment
 ```
 
+## v9 (2026-11-03, live)
+
+HOK-3401: cheap-model data recovered, token × price costs, cheap `lowest_cost`
+candidates with a 0.62 exploration prior and a 0.60 floor.
+
+- Registered and promoted v9 (run `ecde2cfd…`). The admin Safe moved the mainnet head to
+  `0x79d4ab2d…848e` (tx `0xf85eab52…c86e`, block 26335222, no mint).
+- Two serving fixes had to land first: PR 350 drops aux spend from token-priced
+  route costs (one outlier neighbor was adding ~$20 to every priced route), and
+  PR 348 adds the lineage config to the API image (any role-unsupported model ID
+  in a pool returned 503).
+
+## v10 (in progress, HOK-3410)
+
+**Why:** Wavemill's token and cost data from 2026-06-24 to 10-26 was contaminated
+(leaked test fixtures, OpenAI cached input double-counted, and a missing cache-read
+price falling back to the full input rate). PR 352 (HOK-3402) recovers real
+per-model usage from Codex sessions, Claude Code transcripts and the OpenRouter
+activity export, and reprices.
+
+Preliminary v10 against the v9-prod recipe on the October holdout (157 rows):
+
+| Gate | v9-prod | v10 prelim |
+|---|---:|---:|
+| Head-to-head, 56 same-task pairs | 54.7% | **67.9%** (90% CI 0.57–0.77) |
+| Benchmark v2 at $25 | 0.267 | **0.305** |
+| Cost MAE, benchmark | $18.12 | **$14.28** |
+| Cost MAE, executed routes | **$15.79** | $16.94 |
+| Lowest-cost recommendation includes a cheap model | 100% | 100% |
+
+This is the first head-to-head result whose interval excludes a coin flip. v10
+still underestimates cheap-coder routes, and there are only ~20 cheap-model
+executions in total, none for DeepSeek. So v10 ships after a Wavemill cheap-model
+batch (~10–15 tasks each for Qwen, Kimi, GLM-5.3 and DeepSeek-v4-flash), with one
+Safe reset from v9.
+
+The rebuild, gates and release scripts are in
+`data/model_30/retrain-2026-11/v10-release/` (see its README). Pass bar: the
+head-to-head 90% CI lower bound > 0.5; benchmark v2 at $25 ≥ v9-prod; 100% cheap
+lowest-cost recommendations from Wavemill-runnable models; executed-route cost MAE
+≤ 1.10 × v9-prod.
+
+Gotcha: `merge_legacy_router_export.py --before` truncates the whole union,
+derived rows included. Don't pass it when the training data runs past the holdout
+window.
+
 ## Original promotion checklist
 
 1. Run `register_technical_task_router.py --router-dataset
