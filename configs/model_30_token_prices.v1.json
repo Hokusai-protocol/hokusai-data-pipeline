@@ -1,0 +1,150 @@
+{
+  "schema_version": "model_30_token_prices/v1",
+  "version": "2026-11-04",
+  "source": "Model 30 v10 training price table (data/model_30/retrain-2026-11/v10-final/derived.clean.model-prices.json): the rows priced from Wavemill eval records' pricingSnapshot.",
+  "note": "Hokusai's own prices for server-side repricing of contribution rows (HOK-3413). Contributor price snapshots are never trusted, so these are the rates v10 trained on for models the serving catalog and the pinned OpenRouter table do not price fully. USD per million tokens, same keys as a Wavemill pricingSnapshot. Lookup order: this table, then the serving catalog, then the pinned OpenRouter table. Changing a rate changes contributor cost labels: bump version.",
+  "models": {
+    "claude-fable-5": {
+      "inputCostPerMTok": 10.0,
+      "outputCostPerMTok": 50.0,
+      "cacheReadCostPerMTok": 1.0,
+      "cacheWriteCostPerMTok": 12.5
+    },
+    "claude-haiku-4-5-20251001": {
+      "inputCostPerMTok": 0.8,
+      "outputCostPerMTok": 4.0,
+      "cacheReadCostPerMTok": 0.08,
+      "cacheWriteCostPerMTok": 1.0
+    },
+    "claude-opus-4-6": {
+      "inputCostPerMTok": 5.0,
+      "outputCostPerMTok": 25.0,
+      "cacheReadCostPerMTok": 0.5,
+      "cacheWriteCostPerMTok": 6.25
+    },
+    "claude-opus-4-7": {
+      "inputCostPerMTok": 5.0,
+      "outputCostPerMTok": 25.0,
+      "cacheReadCostPerMTok": 0.5,
+      "cacheWriteCostPerMTok": 6.25
+    },
+    "claude-opus-4-8": {
+      "inputCostPerMTok": 5.0,
+      "outputCostPerMTok": 25.0,
+      "cacheReadCostPerMTok": 0.5,
+      "cacheWriteCostPerMTok": 6.25
+    },
+    "claude-opus-5-5": {
+      "inputCostPerMTok": 4.0,
+      "outputCostPerMTok": 20.0,
+      "cacheReadCostPerMTok": 0.2,
+      "cacheWriteCostPerMTok": 5.0
+    },
+    "claude-sonnet-4-5-20250929": {
+      "inputCostPerMTok": 3.0,
+      "outputCostPerMTok": 15.0,
+      "cacheReadCostPerMTok": 0.3,
+      "cacheWriteCostPerMTok": 3.75
+    },
+    "claude-sonnet-4-6": {
+      "inputCostPerMTok": 3.0,
+      "outputCostPerMTok": 15.0,
+      "cacheReadCostPerMTok": 0.3,
+      "cacheWriteCostPerMTok": 3.75
+    },
+    "claude-sonnet-5": {
+      "inputCostPerMTok": 2.0,
+      "outputCostPerMTok": 10.0,
+      "cacheReadCostPerMTok": 0.2,
+      "cacheWriteCostPerMTok": 2.5
+    },
+    "gemini-2.5-flash": {
+      "inputCostPerMTok": 0.3,
+      "outputCostPerMTok": 2.5,
+      "cacheReadCostPerMTok": 0.03,
+      "cacheWriteCostPerMTok": 0.083333
+    },
+    "gemini-2.5-pro": {
+      "inputCostPerMTok": 1.25,
+      "outputCostPerMTok": 10.0,
+      "cacheReadCostPerMTok": 0.125,
+      "cacheWriteCostPerMTok": 0.375
+    },
+    "gemini-3.1-pro-preview": {
+      "inputCostPerMTok": 2.0,
+      "outputCostPerMTok": 12.0,
+      "cacheReadCostPerMTok": 0.2,
+      "cacheWriteCostPerMTok": 0.375
+    },
+    "glm-5.2": {
+      "inputCostPerMTok": 1.19,
+      "outputCostPerMTok": 3.74,
+      "cacheReadCostPerMTok": 0.221
+    },
+    "glm-5.3": {
+      "inputCostPerMTok": 1.4,
+      "outputCostPerMTok": 4.4,
+      "cacheReadCostPerMTok": 0.26
+    },
+    "glm-5.3-flash": {
+      "inputCostPerMTok": 0.15,
+      "outputCostPerMTok": 0.5,
+      "cacheReadCostPerMTok": 0.05,
+      "cacheWriteCostPerMTok": 0.0
+    },
+    "gpt-5.3-codex": {
+      "inputCostPerMTok": 1.75,
+      "outputCostPerMTok": 14.0,
+      "cacheReadCostPerMTok": 0.44
+    },
+    "gpt-5.4": {
+      "inputCostPerMTok": 2.5,
+      "outputCostPerMTok": 15.0,
+      "cacheReadCostPerMTok": 0.25
+    },
+    "gpt-5.5": {
+      "inputCostPerMTok": 5.0,
+      "outputCostPerMTok": 30.0
+    },
+    "gpt-5.6-terra": {
+      "inputCostPerMTok": 2.5,
+      "outputCostPerMTok": 15.0,
+      "cacheReadCostPerMTok": 0.25,
+      "cacheWriteCostPerMTok": 3.125
+    },
+    "gpt-6-luna": {
+      "inputCostPerMTok": 0.1,
+      "outputCostPerMTok": 0.5,
+      "cacheReadCostPerMTok": 0.01,
+      "cacheWriteCostPerMTok": 0.125
+    },
+    "gpt-6-sol": {
+      "inputCostPerMTok": 2.0,
+      "outputCostPerMTok": 10.0,
+      "cacheReadCostPerMTok": 0.2,
+      "cacheWriteCostPerMTok": 2.5
+    },
+    "kimi-k2": {
+      "inputCostPerMTok": 0.57,
+      "outputCostPerMTok": 2.3
+    },
+    "kimi-k3": {
+      "inputCostPerMTok": 3.0,
+      "outputCostPerMTok": 15.0,
+      "cacheReadCostPerMTok": 0.31
+    },
+    "llama-3.3-70b": {
+      "inputCostPerMTok": 0.12,
+      "outputCostPerMTok": 0.3
+    },
+    "mistral-large-2": {
+      "inputCostPerMTok": 2.0,
+      "outputCostPerMTok": 6.0,
+      "cacheReadCostPerMTok": 0.2
+    },
+    "qwen3-coder": {
+      "inputCostPerMTok": 0.35,
+      "outputCostPerMTok": 1.05
+    }
+  }
+}

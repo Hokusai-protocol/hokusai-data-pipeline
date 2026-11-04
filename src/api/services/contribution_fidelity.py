@@ -37,6 +37,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -51,6 +53,12 @@ from src.api.services.routing_join import (
     find_recommendation_copy,
     routing_outcome_errors,
 )
+from src.model_30.canonical_row import (
+    STAGE_TO_ROLE,
+    RowCost,
+    has_route_roles,
+    price_row,
+)
 
 # Canonical rich benchmark row schema versions. These are already validated by
 # the assembler against the JSON schema and must not be weakened here.
@@ -61,6 +69,11 @@ TECHNICAL_TASK_ROUTER_ROW_V2 = "technical_task_router_row/v2"
 # and carry ``budget_usd`` instead of ``row_id`` / ``eval_id`` / ``max_cost_usd``.
 # ``technical_task_router_row/v3`` exists only in the SDK shape (HOK-3364).
 TECHNICAL_TASK_ROUTER_ROW_V3 = "technical_task_router_row/v3"
+# v3 plus per-stage executed models and token facts (HOK-3412). The server
+# reprices v4 rows from ``stage_executions[].task_cost`` and never trains on the
+# contributor-reported ``actual_cost_usd`` (HOK-3413).
+TECHNICAL_TASK_ROUTER_ROW_V4 = "technical_task_router_row/v4"
+_SDK_ROUTER_ROW_VERSIONS = frozenset({TECHNICAL_TASK_ROUTER_ROW_V3, TECHNICAL_TASK_ROUTER_ROW_V4})
 
 # Lighter harness outcome row emitted by SDK plugin integrations.
 HARNESS_OUTCOME_ROW_V1 = "harness_outcome_row/v1"
@@ -68,7 +81,72 @@ HARNESS_OUTCOME_ROW_V1 = "harness_outcome_row/v1"
 HARNESS_OUTCOME_ROW_V2 = "harness_outcome_row/v2"
 _HARNESS_ROW_VERSIONS = frozenset({HARNESS_OUTCOME_ROW_V1, HARNESS_OUTCOME_ROW_V2})
 # Rows that must carry a valid routing-outcome block.
-_ROUTING_OUTCOME_ROW_VERSIONS = frozenset({HARNESS_OUTCOME_ROW_V2, TECHNICAL_TASK_ROUTER_ROW_V3})
+_ROUTING_OUTCOME_ROW_VERSIONS = frozenset(
+    {HARNESS_OUTCOME_ROW_V2, TECHNICAL_TASK_ROUTER_ROW_V3, TECHNICAL_TASK_ROUTER_ROW_V4}
+)
+
+# Mirrors the SDK's v4 contract (hokusai-sdk packages/core/src/contribution/schema.ts).
+_STAGE_EXECUTION_FIELDS = frozenset(
+    {"stage", "executed_model", "model_evidence", "harness", "task_cost"}
+)
+_STAGE_EXECUTION_STAGES = frozenset(
+    {*STAGE_TO_ROLE, "ci-fix", "conflict-resolution", "ready-remediation"}
+)
+_MODEL_EVIDENCE_KINDS = frozenset({"provider_response", "session_telemetry", "requested_only"})
+_TASK_COST_COVERAGES = frozenset({"complete", "partial", "unavailable", "known_zero"})
+_TASK_COST_SUMMARY_V1 = "task_cost_summary/v1"
+_TASK_COST_TOKEN_FIELDS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "reasoning_tokens",
+)
+_HARNESS_SLUG_PATTERN = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
+_SDK_VERSION_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
+_MINTED_ID_PATTERN = re.compile(
+    r"^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+    r"|[0-7][0-9A-HJKMNP-TV-Z]{25})$"
+)
+# The task-cost contract's stricter list (``TASK_COST_FORBIDDEN_KEYS``), compared
+# after lowercasing and removing ``_`` and ``-``.
+TASK_COST_FORBIDDEN_KEYS = frozenset(
+    {
+        "accountid",
+        "apikey",
+        "authorization",
+        "branch",
+        "content",
+        "credentials",
+        "cwd",
+        "description",
+        "dir",
+        "directory",
+        "email",
+        "evalrecord",
+        "filepath",
+        "hostname",
+        "issuebody",
+        "messages",
+        "originalprompt",
+        "password",
+        "path",
+        "prompt",
+        "prompthash",
+        "rawinput",
+        "repo",
+        "repository",
+        "secret",
+        "tasktext",
+        "text",
+        "token",
+        "transcript",
+        "userid",
+        "username",
+        "workspace",
+        "worktree",
+    }
+)
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _TASK_DESCRIPTOR_SCHEMA = _REPO_ROOT / "schema" / "hokusai_task_descriptor.v1.json"
 
@@ -115,6 +193,9 @@ class RowClassification:
     row: dict[str, Any] | None
     reason: str | None = None
     descriptor_warnings: list[dict[str, str]] = field(default_factory=list)
+    # Server repricing of the submitted row (HOK-3413); ``None`` for rows that
+    # are not role-keyed router rows.
+    cost: RowCost | None = None
 
 
 @dataclass
@@ -124,6 +205,9 @@ class BatchClassification:
     accepted_rows: list[dict[str, Any]] = field(default_factory=list)
     # Per accepted row, aligned to ``accepted_rows`` by index.
     accepted_tiers: list[str] = field(default_factory=list)
+    # Per accepted row: its index in the submission, and its repricing.
+    accepted_indices: list[int] = field(default_factory=list)
+    accepted_costs: list[RowCost | None] = field(default_factory=list)
     # Rejected (invalid) rows: original submission index + human-readable reason.
     rejected: list[dict[str, Any]] = field(default_factory=list)
     descriptor_warnings: list[dict[str, Any]] = field(default_factory=list)
@@ -250,7 +334,7 @@ def _looks_like_router_outcome_row(row: dict[str, Any]) -> bool:
     their long-standing acceptance and assembler treatment are unchanged.
     """
     schema_version = row.get("schema_version")
-    if schema_version in _HARNESS_ROW_VERSIONS or schema_version == TECHNICAL_TASK_ROUTER_ROW_V3:
+    if schema_version in _HARNESS_ROW_VERSIONS or schema_version in _SDK_ROUTER_ROW_VERSIONS:
         return True
     return (
         isinstance(row.get("selected_models"), dict)
@@ -287,6 +371,143 @@ def _routing_outcome_block(row: dict[str, Any]) -> dict[str, Any] | None:
             role: selected[role] for role in ROUTE_ROLES if isinstance(selected.get(role), str)
         }
     return block
+
+
+def _forbidden_task_cost_key(value: Any, path: str) -> str | None:
+    stack: list[tuple[str, Any]] = [(path, value)]
+    while stack:
+        current_path, current = stack.pop()
+        if isinstance(current, dict):
+            for key, child in current.items():
+                child_path = f"{current_path}.{key}"
+                normalized = str(key).lower().replace("_", "").replace("-", "")
+                if normalized in TASK_COST_FORBIDDEN_KEYS:
+                    return child_path
+                stack.append((child_path, child))
+        elif isinstance(current, list):
+            stack.extend((f"{current_path}.{i}", item) for i, item in enumerate(current))
+    return None
+
+
+def _is_count(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and value >= 0
+    )
+
+
+def _task_cost_errors(task_cost: Any, label: str, task_id: Any) -> list[str]:
+    """Check the parts of a ``task_cost_summary/v1`` that repricing reads, plus redaction."""
+    if not isinstance(task_cost, dict):
+        return [f"{label} must be a task_cost_summary/v1 object"]
+    forbidden = _forbidden_task_cost_key(task_cost, label)
+    if forbidden is not None:
+        return [f"forbidden field at {forbidden}"]
+    errors: list[str] = []
+    if task_cost.get("schema_version") != _TASK_COST_SUMMARY_V1:
+        errors.append(f"{label}.schema_version must be {_TASK_COST_SUMMARY_V1}")
+    if isinstance(task_id, str) and task_cost.get("task_id") != task_id:
+        errors.append(f"{label}.task_id must equal the row's task_id")
+    if task_cost.get("coverage") not in _TASK_COST_COVERAGES:
+        allowed = ", ".join(sorted(_TASK_COST_COVERAGES))
+        errors.append(f"{label}.coverage must be one of: {allowed}")
+    segments = task_cost.get("model_segments")
+    if not isinstance(segments, list):
+        return [*errors, f"{label}.model_segments must be an array"]
+    for index, segment in enumerate(segments):
+        errors.extend(_segment_errors(segment, f"{label}.model_segments[{index}]"))
+    return errors
+
+
+def _segment_errors(segment: Any, label: str) -> list[str]:
+    if not isinstance(segment, dict):
+        return [f"{label} must be an object"]
+    errors: list[str] = []
+    model = segment.get("model")
+    if not isinstance(model, str) or not model.strip():
+        errors.append(f"{label}.model must be a non-empty model id")
+    usage = segment.get("usage")
+    if not isinstance(usage, dict):
+        return [*errors, f"{label}.usage must be an object"]
+    for token_field in _TASK_COST_TOKEN_FIELDS:
+        value = usage.get(token_field)
+        if value is not None and not _is_count(value):
+            errors.append(f"{label}.usage.{token_field} must be a count or null")
+    return errors
+
+
+def stage_execution_errors(row: dict[str, Any]) -> list[str]:  # noqa: C901
+    """Why a v4 row's stage facts are invalid; ``[]`` when they are valid.
+
+    Mirrors the SDK's ``stageExecutionErrors``: a non-empty ``stage_executions``
+    array of well-formed entries; per base stage, the last entry's
+    ``executed_model`` equals the matching ``selected_models`` role; a valid
+    ``comparison_group``; ``integration`` only ``{}``; a version-string
+    ``sdk_version``. Each ``task_cost`` is checked for what repricing reads and
+    for the task-cost contract's forbidden keys.
+    """
+    errors: list[str] = []
+    executions = row.get("stage_executions")
+    if not isinstance(executions, list) or not executions:
+        return ["stage_executions must be a non-empty array"]
+    last_by_stage: dict[str, Any] = {}
+    for index, entry in enumerate(executions):
+        label = f"stage_executions[{index}]"
+        if not isinstance(entry, dict) or not set(entry) <= _STAGE_EXECUTION_FIELDS:
+            errors.append(
+                f"{label} must be an object with only: {', '.join(sorted(_STAGE_EXECUTION_FIELDS))}"
+            )
+            continue
+        stage = entry.get("stage")
+        if stage not in _STAGE_EXECUTION_STAGES:
+            allowed = ", ".join(sorted(_STAGE_EXECUTION_STAGES))
+            errors.append(f"{label}.stage must be one of: {allowed}")
+        model = entry.get("executed_model")
+        if not isinstance(model, str) or not model.strip():
+            errors.append(f"{label}.executed_model must be a non-empty model id")
+        if entry.get("model_evidence") not in _MODEL_EVIDENCE_KINDS:
+            errors.append(
+                f"{label}.model_evidence must be one of: {', '.join(sorted(_MODEL_EVIDENCE_KINDS))}"
+            )
+        harness = entry.get("harness")
+        if not isinstance(harness, str) or not _HARNESS_SLUG_PATTERN.match(harness):
+            errors.append(f"{label}.harness must be a harness slug")
+        if "task_cost" not in entry:
+            errors.append(f"{label}.task_cost is required")
+        else:
+            errors.extend(
+                _task_cost_errors(entry["task_cost"], f"{label}.task_cost", row.get("task_id"))
+            )
+        if stage in STAGE_TO_ROLE:
+            last_by_stage[stage] = model
+    selected = row.get("selected_models") if isinstance(row.get("selected_models"), dict) else {}
+    for stage, model in last_by_stage.items():
+        role = STAGE_TO_ROLE[stage]
+        if selected.get(role) != model:
+            errors.append(
+                f"the last {stage} stage's executed_model must equal selected_models.{role}"
+            )
+
+    group = row.get("comparison_group")
+    if group is not None:
+        if not isinstance(group, dict) or not set(group) <= {"id", "role_varied"}:
+            errors.append("comparison_group must be an object with only id and role_varied")
+        else:
+            if not isinstance(group.get("id"), str) or not _MINTED_ID_PATTERN.match(group["id"]):
+                errors.append("comparison_group.id must be a minted pair id (UUID or ULID)")
+            if group.get("role_varied") not in ROUTE_ROLES:
+                roles = ", ".join(ROUTE_ROLES)
+                errors.append(f"comparison_group.role_varied must be one of: {roles}")
+    if "integration" in row and row["integration"] != {}:
+        errors.append("integration is reserved (HOK-3343); only {} is accepted")
+    version = row.get("sdk_version")
+    if version is not None and (
+        not isinstance(version, str) or not _SDK_VERSION_PATTERN.match(version)
+    ):
+        errors.append("sdk_version must be a version string")
+    return errors
 
 
 def _contains_forbidden_field(value: Any) -> str | None:
@@ -343,6 +564,9 @@ def normalize_harness_row_to_canonical(
     if budget is None:
         budget = _coerce_number(row.get("max_cost_usd"))
     actual_cost = _coerce_number(row.get("actual_cost_usd"))
+    if row.get("schema_version") == TECHNICAL_TASK_ROUTER_ROW_V4:
+        # The server's repriced cost, never the contributor-reported figure.
+        actual_cost = price_row(row).cost_usd
     row_id = _canonical_row_id(row)
     # ``eval_id`` is an identifier only. It is never an inference link: the
     # link comes from ``metadata.routing_outcome.inference_log_id`` via the
@@ -363,6 +587,8 @@ def normalize_harness_row_to_canonical(
         metadata["harness_metadata"] = harness_metadata
     if isinstance(row.get("harness"), str):
         metadata["harness"] = row["harness"]
+    if row.get("schema_version") == TECHNICAL_TASK_ROUTER_ROW_V4:
+        metadata["contributor_reported_cost_usd"] = _coerce_number(row.get("actual_cost_usd"))
 
     canonical: dict[str, Any] = {
         "schema_version": TECHNICAL_TASK_ROUTER_ROW_V1,
@@ -428,6 +654,16 @@ def _classify_router_outcome_row(  # noqa: C901
                 reason=f"invalid_routing_outcome:{routing_errors[0]}",
                 descriptor_warnings=descriptor_warnings,
             )
+    if row.get("schema_version") == TECHNICAL_TASK_ROUTER_ROW_V4:
+        stage_errors = stage_execution_errors(row)
+        if stage_errors:
+            return RowClassification(
+                tier=FidelityTier.INVALID,
+                row=None,
+                reason=f"invalid_stage_executions:{stage_errors[0]}",
+                descriptor_warnings=descriptor_warnings,
+            )
+    cost = price_row(row) if has_route_roles(row) else None
 
     allowed_models = _extract_allowed_models(row)
     selected_models, has_roles = _extract_selected_models(row)
@@ -450,12 +686,17 @@ def _classify_router_outcome_row(  # noqa: C901
             tier=FidelityTier.NON_RANKING,
             row=row,
             descriptor_warnings=descriptor_warnings,
+            cost=cost,
         )
 
     budget = _coerce_number(row.get("budget_usd"))
     if budget is None:
         budget = _coerce_number(row.get("max_cost_usd"))
-    actual_cost = _coerce_number(row.get("actual_cost_usd"))
+    if row.get("schema_version") == TECHNICAL_TASK_ROUTER_ROW_V4:
+        # Only a repriced cost can make a v4 row cost-eligible (HOK-3413).
+        actual_cost = cost.cost_usd if cost is not None else None
+    else:
+        actual_cost = _coerce_number(row.get("actual_cost_usd"))
     descriptor = row.get("task_descriptor")
 
     training_eligible = (
@@ -475,6 +716,7 @@ def _classify_router_outcome_row(  # noqa: C901
             tier=FidelityTier.TRAINING_ELIGIBLE,
             row=normalized,
             descriptor_warnings=descriptor_warnings,
+            cost=cost,
         )
 
     # Has route/model identity but cannot support success-under-budget training.
@@ -482,6 +724,7 @@ def _classify_router_outcome_row(  # noqa: C901
         tier=FidelityTier.PARTIAL,
         row=row,
         descriptor_warnings=descriptor_warnings,
+        cost=cost,
     )
 
 
@@ -521,6 +764,8 @@ def classify_batch(
 
         result.accepted_rows.append(classification.row if classification.row is not None else row)
         result.accepted_tiers.append(tier.value)
+        result.accepted_indices.append(index)
+        result.accepted_costs.append(classification.cost)
         if tier is FidelityTier.TRAINING_ELIGIBLE:
             result.training_eligible_count += 1
         elif tier is FidelityTier.PARTIAL:
