@@ -270,9 +270,9 @@ def _freeze(tmp_path: Path) -> Path:
         search_roots=[tmp_path / "snapshot"],
         legacy_csv=tmp_path / "legacy.csv",
         recovered_usage=None,
-        freeze_id="wavemill-test",
+        freeze_id="wavemill-2026-01-01",
     )
-    out = tmp_path / "store" / "legacy" / "wavemill-test"
+    out = tmp_path / "store" / "legacy" / "wavemill-2026-01-01"
     write_freeze(out, rows, manifest)
     return out
 
@@ -285,7 +285,9 @@ def test_converter_freezes_history_with_provenance(tmp_path: Path) -> None:
     assert manifest["by_origin"] == {"legacy:legacy.csv": 2, "derived:evals.jsonl": 3}
     assert re.fullmatch(r"[0-9a-f]{64}", manifest["inputs"]["eval_snapshot_sha256"])
     assert re.fullmatch(r"[0-9a-f]{64}", manifest["rows_sha256"])
-    assert [r["canonical_row_id"] for r in rows] == [f"legacy/wavemill-test:{i}" for i in range(5)]
+    assert [r["canonical_row_id"] for r in rows] == [
+        f"legacy/wavemill-2026-01-01:{i}" for i in range(5)
+    ]
     assert [r["observed_at"] for r in rows] == sorted(r["observed_at"] for r in rows)
     openai = next(r for r in rows if r["router_ids"]["run_id_hash"] == "openai-run")
     assert openai["cost_usd"] is None
@@ -347,3 +349,61 @@ def test_only_the_legacy_converter_reads_eval_records() -> None:
     for retired in ("def main(", "discover_router_csv_exports", "clean_router_datasets"):
         assert retired not in collector
     assert not (REPO_ROOT / "scripts/model_30/merge_legacy_router_export.py").exists()
+
+
+# --- one freeze per history line ----------------------------------------------
+
+
+def _frozen(freeze_id: str, run: str) -> dict[str, Any]:
+    return rc.router_row_to_canonical(
+        _legacy_row(run_id_hash=run), freeze_id=freeze_id, row_index=0, origin="t", price_source="t"
+    )
+
+
+def test_newest_freeze_supersedes_earlier_ones_of_the_same_line() -> None:
+    older = _frozen("wavemill-2026-11-04", "old")
+    newer = _frozen("wavemill-2026-11-20", "new")
+    contribution = _contribution("singleHarness")
+    kept, report = builder.choose_freezes([older, newer, contribution])
+    assert kept == [newer, contribution]
+    assert report == {
+        "used": ["wavemill-2026-11-20"],
+        "ignored": ["wavemill-2026-11-04"],
+        "pinned": False,
+    }
+
+
+def test_pinned_freeze_is_used_instead_of_the_newest() -> None:
+    older = _frozen("wavemill-2026-11-04", "old")
+    newer = _frozen("wavemill-2026-11-20", "new")
+    kept, report = builder.choose_freezes([older, newer], pinned={"wavemill-2026-11-04"})
+    assert kept == [older]
+    assert report["used"] == ["wavemill-2026-11-04"] and report["pinned"] is True
+    with pytest.raises(ValueError, match="not found"):
+        builder.choose_freezes([older], pinned={"wavemill-2026-12-01"})
+    with pytest.raises(ValueError, match="one freeze per line"):
+        builder.choose_freezes(
+            [older, newer], pinned={"wavemill-2026-11-04", "wavemill-2026-11-20"}
+        )
+
+
+def test_freezes_of_different_lines_are_all_used() -> None:
+    wavemill = _frozen("wavemill-2026-11-04", "a")
+    other = _frozen("partner-x-2026-10-01", "b")
+    kept, report = builder.choose_freezes([wavemill, other])
+    assert kept == [wavemill, other]
+    assert report["used"] == ["partner-x-2026-10-01", "wavemill-2026-11-04"]
+
+
+def test_freeze_ids_must_carry_their_date(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="<line>-<YYYY-MM-DD>"):
+        builder.choose_freezes([_frozen("wavemill-latest", "a")])
+    _write_snapshot(tmp_path / "snapshot")
+    _write_legacy_csv(tmp_path / "legacy.csv")
+    with pytest.raises(ValueError, match="<line>-<YYYY-MM-DD>"):
+        convert(
+            search_roots=[tmp_path / "snapshot"],
+            legacy_csv=tmp_path / "legacy.csv",
+            recovered_usage=None,
+            freeze_id="wavemill",
+        )

@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from collections.abc import Collection, Mapping
 from typing import Any
 
@@ -160,6 +161,19 @@ RUBRIC_NUMBERS = (
 COST_BREAKDOWN = ("aux_cost_usd", "challenge_partner_cost_usd", "subagent_cost_usd")
 ROUTER_ID_FIELDS = ("run_id_hash", "task_id_hash", "source_repo_hash", "challenge_pair_hash")
 ROLE_TOKEN_KINDS = ("input", "cache", "output")
+
+
+# A freeze holds a whole history line up to its date: ``<line>-<YYYY-MM-DD>``,
+# e.g. ``wavemill-2026-11-04``. A later freeze of a line supersedes earlier ones.
+FREEZE_ID_PATTERN = re.compile(r"^(?P<line>[a-z0-9][a-z0-9-]*?)-(?P<date>\d{4}-\d{2}-\d{2})$")
+
+
+def parse_freeze_id(freeze_id: str) -> tuple[str, str]:
+    """Return ``(line, date)`` for a freeze id; raise ``ValueError`` if malformed."""
+    match = FREEZE_ID_PATTERN.match(freeze_id or "")
+    if match is None:
+        raise ValueError(f"freeze id {freeze_id!r} must look like <line>-<YYYY-MM-DD>")
+    return match["line"], match["date"]
 
 
 def stable_hash(value: str | None) -> str:

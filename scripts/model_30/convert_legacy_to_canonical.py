@@ -51,7 +51,11 @@ from src.model_30.model_identity import (  # noqa: E402
     model_family,
     normalize_model_id,
 )
-from src.model_30.router_corpus import FIELDNAMES, router_row_to_canonical  # noqa: E402
+from src.model_30.router_corpus import (  # noqa: E402
+    FIELDNAMES,
+    parse_freeze_id,
+    router_row_to_canonical,
+)
 
 FREEZE_SCHEMA_VERSION = "model_30_canonical_freeze/v1"
 # Mirrors wavemill shared/lib/eval-success-policy.ts DEFAULT_SUCCESS_THRESHOLD.
@@ -217,6 +221,7 @@ def convert(
     threshold: float = DEFAULT_SUCCESS_THRESHOLD,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Return ``(canonical rows, manifest)`` for one freeze."""
+    parse_freeze_id(freeze_id)
     usage = (
         json.loads(recovered_usage.read_text(encoding="utf-8")).get("records") or {}
         if recovered_usage
