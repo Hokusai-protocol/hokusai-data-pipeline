@@ -26,8 +26,10 @@ from scripts.model_30.executed_route import (  # noqa: E402
 from scripts.model_30.model_identity import (  # noqa: E402
     build_price_table,
     is_supported_model_id,
+    latest_snapshot,
     normalize_model_id,
 )
+from scripts.model_30.recover_session_usage import record_key  # noqa: E402
 
 ROUTER_DATASET_SCHEMA_VERSION = "wavemill-hokusai-router-dataset-v1"
 EVAL_FILENAME = "evals.jsonl"
@@ -202,10 +204,22 @@ def collect_router_corpus(args: argparse.Namespace) -> dict[str, Any]:
     for eval_file in eval_files:
         challenge_records.update(load_challenge_records(eval_file.parent))
     eval_report["challenge_records_loaded"] = len(challenge_records)
+    recovered_usage: dict[str, Any] = {}
+    if getattr(args, "recovered_usage", None):
+        payload = json.loads(Path(args.recovered_usage).expanduser().read_text(encoding="utf-8"))
+        recovered_usage = payload.get("records") or {}
+    eval_report["recovered_usage_records_loaded"] = len(recovered_usage)
+    fallback_snapshot = latest_snapshot(_pricing_snapshots(eval_files)) if recovered_usage else {}
     price_snapshots: list[tuple[str, dict[str, Any]]] = []
     for eval_file in eval_files:
         file_report = _derive_rows_from_eval_file(
-            eval_file, derived_rows, skip_reasons, challenge_records, price_snapshots
+            eval_file,
+            derived_rows,
+            skip_reasons,
+            challenge_records,
+            price_snapshots,
+            recovered_usage,
+            fallback_snapshot,
         )
         eval_report["source_files"].append(file_report)
         eval_report["records_read"] += file_report["records_read"]
@@ -279,6 +293,8 @@ def _derive_rows_from_eval_file(
     skip_reasons: Counter[str],
     challenge_records: dict[str, dict[str, Any]] | None = None,
     price_snapshots: list[tuple[str, dict[str, Any]]] | None = None,
+    recovered_usage: dict[str, Any] | None = None,
+    fallback_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     source_repo = _source_repo_name(eval_file)
     file_report = {
@@ -308,7 +324,11 @@ def _derive_rows_from_eval_file(
                     (str(record.get("timestamp") or ""), record["pricingSnapshot"])
                 )
             row, reason = eval_record_to_router_row(
-                record, source_repo=source_repo, challenge_records=challenge_records
+                record,
+                source_repo=source_repo,
+                challenge_records=challenge_records,
+                recovered_usage=recovered_usage,
+                fallback_snapshot=fallback_snapshot,
             )
             if reason is not None:
                 _record_skip(reason, skip_reasons, file_skip_reasons)
@@ -330,6 +350,8 @@ def eval_record_to_router_row(
     *,
     source_repo: str,
     challenge_records: dict[str, dict[str, Any]] | None = None,
+    recovered_usage: dict[str, Any] | None = None,
+    fallback_snapshot: dict[str, Any] | None = None,
 ) -> tuple[dict[str, str] | None, str | None]:
     """Convert one Wavemill eval record to the router training CSV row shape."""
     if not (record.get("trainingEligible") or record.get("budgetEvalEligible")):
@@ -390,6 +412,8 @@ def eval_record_to_router_row(
         record,
         resolution.route,
         challenge_partner_models(record, resolution.route, challenge_records),
+        (recovered_usage or {}).get(record_key(record)),
+        fallback_snapshot,
     )
     if economics.cost_status == "unpriced_model":
         return None, "unpriced_model_cost"
@@ -523,6 +547,23 @@ def eval_record_to_router_row(
         "subagent_cost_usd": _format_optional_number(economics.subagent_cost_usd),
     }
     return row, None
+
+
+def _pricing_snapshots(eval_files: list[Path]) -> list[tuple[str, dict[str, Any]]]:
+    """``(timestamp, pricingSnapshot)`` pairs from every eval record in *eval_files*."""
+    snapshots = []
+    for eval_file in eval_files:
+        with eval_file.open(encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(record, dict) and isinstance(record.get("pricingSnapshot"), dict):
+                    snapshots.append(
+                        (str(record.get("timestamp") or ""), record["pricingSnapshot"])
+                    )
+    return snapshots
 
 
 def _executed_route(
@@ -792,6 +833,13 @@ def parse_args() -> argparse.Namespace:
         "--include-worktrees",
         action="store_true",
         help="Include Wavemill data under directories named worktrees. Defaults off.",
+    )
+    parser.add_argument(
+        "--recovered-usage",
+        help=(
+            "recover_session_usage.py output. Replaces missing or untrusted per-model "
+            "usage with tokens recovered from Codex/Claude sessions (HOK-3402)."
+        ),
     )
     parser.set_defaults(include_eval_jsonl=True, include_router_csv=True)
     return parser.parse_args()
