@@ -5,7 +5,8 @@ frozen Wavemill history under ``model_30/canonical/v1/legacy/<freeze-id>/`` and
 v4 contributions under ``model_30/canonical/v1/<submission-id>.jsonl``. No
 ``.wavemill`` access is needed.
 
-Steps: read rows (local paths or ``s3://`` prefixes) -> filter (observed-at
+Steps: read rows (local paths or ``s3://`` prefixes) -> keep the newest
+freeze of each history line (``--freeze-id`` pins one) -> filter (observed-at
 range, source kind, contributor) -> map each to a router row
 (``src.model_30.router_corpus``) -> clean and validate
 (``clean_router_dataset``) -> write the CSV, plus the price table shipped with
@@ -47,7 +48,9 @@ from src.model_30.model_identity import (  # noqa: E402
 from src.model_30.router_corpus import (  # noqa: E402
     DEFAULT_TRUSTED_COST_STATUSES,
     FIELDNAMES,
+    LEGACY_SOURCE_KIND,
     canonical_to_router_row,
+    parse_freeze_id,
     source_kind,
 )
 
@@ -99,6 +102,42 @@ def read_canonical_rows(sources: Iterable[str]) -> list[dict[str, Any]]:
         for path in _local_files(Path(source).expanduser()):
             records.extend(_jsonl_lines(path.read_text(encoding="utf-8"), str(path)))
     return records
+
+
+def _freeze_id(record: dict[str, Any]) -> str:
+    source = record.get("source") if isinstance(record.get("source"), dict) else {}
+    return str(source.get("freeze_id") or "")
+
+
+def choose_freezes(
+    records: Iterable[dict[str, Any]], *, pinned: set[str] | None = None
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Keep one frozen history per line; contributions pass through.
+
+    Each freeze holds a line's whole history up to its date, so reading two
+    freezes of ``wavemill`` would count the same tasks twice. By default the
+    newest freeze of each line is used; *pinned* selects freezes explicitly.
+    """
+    records = list(records)
+    found: dict[str, set[str]] = {}
+    for record in records:
+        if source_kind(record) == LEGACY_SOURCE_KIND:
+            freeze_id = _freeze_id(record)
+            line, _ = parse_freeze_id(freeze_id)
+            found.setdefault(line, set()).add(freeze_id)
+    if pinned:
+        missing = sorted(pinned - {f for ids in found.values() for f in ids})
+        if missing:
+            raise ValueError(f"pinned freeze(s) not found: {missing}")
+        for line, ids in found.items():
+            if len(ids & pinned) > 1:
+                raise ValueError(f"pin one freeze per line; {line!r} has {sorted(ids & pinned)}")
+        used = set(pinned)
+    else:
+        used = {max(ids, key=lambda f: parse_freeze_id(f)[1]) for ids in found.values()}
+    kept = [r for r in records if source_kind(r) != LEGACY_SOURCE_KIND or _freeze_id(r) in used]
+    ignored = sorted({f for ids in found.values() for f in ids} - used)
+    return kept, {"used": sorted(used), "ignored": ignored, "pinned": bool(pinned)}
 
 
 def select_rows(
@@ -203,6 +242,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--contributor", action="append", help="Keep only these contributor ids.")
     parser.add_argument(
+        "--freeze-id",
+        action="append",
+        help=(
+            "Frozen history to use, one per line (e.g. wavemill-2026-11-04). Repeatable; "
+            "default: the newest freeze of each line."
+        ),
+    )
+    parser.add_argument(
         "--trusted-cost-status",
         action="append",
         help=(
@@ -217,8 +264,12 @@ def main(argv: list[str] | None = None) -> int:
     """Run the CLI."""
     args = build_parser().parse_args(argv)
     output = Path(args.output).expanduser().resolve()
-    records = select_rows(
+    stored, freezes = choose_freezes(
         read_canonical_rows(args.canonical),
+        pinned=set(args.freeze_id) if args.freeze_id else None,
+    )
+    records = select_rows(
+        stored,
         start=args.start,
         end=args.end,
         sources=set(args.source) if args.source else None,
@@ -242,6 +293,7 @@ def main(argv: list[str] | None = None) -> int:
             else DEFAULT_TRUSTED_COST_STATUSES
         ),
     )
+    report["legacy_freezes"] = freezes
     report["filters"] = {
         "start": args.start,
         "end": args.end,
@@ -252,7 +304,10 @@ def main(argv: list[str] | None = None) -> int:
         Path(args.report).expanduser().write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-    print(json.dumps({k: report[k] for k in ("canonical_rows", "output_rows", "by_source")}))  # noqa: T201
+    summary = {
+        k: report[k] for k in ("canonical_rows", "output_rows", "by_source", "legacy_freezes")
+    }
+    print(json.dumps(summary))  # noqa: T201
     return 0
 
 

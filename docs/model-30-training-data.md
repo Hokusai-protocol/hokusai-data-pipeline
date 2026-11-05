@@ -19,6 +19,8 @@ python scripts/model_30/build_router_corpus.py \
   --canonical s3://<bucket>/<prefix>/model_30/canonical/v1/ \
   --output union.clean.csv --prices-output model-prices.json --report corpus-report.json
 # filters: --start/--end (observed_at), --source legacy_freeze|contribution, --contributor <id>
+# frozen history: the newest freeze of each line is used (wavemill-2026-11-20 supersedes
+#   wavemill-2026-11-04); --freeze-id pins one. Freeze ids must be <line>-<YYYY-MM-DD>.
 # cost trust: --trusted-cost-status (default priced + recorded_total, as v10)
 ```
 
