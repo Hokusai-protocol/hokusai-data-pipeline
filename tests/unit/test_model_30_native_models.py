@@ -38,6 +38,16 @@ PROVIDER_IDS = {
 }
 ROLES = ("planner", "coder", "reviewer")
 FRONTIER = "claude-opus-4-7"
+# Frontier and direct-provider models already in Wavemill's ladders that the
+# allowlist also dropped. They are priced from their eval records' snapshots, so
+# they are not in the snapshot-free price-table test below.
+WAVEMILL_LADDER_MODELS = {
+    "claude-opus-5-5": ROLES,
+    "gpt-6-sol": ROLES,
+    "gpt-5.6-terra": ROLES,
+    "gpt-6-luna": ("coder", "reviewer"),
+    "deepseek-chat": ROLES,
+}
 
 
 def _inputs(pool: list[str], role: str | None = None, objective: str = "lowest_cost") -> dict:
@@ -63,6 +73,17 @@ def test_every_native_spelling_resolves_for_every_role(
     row = model_30_adapter.model_30_inputs_to_features(validated).iloc[0]
 
     assert row[f"available_{role}_models"] == [public_id]
+
+
+@pytest.mark.parametrize(
+    ("model_id", "role"),
+    [(model, role) for model, roles in WAVEMILL_LADDER_MODELS.items() for role in roles],
+)
+def test_wavemill_ladder_models_resolve_for_their_roles(model_id: str, role: str) -> None:
+    validated = model_30_adapter.validate_nested_model_30_inputs(_inputs([model_id], role))
+    row = model_30_adapter.model_30_inputs_to_features(validated).iloc[0]
+
+    assert row[f"available_{role}_models"] == [model_id]
 
 
 @pytest.mark.parametrize("public_id", sorted(set(NATIVE_MODELS.values())))
