@@ -1,0 +1,90 @@
+{
+  "issue": "HOK-3023",
+  "purpose": "Shared conformance cases for the merge-time leakage validator. HOK-2818 dataset assembly and HOK-3021 experiment evaluation must run every case through their own call path and get the expected codes. An empty expect_codes means the columns pass.",
+  "cases": [
+    {
+      "name": "declared arm inputs pass",
+      "columns": ["feature.shape.loc_touched", "feature.history.file_commits_90d", "feature.process.review_count"],
+      "allow_segments": false,
+      "expect_codes": []
+    },
+    {
+      "name": "agent markers are arm inputs",
+      "columns": ["feature.agent.marker_present", "feature.agent.tool_family", "feature.agent.marked_commit_share"],
+      "allow_segments": false,
+      "expect_codes": []
+    },
+    {
+      "name": "the exact model name is not an arm input",
+      "columns": ["segment.agent.exact_model"],
+      "allow_segments": false,
+      "expect_codes": ["segment_in_arm_input"]
+    },
+    {
+      "name": "the exact model name can be reported as a segment",
+      "columns": ["segment.agent.exact_model", "segment.author.dependency_bot"],
+      "allow_segments": true,
+      "expect_codes": []
+    },
+    {
+      "name": "canary: a deliberate post-merge feature",
+      "columns": ["feature.process.reviews_after_merge"],
+      "allow_segments": false,
+      "expect_codes": ["undeclared_column"]
+    },
+    {
+      "name": "canary: a label namespace field",
+      "columns": ["label.corrective"],
+      "allow_segments": false,
+      "expect_codes": ["label_field"]
+    },
+    {
+      "name": "canary: a repair-pair field presented as a feature",
+      "columns": ["feature.shape.graph_distance"],
+      "allow_segments": false,
+      "expect_codes": ["denied_field"]
+    },
+    {
+      "name": "canary: an exclusion code",
+      "columns": ["exclusion_code"],
+      "allow_segments": false,
+      "expect_codes": ["denied_field"]
+    },
+    {
+      "name": "canary: a cause code",
+      "columns": ["cause_code"],
+      "allow_segments": false,
+      "expect_codes": ["denied_field"]
+    },
+    {
+      "name": "canary: a reland recorded after merge",
+      "columns": ["relanded_merge_shas"],
+      "allow_segments": false,
+      "expect_codes": ["denied_field"]
+    },
+    {
+      "name": "canary: labels as enumerated, not as at merge",
+      "columns": ["labels"],
+      "allow_segments": false,
+      "expect_codes": ["denied_field"]
+    },
+    {
+      "name": "a segment feature cannot be an arm input",
+      "columns": ["segment.provenance.review_rounds"],
+      "allow_segments": false,
+      "expect_codes": ["segment_in_arm_input"]
+    },
+    {
+      "name": "CI signals cannot be an arm input",
+      "columns": ["segment.ci.checks_failed_by_merge"],
+      "allow_segments": false,
+      "expect_codes": ["segment_in_arm_input"]
+    },
+    {
+      "name": "a segment feature can be reported as a segment",
+      "columns": ["segment.provenance.review_rounds"],
+      "allow_segments": true,
+      "expect_codes": []
+    }
+  ]
+}
