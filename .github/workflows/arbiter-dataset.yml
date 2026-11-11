@@ -1,0 +1,84 @@
+name: Arbiter dataset
+
+# HOK-2818: dataset assembly tests and the shared leakage conformance cases.
+# Blocking. The validator is built from a pinned hokusai-sdk commit, so these
+# tests run the same rules as the TypeScript callers (HOK-3023). Bump
+# HOKUSAI_SDK_SHA and the vendored tests/fixtures/arbiter/leakage-conformance.json
+# together; the conformance test fails if they disagree.
+
+on:
+  pull_request:
+    paths:
+      - 'src/arbiter/**'
+      - 'scripts/arbiter/**'
+      - 'tests/unit/arbiter/**'
+      - 'tests/fixtures/arbiter/**'
+      - '.github/workflows/arbiter-dataset.yml'
+  push:
+    branches: [main, auto/integration]
+    paths:
+      - 'src/arbiter/**'
+      - 'scripts/arbiter/**'
+      - 'tests/unit/arbiter/**'
+      - 'tests/fixtures/arbiter/**'
+      - '.github/workflows/arbiter-dataset.yml'
+
+env:
+  HOKUSAI_SDK_SHA: 78b57afcae695e45c90d1d998d41915f0f452cba
+
+jobs:
+  test:
+    name: Assembly and leakage conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out hokusai-sdk at the pinned commit
+        run: |
+          git clone --quiet https://github.com/Hokusai-protocol/hokusai-sdk.git ../hokusai-sdk
+          git -C ../hokusai-sdk checkout --quiet "$HOKUSAI_SDK_SHA"
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.11.0
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build the leakage validator
+        working-directory: ../hokusai-sdk
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter "@hokusai/scan^..." build
+          pnpm --filter @hokusai/scan exec esbuild src/cli.ts --bundle --platform=node \
+            --format=esm --target=node22 --log-level=error \
+            --banner:js="import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);" \
+            --outfile="$RUNNER_TEMP/hokusai-scan.mjs"
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --timeout=300 -r requirements.txt
+          pip install pytest pytest-timeout pyarrow
+
+      - name: Run tests
+        env:
+          HOKUSAI_SCAN_CMD: node ${{ runner.temp }}/hokusai-scan.mjs
+          HOKUSAI_SDK_DIR: ../hokusai-sdk
+          HOKUSAI_REQUIRE_VALIDATOR: '1'
+        run: pytest tests/unit/arbiter --no-cov -p no:randomly -v
