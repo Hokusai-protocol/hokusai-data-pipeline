@@ -252,9 +252,29 @@ def test_rows_from_another_manifest_are_rejected(tmp_path, fake_validator):
 
 
 def test_unpinned_target_definition_is_rejected(tmp_path, fake_validator):
-    c = build_corpus(tmp_path / "c", definition_version="cr-0.2.0")
-    with pytest.raises(LeakageError, match="not pinned"):
+    c = build_corpus(tmp_path / "c", definition_version="cr-0.9.0")
+    with pytest.raises(LeakageError, match="not listed"):
         _assemble(c)
+    with pytest.raises(LeakageError, match="not listed"):
+        _assemble(c, target_definition="cr-0.9.0")
+
+
+def test_cr_0_2_0_reads_its_own_label_file(tmp_path, fake_validator):
+    c = build_corpus(
+        tmp_path / "c", definition_version="cr-0.2.0", label_file="corrective.cr-0.2.0.jsonl.gz"
+    )
+    with pytest.raises(FileNotFoundError, match="corrective.jsonl.gz"):
+        _assemble(c)
+    ds = _assemble(c, target_definition="cr-0.2.0")
+    assert ds.provenance["target"]["definition_version"] == "cr-0.2.0"
+
+
+def test_label_file_holding_another_definition_is_rejected(tmp_path, fake_validator):
+    c = build_corpus(
+        tmp_path / "c", definition_version="cr-0.1.0", label_file="corrective.cr-0.2.0.jsonl.gz"
+    )
+    with pytest.raises(LeakageError, match="holds cr-0.1.0"):
+        _assemble(c, target_definition="cr-0.2.0")
 
 
 def test_validator_on_another_manifest_is_rejected(corpus, monkeypatch):

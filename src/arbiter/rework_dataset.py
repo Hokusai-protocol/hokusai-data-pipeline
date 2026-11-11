@@ -53,9 +53,22 @@ DATASET_SCHEMA_VERSION = "rework_risk_dataset/1.0.0"
 FEATURE_MANIFEST_VERSION = "rr-merge-features/1.0.0"
 LABEL_SCHEMA_VERSION = "1.1.0"
 TARGET_NAME = "corrective_rework"
-# The target is not yet pinned (HOK-3269). A new definition must be added here
-# on purpose, never picked up silently.
-TARGET_DEFINITIONS = frozenset({"cr-0.1.0"})
+# Definitions a dataset may be built on. A new definition must be added here on
+# purpose, never picked up silently. cr-0.2.0 (reverts and repair references
+# only) is the HOK-3269 candidate; HOK-3028's target is whichever one is pinned.
+DEFAULT_TARGET_DEFINITION = "cr-0.1.0"
+TARGET_DEFINITIONS = frozenset({"cr-0.1.0", "cr-0.2.0"})
+
+
+def corrective_file(definition: str) -> str:
+    """Return the label file name for a definition, as ``corpus-corrective(-derive)`` writes it."""
+    if definition not in TARGET_DEFINITIONS:
+        raise LeakageError(f"Target definition {definition} is not listed in TARGET_DEFINITIONS")
+    if definition == DEFAULT_TARGET_DEFINITION:
+        return "corrective.jsonl.gz"
+    return f"corrective.{definition}.jsonl.gz"
+
+
 HORIZONS = (14, 30, 60)
 DECISION_RECORD_CONTRACT = "wavemill:docs/arbiter/decision-record-contract.md@4389effb"
 SLICE_PROCEDURE = "hok-3028-evaluation-slice"
@@ -315,6 +328,7 @@ def assemble(
     slice_file: str | Path,
     split: SplitSpec,
     horizon_days: int = 30,
+    target_definition: str = DEFAULT_TARGET_DEFINITION,
     feature_columns: Sequence[str] | None = None,
     segment_columns: Sequence[str] = (),
     allow_segments: bool = False,
@@ -322,6 +336,7 @@ def assemble(
     provenance_weights: Mapping[str, float] | None = None,
 ) -> AssembledDataset:
     """Build a dataset from the development repos under the two roots."""
+    label_file = corrective_file(target_definition)
     if horizon_days not in HORIZONS:
         raise ValueError(f"horizon_days must be one of {HORIZONS}")
     if not isinstance(split, (TimeSplit, LeaveRepoOut)):
@@ -359,7 +374,7 @@ def assemble(
     for repo in chosen:
         label_dir = labels_root / _dir_name(repo)
         feature_path = available[repo]
-        corrective_path = label_dir / "corrective.jsonl.gz"
+        corrective_path = label_dir / label_file
         survival_path = label_dir / "s2.jsonl.gz"
         for path in (corrective_path, survival_path):
             if not path.exists():
@@ -416,6 +431,11 @@ def assemble(
             )
 
     versions = _check_label_meta(label_meta)
+    if versions["definition_version"] != target_definition:
+        raise LeakageError(
+            f"Asked for {target_definition}, but {label_file} holds "
+            f"{versions['definition_version']} labels"
+        )
     rows = pd.DataFrame.from_records(
         records, columns=[*META_COLUMNS, *feature_columns, *segment_columns]
     )
@@ -747,7 +767,7 @@ def _check_label_meta(meta: Mapping[str, set[Any]]) -> dict[str, Any]:
         raise LeakageError(f"Label schema {versions['label_schema_version']} is not supported")
     if versions["definition_version"] not in TARGET_DEFINITIONS:
         raise LeakageError(
-            f"Target definition {versions['definition_version']} is not pinned in "
+            f"Target definition {versions['definition_version']} is not listed in "
             "TARGET_DEFINITIONS"
         )
     versions["label_as_of"] = versions["label_as_of"].strftime("%Y-%m-%dT%H:%M:%SZ")

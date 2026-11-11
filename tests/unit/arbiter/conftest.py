@@ -39,6 +39,7 @@ def build_corpus(
     manifest_version: str = FEATURE_MANIFEST_VERSION,
     definition_version: str = "cr-0.1.0",
     provenance: str = "harvested",
+    label_file: str = "corrective.jsonl.gz",
 ) -> dict[str, Path]:
     """Write features and labels for three development repos and one sealed repo.
 
@@ -107,7 +108,7 @@ def build_corpus(
             corrective = [r for r in corrective if not r["prUrl"].endswith("/1003")]
             features = [f for f in features if f["pr_number"] != 1004]
         _gz(d / "features.jsonl.gz", features)
-        _gz(d / "corrective.jsonl.gz", corrective)
+        _gz(d / label_file, corrective)
         _gz(d / "s2.jsonl.gz", survival)
     slice_file = root / "slice.json"
     slice_file.write_text(

@@ -34,7 +34,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.arbiter.feature_audit import LeakageError  # noqa: E402
 from src.arbiter.rework_dataset import (  # noqa: E402
+    DEFAULT_TARGET_DEFINITION,
     HORIZONS,
+    TARGET_DEFINITIONS,
     LeaveRepoOut,
     TimeSplit,
     assemble,
@@ -64,6 +66,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--eval-from", help="time split: start of evaluation (default --train-until)")
     p.add_argument("--eval-repos", help="leave-repo-out: JSON array file (default every repo)")
     p.add_argument("--horizon", type=int, default=30, choices=HORIZONS)
+    p.add_argument(
+        "--target-definition",
+        default=DEFAULT_TARGET_DEFINITION,
+        choices=sorted(TARGET_DEFINITIONS),
+        help="corrective_rework definition (default %(default)s)",
+    )
     p.add_argument("--columns", help="JSON array file of feature columns (default all inputs)")
     p.add_argument("--segment-columns", help="JSON array file of segment.* columns to carry")
     p.add_argument("--allow-segments", action="store_true", help="carry segment columns")
@@ -87,6 +95,7 @@ def main(argv: list[str] | None = None) -> int:
             slice_file=args.slice,
             split=split,
             horizon_days=args.horizon,
+            target_definition=args.target_definition,
             feature_columns=_list(args.columns),
             segment_columns=_list(args.segment_columns) or (),
             allow_segments=args.allow_segments,
