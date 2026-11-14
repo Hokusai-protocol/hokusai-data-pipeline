@@ -73,6 +73,7 @@ def build_corpus(
                         "feature.agent.tool_family": "none",
                         "feature.content.title_sha256": "0" * 64,
                         "segment.ci.checks_failed_by_merge": i % 3,
+                        "segment.author.dependency_bot": i % 10 == 9,
                     },
                 }
             )
