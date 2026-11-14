@@ -1,5 +1,11 @@
 # Rework Risk baselines: trivial and classical JIT (HOK-3024)
 
+> **Pinned target rerun (2026-11-14).** The sections below are the first run, on
+> `cr-0.1.0`. HOK-3028 then pinned the target to `cr-0.2.0`: reverted or
+> explicitly repaired within 30 days. The rerun is in
+> [On the pinned target](#on-the-pinned-target-cr-020) at the end, and the
+> label-quality gate is still **go**.
+
 Arms 1 and 2 of the baseline ladder, on the 12 development repos only. The 6
 HOK-3028 evaluation-slice repos were never read. Target: 30-day
 `corrective_rework` (`cr-0.1.0`). Features: `rr-merge-features/1.0.0`, `feature.*`
@@ -75,3 +81,29 @@ There is one model per held-out repo, trained on the other 11.
   so report HOK-3028 results by period.
 - The pooled out-of-fold AUC in the JSON mixes 12 models with different base
   rates (the prior arm scores 0.36 there), so use the per-repo figures.
+
+## On the pinned target, `cr-0.2.0`
+
+The same arms, hyperparameters, rule and repos, rerun after HOK-3028 pinned
+`definition_version = cr-0.2.0` (hokusai-sdk#135). Nothing was tuned between the
+runs. Full results: `hok-3024-baselines-cr-0.2.0.json`. Training rows: 168,870, of
+which 3,979 (2.4%) are positive. Evaluation rows: 88,938, of which 1,744 (2.0%) are
+positive.
+
+| Time split, pooled | AUC `cr-0.1.0` | AUC `cr-0.2.0` | Top-decile capture `cr-0.1.0` | Top-decile capture `cr-0.2.0` (95% CI) |
+| --- | --- | --- | --- | --- |
+| Prior | 0.500 | 0.500 | 10.0% | 10.0% |
+| Trivial LR | 0.650 | 0.620 | 20.7% | 18.2% (16.4–20.0) |
+| JIT LR | 0.679 | 0.664 | 29.0% | 28.0% (26.1–30.2) |
+| JIT GBM | 0.704 | 0.700 | 30.5% | 30.8% (28.8–32.9) |
+
+Across leave-repo-out folds, all 12 repos keep an AUC of at least 0.55 for JIT
+GBM. The median AUC is 0.650 and the median top-decile capture is 24.1%. The
+label-quality checks pass: the time-split AUC CI lower bound is 0.687, the
+top-decile CI lower bound is 28.8%, and 12 of 12 repos reach AUC ≥ 0.55.
+
+The narrower target barely changes the ranking. JIT GBM keeps its AUC and its
+top-decile capture. The trivial and linear arms lose about 2–3 points, mostly
+because file churn is a weaker signal for reverts than for the SZZ and
+regression-issue labels that `cr-0.2.0` no longer admits. Calibration is still
+weak: Brier skill is about 0.01. Arm 2's GBM is still the floor arm 5 has to beat.
