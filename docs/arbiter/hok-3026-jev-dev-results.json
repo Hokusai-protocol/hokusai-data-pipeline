@@ -1,0 +1,153 @@
+{
+  "arms": {
+    "code_risk": {
+      "macro_top_decile_capture": 0.1927,
+      "per_repo_top_decile_capture": {
+        "max": 0.3929,
+        "median": 0.1795,
+        "min": 0.0,
+        "repos": 11
+      },
+      "pooled_auc": 0.6342,
+      "pooled_top_decile_capture": 0.2069
+    },
+    "composite": {
+      "macro_top_decile_capture": 0.2272,
+      "per_repo_top_decile_capture": {
+        "max": 0.4074,
+        "median": 0.2174,
+        "min": 0.1282,
+        "repos": 11
+      },
+      "pooled_auc": 0.675,
+      "pooled_top_decile_capture": 0.2192
+    },
+    "sensitivity_composite": {
+      "macro_top_decile_capture": 0.2502,
+      "per_repo_top_decile_capture": {
+        "max": 0.4444,
+        "median": 0.2353,
+        "min": 0.1273,
+        "repos": 11
+      },
+      "pooled_auc": 0.6934,
+      "pooled_top_decile_capture": 0.2528
+    },
+    "steelman_composite": {
+      "macro_top_decile_capture": 0.2385,
+      "per_repo_top_decile_capture": {
+        "max": 0.3929,
+        "median": 0.25,
+        "min": 0.087,
+        "repos": 11
+      },
+      "pooled_auc": 0.6823,
+      "pooled_top_decile_capture": 0.2405
+    }
+  },
+  "base_rate": 0.0223,
+  "chance_top_decile_capture": 0.1,
+  "diff_truncated_share": 0.1044,
+  "frozen_sha256": "9190f64ad0082d73dc84de4657943d27fceb5f4a7d5300137d43facebfa9adc4",
+  "issue": "HOK-3026",
+  "min_repo_positives": 10,
+  "model": "jev-1.14.0",
+  "positives": 894,
+  "question_set_version": "jev-qs/0.1.0",
+  "repos_with_enough_positives": 11,
+  "risk_terms": {
+    "blast_radius": {
+      "mean": 0.4595,
+      "pooled_auc": 0.6542,
+      "weight": 0.13
+    },
+    "change_type": {
+      "mean": 0.5027,
+      "pooled_auc": 0.601,
+      "weight": 0.1
+    },
+    "changes_public_interface": {
+      "mean": 0.5545,
+      "pooled_auc": 0.6238,
+      "weight": 0.07
+    },
+    "description_explains_change": {
+      "mean": 0.3578,
+      "pooled_auc": 0.4527,
+      "weight": 0.03
+    },
+    "environment_sensitive": {
+      "mean": 0.2802,
+      "pooled_auc": 0.6406,
+      "weight": 0.09
+    },
+    "logic_complexity": {
+      "mean": 0.4331,
+      "pooled_auc": 0.6826,
+      "weight": 0.11
+    },
+    "pattern_consistency": {
+      "mean": 0.1639,
+      "pooled_auc": 0.6547,
+      "weight": 0.04
+    },
+    "removes_safeguards": {
+      "mean": 0.1905,
+      "pooled_auc": 0.6237,
+      "weight": 0.07
+    },
+    "scope_exceeds_intent": {
+      "mean": 0.2972,
+      "pooled_auc": 0.6354,
+      "weight": 0.05
+    },
+    "test_adequacy": {
+      "mean": 0.4428,
+      "pooled_auc": 0.4709,
+      "weight": 0.11
+    },
+    "touches_auth_or_security": {
+      "mean": 0.0823,
+      "pooled_auc": 0.4635,
+      "weight": 0.04
+    },
+    "touches_concurrency": {
+      "mean": 0.1573,
+      "pooled_auc": 0.5726,
+      "weight": 0.06
+    },
+    "touches_persistence_or_format": {
+      "mean": 0.15,
+      "pooled_auc": 0.5304,
+      "weight": 0.05
+    },
+    "workaround_or_incomplete": {
+      "mean": 0.1955,
+      "pooled_auc": 0.605,
+      "weight": 0.05
+    }
+  },
+  "rows": 40000,
+  "sensitivity_minus_steelman": {
+    "ci95": [
+      -0.029,
+      0.0423
+    ],
+    "difference": 0.0117
+  },
+  "state_version": "jev-state/0.1.0",
+  "steelman_minus_code_risk": {
+    "ci95": [
+      0.0029,
+      0.1079
+    ],
+    "difference": 0.0458
+  },
+  "steelman_minus_composite": {
+    "ci95": [
+      -0.0401,
+      0.0555
+    ],
+    "difference": 0.0113
+  }
+}
