@@ -103,7 +103,7 @@ label-quality checks pass: the time-split AUC CI lower bound is 0.687, the
 top-decile CI lower bound is 28.8%, and 12 of 12 repos reach AUC ≥ 0.55.
 
 The narrower target barely changes the ranking. JIT GBM keeps its AUC and its
-top-decile capture. The trivial and linear arms lose about 2–3 points, mostly
-because file churn is a weaker signal for reverts than for the SZZ and
-regression-issue labels that `cr-0.2.0` no longer admits. Calibration is still
+top-decile capture. The trivial and linear arms lose about 2–3 points. A likely reason, not tested here, is that file churn
+tracks the SZZ and regression-issue labels `cr-0.2.0` no longer admits better
+than it tracks reverts. Calibration is still
 weak: Brier skill is about 0.01. Arm 2's GBM is still the floor arm 5 has to beat.
