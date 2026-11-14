@@ -209,4 +209,5 @@ def test_a_sample_cut_short_by_the_spend_cap_is_not_returned(
 
 def test_the_arm_is_registered_for_the_gate():
     assert ARM_FACTORIES[la.ARM_ID] is la.FrontierLlmArm
+    assert la.FrontierLlmArm.knowledge_cutoff == "2026-06-30"  # the gate record splits here
     assert REPO == "acme/widgets"
