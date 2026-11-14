@@ -319,3 +319,10 @@ def test_slice_repr_hides_contents():
         frozenset({"x/y"}), date(2026, 1, 1), date(2026, 1, 1) + timedelta(days=90), "ab" * 32
     )
     assert "x/y" not in repr(s) and "2026" not in repr(s)
+
+
+def test_stand_ins_fill_only_the_roles_asked_for():
+    assert RehearsalStandIns(("arm4",)).variants() == {"stand_in.arm4": "arm4"}
+    assert set(RehearsalStandIns().variants().values()) == {"arm4", "arm5"}
+    with pytest.raises(ValueError):
+        RehearsalStandIns(("arm6",))

@@ -51,7 +51,7 @@ from src.arbiter.gate import (  # noqa: E402
     rehearsal_slice,
     score_once,
 )
-from src.arbiter.gate_arms import ARM_FACTORIES, STAND_IN_ID  # noqa: E402
+from src.arbiter.gate_arms import ARM_FACTORIES, RehearsalStandIns  # noqa: E402
 
 CACHE = Path("~/hokusai-data/arbiter-corpus").expanduser()
 SLICE = Path("~/.hokusai-private/hok-3028-slice.json").expanduser()
@@ -69,7 +69,10 @@ def _categories() -> dict[str, list[str]]:
 def _arms(names: list[str], *, stand_ins: bool) -> list:
     arms = [ARM_FACTORIES[n]() for n in names]
     if stand_ins:
-        arms.append(ARM_FACTORIES[STAND_IN_ID]())
+        covered = {role for arm in arms for role in arm.variants().values()}
+        missing = tuple(r for r in ("arm4", "arm5") if r not in covered)
+        if missing:
+            arms.append(RehearsalStandIns(missing))
     return arms
 
 
@@ -81,7 +84,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--slice", default=SLICE, help="sealed HOK-3028 slice file (read, never echoed)")
     p.add_argument("--horizon", type=int, default=PRIMARY_HORIZON, choices=(14, 30, 60))
     p.add_argument("--arms", default="hok-3024-baselines", help="comma-separated registered arms")
-    p.add_argument("--stand-ins", action="store_true", help="rehearse: arms 1–2 stand in for 4–5")
+    p.add_argument(
+        "--stand-ins",
+        action="store_true",
+        help="rehearse: arms 1–2 stand in for arm 4 and/or 5 where no arm is registered",
+    )
     p.add_argument("--until", type=date.fromisoformat, help="rehearse: window end (exclusive)")
     p.add_argument("--resamples", type=int, default=RESAMPLES)
     p.add_argument("--seed", type=int, default=0)

@@ -71,15 +71,23 @@ STAND_IN_ID = "rehearsal-stand-ins"
 class RehearsalStandIns:
     """Rehearsal only: JIT LR stands in for arm 4 and JIT GBM for arm 5.
 
-    It lets the whole gate run on a rehearsal slice before arms 4 and 5 exist.
+    Only the roles no registered arm covers are filled. It lets the whole gate
+    run on a rehearsal slice before arms 4 and 5 exist.
     :func:`src.arbiter.gate.score_once` refuses it on the sealed slice.
     """
 
     arm_id = STAND_IN_ID
     version = REHEARSAL_VERSION
+    _SOURCE = {"arm4": "jit_lr", "arm5": "jit_gbm"}
+
+    def __init__(self, roles: tuple[str, ...] = ("arm4", "arm5")) -> None:
+        unknown = set(roles) - set(self._SOURCE)
+        if unknown or not roles:
+            raise ValueError(f"Stand-ins exist for {sorted(self._SOURCE)}, not {sorted(unknown)}")
+        self.roles = tuple(roles)
 
     def variants(self) -> Mapping[str, str]:
-        return {"stand_in.arm4": "arm4", "stand_in.arm5": "arm5"}
+        return {f"stand_in.{r}": r for r in self.roles}
 
     def fit(self, train: pd.DataFrame, context: ArmContext) -> dict[str, Any]:
         return BaselineArms().fit(train, context)
@@ -88,7 +96,7 @@ class RehearsalStandIns:
         self, fitted: Mapping[str, Any], rows: pd.DataFrame, context: ArmContext
     ) -> Mapping[str, pd.DataFrame]:
         scored = BaselineArms().score(fitted, rows, context)
-        return {"stand_in.arm4": scored["jit_lr"], "stand_in.arm5": scored["jit_gbm"]}
+        return {f"stand_in.{r}": scored[self._SOURCE[r]] for r in self.roles}
 
 
 ARM_FACTORIES: dict[str, Callable[[], ArmAdapter]] = {
