@@ -1,0 +1,221 @@
+{
+  "arm_version": "llm-snap/0.1.0",
+  "chance_top_decile_capture": 0.1,
+  "effort": "medium",
+  "frozen_sha256": "88b8514d22debf57f25992a425b35757ac3244eebe0a52566e20bd9e25dd062b",
+  "issue": "HOK-3027",
+  "knowledge_cutoff": "2026-06-30",
+  "min_repo_positives": 10,
+  "model": "claude-opus-5-5",
+  "periods": {
+    "after": {
+      "arms": {
+        "code_risk": {
+          "macro_auc": 0.6494,
+          "macro_top_decile_capture": 0.2013,
+          "per_repo_top_decile_capture": {
+            "max": 0.5,
+            "median": 0.1796,
+            "min": 0.0
+          },
+          "pooled_auc": 0.5886,
+          "pooled_top_decile_capture": 0.1293,
+          "repos": 6
+        },
+        "frontier_llm": {
+          "macro_auc": 0.7739,
+          "macro_brier": 0.0251,
+          "macro_ece": 0.0775,
+          "macro_top_decile_capture": 0.4504,
+          "mean_stated_probability": 0.0975,
+          "per_repo_top_decile_capture": {
+            "max": 0.9091,
+            "median": 0.3645,
+            "min": 0.2727
+          },
+          "pooled_auc": 0.7944,
+          "pooled_brier": 0.0244,
+          "pooled_ece": 0.0809,
+          "pooled_top_decile_capture": 0.4688,
+          "repos": 6
+        },
+        "frontier_llm.questions": {
+          "macro_auc": 0.717,
+          "macro_top_decile_capture": 0.331,
+          "per_repo_top_decile_capture": {
+            "max": 0.3952,
+            "median": 0.3371,
+            "min": 0.2727
+          },
+          "pooled_auc": 0.7358,
+          "pooled_top_decile_capture": 0.3725,
+          "repos": 6
+        },
+        "jev.questions": {
+          "macro_auc": 0.708,
+          "macro_top_decile_capture": 0.3096,
+          "per_repo_top_decile_capture": {
+            "max": 0.4545,
+            "median": 0.2921,
+            "min": 0.16
+          },
+          "pooled_auc": 0.6866,
+          "pooled_top_decile_capture": 0.2801,
+          "repos": 6
+        },
+        "jev.steelman": {
+          "macro_auc": 0.7019,
+          "macro_top_decile_capture": 0.2786,
+          "per_repo_top_decile_capture": {
+            "max": 0.5227,
+            "median": 0.2038,
+            "min": 0.12
+          },
+          "pooled_auc": 0.661,
+          "pooled_top_decile_capture": 0.175,
+          "repos": 6
+        }
+      },
+      "differences_in_macro_top_decile_capture": {
+        "frontier_llm.questions_minus_jev.questions": {
+          "ci95": [
+            -0.089,
+            0.1356
+          ],
+          "difference": 0.0213
+        },
+        "frontier_llm_minus_code_risk": {
+          "ci95": [
+            -0.002,
+            0.4399
+          ],
+          "difference": 0.2491
+        },
+        "frontier_llm_minus_jev.steelman": {
+          "ci95": [
+            -0.0349,
+            0.3545
+          ],
+          "difference": 0.1718
+        }
+      },
+      "mean_tokens_per_pr": {
+        "cache_creation_input_tokens": 14.36,
+        "cache_read_input_tokens": 3216.64,
+        "input_tokens": 8435.4767,
+        "output_tokens": 265.9489
+      },
+      "mean_usd_per_pr": 0.0398,
+      "population_base_rate": 0.0165,
+      "population_rows": 17227,
+      "positives_scored": 250,
+      "rows_scored": 900
+    },
+    "before": {
+      "arms": {
+        "code_risk": {
+          "macro_auc": 0.6324,
+          "macro_top_decile_capture": 0.2104,
+          "per_repo_top_decile_capture": {
+            "max": 0.2963,
+            "median": 0.2361,
+            "min": 0.0952
+          },
+          "pooled_auc": 0.6138,
+          "pooled_top_decile_capture": 0.1686,
+          "repos": 6
+        },
+        "frontier_llm": {
+          "macro_auc": 0.7656,
+          "macro_brier": 0.0321,
+          "macro_ece": 0.086,
+          "macro_top_decile_capture": 0.4108,
+          "mean_stated_probability": 0.1058,
+          "per_repo_top_decile_capture": {
+            "max": 0.6111,
+            "median": 0.3988,
+            "min": 0.1724
+          },
+          "pooled_auc": 0.8009,
+          "pooled_brier": 0.031,
+          "pooled_ece": 0.0841,
+          "pooled_top_decile_capture": 0.4443,
+          "repos": 6
+        },
+        "frontier_llm.questions": {
+          "macro_auc": 0.6706,
+          "macro_top_decile_capture": 0.2168,
+          "per_repo_top_decile_capture": {
+            "max": 0.3333,
+            "median": 0.2407,
+            "min": 0.0345
+          },
+          "pooled_auc": 0.6695,
+          "pooled_top_decile_capture": 0.2299,
+          "repos": 6
+        },
+        "jev.questions": {
+          "macro_auc": 0.6592,
+          "macro_top_decile_capture": 0.2172,
+          "per_repo_top_decile_capture": {
+            "max": 0.4167,
+            "median": 0.2222,
+            "min": 0.0952
+          },
+          "pooled_auc": 0.6366,
+          "pooled_top_decile_capture": 0.2068,
+          "repos": 6
+        },
+        "jev.steelman": {
+          "macro_auc": 0.6697,
+          "macro_top_decile_capture": 0.1884,
+          "per_repo_top_decile_capture": {
+            "max": 0.2696,
+            "median": 0.2141,
+            "min": 0.0345
+          },
+          "pooled_auc": 0.6524,
+          "pooled_top_decile_capture": 0.1781,
+          "repos": 6
+        }
+      },
+      "differences_in_macro_top_decile_capture": {
+        "frontier_llm.questions_minus_jev.questions": {
+          "ci95": [
+            -0.125,
+            0.0825
+          ],
+          "difference": -0.0004
+        },
+        "frontier_llm_minus_code_risk": {
+          "ci95": [
+            0.0548,
+            0.3454
+          ],
+          "difference": 0.2003
+        },
+        "frontier_llm_minus_jev.steelman": {
+          "ci95": [
+            0.0655,
+            0.3238
+          ],
+          "difference": 0.2224
+        }
+      },
+      "mean_tokens_per_pr": {
+        "cache_creation_input_tokens": 0.0,
+        "cache_read_input_tokens": 3231.0,
+        "input_tokens": 7258.3544,
+        "output_tokens": 272.9467
+      },
+      "mean_usd_per_pr": 0.0351,
+      "population_base_rate": 0.0217,
+      "population_rows": 138764,
+      "positives_scored": 250,
+      "rows_scored": 900
+    }
+  },
+  "question_set_version": "jev-qs/0.1.0",
+  "state_version": "jev-state/0.1.0",
+  "total_usd": 67.4231
+}
