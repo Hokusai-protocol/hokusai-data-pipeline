@@ -1,0 +1,953 @@
+{
+  "datasets": {
+    "leave_repo_out": {
+      "dataset_schema_version": "rework_risk_dataset/1.0.0",
+      "development_repos": 12,
+      "evaluation_slice_sha256": "a1a436e57183aa141cfe1b45bc7a7f50f393c648c24139dd6703ee4abdb09886",
+      "feature_manifest_version": "rr-merge-features/1.0.0",
+      "positives": 5961,
+      "provenance_sha256": "6de3995b5dbc1a72479708b292745aacc317ee09b4ba3d1f386df990e7318fb1",
+      "rows": 268475,
+      "split": {
+        "eval_repos": null,
+        "mode": "leave_repo_out",
+        "train_repos": null
+      },
+      "target": {
+        "definition_version": "cr-0.2.0",
+        "horizon_days": 30,
+        "label_as_of": "2026-10-20T00:00:00Z",
+        "label_schema_version": "1.1.0",
+        "labeller_version": "1.0.0",
+        "name": "corrective_rework",
+        "survival_labeller_version": "1.4.0"
+      }
+    },
+    "time_split": {
+      "dataset_schema_version": "rework_risk_dataset/1.0.0",
+      "development_repos": 12,
+      "evaluation_slice_sha256": "a1a436e57183aa141cfe1b45bc7a7f50f393c648c24139dd6703ee4abdb09886",
+      "feature_manifest_version": "rr-merge-features/1.0.0",
+      "positives": 5961,
+      "provenance_sha256": "bb0a5d4fb11223feb4bccbe3dfa759ce4dddad19db001dc7fa20df106d942eeb",
+      "rows": 268475,
+      "split": {
+        "eval_from": "2026-02-01",
+        "mode": "time",
+        "train_until": "2026-02-01"
+      },
+      "target": {
+        "definition_version": "cr-0.2.0",
+        "horizon_days": 30,
+        "label_as_of": "2026-10-20T00:00:00Z",
+        "label_schema_version": "1.1.0",
+        "labeller_version": "1.0.0",
+        "name": "corrective_rework",
+        "survival_labeller_version": "1.4.0"
+      }
+    }
+  },
+  "fixed_parameters": {
+    "bootstrap_resamples": 500,
+    "ece_bins": 10,
+    "gradient_boosting": {
+      "early_stopping": true,
+      "learning_rate": 0.05,
+      "max_iter": 300,
+      "random_state": 0,
+      "validation_fraction": 0.1
+    },
+    "logistic_regression": {
+      "C": 1.0,
+      "max_iter": 2000
+    },
+    "seed": 20261111,
+    "top_fraction": 0.1,
+    "trivial_features": {
+      "feature.author.repo_commits_prior": -1,
+      "feature.history.file_commits_90d": 1,
+      "feature.shape.files_touched": 1,
+      "feature.shape.loc_touched": 1
+    }
+  },
+  "issue": "HOK-3024",
+  "label_quality": {
+    "arm": "jit_gbm",
+    "checks": {
+      "lro_repo_share_auc_ge_min": [
+        1.0,
+        true
+      ],
+      "time_auc_ci_low": [
+        0.687,
+        true
+      ],
+      "time_top_decile_ci_low": [
+        0.2882,
+        true
+      ]
+    },
+    "decision": "go",
+    "rule": {
+      "lro_repo_auc_min": 0.55,
+      "lro_repo_share_min": 0.75,
+      "time_auc_ci_low_min": 0.55,
+      "time_top_decile_ci_low_min": 0.15
+    }
+  },
+  "leave_repo_out": {
+    "per_repo_distribution": {
+      "jit_gbm": {
+        "auc": {
+          "at_least_0.55": 12,
+          "max": 0.7181,
+          "median": 0.6502,
+          "min": 0.5715,
+          "repos": 12
+        },
+        "brier_skill": {
+          "at_least_0.55": null,
+          "max": 0.0191,
+          "median": -0.0226,
+          "min": -0.1288,
+          "repos": 12
+        },
+        "ece": {
+          "at_least_0.55": null,
+          "max": 0.0253,
+          "median": 0.0145,
+          "min": 0.0043,
+          "repos": 12
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.3155,
+          "median": 0.2407,
+          "min": 0.172,
+          "repos": 12
+        }
+      },
+      "jit_lr": {
+        "auc": {
+          "at_least_0.55": 12,
+          "max": 0.7105,
+          "median": 0.6603,
+          "min": 0.5679,
+          "repos": 12
+        },
+        "brier_skill": {
+          "at_least_0.55": null,
+          "max": 0.0205,
+          "median": -0.0022,
+          "min": -0.0519,
+          "repos": 12
+        },
+        "ece": {
+          "at_least_0.55": null,
+          "max": 0.0249,
+          "median": 0.0147,
+          "min": 0.0042,
+          "repos": 12
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.3478,
+          "median": 0.2383,
+          "min": 0.1398,
+          "repos": 12
+        }
+      },
+      "prior": {
+        "auc": {
+          "at_least_0.55": 0,
+          "max": 0.5,
+          "median": 0.5,
+          "min": 0.5,
+          "repos": 12
+        },
+        "brier_skill": {
+          "at_least_0.55": null,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "repos": 12
+        },
+        "ece": {
+          "at_least_0.55": null,
+          "max": 0.0273,
+          "median": 0.0115,
+          "min": 0.0012,
+          "repos": 12
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.1,
+          "median": 0.1,
+          "min": 0.1,
+          "repos": 12
+        }
+      },
+      "trivial.feature.author.repo_commits_prior": {
+        "auc": {
+          "at_least_0.55": 1,
+          "max": 0.5566,
+          "median": 0.5158,
+          "min": 0.4626,
+          "repos": 12
+        },
+        "brier_skill": {
+          "repos": 0
+        },
+        "ece": {
+          "repos": 0
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.1398,
+          "median": 0.1022,
+          "min": 0.0515,
+          "repos": 12
+        }
+      },
+      "trivial.feature.history.file_commits_90d": {
+        "auc": {
+          "at_least_0.55": 9,
+          "max": 0.6343,
+          "median": 0.5753,
+          "min": 0.5199,
+          "repos": 12
+        },
+        "brier_skill": {
+          "repos": 0
+        },
+        "ece": {
+          "repos": 0
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.2184,
+          "median": 0.1634,
+          "min": 0.0517,
+          "repos": 12
+        }
+      },
+      "trivial.feature.shape.files_touched": {
+        "auc": {
+          "at_least_0.55": 12,
+          "max": 0.6809,
+          "median": 0.6126,
+          "min": 0.5509,
+          "repos": 12
+        },
+        "brier_skill": {
+          "repos": 0
+        },
+        "ece": {
+          "repos": 0
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.248,
+          "median": 0.1906,
+          "min": 0.1466,
+          "repos": 12
+        }
+      },
+      "trivial.feature.shape.loc_touched": {
+        "auc": {
+          "at_least_0.55": 12,
+          "max": 0.7003,
+          "median": 0.6316,
+          "min": 0.5843,
+          "repos": 12
+        },
+        "brier_skill": {
+          "repos": 0
+        },
+        "ece": {
+          "repos": 0
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.2441,
+          "median": 0.2093,
+          "min": 0.0862,
+          "repos": 12
+        }
+      },
+      "trivial_lr": {
+        "auc": {
+          "at_least_0.55": 12,
+          "max": 0.7018,
+          "median": 0.6339,
+          "min": 0.5802,
+          "repos": 12
+        },
+        "brier_skill": {
+          "at_least_0.55": null,
+          "max": 0.0149,
+          "median": -0.0007,
+          "min": -0.0361,
+          "repos": 12
+        },
+        "ece": {
+          "at_least_0.55": null,
+          "max": 0.0275,
+          "median": 0.0128,
+          "min": 0.0038,
+          "repos": 12
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.2661,
+          "median": 0.2132,
+          "min": 0.1121,
+          "repos": 12
+        }
+      }
+    },
+    "pooled_out_of_fold": {
+      "jit_gbm": {
+        "auc": 0.6251,
+        "top_decile_capture": 0.1818
+      },
+      "jit_lr": {
+        "auc": 0.6407,
+        "top_decile_capture": 0.2147
+      },
+      "prior": {
+        "auc": 0.3441,
+        "top_decile_capture": 0.029
+      },
+      "trivial.feature.author.repo_commits_prior": {
+        "auc": 0.5218,
+        "top_decile_capture": 0.0796
+      },
+      "trivial.feature.history.file_commits_90d": {
+        "auc": 0.5711,
+        "top_decile_capture": 0.1295
+      },
+      "trivial.feature.shape.files_touched": {
+        "auc": 0.6392,
+        "top_decile_capture": 0.206
+      },
+      "trivial.feature.shape.loc_touched": {
+        "auc": 0.6499,
+        "top_decile_capture": 0.2016
+      },
+      "trivial_lr": {
+        "auc": 0.5693,
+        "top_decile_capture": 0.1345
+      }
+    }
+  },
+  "time_split": {
+    "by_quarter": {
+      "2026Q1": {
+        "jit_gbm": {
+          "auc": 0.7068,
+          "brier": 0.0203,
+          "brier_skill": 0.0152,
+          "ece": 0.0041,
+          "mean_predicted": 0.0249,
+          "observed_rate": 0.0211,
+          "positives": 575,
+          "rows": 27277,
+          "top_decile_capture": 0.3056
+        },
+        "jit_lr": {
+          "auc": 0.6625,
+          "brier": 0.0204,
+          "brier_skill": 0.01,
+          "ece": 0.0051,
+          "mean_predicted": 0.023,
+          "observed_rate": 0.0211,
+          "positives": 575,
+          "rows": 27277,
+          "top_decile_capture": 0.269
+        },
+        "prior": {
+          "auc": 0.5,
+          "brier": 0.0206,
+          "brier_skill": 0.0,
+          "ece": 0.0025,
+          "mean_predicted": 0.0236,
+          "observed_rate": 0.0211,
+          "positives": 575,
+          "rows": 27277,
+          "top_decile_capture": 0.1
+        },
+        "trivial.feature.author.repo_commits_prior": {
+          "auc": 0.4921,
+          "positives": 575,
+          "rows": 27277,
+          "top_decile_capture": 0.072
+        },
+        "trivial.feature.history.file_commits_90d": {
+          "auc": 0.5772,
+          "positives": 575,
+          "rows": 27277,
+          "top_decile_capture": 0.1358
+        },
+        "trivial.feature.shape.files_touched": {
+          "auc": 0.629,
+          "positives": 575,
+          "rows": 27277,
+          "top_decile_capture": 0.1952
+        },
+        "trivial.feature.shape.loc_touched": {
+          "auc": 0.622,
+          "positives": 575,
+          "rows": 27277,
+          "top_decile_capture": 0.1739
+        },
+        "trivial_lr": {
+          "auc": 0.6215,
+          "brier": 0.0206,
+          "brier_skill": 0.0011,
+          "ece": 0.0041,
+          "mean_predicted": 0.0246,
+          "observed_rate": 0.0211,
+          "positives": 575,
+          "rows": 27277,
+          "top_decile_capture": 0.1809
+        }
+      },
+      "2026Q2": {
+        "jit_gbm": {
+          "auc": 0.6911,
+          "brier": 0.0195,
+          "brier_skill": 0.0116,
+          "ece": 0.0057,
+          "mean_predicted": 0.0258,
+          "observed_rate": 0.0202,
+          "positives": 882,
+          "rows": 43729,
+          "top_decile_capture": 0.3073
+        },
+        "jit_lr": {
+          "auc": 0.6533,
+          "brier": 0.0196,
+          "brier_skill": 0.0094,
+          "ece": 0.0052,
+          "mean_predicted": 0.0221,
+          "observed_rate": 0.0202,
+          "positives": 882,
+          "rows": 43729,
+          "top_decile_capture": 0.2664
+        },
+        "prior": {
+          "auc": 0.5,
+          "brier": 0.0198,
+          "brier_skill": 0.0,
+          "ece": 0.0034,
+          "mean_predicted": 0.0236,
+          "observed_rate": 0.0202,
+          "positives": 882,
+          "rows": 43729,
+          "top_decile_capture": 0.1
+        },
+        "trivial.feature.author.repo_commits_prior": {
+          "auc": 0.4903,
+          "positives": 882,
+          "rows": 43729,
+          "top_decile_capture": 0.0672
+        },
+        "trivial.feature.history.file_commits_90d": {
+          "auc": 0.5614,
+          "positives": 882,
+          "rows": 43729,
+          "top_decile_capture": 0.1043
+        },
+        "trivial.feature.shape.files_touched": {
+          "auc": 0.6174,
+          "positives": 882,
+          "rows": 43729,
+          "top_decile_capture": 0.2001
+        },
+        "trivial.feature.shape.loc_touched": {
+          "auc": 0.6229,
+          "positives": 882,
+          "rows": 43729,
+          "top_decile_capture": 0.1746
+        },
+        "trivial_lr": {
+          "auc": 0.6203,
+          "brier": 0.0198,
+          "brier_skill": -0.0015,
+          "ece": 0.0061,
+          "mean_predicted": 0.0256,
+          "observed_rate": 0.0202,
+          "positives": 882,
+          "rows": 43729,
+          "top_decile_capture": 0.1791
+        }
+      },
+      "2026Q3": {
+        "jit_gbm": {
+          "auc": 0.7233,
+          "brier": 0.0158,
+          "brier_skill": 0.0033,
+          "ece": 0.0116,
+          "mean_predicted": 0.0276,
+          "observed_rate": 0.016,
+          "positives": 287,
+          "rows": 17932,
+          "top_decile_capture": 0.338
+        },
+        "jit_lr": {
+          "auc": 0.698,
+          "brier": 0.0157,
+          "brier_skill": 0.0065,
+          "ece": 0.0067,
+          "mean_predicted": 0.0217,
+          "observed_rate": 0.016,
+          "positives": 287,
+          "rows": 17932,
+          "top_decile_capture": 0.3345
+        },
+        "prior": {
+          "auc": 0.5,
+          "brier": 0.0158,
+          "brier_skill": 0.0,
+          "ece": 0.0076,
+          "mean_predicted": 0.0236,
+          "observed_rate": 0.016,
+          "positives": 287,
+          "rows": 17932,
+          "top_decile_capture": 0.1
+        },
+        "trivial.feature.author.repo_commits_prior": {
+          "auc": 0.4659,
+          "positives": 287,
+          "rows": 17932,
+          "top_decile_capture": 0.0523
+        },
+        "trivial.feature.history.file_commits_90d": {
+          "auc": 0.5689,
+          "positives": 287,
+          "rows": 17932,
+          "top_decile_capture": 0.1045
+        },
+        "trivial.feature.shape.files_touched": {
+          "auc": 0.6257,
+          "positives": 287,
+          "rows": 17932,
+          "top_decile_capture": 0.2089
+        },
+        "trivial.feature.shape.loc_touched": {
+          "auc": 0.6379,
+          "positives": 287,
+          "rows": 17932,
+          "top_decile_capture": 0.2056
+        },
+        "trivial_lr": {
+          "auc": 0.6273,
+          "brier": 0.016,
+          "brier_skill": -0.0109,
+          "ece": 0.0116,
+          "mean_predicted": 0.0276,
+          "observed_rate": 0.016,
+          "positives": 287,
+          "rows": 17932,
+          "top_decile_capture": 0.1916
+        }
+      }
+    },
+    "per_repo_distribution": {
+      "jit_gbm": {
+        "auc": {
+          "at_least_0.55": 12,
+          "max": 0.7673,
+          "median": 0.6371,
+          "min": 0.5513,
+          "repos": 12
+        },
+        "brier_skill": {
+          "at_least_0.55": null,
+          "max": 0.058,
+          "median": 0.0008,
+          "min": -0.064,
+          "repos": 12
+        },
+        "ece": {
+          "at_least_0.55": null,
+          "max": 0.0188,
+          "median": 0.014,
+          "min": 0.005,
+          "repos": 12
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.4423,
+          "median": 0.254,
+          "min": 0.1081,
+          "repos": 12
+        }
+      },
+      "jit_lr": {
+        "auc": {
+          "at_least_0.55": 11,
+          "max": 0.7633,
+          "median": 0.6299,
+          "min": 0.5066,
+          "repos": 12
+        },
+        "brier_skill": {
+          "at_least_0.55": null,
+          "max": 0.0367,
+          "median": -0.0043,
+          "min": -0.0653,
+          "repos": 12
+        },
+        "ece": {
+          "at_least_0.55": null,
+          "max": 0.0196,
+          "median": 0.0118,
+          "min": 0.0079,
+          "repos": 12
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.4615,
+          "median": 0.2077,
+          "min": 0.0952,
+          "repos": 12
+        }
+      },
+      "prior": {
+        "auc": {
+          "at_least_0.55": 0,
+          "max": 0.5,
+          "median": 0.5,
+          "min": 0.5,
+          "repos": 12
+        },
+        "brier_skill": {
+          "at_least_0.55": null,
+          "max": 0.0,
+          "median": 0.0,
+          "min": 0.0,
+          "repos": 12
+        },
+        "ece": {
+          "at_least_0.55": null,
+          "max": 0.0181,
+          "median": 0.0117,
+          "min": 0.0028,
+          "repos": 12
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.1,
+          "median": 0.1,
+          "min": 0.1,
+          "repos": 12
+        }
+      },
+      "trivial.feature.author.repo_commits_prior": {
+        "auc": {
+          "at_least_0.55": 3,
+          "max": 0.5884,
+          "median": 0.4988,
+          "min": 0.3908,
+          "repos": 12
+        },
+        "brier_skill": {
+          "repos": 0
+        },
+        "ece": {
+          "repos": 0
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.1556,
+          "median": 0.0833,
+          "min": 0.0335,
+          "repos": 12
+        }
+      },
+      "trivial.feature.history.file_commits_90d": {
+        "auc": {
+          "at_least_0.55": 7,
+          "max": 0.671,
+          "median": 0.568,
+          "min": 0.4962,
+          "repos": 12
+        },
+        "brier_skill": {
+          "repos": 0
+        },
+        "ece": {
+          "repos": 0
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.2222,
+          "median": 0.1258,
+          "min": 0.0444,
+          "repos": 12
+        }
+      },
+      "trivial.feature.shape.files_touched": {
+        "auc": {
+          "at_least_0.55": 9,
+          "max": 0.6942,
+          "median": 0.6244,
+          "min": 0.4296,
+          "repos": 12
+        },
+        "brier_skill": {
+          "repos": 0
+        },
+        "ece": {
+          "repos": 0
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.2889,
+          "median": 0.1741,
+          "min": 0.0541,
+          "repos": 12
+        }
+      },
+      "trivial.feature.shape.loc_touched": {
+        "auc": {
+          "at_least_0.55": 11,
+          "max": 0.7052,
+          "median": 0.6004,
+          "min": 0.5331,
+          "repos": 12
+        },
+        "brier_skill": {
+          "repos": 0
+        },
+        "ece": {
+          "repos": 0
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.2692,
+          "median": 0.1922,
+          "min": 0.0,
+          "repos": 12
+        }
+      },
+      "trivial_lr": {
+        "auc": {
+          "at_least_0.55": 10,
+          "max": 0.7125,
+          "median": 0.619,
+          "min": 0.5008,
+          "repos": 12
+        },
+        "brier_skill": {
+          "at_least_0.55": null,
+          "max": 0.0092,
+          "median": -0.0063,
+          "min": -0.0405,
+          "repos": 12
+        },
+        "ece": {
+          "at_least_0.55": null,
+          "max": 0.0204,
+          "median": 0.0145,
+          "min": 0.0095,
+          "repos": 12
+        },
+        "top_decile_capture": {
+          "at_least_0.55": null,
+          "max": 0.3077,
+          "median": 0.1623,
+          "min": 0.0,
+          "repos": 12
+        }
+      }
+    },
+    "pooled": {
+      "jit_gbm": {
+        "auc": 0.7001,
+        "brier": 0.019,
+        "brier_skill": 0.0114,
+        "ci95": {
+          "auc": [
+            0.687,
+            0.7128
+          ],
+          "brier_skill": [
+            0.007,
+            0.0157
+          ],
+          "ece": [
+            0.0054,
+            0.0071
+          ],
+          "top_decile_capture": [
+            0.2882,
+            0.3289
+          ]
+        },
+        "ece": 0.0063,
+        "mean_predicted": 0.0259,
+        "observed_rate": 0.0196,
+        "positives": 1744,
+        "rows": 88938,
+        "top_decile_capture": 0.3079
+      },
+      "jit_lr": {
+        "auc": 0.6642,
+        "brier": 0.0191,
+        "brier_skill": 0.0091,
+        "ci95": {
+          "auc": [
+            0.6503,
+            0.6791
+          ],
+          "brier_skill": [
+            0.0054,
+            0.013
+          ],
+          "ece": [
+            0.0044,
+            0.0062
+          ],
+          "top_decile_capture": [
+            0.2605,
+            0.3016
+          ]
+        },
+        "ece": 0.0051,
+        "mean_predicted": 0.0223,
+        "observed_rate": 0.0196,
+        "positives": 1744,
+        "rows": 88938,
+        "top_decile_capture": 0.2804
+      },
+      "prior": {
+        "auc": 0.5,
+        "brier": 0.0192,
+        "brier_skill": 0.0,
+        "ci95": {
+          "auc": [
+            0.5,
+            0.5
+          ],
+          "brier_skill": [
+            0.0,
+            0.0
+          ],
+          "ece": [
+            0.0031,
+            0.0048
+          ],
+          "top_decile_capture": [
+            0.1,
+            0.1
+          ]
+        },
+        "ece": 0.004,
+        "mean_predicted": 0.0236,
+        "observed_rate": 0.0196,
+        "positives": 1744,
+        "rows": 88938,
+        "top_decile_capture": 0.1
+      },
+      "trivial.feature.author.repo_commits_prior": {
+        "auc": 0.486,
+        "ci95": {
+          "auc": [
+            0.4732,
+            0.4993
+          ],
+          "top_decile_capture": [
+            0.0561,
+            0.0739
+          ]
+        },
+        "positives": 1744,
+        "rows": 88938,
+        "top_decile_capture": 0.0647
+      },
+      "trivial.feature.history.file_commits_90d": {
+        "auc": 0.5663,
+        "ci95": {
+          "auc": [
+            0.5524,
+            0.5798
+          ],
+          "top_decile_capture": [
+            0.0928,
+            0.1227
+          ]
+        },
+        "positives": 1744,
+        "rows": 88938,
+        "top_decile_capture": 0.1067
+      },
+      "trivial.feature.shape.files_touched": {
+        "auc": 0.6214,
+        "ci95": {
+          "auc": [
+            0.6088,
+            0.6359
+          ],
+          "top_decile_capture": [
+            0.1814,
+            0.2195
+          ]
+        },
+        "positives": 1744,
+        "rows": 88938,
+        "top_decile_capture": 0.1996
+      },
+      "trivial.feature.shape.loc_touched": {
+        "auc": 0.6231,
+        "ci95": {
+          "auc": [
+            0.6114,
+            0.6368
+          ],
+          "top_decile_capture": [
+            0.1573,
+            0.1903
+          ]
+        },
+        "positives": 1744,
+        "rows": 88938,
+        "top_decile_capture": 0.1743
+      },
+      "trivial_lr": {
+        "auc": 0.62,
+        "brier": 0.0193,
+        "brier_skill": -0.0022,
+        "ci95": {
+          "auc": [
+            0.6084,
+            0.634
+          ],
+          "brier_skill": [
+            -0.0042,
+            -0.0001
+          ],
+          "ece": [
+            0.0055,
+            0.0071
+          ],
+          "top_decile_capture": [
+            0.1642,
+            0.2003
+          ]
+        },
+        "ece": 0.0062,
+        "mean_predicted": 0.0257,
+        "observed_rate": 0.0196,
+        "positives": 1744,
+        "rows": 88938,
+        "top_decile_capture": 0.1818
+      }
+    },
+    "train_positives": 3979,
+    "train_rate": 0.0236,
+    "train_rows": 168870
+  }
+}

@@ -11,7 +11,11 @@ from typing import Any
 
 import pytest
 
-from src.arbiter.rework_dataset import FEATURE_MANIFEST_VERSION
+from src.arbiter.rework_dataset import (
+    DEFAULT_TARGET_DEFINITION,
+    FEATURE_MANIFEST_VERSION,
+    corrective_file,
+)
 
 FAKE_VALIDATOR = (
     Path(__file__).resolve().parents[2] / "fixtures" / "arbiter" / "fake_feature_audit.py"
@@ -37,9 +41,9 @@ def build_corpus(
     root: Path,
     *,
     manifest_version: str = FEATURE_MANIFEST_VERSION,
-    definition_version: str = "cr-0.1.0",
+    definition_version: str = DEFAULT_TARGET_DEFINITION,
     provenance: str = "harvested",
-    label_file: str = "corrective.jsonl.gz",
+    label_file: str | None = None,
 ) -> dict[str, Path]:
     """Write features and labels for three development repos and one sealed repo.
 
@@ -108,7 +112,7 @@ def build_corpus(
             corrective = [r for r in corrective if not r["prUrl"].endswith("/1003")]
             features = [f for f in features if f["pr_number"] != 1004]
         _gz(d / "features.jsonl.gz", features)
-        _gz(d / label_file, corrective)
+        _gz(d / (label_file or corrective_file(definition_version)), corrective)
         _gz(d / "s2.jsonl.gz", survival)
     slice_file = root / "slice.json"
     slice_file.write_text(
