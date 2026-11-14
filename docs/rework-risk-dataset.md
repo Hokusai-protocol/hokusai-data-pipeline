@@ -13,7 +13,9 @@ Both roots hold one `<owner>__<name>/` directory per repo.
 | Input | File | Published at |
 | --- | --- | --- |
 | Merge-time features, `rr-merge-features/1.0.0` (HOK-3023) | `features.jsonl.gz` | `s3://hokusai-pipeline-data-development/arbiter-corpus/hok-3023/` |
-| `corrective_rework` target, definition `cr-0.1.0` (HOK-3020) | `corrective.jsonl.gz` | `.../arbiter-corpus/hok-3022/as-of=2026-10-20/` |
+| `corrective_rework` target, definition `cr-0.2.0`, the pinned HOK-3028 target and the default | `corrective.cr-0.2.0.jsonl.gz` | `.../arbiter-corpus/hok-3022/as-of=2026-10-20/` |
+| `corrective_rework`, definition `cr-0.3.0`, the defect-repair number (reported, never gates) | `corrective.cr-0.3.0.jsonl.gz` | same |
+| `corrective_rework`, definition `cr-0.1.0`, the base label file (P1–P4) | `corrective.jsonl.gz` | same |
 | S2 survival rows, which carry the merge SHA (HOK-3022) | `s2.jsonl.gz` | same |
 | HOK-3028 evaluation slice | one JSON file | private: `~/.hokusai-private/hok-3028-slice.json` |
 

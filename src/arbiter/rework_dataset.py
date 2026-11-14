@@ -54,17 +54,22 @@ FEATURE_MANIFEST_VERSION = "rr-merge-features/1.0.0"
 LABEL_SCHEMA_VERSION = "1.1.0"
 TARGET_NAME = "corrective_rework"
 # Definitions a dataset may be built on. A new definition must be added here on
-# purpose, never picked up silently. cr-0.2.0 (reverts and repair references
-# only) is the HOK-3269 candidate; HOK-3028's target is whichever one is pinned.
-DEFAULT_TARGET_DEFINITION = "cr-0.1.0"
-TARGET_DEFINITIONS = frozenset({"cr-0.1.0", "cr-0.2.0"})
+# purpose, never picked up silently.
+# - cr-0.1.0: all of P1-P4. ``corpus-corrective`` writes it as the base label file.
+# - cr-0.2.0: reverts and repair references. The HOK-3028 gate target, pinned
+#   2026-11-13 and read as "reverted or explicitly repaired within the horizon".
+# - cr-0.3.0: repair references and regression issues. The defect-repair number;
+#   it is reported and never gates.
+BASE_LABEL_DEFINITION = "cr-0.1.0"
+DEFAULT_TARGET_DEFINITION = "cr-0.2.0"
+TARGET_DEFINITIONS = frozenset({"cr-0.1.0", "cr-0.2.0", "cr-0.3.0"})
 
 
 def corrective_file(definition: str) -> str:
     """Return the label file name for a definition, as ``corpus-corrective(-derive)`` writes it."""
     if definition not in TARGET_DEFINITIONS:
         raise LeakageError(f"Target definition {definition} is not listed in TARGET_DEFINITIONS")
-    if definition == DEFAULT_TARGET_DEFINITION:
+    if definition == BASE_LABEL_DEFINITION:
         return "corrective.jsonl.gz"
     return f"corrective.{definition}.jsonl.gz"
 
