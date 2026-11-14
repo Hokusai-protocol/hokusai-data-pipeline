@@ -15,6 +15,7 @@ import pandas as pd
 
 from src.arbiter.baselines import fit_and_score
 from src.arbiter.gate import REHEARSAL_VERSION, ArmAdapter, ArmContext
+from src.arbiter.llm_arm import FrontierLlmArm
 
 BASELINE_VERSION = "hok-3024/1.0.0"
 
@@ -102,4 +103,5 @@ class RehearsalStandIns:
 ARM_FACTORIES: dict[str, Callable[[], ArmAdapter]] = {
     BaselineArms.arm_id: BaselineArms,
     STAND_IN_ID: RehearsalStandIns,
+    FrontierLlmArm.arm_id: FrontierLlmArm,
 }

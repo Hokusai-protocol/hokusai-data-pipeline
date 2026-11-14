@@ -18,7 +18,7 @@ from typing import Any
 
 from src.arbiter import jev_questions as jq
 from src.arbiter import jev_state as js
-from src.arbiter.jev_client import ContextExceededError, JevClient, JevError, cost_usd
+from src.arbiter.jev_client import ContextExceededError, JevClient, cost_usd
 
 # On a context error the diff budget is halved, at most this many times.
 MAX_HALVINGS = 2
@@ -86,7 +86,16 @@ def score_row(
     return record
 
 
-def load_done(cache: Path) -> set[Key]:
+def _jev_cost(usage: Mapping[str, Any]) -> float:
+    return cost_usd(int(usage["input_tokens"]))
+
+
+def load_done(
+    cache: Path,
+    *,
+    key: Callable[[str, int], Key] = row_key,
+    current: Callable[[Mapping[str, Any]], bool] = is_current,
+) -> set[Key]:
     """Return the rows the cache already settles: answered, or unscorable for good."""
     done: set[Key] = set()
     if not cache.exists():
@@ -100,8 +109,8 @@ def load_done(cache: Path) -> set[Key]:
             except json.JSONDecodeError:
                 continue  # a line cut short by a crash; the row is scored again
             if "answers" in record or "error" in record:
-                if is_current(record):
-                    done.add(row_key(record["repo"], record["pr_number"]))
+                if current(record):
+                    done.add(key(record["repo"], record["pr_number"]))
     return done
 
 
@@ -114,18 +123,24 @@ def run(
     max_usd: float | None = None,
     progress: Callable[[dict[str, Any]], None] | None = None,
     progress_every: int = 500,
+    key: Callable[[str, int], Key] = row_key,
+    current: Callable[[Mapping[str, Any]], bool] = is_current,
+    cost: Callable[[Mapping[str, Any]], float] = _jev_cost,
 ) -> dict[str, Any]:
     """Score ``(row, base_sha)`` pairs not yet in ``cache``, appending each result.
 
     Stops early, keeping what is done, when spend reaches ``max_usd``, when a
     request fails for a reason that retrying will not fix (key, balance,
     permissions), or after many transient failures in a row.
+
+    ``score`` signals a failed request by raising an error with a boolean
+    ``transient`` attribute, as ``JevError`` has. ``key``, ``current`` and
+    ``cost`` (USD from a record's ``usage``) let another arm reuse this loop
+    with its own versions and prices (HOK-3027).
     """
     cache.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    done = load_done(cache)
-    pending = [
-        (row, base) for row, base in rows if row_key(row["repo"], row["pr_number"]) not in done
-    ]
+    done = load_done(cache, key=key, current=current)
+    pending = [(row, base) for row, base in rows if key(row["repo"], row["pr_number"]) not in done]
     stats = {
         "already_done": len(done),
         "to_score": len(pending),
@@ -164,8 +179,11 @@ def run(
                 running.discard(future)
                 try:
                     record = future.result()
-                except JevError as error:
-                    if error.transient:
+                except Exception as error:  # noqa: BLE001 - only request failures are handled
+                    transient = getattr(error, "transient", None)
+                    if transient is None:
+                        raise
+                    if transient:
                         stats["transient_failures"] += 1
                         consecutive += 1
                         if consecutive >= MAX_CONSECUTIVE_FAILURES:
@@ -180,7 +198,7 @@ def run(
                         tokens = int(record["usage"]["input_tokens"])
                         stats["scored"] += 1
                         stats["input_tokens"] += tokens
-                        stats["usd"] += cost_usd(tokens)
+                        stats["usd"] += cost(record["usage"])
                     else:
                         stats["unscorable"] += 1
                     settled = stats["scored"] + stats["unscorable"]

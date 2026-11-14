@@ -54,6 +54,8 @@ class MyArm:
 - `context.content_columns` names the `feature.content.*` hashes.
 - `context.content_root` points at the private evidence cache. Content arms
   (arms 3–6) read the diff, title and body from there.
+- Arm 3 is registered as `hok-3027-frontier-llm`. It also needs
+  `ANTHROPIC_API_KEY` and `HOK3027_MAX_USD`; see `hok-3027-frontier-llm-arm.md`.
 
 ## Running it
 
