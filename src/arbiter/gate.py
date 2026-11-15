@@ -107,6 +107,8 @@ class ArmAdapter(Protocol):
 
     arm_id: str
     version: str
+    # Optional, arm 3 only: ``knowledge_cutoff`` ("YYYY-MM-DD"), the last day the
+    # model's training data may cover. The record then splits the arm's rows there.
 
     def variants(self) -> Mapping[str, str]:
         """Variant id -> role (one of ``ROLES``)."""
@@ -663,6 +665,46 @@ def evaluate_sample_pair(
     }
 
 
+def evaluate_sample_pair_by_cutoff(
+    repo: np.ndarray,
+    y: np.ndarray,
+    as_of: pd.Series,
+    variants: Sequence[VariantScores],
+    cutoff: str,
+    *,
+    resamples: int = RESAMPLES,
+    seed: int = 0,
+) -> dict[str, Any]:
+    """Arm 3 vs arm 5 on PRs merged after the model's knowledge cutoff, and up to it.
+
+    A PR merged after the cutoff cannot be in the model's training data, so
+    ``after`` is the number to quote. A much better ``before`` means recall.
+    """
+    first_after = pd.Timestamp(cutoff, tz="UTC") + pd.Timedelta(days=1)
+    after = (pd.to_datetime(as_of, utc=True) >= first_after).to_numpy()
+    out: dict[str, Any] = {"knowledge_cutoff": cutoff}
+    for name, mask in (("after", after), ("before", ~after)):
+        cut = [
+            VariantScores(
+                v.variant,
+                v.role,
+                v.arm_id,
+                v.arm_version,
+                v.score[mask],
+                None if v.probability is None else v.probability[mask],
+            )
+            for v in variants
+        ]
+        scored = mask & ~np.isnan(next(v for v in variants if v.role == "arm3").score)
+        if y[scored].sum() == 0:  # nothing to capture: counts only
+            out[name] = {"rows": int(scored.sum()), "positives": 0}
+        else:
+            out[name] = evaluate_sample_pair(
+                repo[mask], y[mask], cut, resamples=resamples, seed=seed
+            )
+    return out
+
+
 # --------------------------------------------------------------------------- one scoring
 
 
@@ -726,6 +768,18 @@ def score_once(
     gate["secondary"]["arm3_vs_arm5"] = evaluate_sample_pair(
         repo[primary], y[primary], primary_variants, resamples=resamples, seed=seed
     )
+    arm3 = next((a for a in arms if "arm3" in a.variants().values()), None)
+    cutoff = getattr(arm3, "knowledge_cutoff", None)
+    if cutoff and gate["secondary"]["arm3_vs_arm5"]:
+        gate["secondary"]["arm3_vs_arm5"]["by_knowledge_cutoff"] = evaluate_sample_pair_by_cutoff(
+            repo[primary],
+            y[primary],
+            data.evaluation["as_of"][primary],
+            primary_variants,
+            cutoff,
+            resamples=resamples,
+            seed=seed,
+        )
     bots = ~primary
     gate["secondary"]["dependency_bot_segment"] = (
         {

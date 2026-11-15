@@ -37,7 +37,7 @@ To run it, the gate needs `ANTHROPIC_API_KEY`, `--content-root` set to the corpu
 
 The model's reliable knowledge cutoff is June 2026. A PR merged from July 2026 on cannot have been in its training data; an earlier one might be, along with its revert. The development run therefore scores two periods separately: merged after 2026-06-30, and in the year up to it. The after-cutoff numbers are the ones to quote. A large gap between the periods would mean the model recalls outcomes.
 
-The gate adapter does not split by period: it never sees the evaluation window. The gate write-up should split arm 3's rows at 2026-06-30 from the record.
+At the gate the runner makes the same split. The adapter declares `knowledge_cutoff = "2026-06-30"`, and the gate record reports arm 3 against arm 5 separately for PRs merged after that day and up to it, under `secondary.arm3_vs_arm5.by_knowledge_cutoff`. A period with no scored positives is reported as counts only.
 
 ## Development results
 
@@ -86,6 +86,6 @@ The Message Batches API would halve the price. It is not used: the resumable cac
 
 ## Not done
 
-* **Gate write-up split.** Arm 3's gate rows should be reported before and after 2026-06-30 (see "Model memory").
 * **Calibration.** Arm 3's probability is raw. An isotonic step fitted on these 1,800 development answers would be cheap, but it is a new arm version and a pre-registration question.
-* **Dependency.** The `anthropic` package is imported only when the arm calls the model; it is not in the pinned requirements files.
+
+The `anthropic` package is pinned in `requirements-arbiter.txt`, which installs on top of `requirements.txt`. The arm imports it only when it calls the model.

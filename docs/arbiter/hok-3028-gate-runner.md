@@ -55,7 +55,8 @@ class MyArm:
 - `context.content_root` points at the private evidence cache. Content arms
   (arms 3–6) read the diff, title and body from there.
 - Arm 3 is registered as `hok-3027-frontier-llm`. It also needs
-  `ANTHROPIC_API_KEY` and `HOK3027_MAX_USD`; see `hok-3027-frontier-llm-arm.md`.
+  `ANTHROPIC_API_KEY` and `HOK3027_MAX_USD`, and the `anthropic` package from
+  `requirements-arbiter.txt`; see `hok-3027-frontier-llm-arm.md`.
 
 ## Running it
 
@@ -109,7 +110,9 @@ replacement, then PRs drawn with replacement inside each repo.
 
 The secondary questions are reported and never gate:
 - arm 6 against the better of arms 4 and 5;
-- arm 3 against arm 5, on arm 3's sample;
+- arm 3 against arm 5, on arm 3's sample. When the arm declares a
+  `knowledge_cutoff`, the same comparison is also reported for PRs merged after
+  that day and up to it; the after-cutoff number is the one to quote;
 - the dependency-bot segment;
 - the 14- and 60-day horizons, via `--horizon`.
 

@@ -26,6 +26,7 @@ from src.arbiter.gate import (
     VariantScores,
     build_gate_data,
     evaluate_gate,
+    evaluate_sample_pair_by_cutoff,
     public_summary,
     read_sealed_slice,
     rehearsal_slice,
@@ -177,6 +178,59 @@ def test_arm_code_never_sees_labels_when_scoring(gate_corpus, tmp_path):
     assert "label" in spy.fit_columns and "label" not in spy.score_columns
     assert not any(c.startswith("segment.") for c in spy.score_columns)
     assert "feature.content.title_sha256" in spy.score_columns
+
+
+class _SampleArm:
+    """An arm 3 test double: scores every other row, and names a knowledge cutoff."""
+
+    arm_id = "test-sample"
+    version = "test/1"
+    knowledge_cutoff = "2026-02-14"
+
+    def variants(self):
+        return {"sample.arm3": "arm3"}
+
+    def fit(self, train, context):
+        return None
+
+    def score(self, fitted, rows, context):
+        score = rows["feature.shape.loc_touched"].astype(float)
+        score[np.arange(len(rows)) % 2 == 1] = np.nan
+        return {"sample.arm3": pd.DataFrame({"score": score})}
+
+
+def test_the_record_splits_arm_3_at_its_knowledge_cutoff(gate_corpus, tmp_path):
+    data = _data(gate_corpus)
+    record = score_once(
+        data,
+        [_ComparatorArms(), _FixedArms(), _SampleArm()],
+        _context(data),
+        record_dir=tmp_path,
+        resamples=5,
+        allow_dirty=True,
+    )
+    pair = record["secondary"]["arm3_vs_arm5"]
+    split = pair["by_knowledge_cutoff"]
+    assert split["knowledge_cutoff"] == "2026-02-14"
+    assert split["after"]["rows"] > 0 and split["before"]["rows"] > 0
+    assert split["after"]["rows"] + split["before"]["rows"] == pair["rows"]
+    assert split["after"]["positives"] + split["before"]["positives"] == pair["positives"]
+    assert "by_knowledge_cutoff" in json.dumps(public_summary(record), default=str)
+
+
+def test_the_cutoff_day_itself_counts_as_before_and_an_empty_period_is_only_counted():
+    rng, repo, y = _synthetic(repos=2, n=400)
+    as_of = pd.Series(pd.Timestamp("2026-06-30T23:59:59Z"), index=range(len(y)))
+    as_of.iloc[::2] = pd.Timestamp("2026-07-01T00:00:00Z")
+    y[::2] = 0.0  # no positive after the cutoff
+    s3 = 2.0 * y + rng.normal(size=len(y))
+    s3[::4] = np.nan
+    pair = [_variant("a3", "arm3", s3), _variant("a5", "arm5", y + rng.normal(size=len(y)))]
+    split = evaluate_sample_pair_by_cutoff(repo, y, as_of, pair, "2026-06-30", resamples=20)
+    assert split["after"] == {"rows": 200, "positives": 0}
+    assert split["before"]["rows"] == 400
+    assert split["before"]["positives"] == int(y.sum())
+    assert len(split["before"]["arm5_minus_arm3_ci95"]) == 2
 
 
 class _ComparatorArms:

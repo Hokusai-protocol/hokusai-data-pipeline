@@ -431,6 +431,8 @@ class FrontierLlmArm:
 
     arm_id = ARM_ID
     version = ARM_VERSION
+    # The gate record splits this arm's rows here (see gate.evaluate_sample_pair_by_cutoff).
+    knowledge_cutoff = KNOWLEDGE_CUTOFF
 
     def __init__(self, client_factory: Callable[[], Any] = LlmClient) -> None:
         self._client_factory = client_factory
