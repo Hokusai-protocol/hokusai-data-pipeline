@@ -54,17 +54,22 @@ FEATURE_MANIFEST_VERSION = "rr-merge-features/1.0.0"
 LABEL_SCHEMA_VERSION = "1.1.0"
 TARGET_NAME = "corrective_rework"
 # Definitions a dataset may be built on. A new definition must be added here on
-# purpose, never picked up silently. cr-0.2.0 (reverts and repair references
-# only) is the HOK-3269 candidate; HOK-3028's target is whichever one is pinned.
-DEFAULT_TARGET_DEFINITION = "cr-0.1.0"
-TARGET_DEFINITIONS = frozenset({"cr-0.1.0", "cr-0.2.0"})
+# purpose, never picked up silently.
+# - cr-0.1.0: all of P1-P4. ``corpus-corrective`` writes it as the base label file.
+# - cr-0.2.0: reverts and repair references. The HOK-3028 gate target, pinned
+#   2026-11-13 and read as "reverted or explicitly repaired within the horizon".
+# - cr-0.3.0: repair references and regression issues. The defect-repair number;
+#   it is reported and never gates.
+BASE_LABEL_DEFINITION = "cr-0.1.0"
+DEFAULT_TARGET_DEFINITION = "cr-0.2.0"
+TARGET_DEFINITIONS = frozenset({"cr-0.1.0", "cr-0.2.0", "cr-0.3.0"})
 
 
 def corrective_file(definition: str) -> str:
     """Return the label file name for a definition, as ``corpus-corrective(-derive)`` writes it."""
     if definition not in TARGET_DEFINITIONS:
         raise LeakageError(f"Target definition {definition} is not listed in TARGET_DEFINITIONS")
-    if definition == DEFAULT_TARGET_DEFINITION:
+    if definition == BASE_LABEL_DEFINITION:
         return "corrective.jsonl.gz"
     return f"corrective.{definition}.jsonl.gz"
 
@@ -336,7 +341,7 @@ def assemble(
     provenance_weights: Mapping[str, float] | None = None,
 ) -> AssembledDataset:
     """Build a dataset from the development repos under the two roots."""
-    label_file = corrective_file(target_definition)
+    corrective_file(target_definition)  # reject an unlisted definition before reading anything
     if horizon_days not in HORIZONS:
         raise ValueError(f"horizon_days must be one of {HORIZONS}")
     if not isinstance(split, (TimeSplit, LeaveRepoOut)):
@@ -365,85 +370,22 @@ def assemble(
     feature_columns, audit = audit_feature_columns(feature_columns)
     segment_columns, segment_audit = audit_segment_columns(segment_columns, allow_segments)
 
-    label_meta: dict[str, set[Any]] = defaultdict(set)
-    records: list[dict[str, Any]] = []
-    rejected: list[dict[str, Any]] = []
-    inputs: list[dict[str, Any]] = []
-    base_rates: dict[str, Any] = {"horizon_days": list(HORIZONS), "by_repo": {}}
-
-    for repo in chosen:
-        label_dir = labels_root / _dir_name(repo)
-        feature_path = available[repo]
-        corrective_path = label_dir / label_file
-        survival_path = label_dir / "s2.jsonl.gz"
-        for path in (corrective_path, survival_path):
-            if not path.exists():
-                raise FileNotFoundError(f"Missing label file {path}")
-        inputs.append(
-            {
-                "repo": repo,
-                "features_sha256": _sha256_file(feature_path),
-                "corrective_sha256": _sha256_file(corrective_path),
-                "survival_sha256": _sha256_file(survival_path),
-            }
-        )
-        labels, rates = _read_corrective(repo, corrective_path, horizon_days, label_meta)
-        base_rates["by_repo"][repo] = rates
-        merge_shas = _read_merge_shas(repo, survival_path, horizon_days, label_meta)
-        label_as_of = _single(label_meta, "label_as_of")
-        columns = (*feature_columns, *segment_columns)
-        seen: set[int] = set()
-        for row in _read_jsonl(feature_path):
-            _check_feature_row(repo, feature_path, row)
-            number = row["pr_number"]
-            if number in seen:
-                record, reason = None, "duplicate_feature_row"
-            else:
-                seen.add(number)
-                record, reason = _join_row(
-                    row,
-                    labels.get(number),
-                    merge_shas.get(number),
-                    horizon_days=horizon_days,
-                    label_as_of=label_as_of,
-                    weights=weights,
-                    columns=columns,
-                )
-            if record is None:
-                rejected.append(
-                    {
-                        "repo": repo,
-                        "pr_number": number,
-                        "merge_sha": row.get("merge_sha"),
-                        "reason": reason,
-                    }
-                )
-            else:
-                records.append(record)
-        for number in sorted(set(labels) - seen):
-            rejected.append(
-                {
-                    "repo": repo,
-                    "pr_number": number,
-                    "merge_sha": merge_shas.get(number),
-                    "reason": "feature_row_missing",
-                }
-            )
-
-    versions = _check_label_meta(label_meta)
-    if versions["definition_version"] != target_definition:
-        raise LeakageError(
-            f"Asked for {target_definition}, but {label_file} holds "
-            f"{versions['definition_version']} labels"
-        )
-    rows = pd.DataFrame.from_records(
-        records, columns=[*META_COLUMNS, *feature_columns, *segment_columns]
+    loaded = load_repo_rows(
+        chosen,
+        features_root=features_root,
+        labels_root=labels_root,
+        target_definition=target_definition,
+        horizon_days=horizon_days,
+        columns=(*feature_columns, *segment_columns),
+        weights=weights,
     )
-    if rows.empty:
-        raise LeakageError("No rows survived assembly")
-    rows["as_of"] = pd.to_datetime(rows["as_of"], utc=True)
-    rows["label_observed_until"] = pd.to_datetime(rows["label_observed_until"], utc=True)
-    rows = rows.sort_values(["as_of", "repo", "pr_number"], kind="mergesort").reset_index(drop=True)
+    rows, rejected, inputs, versions = (
+        loaded.rows,
+        loaded.rejected,
+        loaded.inputs,
+        loaded.versions,
+    )
+    base_rates: dict[str, Any] = {"horizon_days": list(HORIZONS), "by_repo": loaded.base_rates}
 
     counts: dict[str, Any] = {
         "accepted": int(len(rows)),
@@ -497,6 +439,117 @@ def assemble(
     for _ in dataset.splits():
         pass
     return dataset
+
+
+@dataclass
+class LoadedRows:
+    """Joined rows for a set of repos, before any split is applied."""
+
+    rows: pd.DataFrame
+    rejected: list[dict[str, Any]]
+    inputs: list[dict[str, Any]]
+    base_rates: dict[str, Any]
+    versions: dict[str, Any]
+
+
+def load_repo_rows(
+    chosen: Sequence[str],
+    *,
+    features_root: Path,
+    labels_root: Path,
+    target_definition: str,
+    horizon_days: int,
+    columns: Sequence[str],
+    weights: Mapping[str, float],
+) -> LoadedRows:
+    """Join feature rows to labels for ``chosen`` repos, rejecting what cannot be used.
+
+    Callers decide which repos may be read: ``assemble`` passes development repos
+    only, and the HOK-3028 gate runner passes the evaluation slice once.
+    """
+    label_file = corrective_file(target_definition)
+    available = _repo_dirs(features_root)
+    feature_columns = [c for c in columns if not c.startswith("segment.")]
+    segment_columns = [c for c in columns if c.startswith("segment.")]
+    label_meta: dict[str, set[Any]] = defaultdict(set)
+    records: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    inputs: list[dict[str, Any]] = []
+    base_rates: dict[str, Any] = {}
+
+    for repo in chosen:
+        label_dir = labels_root / _dir_name(repo)
+        feature_path = available[repo]
+        corrective_path = label_dir / label_file
+        survival_path = label_dir / "s2.jsonl.gz"
+        for path in (corrective_path, survival_path):
+            if not path.exists():
+                raise FileNotFoundError(f"Missing label file {path}")
+        inputs.append(
+            {
+                "repo": repo,
+                "features_sha256": _sha256_file(feature_path),
+                "corrective_sha256": _sha256_file(corrective_path),
+                "survival_sha256": _sha256_file(survival_path),
+            }
+        )
+        labels, rates = _read_corrective(repo, corrective_path, horizon_days, label_meta)
+        base_rates[repo] = rates
+        merge_shas = _read_merge_shas(repo, survival_path, horizon_days, label_meta)
+        label_as_of = _single(label_meta, "label_as_of")
+        seen: set[int] = set()
+        for row in _read_jsonl(feature_path):
+            _check_feature_row(repo, feature_path, row)
+            number = row["pr_number"]
+            if number in seen:
+                record, reason = None, "duplicate_feature_row"
+            else:
+                seen.add(number)
+                record, reason = _join_row(
+                    row,
+                    labels.get(number),
+                    merge_shas.get(number),
+                    horizon_days=horizon_days,
+                    label_as_of=label_as_of,
+                    weights=weights,
+                    columns=columns,
+                )
+            if record is None:
+                rejected.append(
+                    {
+                        "repo": repo,
+                        "pr_number": number,
+                        "merge_sha": row.get("merge_sha"),
+                        "reason": reason,
+                    }
+                )
+            else:
+                records.append(record)
+        for number in sorted(set(labels) - seen):
+            rejected.append(
+                {
+                    "repo": repo,
+                    "pr_number": number,
+                    "merge_sha": merge_shas.get(number),
+                    "reason": "feature_row_missing",
+                }
+            )
+
+    versions = _check_label_meta(label_meta)
+    if versions["definition_version"] != target_definition:
+        raise LeakageError(
+            f"Asked for {target_definition}, but {label_file} holds "
+            f"{versions['definition_version']} labels"
+        )
+    rows = pd.DataFrame.from_records(
+        records, columns=[*META_COLUMNS, *feature_columns, *segment_columns]
+    )
+    if rows.empty:
+        raise LeakageError("No rows survived assembly")
+    rows["as_of"] = pd.to_datetime(rows["as_of"], utc=True)
+    rows["label_observed_until"] = pd.to_datetime(rows["label_observed_until"], utc=True)
+    rows = rows.sort_values(["as_of", "repo", "pr_number"], kind="mergesort").reset_index(drop=True)
+    return LoadedRows(rows, rejected, inputs, base_rates, versions)
 
 
 def load_dataset(

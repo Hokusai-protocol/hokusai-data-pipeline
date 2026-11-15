@@ -17,12 +17,14 @@ from src.arbiter.feature_audit import (
     ValidatorUnavailableError,
 )
 from src.arbiter.rework_dataset import (
+    DEFAULT_TARGET_DEFINITION,
     FEATURE_MANIFEST_VERSION,
     META_COLUMNS,
     LeaveRepoOut,
     TimeSplit,
     assemble,
     check_split,
+    corrective_file,
     load_dataset,
 )
 from tests.unit.arbiter.conftest import (
@@ -134,7 +136,7 @@ def test_provenance_records_versions_and_split(corpus):
         "name": "corrective_rework",
         "horizon_days": 30,
         "label_schema_version": "1.1.0",
-        "definition_version": "cr-0.1.0",
+        "definition_version": "cr-0.2.0",
         "labeller_version": "1.0.0",
         "survival_labeller_version": "1.4.0",
         "label_as_of": "2026-10-20T00:00:00Z",
@@ -252,21 +254,23 @@ def test_rows_from_another_manifest_are_rejected(tmp_path, fake_validator):
 
 
 def test_unpinned_target_definition_is_rejected(tmp_path, fake_validator):
-    c = build_corpus(tmp_path / "c", definition_version="cr-0.9.0")
+    c = build_corpus(
+        tmp_path / "c", definition_version="cr-0.9.0", label_file=corrective_file("cr-0.2.0")
+    )
     with pytest.raises(LeakageError, match="not listed"):
         _assemble(c)
     with pytest.raises(LeakageError, match="not listed"):
         _assemble(c, target_definition="cr-0.9.0")
 
 
-def test_cr_0_2_0_reads_its_own_label_file(tmp_path, fake_validator):
-    c = build_corpus(
-        tmp_path / "c", definition_version="cr-0.2.0", label_file="corrective.cr-0.2.0.jsonl.gz"
-    )
-    with pytest.raises(FileNotFoundError, match="corrective.jsonl.gz"):
+def test_pinned_default_reads_its_own_label_file(tmp_path, fake_validator):
+    # A corpus with only the base (cr-0.1.0) label file must not silently stand in
+    # for the pinned target.
+    c = build_corpus(tmp_path / "c", definition_version="cr-0.1.0")
+    with pytest.raises(FileNotFoundError, match=r"corrective\.cr-0\.2\.0\.jsonl\.gz"):
         _assemble(c)
-    ds = _assemble(c, target_definition="cr-0.2.0")
-    assert ds.provenance["target"]["definition_version"] == "cr-0.2.0"
+    ds = _assemble(c, target_definition="cr-0.1.0")
+    assert ds.provenance["target"]["definition_version"] == "cr-0.1.0"
 
 
 def test_label_file_holding_another_definition_is_rejected(tmp_path, fake_validator):
@@ -364,3 +368,18 @@ def test_cli_exits_1_on_leaky_configuration(corpus, tmp_path, capsys):
     assert code == 1
     assert "overlap" in capsys.readouterr().err
     assert not (tmp_path / "out").exists()
+
+
+def test_label_file_names_follow_the_base_definition_not_the_default():
+    assert DEFAULT_TARGET_DEFINITION == "cr-0.2.0"
+    assert corrective_file("cr-0.1.0") == "corrective.jsonl.gz"
+    assert corrective_file("cr-0.2.0") == "corrective.cr-0.2.0.jsonl.gz"
+    assert corrective_file("cr-0.3.0") == "corrective.cr-0.3.0.jsonl.gz"
+    with pytest.raises(LeakageError, match="not listed"):
+        corrective_file("cr-9.9.9")
+
+
+def test_cr_0_3_0_assembles_from_its_own_label_file(tmp_path, fake_validator):
+    c = build_corpus(tmp_path / "c", definition_version="cr-0.3.0")
+    ds = _assemble(c, target_definition="cr-0.3.0")
+    assert ds.provenance["target"]["definition_version"] == "cr-0.3.0"
