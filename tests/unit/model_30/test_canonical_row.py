@@ -96,11 +96,16 @@ def test_v3_row_has_no_token_evidence_but_keeps_its_outcome() -> None:
 
 
 def test_unknown_model_is_unpriced_never_free() -> None:
-    record = _build(fixture("challengeChallenger"))  # coder: gpt-5-codex, not priced
+    row = fixture("challengeChallenger")
+    coder = next(stage for stage in row["stage_executions"] if stage["stage"] == "coding")
+    coder["executed_model"] = "gpt-unknown-future"
+    for segment in coder["task_cost"]["model_segments"]:
+        segment["model"] = "gpt-unknown-future"
+    record = _build(row)
     assert record["cost_status"] == cr.COST_UNPRICED_MODEL
     assert record["cost_usd"] is None
     assert record["roles"]["coder"]["cost_usd"] is None
-    assert record["unpriced_models"] == ["gpt-5-codex"]
+    assert record["unpriced_models"] == ["gpt-unknown-future"]
     assert record["roles"]["reviewer"]["cost_status"] == cr.COST_PRICED
 
 
@@ -149,13 +154,13 @@ def test_comparison_group_and_source_are_carried() -> None:
     assert record["source"] == {"kind": "contribution", "harness": "wavemill", "sdk_version": None}
 
 
-def test_haiku_is_priced_server_side_at_its_v10_training_rate() -> None:
-    """Models v10 priced only from Wavemill record snapshots need Hokusai's own rate."""
+def test_haiku_is_priced_server_side_at_the_sdk_rate() -> None:
+    """New rows use SDK rates; frozen v10 records retain their stored costs."""
     price = resolve_price("claude-haiku-4-5", hokusai_price_snapshot())
     assert price is not None
-    assert price.input_per_token == pytest.approx(0.8e-6)
-    assert price.cache_read_per_token == pytest.approx(0.08e-6)
-    assert price.source == "record_pricing_snapshot"
+    assert price.input_per_token == pytest.approx(1e-6)
+    assert price.cache_read_per_token == pytest.approx(0.1e-6)
+    assert price.source == "sdk_price_table"
 
 
 def test_server_pricing_equals_the_collector_on_the_same_usage() -> None:
