@@ -59,6 +59,7 @@ from src.model_30.canonical_row import (
     has_route_roles,
     price_row,
 )
+from src.model_30.provider_execution import execution_metadata_errors
 
 # Canonical rich benchmark row schema versions. These are already validated by
 # the assembler against the JSON schema and must not be weakened here.
@@ -87,7 +88,15 @@ _ROUTING_OUTCOME_ROW_VERSIONS = frozenset(
 
 # Mirrors the SDK's v4 contract (hokusai-sdk packages/core/src/contribution/schema.ts).
 _STAGE_EXECUTION_FIELDS = frozenset(
-    {"stage", "executed_model", "model_evidence", "harness", "task_cost"}
+    {
+        "stage",
+        "executed_model",
+        "model_evidence",
+        "harness",
+        "task_cost",
+        "provider_executions",
+        "failure",
+    }
 )
 _STAGE_EXECUTION_STAGES = frozenset(
     {*STAGE_TO_ROLE, "ci-fix", "conflict-resolution", "ready-remediation"}
@@ -461,6 +470,7 @@ def stage_execution_errors(row: dict[str, Any]) -> list[str]:  # noqa: C901
             )
             continue
         stage = entry.get("stage")
+        errors.extend(f"{label}: {error}" for error in execution_metadata_errors(entry))
         if stage not in _STAGE_EXECUTION_STAGES:
             allowed = ", ".join(sorted(_STAGE_EXECUTION_STAGES))
             errors.append(f"{label}.stage must be one of: {allowed}")
