@@ -40,6 +40,7 @@ from src.model_30.model_identity import (
     normalize_model_id,
     price_table_version,
 )
+from src.model_30.provider_execution import provider_economics
 from src.model_30.usage_cost import (
     finite_number,
     price_usage_by_model,
@@ -96,6 +97,7 @@ class StageCost:
     cost_usd: float | None
     cost_status: str
     unpriced_models: list[str] = field(default_factory=list)
+    execution_evidence: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -133,7 +135,9 @@ def price_stage(entry: Mapping[str, Any]) -> StageCost:
     executed = None if evidence == REQUESTED_ONLY else requested
 
     priced = price_usage_by_model(
-        usage_from_task_cost_segments(segments), hokusai_price_snapshot(), reprice="always"
+        usage_from_task_cost_segments(segments),
+        hokusai_price_snapshot(),
+        reprice="always",
     )
     tokens = _stage_tokens(task_cost)
     if not segments:
@@ -148,6 +152,16 @@ def price_stage(entry: Mapping[str, Any]) -> StageCost:
     else:
         status = COST_PRICED
     cost = sum(bucket["cost"] for bucket in priced.per_model.values())
+    economics = provider_economics(entry)
+    execution_evidence = {
+        key: entry[key] for key in ("provider_executions", "failure") if key in entry
+    }
+    if economics:
+        execution_evidence.update(economics)
+        if "resolved_cost_usd" in economics:
+            value = economics["resolved_cost_usd"]
+            cost = value if value is not None else 0.0
+            status = COST_PRICED if value is not None else COST_COVERAGE_PARTIAL
     return StageCost(
         stage=str(entry.get("stage")),
         executed_model=executed,
@@ -158,6 +172,7 @@ def price_stage(entry: Mapping[str, Any]) -> StageCost:
         cost_usd=round(cost, 10) if status == COST_PRICED else None,
         cost_status=status,
         unpriced_models=sorted(set(priced.unpriced)),
+        execution_evidence=execution_evidence,
     )
 
 
@@ -211,6 +226,12 @@ def _role_record(role: str, selected: Any, stages: list[StageCost]) -> dict[str,
 
 
 def _success(row: Mapping[str, Any]) -> bool | None:
+    if any(
+        stage.get("failure", {}).get("fault_class", "model-fault") != "model-fault"
+        for stage in row.get("stage_executions", [])
+        if isinstance(stage, Mapping)
+    ):
+        return None
     result = row.get("completion_result")
     if isinstance(result, str):
         return result == "success"
@@ -298,6 +319,22 @@ def build_canonical_row(
             for stage in repairs
         ],
         "cost_usd": cost.cost_usd,
+        **(
+            {
+                "execution_evidence": [
+                    {
+                        "stage": stage.stage,
+                        "harness": stage.harness,
+                        "executed_model": stage.executed_model,
+                        **stage.execution_evidence,
+                    }
+                    for stage in cost.stages
+                    if stage.execution_evidence
+                ]
+            }
+            if any(stage.execution_evidence for stage in cost.stages)
+            else {}
+        ),
         "cost_status": cost.cost_status,
         "cost_detail": None,
         "cost_breakdown": None,
