@@ -90,18 +90,18 @@ def test_every_sdk_v4_fixture_is_accepted() -> None:
         "priced",  # singleHarness
         "priced",  # mixedHarness (haiku priced from Hokusai's table)
         "priced",  # challengePrimary
-        "unpriced_model",  # challengeChallenger (gpt-5-codex)
-        "unpriced_model",  # ciFixRepair
+        "priced",  # challengeChallenger (gpt-5-codex now in the shared SDK table)
+        "priced",  # ciFixRepair
     ]
     assert response.row_fidelity_tiers == [
         "training_eligible",
         "training_eligible",
         "training_eligible",
-        "partial",
-        "partial",
+        "training_eligible",
+        "training_eligible",
     ]
-    assert response.cost_summary.priced == 3
-    assert response.cost_summary.unpriced_model == 2
+    assert response.cost_summary.priced == 5
+    assert response.cost_summary.unpriced_model == 0
     assert response.cost_summary.price_table_version == price_table_version()
     (record,) = store.records.values()
     assert record.metadata["canonical_rows"] == {
@@ -130,7 +130,15 @@ def test_v4_row_reported_10x_off_trains_on_the_repriced_cost() -> None:
 
 
 def test_unpriced_v4_row_is_partial_not_free() -> None:
-    result = classify_row(fixture("challengeChallenger"))
+    row = fixture("challengeChallenger")
+    coder = next(stage for stage in row["stage_executions"] if stage["stage"] == "coding")
+    row["selected_models"]["coder"] = "gpt-unknown-future"
+    row["overrides"][-1]["to"] = "gpt-unknown-future"
+    coder["executed_model"] = "gpt-unknown-future"
+    coder["task_cost"]["models"] = ["gpt-unknown-future"]
+    for segment in coder["task_cost"]["model_segments"]:
+        segment["model"] = "gpt-unknown-future"
+    result = classify_row(row)
     assert result.tier is FidelityTier.PARTIAL
     assert result.cost is not None and result.cost.cost_usd is None
 

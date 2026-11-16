@@ -1,0 +1,675 @@
+{
+  "schema_version": "hokusai_token_prices/v1",
+  "version": "2026-11-16",
+  "units": "USD per 1000000 tokens",
+  "service_tier": "standard",
+  "note": "API-equivalent resource cost independent of subscription or payment arrangement. Null rates are unpriced. Aggregate usage uses standard context; long_context applies only to one request. Reasoning is already included in output. Historical legacy rows retain their prior provider rates; no frozen history is repriced.",
+  "aliases": {
+    "kimi-k3-1-pro": "kimi-k3.1-pro",
+    "qwen-3-coder": "qwen3-coder",
+    "llama-3.3-70b": "llama-3.3-70b-instruct",
+    "mistral-large-2": "mistral-large-2407"
+  },
+  "models": {
+    "claude-fable-5": {
+      "inputPerMTokUsd": 10,
+      "outputPerMTokUsd": 50,
+      "cachedInputPerMTokUsd": 1,
+      "cacheWritePerMTokUsd": 12.5,
+      "as_of": "2026-11-16",
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    },
+    "claude-haiku-4-5": {
+      "inputPerMTokUsd": 1,
+      "outputPerMTokUsd": 5,
+      "cachedInputPerMTokUsd": 0.1,
+      "cacheWritePerMTokUsd": 1.25,
+      "as_of": "2026-11-16",
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    },
+    "claude-opus-4-6": {
+      "inputPerMTokUsd": 5,
+      "outputPerMTokUsd": 25,
+      "cachedInputPerMTokUsd": 0.5,
+      "cacheWritePerMTokUsd": 6.25,
+      "as_of": "2026-11-16",
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    },
+    "claude-opus-4-7": {
+      "inputPerMTokUsd": 5,
+      "outputPerMTokUsd": 25,
+      "cachedInputPerMTokUsd": 0.5,
+      "cacheWritePerMTokUsd": 6.25,
+      "as_of": "2026-11-16",
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    },
+    "claude-opus-4-8": {
+      "inputPerMTokUsd": 5,
+      "outputPerMTokUsd": 25,
+      "cachedInputPerMTokUsd": 0.5,
+      "cacheWritePerMTokUsd": 6.25,
+      "as_of": "2026-11-16",
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    },
+    "claude-opus-5": {
+      "inputPerMTokUsd": 5,
+      "outputPerMTokUsd": 25,
+      "cachedInputPerMTokUsd": 0.5,
+      "cacheWritePerMTokUsd": 6.25,
+      "as_of": "2026-11-16",
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    },
+    "claude-opus-5-5": {
+      "inputPerMTokUsd": 4,
+      "outputPerMTokUsd": 20,
+      "cachedInputPerMTokUsd": 0.2,
+      "cacheWritePerMTokUsd": 5,
+      "as_of": "2026-11-16",
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    },
+    "claude-sonnet-4-5": {
+      "inputPerMTokUsd": 3,
+      "outputPerMTokUsd": 15,
+      "cachedInputPerMTokUsd": 0.30000000000000004,
+      "cacheWritePerMTokUsd": 3.75,
+      "as_of": "2026-11-16",
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    },
+    "claude-sonnet-4-6": {
+      "inputPerMTokUsd": 3,
+      "outputPerMTokUsd": 15,
+      "cachedInputPerMTokUsd": 0.30000000000000004,
+      "cacheWritePerMTokUsd": 3.75,
+      "as_of": "2026-11-16",
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    },
+    "claude-sonnet-5": {
+      "inputPerMTokUsd": 2,
+      "outputPerMTokUsd": 10,
+      "cachedInputPerMTokUsd": 0.2,
+      "cacheWritePerMTokUsd": 2.5,
+      "as_of": "2026-11-16",
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing"
+    },
+    "codex-mini-latest": {
+      "inputPerMTokUsd": 1.5,
+      "outputPerMTokUsd": 6,
+      "cachedInputPerMTokUsd": 0.15000000000000002,
+      "cacheWritePerMTokUsd": 1.875,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "deepseek-chat": {
+      "inputPerMTokUsd": 0.2574,
+      "outputPerMTokUsd": 1.0287,
+      "cachedInputPerMTokUsd": null,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "deepseek-v3.2": {
+      "inputPerMTokUsd": 0.26,
+      "outputPerMTokUsd": 0.38,
+      "cachedInputPerMTokUsd": 0.13,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "deepseek-v4-flash": {
+      "inputPerMTokUsd": 0.091,
+      "outputPerMTokUsd": 0.182,
+      "cachedInputPerMTokUsd": 0.0182,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "deepseek-v4-pro": {
+      "inputPerMTokUsd": 1.6,
+      "outputPerMTokUsd": 3.2,
+      "cachedInputPerMTokUsd": 0.135,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "gemini-2.0-flash": {
+      "inputPerMTokUsd": 0.1,
+      "outputPerMTokUsd": 0.4,
+      "cachedInputPerMTokUsd": null,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-07-09",
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    "gemini-2.0-flash-001": {
+      "inputPerMTokUsd": 0.1,
+      "outputPerMTokUsd": 0.4,
+      "cachedInputPerMTokUsd": null,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-07-09",
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    "gemini-2.5-flash": {
+      "inputPerMTokUsd": 0.3,
+      "outputPerMTokUsd": 2.5,
+      "cachedInputPerMTokUsd": null,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-07-09",
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    "gemini-2.5-pro": {
+      "inputPerMTokUsd": 1.25,
+      "outputPerMTokUsd": 10,
+      "cachedInputPerMTokUsd": null,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-07-09",
+      "source": "https://ai.google.dev/gemini-api/docs/pricing"
+    },
+    "gemini-3.1-pro-preview": {
+      "inputPerMTokUsd": 2,
+      "outputPerMTokUsd": 12,
+      "cachedInputPerMTokUsd": 0.2,
+      "cacheWritePerMTokUsd": 0.375,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "glm-5.2": {
+      "inputPerMTokUsd": 0.006,
+      "outputPerMTokUsd": 6.8,
+      "cachedInputPerMTokUsd": 0.005,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "glm-5.3": {
+      "inputPerMTokUsd": 0.08,
+      "outputPerMTokUsd": 3.6,
+      "cachedInputPerMTokUsd": 0.076,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "glm-5.3-flash": {
+      "inputPerMTokUsd": 0.0285,
+      "outputPerMTokUsd": 0.0923,
+      "cachedInputPerMTokUsd": 0.0285,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "gpt-4-turbo": {
+      "inputPerMTokUsd": 10,
+      "outputPerMTokUsd": 30,
+      "cachedInputPerMTokUsd": 1,
+      "cacheWritePerMTokUsd": 12.5,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-4.1": {
+      "inputPerMTokUsd": 2,
+      "outputPerMTokUsd": 8,
+      "cachedInputPerMTokUsd": 0.5,
+      "cacheWritePerMTokUsd": 2.5,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-4.1-mini": {
+      "inputPerMTokUsd": 0.4,
+      "outputPerMTokUsd": 1.6,
+      "cachedInputPerMTokUsd": 0.1,
+      "cacheWritePerMTokUsd": 0.5,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-4o": {
+      "inputPerMTokUsd": 2.5,
+      "outputPerMTokUsd": 10,
+      "cachedInputPerMTokUsd": 1.25,
+      "cacheWritePerMTokUsd": 3.125,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-4o-mini": {
+      "inputPerMTokUsd": 0.15,
+      "outputPerMTokUsd": 0.6,
+      "cachedInputPerMTokUsd": 0.075,
+      "cacheWritePerMTokUsd": 0.1875,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-5": {
+      "inputPerMTokUsd": 1.25,
+      "outputPerMTokUsd": 10,
+      "cachedInputPerMTokUsd": 0.125,
+      "cacheWritePerMTokUsd": 1.5625,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-5-codex": {
+      "inputPerMTokUsd": 1.25,
+      "outputPerMTokUsd": 10,
+      "cachedInputPerMTokUsd": 0.125,
+      "cacheWritePerMTokUsd": 1.5625,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-5-mini": {
+      "inputPerMTokUsd": 0.25,
+      "outputPerMTokUsd": 2,
+      "cachedInputPerMTokUsd": 0.025,
+      "cacheWritePerMTokUsd": 0.3125,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-5-nano": {
+      "inputPerMTokUsd": 0.05,
+      "outputPerMTokUsd": 0.4,
+      "cachedInputPerMTokUsd": 0.005,
+      "cacheWritePerMTokUsd": 0.0625,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-5-pro": {
+      "inputPerMTokUsd": 15,
+      "outputPerMTokUsd": 120,
+      "cachedInputPerMTokUsd": null,
+      "cacheWritePerMTokUsd": 18.75,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-5.1": {
+      "inputPerMTokUsd": 1.25,
+      "outputPerMTokUsd": 10,
+      "cachedInputPerMTokUsd": 0.125,
+      "cacheWritePerMTokUsd": 1.5625,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-5.2": {
+      "inputPerMTokUsd": 1.75,
+      "outputPerMTokUsd": 14,
+      "cachedInputPerMTokUsd": 0.175,
+      "cacheWritePerMTokUsd": 2.1875,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-5.2-pro": {
+      "inputPerMTokUsd": 21,
+      "outputPerMTokUsd": 168,
+      "cachedInputPerMTokUsd": null,
+      "cacheWritePerMTokUsd": 26.25,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-5.3-codex": {
+      "inputPerMTokUsd": 1.75,
+      "outputPerMTokUsd": 14,
+      "cachedInputPerMTokUsd": 0.175,
+      "cacheWritePerMTokUsd": 2.1875,
+      "as_of": "2026-11-16",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-5.4": {
+      "inputPerMTokUsd": 2.5,
+      "outputPerMTokUsd": 15,
+      "cachedInputPerMTokUsd": 0.25,
+      "cacheWritePerMTokUsd": 3.125,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "inputPerMTokUsd": 5,
+        "outputPerMTokUsd": 22.5,
+        "cachedInputPerMTokUsd": 0.5,
+        "cacheWritePerMTokUsd": null
+      }
+    },
+    "gpt-5.4-mini": {
+      "inputPerMTokUsd": 0.75,
+      "outputPerMTokUsd": 4.5,
+      "cachedInputPerMTokUsd": 0.075,
+      "cacheWritePerMTokUsd": 0.9375,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-5.4-nano": {
+      "inputPerMTokUsd": 0.2,
+      "outputPerMTokUsd": 1.25,
+      "cachedInputPerMTokUsd": 0.02,
+      "cacheWritePerMTokUsd": 0.25,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "gpt-5.4-pro": {
+      "inputPerMTokUsd": 30,
+      "outputPerMTokUsd": 180,
+      "cachedInputPerMTokUsd": null,
+      "cacheWritePerMTokUsd": 37.5,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "inputPerMTokUsd": 60,
+        "outputPerMTokUsd": 270,
+        "cachedInputPerMTokUsd": null,
+        "cacheWritePerMTokUsd": null
+      }
+    },
+    "gpt-5.5": {
+      "inputPerMTokUsd": 5,
+      "outputPerMTokUsd": 30,
+      "cachedInputPerMTokUsd": 0.5,
+      "cacheWritePerMTokUsd": 6.25,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "inputPerMTokUsd": 10,
+        "outputPerMTokUsd": 45,
+        "cachedInputPerMTokUsd": 1,
+        "cacheWritePerMTokUsd": null
+      }
+    },
+    "gpt-5.5-pro": {
+      "inputPerMTokUsd": 30,
+      "outputPerMTokUsd": 180,
+      "cachedInputPerMTokUsd": null,
+      "cacheWritePerMTokUsd": 37.5,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "inputPerMTokUsd": 60,
+        "outputPerMTokUsd": 270,
+        "cachedInputPerMTokUsd": null,
+        "cacheWritePerMTokUsd": null
+      }
+    },
+    "gpt-5.6-luna": {
+      "inputPerMTokUsd": 0.2,
+      "outputPerMTokUsd": 1.2,
+      "cachedInputPerMTokUsd": 0.02,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "inputPerMTokUsd": 0.4,
+        "outputPerMTokUsd": 1.8,
+        "cachedInputPerMTokUsd": 0.04,
+        "cacheWritePerMTokUsd": null
+      }
+    },
+    "gpt-5.6-sol": {
+      "inputPerMTokUsd": 4,
+      "outputPerMTokUsd": 20,
+      "cachedInputPerMTokUsd": 0.4,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-16",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "inputPerMTokUsd": 8,
+        "outputPerMTokUsd": 30,
+        "cachedInputPerMTokUsd": 0.8,
+        "cacheWritePerMTokUsd": null
+      }
+    },
+    "gpt-5.6-terra": {
+      "inputPerMTokUsd": 2,
+      "outputPerMTokUsd": 12,
+      "cachedInputPerMTokUsd": 0.2,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-16",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "inputPerMTokUsd": 4,
+        "outputPerMTokUsd": 18,
+        "cachedInputPerMTokUsd": 0.4,
+        "cacheWritePerMTokUsd": null
+      }
+    },
+    "gpt-6-astra": {
+      "inputPerMTokUsd": 10,
+      "outputPerMTokUsd": 50,
+      "cachedInputPerMTokUsd": 1,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "inputPerMTokUsd": 20,
+        "outputPerMTokUsd": 75,
+        "cachedInputPerMTokUsd": 2,
+        "cacheWritePerMTokUsd": null
+      }
+    },
+    "gpt-6-luna": {
+      "inputPerMTokUsd": 0.1,
+      "outputPerMTokUsd": 0.5,
+      "cachedInputPerMTokUsd": 0.01,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "inputPerMTokUsd": 0.2,
+        "outputPerMTokUsd": 0.75,
+        "cachedInputPerMTokUsd": 0.02,
+        "cacheWritePerMTokUsd": null
+      }
+    },
+    "gpt-6-sol": {
+      "inputPerMTokUsd": 2,
+      "outputPerMTokUsd": 10,
+      "cachedInputPerMTokUsd": 0.2,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "inputPerMTokUsd": 4,
+        "outputPerMTokUsd": 15,
+        "cachedInputPerMTokUsd": 0.4,
+        "cacheWritePerMTokUsd": null
+      }
+    },
+    "gpt-6.1-sol": {
+      "inputPerMTokUsd": 2,
+      "outputPerMTokUsd": 10,
+      "cachedInputPerMTokUsd": 0.1,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "inputPerMTokUsd": 4,
+        "outputPerMTokUsd": 15,
+        "cachedInputPerMTokUsd": 0.2,
+        "cacheWritePerMTokUsd": null
+      }
+    },
+    "gpt-6.1-terra": {
+      "inputPerMTokUsd": 1,
+      "outputPerMTokUsd": 5,
+      "cachedInputPerMTokUsd": 0.05,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "long_context": {
+        "threshold_input_tokens": 272000,
+        "inputPerMTokUsd": 2,
+        "outputPerMTokUsd": 7.5,
+        "cachedInputPerMTokUsd": 0.1,
+        "cacheWritePerMTokUsd": null
+      }
+    },
+    "kimi-k2": {
+      "inputPerMTokUsd": 0.57,
+      "outputPerMTokUsd": 2.3,
+      "cachedInputPerMTokUsd": null,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "kimi-k2-thinking": {
+      "inputPerMTokUsd": 0.6,
+      "outputPerMTokUsd": 2.5,
+      "cachedInputPerMTokUsd": 0.15,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "kimi-k2.6": {
+      "inputPerMTokUsd": 0.65,
+      "outputPerMTokUsd": 3.41,
+      "cachedInputPerMTokUsd": 0.15,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "kimi-k2.7-code": {
+      "inputPerMTokUsd": 0.6,
+      "outputPerMTokUsd": 3.5,
+      "cachedInputPerMTokUsd": 0.15,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "kimi-k3": {
+      "inputPerMTokUsd": 0.192,
+      "outputPerMTokUsd": 15,
+      "cachedInputPerMTokUsd": 0.182,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "kimi-k3.1-pro": {
+      "inputPerMTokUsd": 2,
+      "outputPerMTokUsd": 10,
+      "cachedInputPerMTokUsd": 0.2,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-16",
+      "source": "https://openrouter.ai/moonshotai/kimi-k3.1-pro"
+    },
+    "llama-3.3-70b-instruct": {
+      "inputPerMTokUsd": 0.2,
+      "outputPerMTokUsd": 0.52,
+      "cachedInputPerMTokUsd": 0.1,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "minimax-m3": {
+      "inputPerMTokUsd": 0.3,
+      "outputPerMTokUsd": 1.2,
+      "cachedInputPerMTokUsd": 0.06,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "mistral-large-2407": {
+      "inputPerMTokUsd": 2,
+      "outputPerMTokUsd": 6,
+      "cachedInputPerMTokUsd": 0.2,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "mistral-small-2603": {
+      "inputPerMTokUsd": 0.15,
+      "outputPerMTokUsd": 0.6,
+      "cachedInputPerMTokUsd": 0.015,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "o1": {
+      "inputPerMTokUsd": 15,
+      "outputPerMTokUsd": 60,
+      "cachedInputPerMTokUsd": 1.5,
+      "cacheWritePerMTokUsd": 18.75,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "o1-mini": {
+      "inputPerMTokUsd": 1.1,
+      "outputPerMTokUsd": 4.4,
+      "cachedInputPerMTokUsd": 0.11000000000000001,
+      "cacheWritePerMTokUsd": 1.375,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "o3": {
+      "inputPerMTokUsd": 2,
+      "outputPerMTokUsd": 8,
+      "cachedInputPerMTokUsd": 0.5,
+      "cacheWritePerMTokUsd": 2.5,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "o3-mini": {
+      "inputPerMTokUsd": 1.1,
+      "outputPerMTokUsd": 4.4,
+      "cachedInputPerMTokUsd": 0.11000000000000001,
+      "cacheWritePerMTokUsd": 1.375,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "o3-pro": {
+      "inputPerMTokUsd": 20,
+      "outputPerMTokUsd": 80,
+      "cachedInputPerMTokUsd": null,
+      "cacheWritePerMTokUsd": 25,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "o4-mini": {
+      "inputPerMTokUsd": 1.1,
+      "outputPerMTokUsd": 4.4,
+      "cachedInputPerMTokUsd": 0.11000000000000001,
+      "cacheWritePerMTokUsd": 1.375,
+      "as_of": "2026-11-04",
+      "source": "https://developers.openai.com/api/docs/pricing"
+    },
+    "qwen-2.5-coder-32b-instruct": {
+      "inputPerMTokUsd": 0.66,
+      "outputPerMTokUsd": 1,
+      "cachedInputPerMTokUsd": null,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "qwen3-235b-a22b-2507": {
+      "inputPerMTokUsd": 0.09,
+      "outputPerMTokUsd": 0.55,
+      "cachedInputPerMTokUsd": null,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "qwen3-coder": {
+      "inputPerMTokUsd": 0.3,
+      "outputPerMTokUsd": 1,
+      "cachedInputPerMTokUsd": 0.1,
+      "cacheWritePerMTokUsd": null,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "qwen3.7-max": {
+      "inputPerMTokUsd": 1.475,
+      "outputPerMTokUsd": 4.425,
+      "cachedInputPerMTokUsd": 0.295,
+      "cacheWritePerMTokUsd": 1.84375,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    },
+    "qwen3.7-plus": {
+      "inputPerMTokUsd": 0.32,
+      "outputPerMTokUsd": 1.28,
+      "cachedInputPerMTokUsd": 0.064,
+      "cacheWritePerMTokUsd": 0.4,
+      "as_of": "2026-11-02",
+      "source": "https://openrouter.ai/api/v1/models"
+    }
+  }
+}

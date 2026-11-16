@@ -213,7 +213,10 @@ def test_comparison_group_marks_the_challenge_pair() -> None:
 
 
 def test_untrusted_cost_trains_success_but_no_cost_labels() -> None:
-    out = rc.canonical_to_router_row(_contribution("challengeChallenger"))  # gpt-5-codex unpriced
+    record = _contribution("challengeChallenger")
+    record["cost_status"] = cr.COST_UNPRICED_MODEL
+    record["cost_usd"] = None
+    out = rc.canonical_to_router_row(record)
     assert out["cost_status"] == cr.COST_UNPRICED_MODEL
     assert out["completed_successfully"] in {"true", "false"}
     for column in ("actual_cost_usd", "under_budget", "budget_violation", "coder_cost_usd"):
@@ -316,7 +319,7 @@ def test_builder_trains_from_the_store_alone(tmp_path: Path) -> None:
     assert report["clean_report"]["validation"]  # the trainer's model-id validation ran
     prices = json.loads((tmp_path / "prices.json").read_text(encoding="utf-8"))
     assert "claude-sonnet-5" in prices["prices"]
-    assert prices["price_table_version"].startswith("model_30_token_prices/")
+    assert prices["price_table_version"].startswith("hokusai_token_prices/")
 
 
 def test_builder_filters_by_date_source_and_contributor(tmp_path: Path) -> None:
