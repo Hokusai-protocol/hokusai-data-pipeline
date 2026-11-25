@@ -1,0 +1,37 @@
+name: SDK token price parity
+on:
+  pull_request:
+    paths:
+      - configs/hokusai_token_prices.v1.json
+      - src/model_30/**
+      - tests/fixtures/token-prices/**
+      - tests/unit/model_30/test_sdk_token_prices.py
+      - scripts/model_30/vendor_sdk_token_prices.py
+      - .github/workflows/token-price-parity.yml
+  push:
+    branches: [main, auto/integration]
+permissions:
+  contents: read
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Read pinned SDK revision
+        id: sdk
+        run: echo "revision=$(python -c 'import json; print(json.load(open("tests/fixtures/token-prices/provenance.json"))["sdk_commit"])')" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: Hokusai-protocol/hokusai-sdk
+          ref: ${{ steps.sdk.outputs.revision }}
+          path: sdk-prices
+      - name: Verify vendored bytes and SDK commit
+        run: python scripts/model_30/vendor_sdk_token_prices.py sdk-prices --check
+      - run: python -m pip install 'pytest>=7,<9'
+      - name: Run cross-language computation vectors
+        env:
+          HOKUSAI_SDK_DIR: ${{ github.workspace }}/sdk-prices
+        run: python -m pytest --confcutdir=tests/unit/model_30 -o addopts='' tests/unit/model_30/test_sdk_token_prices.py -q

@@ -1,0 +1,14 @@
+{
+  "sdk_repository": "https://github.com/Hokusai-protocol/hokusai-sdk",
+  "sdk_commit": "53381d930e77f2e2c54cdac39d6def8e4336c927",
+  "artifacts": {
+    "configs/hokusai_token_prices.v1.json": {
+      "sdk_path": "packages/core/prices/hokusai_token_prices.v1.json",
+      "sha256": "b0842ed12e6602b065f29ca224da29b6363f6c7abb65a2635d75e9f950de5f9c"
+    },
+    "tests/fixtures/token-prices/parity.v1.json": {
+      "sdk_path": "fixtures/token-prices/parity.v1.json",
+      "sha256": "9df5b7d11a586aa4eaaa67314b8c7ed4d1309dfd303d62606b2d2d21813cce7e"
+    }
+  }
+}

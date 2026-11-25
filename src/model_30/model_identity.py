@@ -13,8 +13,8 @@ so ``openrouter:moonshotai/kimi-k2.7-code`` and ``kimi-k2.7-code`` are the same
 model.
 
 Prices are looked up in this order: the eval record's own ``pricingSnapshot``,
-then the serving catalog, then the pinned OpenRouter table
-(``configs/model_30_openrouter_prices.v1.json``). A model with no price is
+then the SDK-published ``configs/hokusai_token_prices.v1.json``. Catalog
+metadata is used for identity only, never as a second live price table. A model with no price is
 **unknown cost**, never free.
 """
 
@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -30,15 +31,16 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CATALOG_PATH = REPO_ROOT / "configs" / "model_30_launch_priority_models.v1.json"
-OPENROUTER_PRICES_PATH = REPO_ROOT / "configs" / "model_30_openrouter_prices.v1.json"
-# Hokusai's own rates for server-side repricing (HOK-3413), in pricingSnapshot form.
-TOKEN_PRICES_PATH = REPO_ROOT / "configs" / "model_30_token_prices.v1.json"
+# SDK-published rates for new canonical rows (HOK-3421).
+TOKEN_PRICES_PATH = REPO_ROOT / "configs" / "hokusai_token_prices.v1.json"
 
 # Families whose models may appear in training data. A family prefix match is
 # required for IDs that are not in the serving catalog.
 MODEL_FAMILY_PREFIXES: tuple[tuple[str, str], ...] = (
     ("claude-", "anthropic"),
     ("gpt-", "openai"),
+    ("o1", "openai"),
+    ("codex-", "openai"),
     ("o3", "openai"),
     ("o4", "openai"),
     ("deepseek-", "deepseek"),
@@ -67,6 +69,7 @@ class ModelPrice:
     cache_read_per_token: float | None = None
     cache_write_per_token: float | None = None
     source: str = ""
+    long_context: dict[str, Any] | None = None
 
 
 def _strip_routing_prefixes(model_id: str) -> str:
@@ -91,11 +94,6 @@ def _catalog() -> dict[str, dict[str, Any]]:
             "canonical_id": aliases[0],
             "provider_id": provider_id,
             "family": str(model.get("family") or model.get("provider") or ""),
-            "price": ModelPrice(
-                input_per_token=_float(model.get("price_input_per_token")),
-                output_per_token=_float(model.get("price_output_per_token")),
-                source="serving_catalog",
-            ),
         }
         for identifier in [provider_id, *aliases, _strip_routing_prefixes(provider_id)]:
             catalog.setdefault(identifier.casefold(), entry)
@@ -103,49 +101,71 @@ def _catalog() -> dict[str, dict[str, Any]]:
 
 
 @lru_cache(maxsize=1)
-def _openrouter_prices() -> dict[str, ModelPrice]:
-    if not OPENROUTER_PRICES_PATH.exists():
-        return {}
-    payload = json.loads(OPENROUTER_PRICES_PATH.read_text(encoding="utf-8"))
-    prices: dict[str, ModelPrice] = {}
-    for provider_id, row in payload.get("models", {}).items():
-        price = ModelPrice(
-            input_per_token=_float(row.get("input_per_token")),
-            output_per_token=_float(row.get("output_per_token")),
-            cache_read_per_token=_float(row.get("cache_read_per_token")),
-            cache_write_per_token=_float(row.get("cache_write_per_token")),
-            source="openrouter_pinned",
-        )
-        prices[provider_id.casefold()] = price
-        prices.setdefault(_strip_routing_prefixes(provider_id).casefold(), price)
-    return prices
+def _sdk_table() -> dict[str, Any]:
+    payload = json.loads(TOKEN_PRICES_PATH.read_text(encoding="utf-8"))
+    if payload.get("schema_version") != "hokusai_token_prices/v1":
+        raise ValueError("Unsupported SDK token price table")
+    return payload
 
 
 @lru_cache(maxsize=1)
 def hokusai_price_snapshot() -> dict[str, dict[str, Any]]:
-    """Hokusai's server-side price rows, keyed by model id (``pricingSnapshot`` form).
-
-    Pass as the *snapshot* of ``resolve_price`` so it takes precedence over the
-    serving catalog and the pinned OpenRouter table. Contributor-supplied price
-    snapshots are never used server-side.
-    """
-    payload = json.loads(TOKEN_PRICES_PATH.read_text(encoding="utf-8"))
-    return {str(model): dict(row) for model, row in payload.get("models", {}).items()}
+    """Compatibility projection of the SDK table; never contributor prices."""
+    return {
+        model: {
+            "inputCostPerMTok": row["inputPerMTokUsd"],
+            "outputCostPerMTok": row["outputPerMTokUsd"],
+            "cacheReadCostPerMTok": row["cachedInputPerMTokUsd"],
+            "cacheWriteCostPerMTok": row["cacheWritePerMTokUsd"],
+            "source": "sdk_price_table",
+            "long_context": row.get("long_context"),
+        }
+        for model, row in _sdk_table()["models"].items()
+    }
 
 
 @lru_cache(maxsize=1)
 def price_table_version() -> str:
-    """Identify every price input server repricing reads, for stamping on rows.
+    """Version and full SHA-256 of the sole server-side rate source."""
+    digest = hashlib.sha256(TOKEN_PRICES_PATH.read_bytes()).hexdigest()
+    return f"hokusai_token_prices/{_sdk_table()['version']}+sha256:{digest}"
 
-    ``<token price version>+sha256:<digest of the token, catalog and OpenRouter
-    price files>``: any rate change in any of the three changes the stamp.
-    """
-    digest = hashlib.sha256()
-    for path in (TOKEN_PRICES_PATH, CATALOG_PATH, OPENROUTER_PRICES_PATH):
-        digest.update(path.name.encode("utf-8"))
-        digest.update(path.read_bytes())
-    version = json.loads(TOKEN_PRICES_PATH.read_text(encoding="utf-8")).get("version", "unknown")
-    return f"model_30_token_prices/{version}+sha256:{digest.hexdigest()[:16]}"
+
+def _sdk_model_key(model_id: str) -> str:
+    """Mirror the SDK's bounded known-prefix and snapshot normalization."""
+    value = model_id.strip().lower()
+    if value.startswith("openrouter:"):
+        value = value[len("openrouter:") :]
+    prefixes = (
+        "openrouter/",
+        "litellm/",
+        "openai/",
+        "anthropic/",
+        "google/",
+        "gemini/",
+        "deepseek/",
+        "meta-llama/",
+        "meta/",
+        "mistralai/",
+        "moonshotai/",
+        "qwen/",
+        "x-ai/",
+        "z-ai/",
+    )
+    for _ in range(5):
+        prefix = next((p for p in prefixes if value.startswith(p)), None)
+        if prefix is None:
+            break
+        value = value[len(prefix) :]
+    if value.startswith("claude-"):
+        value = value.replace(".", "-")
+    value = _sdk_table().get("aliases", {}).get(value, value)
+    if value in _sdk_table()["models"]:
+        return value
+    stripped = re.sub(r"-\d{8}$|-\d{4}-\d{2}-\d{2}$", "", value)
+    if stripped == value and value.startswith("gemini-"):
+        stripped = re.sub(r"-001$", "", value)
+    return stripped
 
 
 def _float(value: Any) -> float | None:
@@ -206,32 +226,38 @@ def is_supported_model_id(model_id: Any) -> bool:
 def resolve_price(
     model_id: str, pricing_snapshot: dict[str, Any] | None = None
 ) -> ModelPrice | None:
-    """Return the price for *model_id*: record snapshot, catalog, then pinned OpenRouter."""
+    """Explicit historical snapshot, else the SDK table. No catalog-rate fallback.
+
+    Only offline historical callers supply record snapshots. Server ingestion
+    passes ``hokusai_price_snapshot()`` and never contributor price metadata.
+    """
     snapshot = pricing_snapshot or {}
     keys = {k.casefold(): v for k, v in snapshot.items() if isinstance(v, dict)}
-    for variant in [*_bare_variants(model_id), normalize_model_id(model_id).casefold()]:
+    sdk_key = _sdk_model_key(model_id)
+    for variant in [sdk_key, *_bare_variants(model_id), normalize_model_id(model_id).casefold()]:
         row = keys.get(variant)
         if row is not None:
-            price = ModelPrice(
+            return ModelPrice(
                 input_per_token=_per_mtok(row.get("inputCostPerMTok")),
                 output_per_token=_per_mtok(row.get("outputCostPerMTok")),
                 cache_read_per_token=_per_mtok(row.get("cacheReadCostPerMTok")),
                 cache_write_per_token=_per_mtok(row.get("cacheWriteCostPerMTok")),
-                source="record_pricing_snapshot",
+                source="sdk_price_table"
+                if row.get("source") == "sdk_price_table"
+                else "record_pricing_snapshot",
+                long_context=row.get("long_context"),
             )
-            if price.input_per_token is not None and price.output_per_token is not None:
-                return price
-    for variant in _bare_variants(model_id):
-        entry = _catalog().get(variant)
-        if entry is not None:
-            price = entry["price"]
-            if price.input_per_token is not None and price.output_per_token is not None:
-                return price
-    for variant in _bare_variants(model_id):
-        price = _openrouter_prices().get(variant)
-        if price is not None and price.input_per_token is not None:
-            return price
-    return None
+    row = hokusai_price_snapshot().get(sdk_key)
+    if row is None:
+        return None
+    return ModelPrice(
+        input_per_token=_per_mtok(row["inputCostPerMTok"]),
+        output_per_token=_per_mtok(row["outputCostPerMTok"]),
+        cache_read_per_token=_per_mtok(row["cacheReadCostPerMTok"]),
+        cache_write_per_token=_per_mtok(row["cacheWriteCostPerMTok"]),
+        source="sdk_price_table",
+        long_context=row.get("long_context"),
+    )
 
 
 def _per_mtok(value: Any) -> float | None:
@@ -263,13 +289,42 @@ def exclusive_cache_usage(model_id: Any, usage: dict[str, Any]) -> tuple[dict[st
 DEFAULT_CACHE_READ_SHARE = 0.1
 
 
-def priced_usage_cost(usage: dict[str, Any], price: ModelPrice) -> float:
-    """Cost of one model's token usage.
-
-    A missing cache-read rate defaults to DEFAULT_CACHE_READ_SHARE x input (full
-    input price overstated Codex cost ~10x: tasks are mostly cache reads). A
-    missing cache-write rate falls back to the input price.
-    """
+def priced_usage_cost(usage: dict[str, Any], price: ModelPrice) -> float | None:
+    """SDK rates preserve unpriced dimensions; historical snapshots keep legacy rules."""
+    if price.source == "sdk_price_table":
+        values = [
+            _float(usage.get(key)) or 0.0
+            for key in ("inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens")
+        ]
+        if any(not math.isfinite(value) or value < 0 for value in values):
+            return None
+        rates = [
+            price.input_per_token,
+            price.output_per_token,
+            price.cache_read_per_token,
+            price.cache_write_per_token,
+        ]
+        long = price.long_context
+        if (
+            usage.get("requestScoped") is True
+            and long
+            and sum((values[0], values[2], values[3])) > long["threshold_input_tokens"]
+        ):
+            rates = [
+                _per_mtok(long[key])
+                for key in (
+                    "inputPerMTokUsd",
+                    "outputPerMTokUsd",
+                    "cachedInputPerMTokUsd",
+                    "cacheWritePerMTokUsd",
+                )
+            ]
+        if any(value > 0 and rate is None for value, rate in zip(values, rates)):
+            return None
+        # Match SDK operation order and per-million arithmetic at rounding ties.
+        cost = sum(values[i] / 1_000_000 * ((rates[i] or 0.0) * 1_000_000) for i in (0, 3, 2, 1))
+        return math.floor(cost * 1_000_000 + 0.5) / 1_000_000
+    # Historical record snapshots are explicit, not the live server rate source.
     input_price = price.input_per_token or 0.0
     cache_read = (
         price.cache_read_per_token
@@ -295,14 +350,13 @@ def build_price_table(
 
     *snapshots* are ``(timestamp, pricingSnapshot)`` pairs from eval records; the
     most recent snapshot that prices a model wins. Models without a snapshot
-    price fall back to the serving catalog, then the pinned OpenRouter table.
+    price fall back to the SDK-published table.
     """
     table = _latest_snapshot_prices(snapshots)
     candidates = set(extra_model_ids or [])
     for entry in _catalog().values():
         candidates.add(str(entry["canonical_id"]))
-    for provider_id in _openrouter_prices():
-        candidates.add(normalize_model_id(provider_id))
+    candidates.update(hokusai_price_snapshot())
     for model in sorted(candidates):
         if not model or model in table or is_junk_model_id(model):
             continue

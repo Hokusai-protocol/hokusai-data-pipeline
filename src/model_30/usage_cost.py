@@ -94,7 +94,7 @@ def price_usage_by_model(
         if (reprice == "always" or cost <= 0 or inclusive) and tokens > 0:
             price = resolve_price(raw_model, snapshot)
             cost = None if price is None else priced_usage_cost(model_usage, price)
-            (result.unpriced if price is None else result.repriced).append(model)
+            (result.unpriced if cost is None else result.repriced).append(model)
         elif reprice == "always":
             cost = 0.0
         if model_usage.get("partial") is True:
