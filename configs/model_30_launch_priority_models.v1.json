@@ -667,11 +667,24 @@
       "family": "gpt",
       "role_eligibility": ["planner", "coder", "reviewer"],
       "priority_tier": "anchor",
+      "status": "deprecated",
+      "context_length": 1050000,
+      "minimum_direct_evidence_target": 20,
+      "minimum_eval_attempts_target": 40,
+      "notes": "Retiring: OpenAI ends GPT-5.6 Terra on 2026-12-23 (Codex CLI retirement notice; not yet on the deprecations page), and Codex launches already stop at a retirement prompt (HOK-3517, HOK-3518). Not served; requests naming it resolve to gpt-6.1-terra through the lineage map."
+    },
+    {
+      "model_id": "openai/gpt-6.1-terra",
+      "aliases": ["gpt-6.1-terra"],
+      "provider": "openai",
+      "family": "gpt",
+      "role_eligibility": ["planner", "coder", "reviewer"],
+      "priority_tier": "anchor",
       "status": "active",
       "context_length": 1050000,
       "minimum_direct_evidence_target": 20,
       "minimum_eval_attempts_target": 40,
-      "notes": "In Wavemill's routing pools but missing from the allowlist, so serving dropped it (HOK-3427). No catalog price: it has eval records, so training keeps their rates."
+      "notes": "Successor to gpt-5.6-terra (HOK-3518). Context 1,050,000 per https://developers.openai.com/api/docs/models/gpt-6.1-terra, read 2026-11-25. No catalog price: rates come from the SDK-published token price table. No direct eval evidence yet; gpt-5.6-terra evidence is borrowed at the lineage weight and labelled as borrowed."
     },
     {
       "model_id": "openai/gpt-6-luna",

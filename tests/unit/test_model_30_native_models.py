@@ -44,7 +44,7 @@ FRONTIER = "claude-opus-4-7"
 WAVEMILL_LADDER_MODELS = {
     "claude-opus-5-5": ROLES,
     "gpt-6-sol": ROLES,
-    "gpt-5.6-terra": ROLES,
+    "gpt-6.1-terra": ROLES,
     "gpt-6-luna": ("coder", "reviewer"),
     "deepseek-chat": ROLES,
 }
@@ -84,6 +84,39 @@ def test_wavemill_ladder_models_resolve_for_their_roles(model_id: str, role: str
     row = model_30_adapter.model_30_inputs_to_features(validated).iloc[0]
 
     assert row[f"available_{role}_models"] == [model_id]
+
+
+@pytest.mark.parametrize("spelling", ["gpt-5.6-terra", "openai/gpt-5.6-terra", "GPT-5.6-Terra"])
+@pytest.mark.parametrize("role", ROLES)
+def test_retiring_terra_is_not_served_and_resolves_to_its_successor(
+    spelling: str, role: str
+) -> None:
+    """HOK-3518: OpenAI retires GPT-5.6 Terra on 2026-12-23; route to GPT-6.1 Terra instead."""
+    resolution = model_30_adapter._resolve_role_pool([spelling], role=role)
+
+    assert resolution.accepted == ["gpt-6.1-terra"]
+    assert resolution.substitutions == {spelling: ["gpt-6.1-terra"]}
+    assert resolution.rejected == {}
+
+
+def test_successor_terra_is_priced_from_the_published_table() -> None:
+    price = model_identity.build_price_table([]).get("gpt-6.1-terra")
+
+    assert price is not None
+    assert price["input_per_token"] == pytest.approx(1e-06)
+    assert price["output_per_token"] == pytest.approx(5e-06)
+
+
+def test_retiring_terra_evidence_reaches_its_successor_only_as_borrowed() -> None:
+    rows = pd.DataFrame({"coder_model": ["gpt-5.6-terra", "gpt-6.1-terra"], "success": [1, 1]})
+
+    evidence = ttr._effective_role_evidence(rows, "coder_model", ["gpt-6.1-terra"])
+
+    by_source = evidence.set_index("_source_model_id")
+    assert set(evidence["_effective_model_id"]) == {"gpt-6.1-terra"}
+    assert by_source.loc["gpt-5.6-terra", "_evidence_source"] == "borrowed"
+    assert by_source.loc["gpt-5.6-terra", "_evidence_weight"] == ttr.BORROWED_EVIDENCE_WEIGHT
+    assert by_source.loc["gpt-6.1-terra", "_evidence_source"] == "direct"
 
 
 @pytest.mark.parametrize("public_id", sorted(set(NATIVE_MODELS.values())))

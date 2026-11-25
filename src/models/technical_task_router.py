@@ -96,6 +96,14 @@ MODEL_SUCCESSOR_MAP = {
         "gpt-5.4",
         "openai/gpt-5.4",
     ),
+    "gpt-5.6-terra": (
+        "gpt-6.1-terra",
+        "openai/gpt-6.1-terra",
+    ),
+    "openai/gpt-5.6-terra": (
+        "gpt-6.1-terra",
+        "openai/gpt-6.1-terra",
+    ),
 }
 
 FEATURE_DEFAULTS = {
